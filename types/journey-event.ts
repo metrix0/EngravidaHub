@@ -1,0 +1,2 @@
+// types/journey-event.ts
+
