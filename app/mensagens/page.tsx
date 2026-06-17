@@ -21,7 +21,9 @@ import {
     DashboardHeader,
     SidePanel,
     Skeleton,
-    Pagination
+    Pagination,
+    DataTable,
+    type DataTableColumn,
 } from "@/components";
 
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
@@ -55,6 +57,103 @@ type ConversationsResponse = {
 };
 
 const PAGE_SIZE = 50;
+
+const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
+    {
+        id: "attendant",
+        label: "Atendente",
+        width: "15%",
+        render: (conversation) => (
+            <div className="flex min-w-0 items-center gap-3">
+                <InitialsAvatar name={conversation.attendant_name}/>
+
+                <span
+                    title={conversation.attendant_name}
+                    className="truncate font-medium text-slate-700"
+                >
+                    {conversation.attendant_name}
+                </span>
+            </div>
+        ),
+    },
+    {
+        id: "phone",
+        label: "Telefone",
+        width: "11%",
+        render: (conversation) => (
+            <div
+                title={formatPhone(conversation.phone)}
+                className="truncate text-slate-600"
+            >
+                {formatPhone(conversation.phone)}
+            </div>
+        ),
+    },
+    {
+        id: "date",
+        label: "Data",
+        width: "21%",
+        render: (conversation) => (
+            <DateRangeCell
+                start={conversation.started_at}
+                end={conversation.ended_at}
+            />
+        ),
+    },
+    {
+        id: "client",
+        label: "Cliente",
+        width: "15%",
+        render: (conversation) => (
+            <div
+                title={conversation.client_name}
+                className="truncate text-slate-700"
+            >
+                {conversation.client_name}
+            </div>
+        ),
+    },
+    {
+        id: "objective",
+        label: "Objetivo",
+        width: "15%",
+        render: (conversation) => (
+            <div
+                title={conversation.objective}
+                className="truncate text-slate-700"
+            >
+                {conversation.objective}
+            </div>
+        ),
+    },
+    {
+        id: "result",
+        label: "Resultado",
+        width: "11%",
+        render: (conversation) => <ConversationResultBadge result={conversation.result}/>,
+    },
+    {
+        id: "notable",
+        label: "Notável",
+        width: "6%",
+        render: (conversation) => <NotableBadge notable={conversation.notable}/>,
+    },
+    {
+        id: "action",
+        label: "",
+        width: "6%",
+        align: "right",
+        render: () => (
+            <div className="flex justify-end">
+                <ChevronRight
+                    size={16}
+                    className="text-slate-400 transition-colors group-hover:text-slate-700"
+                />
+            </div>
+        ),
+    },
+];
+
 
 export default function MessagesPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
@@ -330,80 +429,12 @@ function ConversationTable({
     onSelectConversation: (conversationId: string) => void;
 }) {
     return (
-        <div className="overflow-hidden">
-            <div
-                className="grid grid-cols-[1.35fr_1fr_1.85fr_1.35fr_1.35fr_1fr_48px_48px] border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold text-slate-500">
-                <div>Atendente</div>
-                <div>Telefone</div>
-                <div>Data</div>
-                <div>Cliente</div>
-                <div>Objetivo</div>
-                <div>Resultado</div>
-                <div>Notável</div>
-                <div/>
-            </div>
-
-            {conversations.map((conversation) => (
-                <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => onSelectConversation(conversation.id)}
-                    className="group grid w-full cursor-pointer grid-cols-[1.35fr_1fr_1.85fr_1.35fr_1.35fr_1fr_48px_48px] items-center border-b border-slate-100 px-6 py-4 text-left text-sm transition-colors hover:bg-selection/80"
-                >
-                    <div className="flex min-w-0 items-center gap-3">
-                        <InitialsAvatar name={conversation.attendant_name}/>
-
-                        <span
-                            title={conversation.attendant_name}
-                            className="truncate font-medium text-slate-700"
-                        >
-                            {conversation.attendant_name}
-                        </span>
-                    </div>
-
-                    <div
-                        title={formatPhone(conversation.phone)}
-                        className="truncate text-slate-600"
-                    >
-                        {formatPhone(conversation.phone)}
-                    </div>
-
-                    <DateRangeCell
-                        start={conversation.started_at}
-                        end={conversation.ended_at}
-                    />
-
-                    <div
-                        title={conversation.client_name}
-                        className="truncate text-slate-700"
-                    >
-                        {conversation.client_name}
-                    </div>
-
-                    <div
-                        title={conversation.objective}
-                        className="truncate text-slate-700"
-                    >
-                        {conversation.objective}
-                    </div>
-
-                    <div>
-                        <ConversationResultBadge result={conversation.result}/>
-                    </div>
-
-                    <div>
-                        <NotableBadge notable={conversation.notable}/>
-                    </div>
-
-                    <div className="flex justify-end">
-                        <ChevronRight
-                            size={16}
-                            className="text-slate-400 transition-colors group-hover:text-slate-700"
-                        />
-                    </div>
-                </button>
-            ))}
-        </div>
+        <DataTable
+            columns={CONVERSATION_COLUMNS}
+            rows={conversations}
+            getRowKey={(conversation) => conversation.id}
+            onRowClick={(conversation) => onSelectConversation(conversation.id)}
+        />
     );
 }
 

@@ -24,6 +24,9 @@ export { InitialsAvatar } from "./conversations/InitialsAvatar";
 export { SearchFilter } from "./conversations/SearchFilter";
 export { StatusBadge } from "./conversations/StatusBadge";
 
+export { DataTable, DataTableRow } from "./table";
+export type { DataTableColumn } from "./table";
+
 export type {
     AdvancedFilterOption,
     AdvancedFilterSection

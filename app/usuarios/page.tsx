@@ -3,19 +3,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-    Briefcase,
-    Check,
-    ChevronRight,
+    Briefcase, ChevronRight,
     Crown,
     DollarSign,
     Headphones,
-    Loader2,
     Megaphone,
     ShieldCheck,
     UsersRound,
 } from "lucide-react";
 
-import { Card, SidePanel, Skeleton } from "@/components";
+import {
+    Card,
+    SidePanel,
+    Skeleton,
+    DataTable,
+    type DataTableColumn,
+} from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 
 type TabId =
@@ -269,6 +272,8 @@ const presetIcons = {
     dollar: DollarSign,
 };
 
+const EMPTY_VALUE = "—";
+
 export default function UsuariosPage() {
     const [data, setData] = useState<ApiResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -360,7 +365,7 @@ export default function UsuariosPage() {
                 tabs: tabsFromIds(allowedTabs),
                 attendant,
                 attendant_id: attendant?.id ?? permission?.attendant_id ?? null,
-                unit_name: attendant?.unit_name ?? "Todas",
+                unit_name: attendant?.unit_name ?? EMPTY_VALUE,
                 active: permission?.active ?? true,
             };
         });
@@ -438,6 +443,121 @@ export default function UsuariosPage() {
         }
     }
 
+    function toggleUserTab(user: UserView, tabId: TabId) {
+        const nextTabs = user.allowed_tabs.includes(tabId)
+            ? user.allowed_tabs.filter((item) => item !== tabId)
+            : [...user.allowed_tabs, tabId];
+
+        void saveUserPermission(user, {
+            allowed_tabs: nextTabs,
+        });
+    }
+
+    const userColumns: DataTableColumn<UserView>[] = [
+        {
+            id: "user",
+            label: "Usuário",
+            width: "23%",
+            render: (user) => (
+                <div className="flex min-w-0 items-center gap-3">
+                    <InitialsAvatar name={user.name}/>
+
+                    <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-700">
+                            {user.name}
+                        </div>
+
+                        <div className="mt-1 truncate text-xs text-muted">
+                            {user.email ?? "Sem e-mail"}
+                        </div>
+                    </div>
+                </div>
+            ),
+        },
+        {
+            id: "unit",
+            label: "Unidade",
+            width: "12%",
+            render: (user) => (
+                <div title={user.unit_name} className="truncate text-slate-700">
+                    {user.unit_name}
+                </div>
+            ),
+        },
+        {
+            id: "attendant",
+            label: "Atendente",
+            width: "17%",
+            render: (user) => (
+                <div
+                    title={user.attendant?.name ?? EMPTY_VALUE}
+                    className="truncate text-slate-700"
+                >
+                    {user.attendant?.name ?? EMPTY_VALUE}
+                </div>
+            ),
+        },
+        {
+            id: "preset",
+            label: "Preset",
+            width: "13%",
+            render: (user) =>
+                user.preset ? (
+                    <PermissionBadge
+                        label={user.preset.name}
+                        color={user.preset.color}
+                    />
+                ) : (
+                    <span className="text-slate-400">{EMPTY_VALUE}</span>
+                ),
+        },
+        {
+            id: "tabs",
+            label: "Abas permitidas",
+            width: "22%",
+            render: (user) => {
+                const label = user.tabs.map((tab) => tab.label).join(", ") || EMPTY_VALUE;
+
+                return (
+                    <div
+                        title={label}
+                        className="truncate text-slate-700"
+                    >
+                        {label}
+                    </div>
+                );
+            },
+        },
+        {
+            id: "status",
+            label: "Status",
+            width: "9%",
+            render: (user) => (
+                <span
+                    className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-bold ${
+                        user.active
+                            ? "bg-green-soft text-green"
+                            : "bg-red-soft text-red"
+                    }`}
+                >
+                    {user.active ? "Ativo" : "Inativo"}
+                </span>
+            ),
+        },
+        {
+            id: "action",
+            label: "",
+            width: "4%",
+            align: "right",
+            render: () => (
+                <ChevronRight
+                    size={16}
+                    className="text-slate-400 transition-colors group-hover:text-slate-700"
+                />
+            ),
+        },
+    ];
+
     if (loading) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
@@ -454,7 +574,7 @@ export default function UsuariosPage() {
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
 
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-8 py-8 pb-16">
                 <header className="mb-8">
                     <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                         Usuários
@@ -504,61 +624,24 @@ export default function UsuariosPage() {
                 </section>
 
                 <section>
-                    <Card>
-                        <div className="mb-5">
-                            <h2 className="text-lg font-bold">
-                                Usuários atribuídos{" "}
-                                <span className="text-slate-400">
-                                    ({users.length})
-                                </span>
-                            </h2>
+                    <div className="mb-5 px-6">
+                        <h2 className="text-lg font-bold">
+                            Usuários atribuídos{" "}
+                            <span className="text-slate-500">
+                                ({users.length})
+                            </span>
+                        </h2>
 
-                            <p className="mt-1 text-sm text-slate-500">
-                                Defina o preset, as abas permitidas e o perfil de atendente vinculado a cada usuário.
-                            </p>
-                        </div>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Defina o preset, as abas permitidas e o perfil de atendente vinculado a cada usuário.
+                        </p>
+                    </div>
 
-                        <div className="overflow-x-auto rounded-xl">
-                            <table className="w-full min-w-[1180px] table-fixed border-collapse text-left">
-                                <thead>
-                                <tr className="h-12 bg-slate-50 text-xs font-bold text-muted">
-                                    <th className="w-[23%] px-6">
-                                        Usuário
-                                    </th>
-                                    <th className="w-[12%] px-4">
-                                        Unidade
-                                    </th>
-                                    <th className="w-[17%] px-4">
-                                        Atendente
-                                    </th>
-                                    <th className="w-[13%] px-4">
-                                        Preset
-                                    </th>
-                                    <th className="w-[24%] px-4">
-                                        Abas permitidas
-                                    </th>
-                                    <th className="w-[9%] px-4">
-                                        Status
-                                    </th>
-                                    <th className="w-8 px-2" />
-                                </tr>
-                                </thead>
-
-                                <tbody>
-                                {users.map((user, index) => (
-                                    <UserRow
-                                        key={user.id}
-                                        user={user}
-                                        attendants={data?.attendants ?? []}
-                                        isSaving={savingUserId === user.id}
-                                        zebra={index % 2 === 1}
-                                        onSave={saveUserPermission}
-                                    />
-                                ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <DataTable
+                        columns={userColumns}
+                        rows={users}
+                        getRowKey={(user) => user.id}
+                    />
                 </section>
             </section>
         </main>
@@ -621,174 +704,6 @@ function PresetCard({
                 )}
             </div>
         </div>
-    );
-}
-
-function UserRow({
-                     user,
-                     attendants,
-                     isSaving,
-                     zebra,
-                     onSave,
-                 }: {
-    user: UserView;
-    attendants: Attendant[];
-    isSaving: boolean;
-    zebra: boolean;
-    onSave: (
-        user: UserView,
-        patch: Partial<{
-            preset: PresetId;
-            allowed_tabs: TabId[];
-            attendant_id: string | null;
-            active: boolean;
-        }>,
-    ) => Promise<void>;
-}) {
-    function toggleTab(tabId: TabId) {
-        const nextTabs = user.allowed_tabs.includes(tabId)
-            ? user.allowed_tabs.filter((item) => item !== tabId)
-            : [...user.allowed_tabs, tabId];
-
-        void onSave(user, {
-            allowed_tabs: nextTabs,
-        });
-    }
-
-    return (
-        <tr
-            className={`group h-[76px] border-b border-slate-100 text-sm text-text transition-colors ${
-                zebra ? "bg-slate-50/70" : "bg-white"
-            }`}
-        >
-            <td className="px-6">
-                <div className="flex items-center gap-3">
-                    <InitialsAvatar name={user.name} />
-
-                    <div className="min-w-0">
-                        <div className="truncate font-bold">
-                            {user.name}
-                        </div>
-
-                        <div className="mt-1 truncate text-xs text-muted">
-                            {user.email ?? "Sem e-mail"}
-                        </div>
-                    </div>
-                </div>
-            </td>
-
-            <td className="px-4 text-slate-700">
-                <span className="truncate">{user.unit_name}</span>
-            </td>
-
-            <td className="px-4">
-                <select
-                    value={user.attendant_id ?? "__none__"}
-                    disabled={isSaving}
-                    onChange={(event) =>
-                        void onSave(user, {
-                            attendant_id:
-                                event.target.value === "__none__"
-                                    ? null
-                                    : event.target.value,
-                        })
-                    }
-                    className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-medium text-slate-600 outline-none transition hover:border-border hover:bg-white disabled:opacity-60"
-                >
-                    <option value="__none__">Não vinculado</option>
-
-                    {attendants.map((attendant) => (
-                        <option key={attendant.id} value={attendant.id}>
-                            {attendant.name}
-                        </option>
-                    ))}
-                </select>
-            </td>
-
-            <td className="px-4">
-                <select
-                    value={user.preset?.id ?? ""}
-                    disabled={isSaving}
-                    onChange={(event) =>
-                        void onSave(user, {
-                            preset: event.target.value as PresetId,
-                        })
-                    }
-                    className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-medium text-slate-600 outline-none transition hover:border-border hover:bg-white disabled:opacity-60"
-                >
-                    <option value="">Sem preset</option>
-
-                    {PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                            {preset.name}
-                        </option>
-                    ))}
-                </select>
-            </td>
-
-            <td className="px-4">
-                <div className="flex flex-wrap gap-2">
-                    {TABS.map((tab) => {
-                        const selected = user.allowed_tabs.includes(tab.id);
-                        const colors = getColorClasses(tab.color);
-
-                        return (
-                            <button
-                                key={tab.id}
-                                type="button"
-                                disabled={isSaving}
-                                onClick={() => toggleTab(tab.id)}
-                                className={`inline-flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                                    selected
-                                        ? `${colors.softBg} ${colors.text}`
-                                        : "bg-slate-100 text-slate-400 hover:bg-slate-200"
-                                }`}
-                            >
-                                {selected && <Check size={12} />}
-                                {tab.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            </td>
-
-            <td className="px-4">
-                <select
-                    value={user.active ? "active" : "inactive"}
-                    disabled={isSaving}
-                    onChange={(event) =>
-                        void onSave(user, {
-                            active: event.target.value === "active",
-                        })
-                    }
-                    className={`w-full rounded-lg border border-transparent px-2 py-2 text-sm font-bold outline-none transition hover:border-border disabled:opacity-60 ${
-                        user.active
-                            ? "bg-green-soft text-green"
-                            : "bg-red-soft text-red"
-                    }`}
-                >
-                    <option value="active">Ativo</option>
-                    <option value="inactive">Inativo</option>
-                </select>
-            </td>
-
-            <td className="px-2 text-right">
-                <div className="flex justify-end">
-                    {isSaving ? (
-                        <Loader2
-                            size={16}
-                            className="animate-spin text-slate-400"
-                        />
-                    ) : (
-                        <ChevronRight
-                            size={16}
-                            strokeWidth={2.4}
-                            className="text-slate-400 opacity-70 transition-all group-hover:translate-x-0.5 group-hover:text-slate-700 group-hover:opacity-100"
-                        />
-                    )}
-                </div>
-            </td>
-        </tr>
     );
 }
 

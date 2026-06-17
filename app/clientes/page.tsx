@@ -20,6 +20,8 @@ import {
     MainFilters,
     Pagination,
     Skeleton,
+    DataTable,
+    type DataTableColumn,
 } from "@/components";
 
 import SidePanel from "@/components/layout/SidePanel";
@@ -67,6 +69,11 @@ type ClientsResponse = {
     stages: PipelineStage[];
 };
 
+type ClientTableRow = {
+    client: Client;
+    stage: PipelineStage | null;
+};
+
 type BadgeTone = {
     bg: string;
     text: string;
@@ -104,6 +111,99 @@ const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
         value: "90",
         startOffsetDays: -89,
         endOffsetDays: 0,
+    },
+];
+
+
+const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
+    {
+        id: "client",
+        label: "Cliente",
+        width: "24%",
+        render: ({client}) => (
+            <div className="flex min-w-0 items-center gap-3">
+                <InitialsAvatar name={client.name ?? "Cliente"}/>
+
+                <span
+                    title={client.name ?? "Cliente sem nome"}
+                    className="truncate font-medium text-slate-700"
+                >
+                    {client.name ?? "Cliente sem nome"}
+                </span>
+            </div>
+        ),
+    },
+    {
+        id: "phone",
+        label: "Telefone",
+        width: "13%",
+        render: ({client}) => (
+            <div className="truncate text-slate-700">
+                {formatPhone(client.phone)}
+            </div>
+        ),
+    },
+    {
+        id: "funnel",
+        label: "Funil",
+        width: "14%",
+        render: ({stage}) => {
+            const funnelName = getFunnelName(stage);
+
+            return (
+                <div title={funnelName} className="min-w-0">
+                    <Chip
+                        label={stage?.name ?? "-"}
+                        tone={getStageVariant(stage?.name ?? null)}
+                    />
+                </div>
+            );
+        },
+    },
+    {
+        id: "origin",
+        label: "Origem",
+        width: "12%",
+        render: ({client}) => (
+            <Chip
+                label={sourceLabel(client.utm_source)}
+                tone={getSourceVariant(client.utm_source)}
+            />
+        ),
+    },
+    {
+        id: "last_interaction",
+        label: "Última interação",
+        width: "16%",
+        render: ({client}) => (
+            <div className="truncate text-slate-700">
+                {timeAgo(client.last_interaction_at)}
+            </div>
+        ),
+    },
+    {
+        id: "attendant",
+        label: "Último Atendente",
+        width: "17%",
+        render: ({client}) => (
+            <div className="truncate text-slate-700">
+                {client.attendant_name ?? "—"}
+            </div>
+        ),
+    },
+    {
+        id: "action",
+        label: "",
+        width: "4%",
+        align: "right",
+        render: () => (
+            <div className="flex justify-end">
+                <ChevronRight
+                    size={16}
+                    className="text-slate-400 transition-colors group-hover:text-slate-700"
+                />
+            </div>
+        ),
     },
 ];
 
@@ -260,6 +360,15 @@ export default function ClientesPage() {
         return filteredClients.slice(start, end);
     }, [filteredClients, currentPage]);
 
+    const paginatedClientRows = useMemo(() => {
+        return paginatedClients.map((client) => ({
+            client,
+            stage: client.pipeline_stage_id
+                ? stageById.get(client.pipeline_stage_id) ?? null
+                : null,
+        }));
+    }, [paginatedClients, stageById]);
+
     const pageStart =
         filteredClients.length === 0 ? 0 : (currentPage - 1) * CLIENTS_PER_PAGE + 1;
 
@@ -401,8 +510,8 @@ export default function ClientesPage() {
 
                 <section>
                     <div className="mb-5 flex items-center justify-between gap-6">
-                        <h2 className="text-xl font-bold text-text">
-                            Clientes ({totalClients})
+                        <h2 className="text-lg font-bold text-text">
+                            Clientes <span className={"text-slate-500"}>({totalClients})</span>
                         </h2>
 
                         <div className="flex items-center gap-3">
@@ -442,38 +551,12 @@ export default function ClientesPage() {
                         </div>
                     </div>
 
-                    <div className="overflow-hidden rounded-xl">
-                        <table className="w-full table-fixed border-collapse text-left">
-                            <thead>
-                            <tr className="h-12 bg-slate-50 text-xs font-bold text-muted">
-                                <th className="w-[24%] px-6">Cliente</th>
-                                <th className="w-[14%] px-4">Telefone</th>
-                                <th className="w-[14%] px-4">Funil</th>
-                                <th className="w-[12%] px-4">Origem</th>
-                                <th className="w-[15%] px-4">Última interação</th>
-                                <th className="w-[17%] px-4">Último Atendente</th>
-                                <th className="w-8 px-2" />
-                            </tr>
-                            </thead>
-
-                            <tbody>
-                            {paginatedClients.map((client) => {
-                                const stage = client.pipeline_stage_id
-                                    ? stageById.get(client.pipeline_stage_id)
-                                    : null;
-
-                                return (
-                                    <ClientRow
-                                        key={client.id}
-                                        client={client}
-                                        stage={stage ?? null}
-                                        onSelectClient={setSelectedClientId}
-                                    />
-                                );
-                            })}
-                            </tbody>
-                        </table>
-                    </div>
+                    <DataTable
+                        columns={CLIENT_COLUMNS}
+                        rows={paginatedClientRows}
+                        getRowKey={({client}) => client.id}
+                        onRowClick={({client}) => setSelectedClientId(client.id)}
+                    />
                     {filteredClients.length > CLIENTS_PER_PAGE ? (
                         <div className="mt-5 flex items-center justify-between pb-16">
                             <p className="text-sm font-medium text-muted">
@@ -510,73 +593,6 @@ export default function ClientesPage() {
                 onClose={() => setSelectedThreadId(null)}
             />
         </main>
-    );
-}
-
-function ClientRow({
-                       client,
-                       stage,
-                       onSelectClient,
-                   }: {
-    client: Client;
-    stage: PipelineStage | null;
-    onSelectClient: (clientId: string) => void;
-}) {
-    const funnelName = getFunnelName(stage);
-
-    return (
-        <tr
-            onClick={() => onSelectClient(client.id)}
-            className="group h-[76px] cursor-pointer border-b border-slate-100 text-sm text-text transition-colors hover:bg-selection/80"
-        >
-            <td className="px-6">
-                <div className="flex items-center gap-3">
-                    <InitialsAvatar name={client.name ?? "Cliente"} />
-
-                    <div className="min-w-0">
-                        <div className="truncate font-bold">
-                            {client.name ?? "Cliente sem nome"}
-                        </div>
-
-                        <div className="mt-1 truncate text-xs text-muted">
-                            cliente desde {formatSince(client.first_seen_at)}
-                        </div>
-                    </div>
-                </div>
-            </td>
-
-            <td className="px-4 text-slate-700">{formatPhone(client.phone)}</td>
-
-            <td className="px-4" title={funnelName}>
-                <Chip
-                    label={stage?.name ?? "-"}
-                    tone={getStageVariant(stage?.name ?? null)}
-                />
-            </td>
-
-            <td className="px-4">
-                <Chip
-                    label={sourceLabel(client.utm_source)}
-                    tone={getSourceVariant(client.utm_source)}
-                />
-            </td>
-
-            <td className="px-4 text-slate-700">
-                {timeAgo(client.last_interaction_at)}
-            </td>
-
-            <td className="px-4 text-slate-700">{client.attendant_name ?? "—"}</td>
-
-            <td className="px-2 text-right">
-                <div className="flex justify-end">
-                    <ChevronRight
-                        size={16}
-                        strokeWidth={2.4}
-                        className="text-slate-400 opacity-70 transition-all group-hover:translate-x-0.5 group-hover:text-slate-700 group-hover:opacity-100"
-                    />
-                </div>
-            </td>
-        </tr>
     );
 }
 
