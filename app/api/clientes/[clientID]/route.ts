@@ -1,15 +1,15 @@
-// app/api/clientes/[clientID]/route.ts
-import { NextResponse } from "next/server";
+// app/api/clientes/[clientId]/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
 type RouteContext = {
-    params: {
+    params: Promise<{
         clientId: string;
-    };
+    }>;
 };
 
-export async function GET(_request: Request, { params }: RouteContext) {
-    const clientId = params.clientId;
+export async function GET(_request: NextRequest, { params }: RouteContext) {
+    const { clientId } = await params;
 
     if (!clientId) {
         return NextResponse.json(
