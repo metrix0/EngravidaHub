@@ -1,15 +1,12 @@
 // scripts/update-file-headers.js
-import fs from "fs";
-import path from "path";
+const fs = require("fs");
+const path = require("path");
 
-import { fileURLToPath } from "url";
+const REPO_ROOT = process.cwd();
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
-const ROOT = process.cwd();
+const EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx"]);
 
-const EXTENSIONS = [".js", ".jsx", ".ts", ".tsx"];
-const IGNORE_DIRS = [
+const IGNORE_DIRS = new Set([
     "node_modules",
     ".git",
     ".next",
@@ -18,24 +15,25 @@ const IGNORE_DIRS = [
     "out",
     "coverage",
     "public"
-];
+]);
 
 function walk(dir) {
-    const items = fs.readdirSync(dir);
+    const items = fs.readdirSync(dir, { withFileTypes: true });
 
     for (const item of items) {
-        const fullPath = path.join(dir, item);
-        const stat = fs.statSync(fullPath);
+        const fullPath = path.join(dir, item.name);
 
-        if (stat.isDirectory()) {
-            if (!IGNORE_DIRS.includes(item)) {
+        if (item.isDirectory()) {
+            if (!IGNORE_DIRS.has(item.name)) {
                 walk(fullPath);
             }
+
             continue;
         }
 
-        const ext = path.extname(fullPath);
-        if (!EXTENSIONS.includes(ext)) continue;
+        if (!EXTENSIONS.has(path.extname(item.name))) {
+            continue;
+        }
 
         updateHeader(fullPath);
     }
@@ -46,15 +44,17 @@ function updateHeader(filePath) {
     const header = `// ${relativePath}`;
 
     const content = fs.readFileSync(filePath, "utf8");
-    const lines = content.split("\n");
+    const lines = content.split(/\r?\n/);
 
-    if (lines[0]?.startsWith("// ") && lines[0]?.includes("/")) {
+    const firstLine = lines[0] ?? "";
+
+    if (firstLine.startsWith("// ") && firstLine.includes("/")) {
         lines[0] = header;
     } else {
         lines.unshift(header);
     }
 
-    fs.writeFileSync(filePath, lines.join("\n"));
+    fs.writeFileSync(filePath, lines.join("\n"), "utf8");
 }
 
-walk(ROOT);
+walk(REPO_ROOT);

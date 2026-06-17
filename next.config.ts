@@ -2,10 +2,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-    allowedDevOrigins: [
-        "*.trycloudflare.com",
-    ],
-    transpilePackages: ["@engravida/components", "@engravida/types"]
+    allowedDevOrigins: ["*.trycloudflare.com"]
 };
 
 export default nextConfig;
