@@ -1,10 +1,10 @@
 // components/layout/SidePanel.tsx
 "use client";
 
-import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type {ReactNode} from "react";
+import {useEffect, useState} from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import {usePathname, useRouter} from "next/navigation";
 import {
     ChevronRight,
     Flag,
@@ -14,26 +14,34 @@ import {
     Megaphone,
     MessageCircle,
     MessagesSquare,
-    RefreshCcw,
     Users,
+    UserCog
 } from "lucide-react";
 
-import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
 import {
+    type CurrentAttendant,
     fetchCurrentAttendant,
     setCurrentAttendantOffline,
     setCurrentAttendantOnline,
-    type CurrentAttendant,
 } from "@/lib/attendants/currentAttendantApi";
 
 type SidePanelItem = {
+    type?: "item";
     label: string;
     href: string;
     icon: ReactNode;
 };
 
+type SidePanelSeparator = {
+    type: "separator";
+    id: string;
+};
+
+type SidePanelEntry = SidePanelItem | SidePanelSeparator;
+
 type SidePanelProps = {
-    items?: SidePanelItem[];
+    items?: SidePanelEntry[];
 
     /**
      * true  = expanded sidebar changes page layout width
@@ -51,31 +59,35 @@ type SidePanelProps = {
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
 
-const defaultItems: SidePanelItem[] = [
-    { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} /> },
+const defaultItems: SidePanelEntry[] = [
+    {label: "Dashboard", href: "/", icon: <LayoutDashboard size={18}/>},
 
     // Insights
-    { label: "Mensagens", href: "/mensagens", icon: <MessageCircle size={18} /> },
-    { label: "Jornada", href: "/jornada", icon: <Flag size={18} /> },
-    { label: "Eventos", href: "/eventos", icon: <Megaphone size={18} /> },
+    {label: "Mensagens", href: "/mensagens", icon: <MessageCircle size={18}/>},
+    {label: "Jornada", href: "/jornada", icon: <Flag size={18}/>},
+    {label: "Eventos", href: "/eventos", icon: <Megaphone size={18}/>},
 
     // CRM
-    { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} /> },
-    { label: "Clientes", href: "/clientes", icon: <Users size={18} /> },
-    { label: "Funil", href: "/funil", icon: <Funnel size={18} /> },
+    {label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18}/>},
+    {label: "Clientes", href: "/clientes", icon: <Users size={18}/>},
+    {label: "Funil", href: "/funil", icon: <Funnel size={18}/>},
+
+    //
+    {label: "Usuários", href: "/usuarios", icon: <UserCog size={18}/>},
 ];
 
+function isSeparator(item: SidePanelEntry): item is SidePanelSeparator {
+    return item.type === "separator";
+}
+
 export default function SidePanel({
-                                         items = defaultItems,
-                                         affectLayout = true,
-                                         defaultExpanded = true,
-                                     }: SidePanelProps) {
+                                      items = defaultItems,
+                                      affectLayout = true,
+                                      defaultExpanded = true,
+                                  }: SidePanelProps) {
     const router = useRouter();
     const pathname = usePathname();
 
-    const [lastUpdatedAt, setLastUpdatedAt] = useState<Date>(new Date());
-    const [now, setNow] = useState<Date>(new Date());
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
@@ -84,14 +96,6 @@ export default function SidePanel({
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
-
-    useEffect(() => {
-        const interval = window.setInterval(() => {
-            setNow(new Date());
-        }, 30_000);
-
-        return () => window.clearInterval(interval);
-    }, []);
 
     useEffect(() => {
         let isMounted = true;
@@ -132,10 +136,6 @@ export default function SidePanel({
         };
     }, []);
 
-    const updatedLabel = useMemo(() => {
-        return formatTimeAgo(lastUpdatedAt, now);
-    }, [lastUpdatedAt, now]);
-
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
 
     const layoutWidth = affectLayout ? sidebarWidth : COLLAPSED_WIDTH;
@@ -146,18 +146,6 @@ export default function SidePanel({
     const profileSubtitle = currentAttendant
         ? currentAttendant.units?.name ?? "Sem unidade"
         : "Não vinculado a atendente";
-
-    function handleRefresh() {
-        setIsRefreshing(true);
-        setLastUpdatedAt(new Date());
-        setNow(new Date());
-
-        router.refresh();
-
-        window.setTimeout(() => {
-            setIsRefreshing(false);
-        }, 500);
-    }
 
     async function handleToggleAttendantStatus() {
         if (!currentAttendant || isStatusUpdating) return;
@@ -202,7 +190,7 @@ export default function SidePanel({
     return (
         <div
             className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
-            style={{ width: layoutWidth }}
+            style={{width: layoutWidth}}
         >
             <aside
                 onMouseEnter={() => setIsSidebarHovered(true)}
@@ -265,8 +253,8 @@ export default function SidePanel({
                     </div>
                 )}
 
-                <div className="flex h-full max-h-screen flex-col overflow-y-auto overflow-x-hidden py-7">
-                    <div className="relative mb-10 flex h-10 items-center px-5">
+                <div className="flex h-full max-h-screen flex-col overflow-hidden py-7">
+                    <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
                             href="/"
                             className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition hover:bg-slate-50 ${
@@ -283,65 +271,67 @@ export default function SidePanel({
                         </Link>
                     </div>
 
-                    <nav className="space-y-2 px-4">
-                        {items.map((item) => {
-                            const isActive =
-                                item.href === "/"
-                                    ? pathname === "/"
-                                    : pathname.startsWith(item.href);
+                    <div className="relative min-h-0 flex-1">
+                        <div className="h-full overflow-y-auto overflow-x-hidden px-4 pb-6 pt-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <nav className="space-y-2">
+                                {items.map((item) => {
+                                    if (isSeparator(item)) {
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className={`my-3 flex ${
+                                                    isExpanded
+                                                        ? "justify-start px-4"
+                                                        : "justify-center"
+                                                }`}
+                                            >
+                                                <div
+                                                    className={`h-px bg-border ${
+                                                        isExpanded ? "w-full" : "w-8"
+                                                    }`}
+                                                />
+                                            </div>
+                                        );
+                                    }
 
-                            return (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    title={item.label}
-                                    className={`flex cursor-pointer items-center gap-4 rounded-xl px-4 py-3 text-sm transition-colors duration-150 ${
-                                        isActive
-                                            ? "bg-brand-soft font-semibold text-brand"
-                                            : "font-medium text-muted hover:bg-selection"
-                                    } ${
-                                        isExpanded
-                                            ? "justify-start"
-                                            : "justify-center"
-                                    }`}
-                                >
-                                    <span className="shrink-0">{item.icon}</span>
+                                    const isActive =
+                                        item.href === "/"
+                                            ? pathname === "/"
+                                            : pathname.startsWith(item.href);
 
-                                    {isExpanded && (
-                                        <span className="min-w-0 truncate">
-                                            {item.label}
-                                        </span>
-                                    )}
-                                </Link>
-                            );
-                        })}
-                    </nav>
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            title={item.label}
+                                            className={`flex h-11 cursor-pointer items-center gap-4 rounded-xl px-4 py-3 text-sm leading-none transition-colors duration-150 ${
+                                                isActive
+                                                    ? "bg-brand-soft font-semibold text-brand"
+                                                    : "font-medium text-muted hover:bg-selection"
+                                            } ${
+                                                isExpanded
+                                                    ? "justify-start"
+                                                    : "justify-center"
+                                            }`}
+                                        >
+                                            <span className="shrink-0">{item.icon}</span>
 
-                    <div className="mt-auto space-y-4 px-4">
-                        {/*<button*/}
-                        {/*    type="button"*/}
-                        {/*    onClick={handleRefresh}*/}
-                        {/*    title={`Atualizado ${updatedLabel}`}*/}
-                        {/*    className={`flex w-full min-w-0 cursor-pointer items-center truncate rounded-xl border p-4 text-left text-sm text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${*/}
-                        {/*        isExpanded*/}
-                        {/*            ? "justify-between gap-3 border-border"*/}
-                        {/*            : "justify-center border-transparent px-0"*/}
-                        {/*    }`}*/}
-                        {/*>*/}
-                        {/*    {isExpanded && (*/}
-                        {/*        <div className="min-w-0 flex-1 truncate">*/}
-                        {/*            Atualizado {updatedLabel}*/}
-                        {/*        </div>*/}
-                        {/*    )}*/}
+                                            {isExpanded && (
+                                                <span className="min-w-0 truncate leading-none">
+                                                    {item.label}
+                                                </span>
+                                            )}
+                                        </Link>
+                                    );
+                                })}
+                            </nav>
 
-                        {/*    <RefreshCcw*/}
-                        {/*        size={18}*/}
-                        {/*        className={`min-w-[18px] ${*/}
-                        {/*            isRefreshing ? "animate-spin" : ""*/}
-                        {/*        }`}*/}
-                        {/*    />*/}
-                        {/*</button>*/}
+                            <div className="pb-6" />
+                        </div>
 
+                        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent" />
+                    </div>
+                    <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
                             title="Precisa de ajuda?"
@@ -358,7 +348,8 @@ export default function SidePanel({
 
                             {isExpanded && <div>Precisa de ajuda?</div>}
                         </button>
-
+                    </div>
+                    <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
                             onClick={() =>
@@ -372,7 +363,7 @@ export default function SidePanel({
                             }`}
                         >
                             <div className="relative shrink-0">
-                                <InitialsAvatar name={profileName} />
+                                <InitialsAvatar name={profileName}/>
                                 <span
                                     className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
                                         currentAttendant?.is_online
@@ -405,19 +396,4 @@ export default function SidePanel({
             </aside>
         </div>
     );
-}
-
-function formatTimeAgo(date: Date, now: Date): string {
-    const diffMs = now.getTime() - date.getTime();
-    const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    const diffHours = Math.floor(diffMinutes / 60);
-
-    if (diffSeconds < 30) return "agora";
-    if (diffMinutes < 1) return "há 1 minuto";
-    if (diffMinutes === 1) return "há 1 minuto";
-    if (diffMinutes < 60) return `há ${diffMinutes} minutos`;
-    if (diffHours === 1) return "há 1 hora";
-
-    return `há ${diffHours} horas`;
 }

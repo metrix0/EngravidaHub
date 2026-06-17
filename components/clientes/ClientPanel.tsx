@@ -11,10 +11,9 @@ import {
     Mail,
     MapPin,
     Phone,
-    X,
 } from "lucide-react";
 
-import { Skeleton } from "@/components";
+import { DetailsSidePanel, Skeleton } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
     ConversationResultBadge,
@@ -110,11 +109,11 @@ type BadgeTone = {
 };
 
 export default function ClientPanel({
-                                        clientId,
-                                        onClose,
-                                        onOpenConversation,
-                                        onOpenThread,
-                                    }: {
+    clientId,
+    onClose,
+    onOpenConversation,
+    onOpenThread,
+}: {
     clientId: string | null;
     onClose: () => void;
     onOpenConversation: (conversationId: string) => void;
@@ -122,13 +121,17 @@ export default function ClientPanel({
 }) {
     const [data, setData] = useState<ClientDetailResponse | null>(null);
     const [loading, setLoading] = useState(false);
+    const [panelOpen, setPanelOpen] = useState(false);
+    const [activeClientId, setActiveClientId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!clientId) {
-            setData(null);
-            return;
-        }
+        if (!clientId) return;
 
+        setActiveClientId(clientId);
+        setPanelOpen(false);
+        setData(null);
+
+        const openTimer = window.setTimeout(() => setPanelOpen(true), 20);
         let cancelled = false;
 
         async function loadClient() {
@@ -147,82 +150,63 @@ export default function ClientPanel({
                     return;
                 }
 
-                if (!cancelled) {
-                    setData(json as ClientDetailResponse);
-                }
+                if (!cancelled) setData(json as ClientDetailResponse);
             } finally {
                 if (!cancelled) setLoading(false);
             }
         }
 
-        loadClient();
+        void loadClient();
 
         return () => {
             cancelled = true;
+            window.clearTimeout(openTimer);
         };
     }, [clientId]);
 
-    if (!clientId) return null;
+    if (!activeClientId) return null;
+
+    const title = loading ? "Carregando..." : data?.client.name ?? "Cliente sem nome";
+
+    function handleClose() {
+        setPanelOpen(false);
+        window.setTimeout(() => {
+            setActiveClientId(null);
+            onClose();
+        }, 250);
+    }
 
     return (
-        <div className="fixed inset-0 z-40 flex justify-end">
-            <button
-                type="button"
-                aria-label="Fechar painel do cliente"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default bg-slate-900/25"
-            />
-
-            <aside className="relative flex h-full w-[620px] max-w-[calc(100vw-64px)] flex-col bg-white shadow-2xl">
-                <div className="flex shrink-0 items-start justify-between border-b border-slate-100 px-6 py-5">
-                    <div className="min-w-0">
-                        <p className="text-xs font-bold uppercase tracking-wide text-muted">
-                            Perfil do cliente
-                        </p>
-
-                        <h2 className="mt-1 truncate text-2xl font-bold text-text">
-                            {loading
-                                ? "Carregando..."
-                                : (data?.client.name ?? "Cliente sem nome")}
-                        </h2>
-
-                        <p className="mt-1 truncate text-sm text-muted">
-                            {formatPhone(data?.client.phone ?? null)}
-                        </p>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                    >
-                        <X size={18} />
-                    </button>
+        <DetailsSidePanel
+            open={panelOpen}
+            title="Perfil do cliente"
+            onClose={handleClose}
+            widthClassName="w-[620px]"
+            zIndexClassName="z-40"
+            headerContent={
+                <div className="min-w-0">
+                    <h3 className="truncate text-2xl font-bold text-text">
+                        {title}
+                    </h3>
+                    <p className="mt-1 truncate text-sm text-muted">
+                        {formatPhone(data?.client.phone ?? null)}
+                    </p>
                 </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-5">
-                    {loading ? (
-                        <ClientPanelSkeleton />
-                    ) : !data ? (
-                        <EmptyPanelMessage message="Não foi possível carregar este cliente." />
-                    ) : (
-                        <div className="space-y-5">
-                            <ClientInfoSection client={data.client} />
-
-                            <LiveConversationSection
-                                thread={data.live_thread}
-                                onOpenThread={onOpenThread}
-                            />
-
-                            <ConversationHistorySection
-                                conversations={data.conversations}
-                                onOpenConversation={onOpenConversation}
-                            />
-                        </div>
-                    )}
+            }
+            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-5"
+        >
+            {loading ? (
+                <ClientPanelSkeleton />
+            ) : !data ? (
+                <EmptyPanelMessage message="Não foi possível carregar este cliente." />
+            ) : (
+                <div className="space-y-5">
+                    <ClientInfoSection client={data.client} />
+                    <LiveConversationSection thread={data.live_thread} onOpenThread={onOpenThread} />
+                    <ConversationHistorySection conversations={data.conversations} onOpenConversation={onOpenConversation} />
                 </div>
-            </aside>
-        </div>
+            )}
+        </DetailsSidePanel>
     );
 }
 
@@ -243,52 +227,26 @@ function ClientInfoSection({ client }: { client: ClientDetail }) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-                <InfoItem
-                    icon={<Phone size={15} />}
-                    label="Telefone"
-                    value={formatPhone(client.phone)}
-                />
+                <InfoItem icon={<Phone size={15} />} label="Telefone" value={formatPhone(client.phone)} />
                 <InfoItem icon={<Mail size={15} />} label="Email" value={client.email ?? "—"} />
-                <InfoItem
-                    icon={<MapPin size={15} />}
-                    label="Unidade"
-                    value={client.unit?.name ?? "—"}
-                />
-                <InfoItem
-                    icon={<Filter size={15} />}
-                    label="Funil"
-                    value={client.pipeline?.name ?? "—"}
-                />
-                <InfoItem
-                    icon={<CalendarCheck size={15} />}
-                    label="Estágio"
-                    value={client.stage?.name ?? "—"}
-                />
-                <InfoItem
-                    icon={<Clock size={15} />}
-                    label="Última interação"
-                    value={timeAgo(client.last_interaction_at)}
-                />
+                <InfoItem icon={<MapPin size={15} />} label="Unidade" value={client.unit?.name ?? "—"} />
+                <InfoItem icon={<Filter size={15} />} label="Funil" value={client.pipeline?.name ?? "—"} />
+                <InfoItem icon={<CalendarCheck size={15} />} label="Estágio" value={client.stage?.name ?? "—"} />
+                <InfoItem icon={<Clock size={15} />} label="Última interação" value={timeAgo(client.last_interaction_at)} />
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
                 <Chip label={sourceLabel(client.utm_source)} tone={getSourceVariant(client.utm_source)} />
-
-                {client.utm_campaign && (
-                    <Chip
-                        label={client.utm_campaign}
-                        tone={{ bg: "bg-slate-100", text: "text-slate-500" }}
-                    />
-                )}
+                {client.utm_campaign && <Chip label={client.utm_campaign} tone={{ bg: "bg-slate-100", text: "text-slate-500" }} />}
             </div>
         </section>
     );
 }
 
 function LiveConversationSection({
-                                     thread,
-                                     onOpenThread,
-                                 }: {
+    thread,
+    onOpenThread,
+}: {
     thread: ClientLiveThread | null;
     onOpenThread: (threadId: string) => void;
 }) {
@@ -297,19 +255,14 @@ function LiveConversationSection({
             <div className="mb-4 flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-bold text-text">Conversas</h3>
-                    <p className="mt-1 text-xs text-muted">
-                        Conversa ao vivo e histórico do cliente
-                    </p>
+                    <p className="mt-1 text-xs text-muted">Conversa ao vivo e histórico do cliente</p>
                 </div>
-
                 <LiveHalo active={Boolean(thread)} />
             </div>
 
             <div className="mb-3 flex items-center gap-2">
                 <LiveHalo active={Boolean(thread)} small />
-                <span className="text-sm font-bold text-slate-700">
-          Conversa ao vivo
-        </span>
+                <span className="text-sm font-bold text-slate-700">Conversa ao vivo</span>
             </div>
 
             {!thread ? (
@@ -321,26 +274,15 @@ function LiveConversationSection({
                     className="group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-green/20 bg-soft-green px-4 py-4 text-left transition hover:bg-green/10"
                 >
                     <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-green">
-                            Ao vivo • {thread.channel}
-                        </div>
-
-                        <div className="mt-1 truncate text-sm text-slate-700">
-                            {thread.last_message_text ?? "Sem prévia"}
-                        </div>
-
+                        <div className="truncate text-sm font-bold text-green">Ao vivo • {thread.channel}</div>
+                        <div className="mt-1 truncate text-sm text-slate-700">{thread.last_message_text ?? "Sem prévia"}</div>
                         <div className="mt-1 text-xs text-muted">
-                            {thread.last_message_at
-                                ? `${timeAgo(thread.last_message_at)} atrás`
-                                : "Sem mensagens"}
+                            {thread.last_message_at ? `${timeAgo(thread.last_message_at)} atrás` : "Sem mensagens"}
                             {thread.unread_count > 0 ? ` • ${thread.unread_count} não lidas` : ""}
                         </div>
                     </div>
 
-                    <ChevronRight
-                        size={17}
-                        className="justify-self-end text-green transition group-hover:translate-x-0.5"
-                    />
+                    <ChevronRight size={17} className="justify-self-end text-green transition group-hover:translate-x-0.5" />
                 </button>
             )}
         </section>
@@ -348,9 +290,9 @@ function LiveConversationSection({
 }
 
 function ConversationHistorySection({
-                                        conversations,
-                                        onOpenConversation,
-                                    }: {
+    conversations,
+    onOpenConversation,
+}: {
     conversations: ClientConversationSummary[];
     onOpenConversation: (conversationId: string) => void;
 }) {
@@ -359,14 +301,9 @@ function ConversationHistorySection({
             <div className="mb-4 flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-bold text-text">Histórico</h3>
-                    <p className="mt-1 text-xs text-muted">
-                        Conversas anteriores deste cliente
-                    </p>
+                    <p className="mt-1 text-xs text-muted">Conversas anteriores deste cliente</p>
                 </div>
-
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-muted">
-          {conversations.length}
-        </span>
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-muted">{conversations.length}</span>
             </div>
 
             {conversations.length === 0 ? (
@@ -390,40 +327,18 @@ function ConversationHistorySection({
                         >
                             <div className="min-w-0 pr-3">
                                 <div className="truncate font-semibold text-slate-700">
-                                    {formatConversationDateRange(
-                                        conversation.started_at,
-                                        conversation.ended_at,
-                                    )}
+                                    {formatConversationDateRange(conversation.started_at, conversation.ended_at)}
                                 </div>
-                                <div className="mt-1 truncate text-xs text-muted">
-                                    {conversation.attendant_name}
-                                </div>
+                                <div className="mt-1 truncate text-xs text-muted">{conversation.attendant_name}</div>
                             </div>
 
-                            <div
-                                className="truncate pr-3 text-slate-700"
-                                title={conversation.objective}
-                            >
-                                {conversation.objective}
-                            </div>
-
-                            <div>
-                                <ConversationResultBadge result={conversation.result} />
-                            </div>
-
+                            <div className="truncate pr-3 text-slate-700" title={conversation.objective}>{conversation.objective}</div>
+                            <div><ConversationResultBadge result={conversation.result} /></div>
                             <div className="flex items-center gap-2 text-slate-600">
-                                {conversation.notable && (
-                                    <CircleAlert size={14} className="text-orange" />
-                                )}
+                                {conversation.notable && <CircleAlert size={14} className="text-orange" />}
                                 {conversation.message_count}
                             </div>
-
-                            <div className="flex justify-end">
-                                <ChevronRight
-                                    size={16}
-                                    className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700"
-                                />
-                            </div>
+                            <div className="flex justify-end"><ChevronRight size={16} className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" /></div>
                         </button>
                     ))}
                 </div>
@@ -432,24 +347,11 @@ function ConversationHistorySection({
     );
 }
 
-function InfoItem({
-                      icon,
-                      label,
-                      value,
-                  }: {
-    icon: ReactNode;
-    label: string;
-    value: string;
-}) {
+function InfoItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
     return (
         <div className="rounded-xl bg-slate-50 px-3 py-3">
-            <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted">
-                {icon}
-                {label}
-            </div>
-            <div className="truncate text-sm font-semibold text-slate-700" title={value}>
-                {value}
-            </div>
+            <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted">{icon}{label}</div>
+            <div className="truncate text-sm font-semibold text-slate-700" title={value}>{value}</div>
         </div>
     );
 }
@@ -460,17 +362,9 @@ function LiveHalo({ active, small = false }: { active: boolean; small?: boolean 
 
     return (
         <span className={["relative inline-flex items-center justify-center", sizeClass].join(" ")}>
-      {active && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-40" />
-      )}
-            <span
-                className={[
-                    "relative inline-flex rounded-full",
-                    dotClass,
-                    active ? "bg-green" : "bg-slate-300",
-                ].join(" ")}
-            />
-    </span>
+            {active && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-40" />}
+            <span className={["relative inline-flex rounded-full", dotClass, active ? "bg-green" : "bg-slate-300"].join(" ")} />
+        </span>
     );
 }
 
@@ -485,25 +379,11 @@ function ClientPanelSkeleton() {
 }
 
 function EmptyPanelMessage({ message }: { message: string }) {
-    return (
-        <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm font-medium text-slate-400">
-            {message}
-        </div>
-    );
+    return <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm font-medium text-slate-400">{message}</div>;
 }
 
 function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
-    return (
-        <span
-            className={[
-                "inline-flex max-w-full truncate rounded-md px-2.5 py-1 text-xs font-bold",
-                tone.bg,
-                tone.text,
-            ].join(" ")}
-        >
-      {label}
-    </span>
-    );
+    return <span className={["inline-flex max-w-full truncate rounded-md px-2.5 py-1 text-xs font-bold", tone.bg, tone.text].join(" ")}>{label}</span>;
 }
 
 function sourceLabel(source: string | null) {
@@ -520,25 +400,14 @@ function sourceLabel(source: string | null) {
 
 function getSourceVariant(source: string | null): BadgeTone {
     const normalized = normalize(source ?? "direct");
-
-    if (normalized.includes("meta_ads") || normalized.includes("facebook")) {
-        return { bg: "bg-soft-purple", text: "text-purple" };
-    }
-
-    if (normalized.includes("google")) {
-        return { bg: "bg-soft-blue", text: "text-blue" };
-    }
-
-    if (normalized.includes("instagram")) {
-        return { bg: "bg-soft-pink", text: "text-pink" };
-    }
-
+    if (normalized.includes("meta_ads") || normalized.includes("facebook")) return { bg: "bg-soft-purple", text: "text-purple" };
+    if (normalized.includes("google")) return { bg: "bg-soft-blue", text: "text-blue" };
+    if (normalized.includes("instagram")) return { bg: "bg-soft-pink", text: "text-pink" };
     return { bg: "bg-slate-100", text: "text-slate-500" };
 }
 
 function formatPhone(phone: string | null) {
     if (!phone) return "Sem telefone";
-
     return phone.split("+55")[1] ?? phone;
 }
 
@@ -547,48 +416,28 @@ function timeAgo(date: string) {
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
-
     if (minutes < 60) return `${Math.max(minutes, 1)} min`;
     if (hours < 24) return `${hours} h`;
     return `${days} dia${days > 1 ? "s" : ""}`;
 }
 
 function formatDate(date: string) {
-    return new Intl.DateTimeFormat("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-    }).format(new Date(date));
+    return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(date));
 }
 
 function formatTime(date: string) {
-    return new Intl.DateTimeFormat("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-    }).format(new Date(date));
+    return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(date));
 }
 
 function formatConversationDateRange(startValue: string, endValue: string | null) {
     const start = new Date(startValue);
     const end = endValue ? new Date(endValue) : null;
-
-    if (!end) {
-        return formatDate(startValue);
-    }
-
+    if (!end) return formatDate(startValue);
     const sameDay = start.toDateString() === end.toDateString();
-
-    if (sameDay) {
-        return `${formatDate(startValue)} ${formatTime(startValue)} às ${formatTime(endValue!)}`;
-    }
-
+    if (sameDay) return `${formatDate(startValue)} ${formatTime(startValue)} às ${formatTime(endValue!)}`;
     return `de ${formatDate(startValue)} a ${formatDate(endValue!)}`;
 }
 
 function normalize(value: string) {
-    return value
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{Diacritic}/gu, "");
+    return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }
-

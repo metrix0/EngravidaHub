@@ -14,6 +14,7 @@ export { default as PercentageValue } from "./ui/PercentageValue";
 export { default as Skeleton } from "./ui/Skeleton";
 export { SearchFilter } from "./ui/SearchFilter";
 export { HoverBadgeList } from "./ui/HoverBadgeList";
+export { DetailsSidePanel } from "./ui/DetailsSidePanel";
 
 export { DashboardHeader } from "./dashboard/DashboardHeader";
 export { MainFilters } from "./dashboard/MainFilters";

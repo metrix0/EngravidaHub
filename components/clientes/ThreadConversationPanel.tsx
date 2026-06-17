@@ -2,9 +2,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
 
-import { Skeleton } from "@/components";
+import { DetailsSidePanel, Skeleton } from "@/components";
 
 type ClientLiveThread = {
     id: string;
@@ -55,21 +54,25 @@ type ThreadPanelResponse = {
 };
 
 export default function ThreadConversationPanel({
-                                                    threadId,
-                                                    onClose,
-                                                }: {
+    threadId,
+    onClose,
+}: {
     threadId: string | null;
     onClose: () => void;
 }) {
     const [data, setData] = useState<ThreadPanelResponse | null>(null);
     const [loading, setLoading] = useState(false);
+    const [panelOpen, setPanelOpen] = useState(false);
+    const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!threadId) {
-            setData(null);
-            return;
-        }
+        if (!threadId) return;
 
+        setActiveThreadId(threadId);
+        setPanelOpen(false);
+        setData(null);
+
+        const openTimer = window.setTimeout(() => setPanelOpen(true), 20);
         let cancelled = false;
 
         async function loadThread() {
@@ -90,87 +93,79 @@ export default function ThreadConversationPanel({
                     return;
                 }
 
-                if (!cancelled) {
-                    setData(json as ThreadPanelResponse);
-                }
+                if (!cancelled) setData(json as ThreadPanelResponse);
             } finally {
                 if (!cancelled) setLoading(false);
             }
         }
 
-        loadThread();
+        void loadThread();
 
         return () => {
             cancelled = true;
+            window.clearTimeout(openTimer);
         };
     }, [threadId]);
 
-    if (!threadId) return null;
+    if (!activeThreadId) return null;
 
     const title = data?.client?.name ?? "Cliente sem nome";
 
+    function handleClose() {
+        setPanelOpen(false);
+        window.setTimeout(() => {
+            setActiveThreadId(null);
+            onClose();
+        }, 250);
+    }
+
     return (
-        <div className="fixed inset-0 z-50 flex justify-end">
-            <button
-                type="button"
-                aria-label="Fechar conversa"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default bg-slate-900/25"
-            />
-
-            <aside className="relative flex h-full w-[620px] max-w-[calc(100vw-64px)] flex-col bg-white shadow-2xl">
-                <div className="flex shrink-0 items-start justify-between border-b border-slate-100 px-6 py-5">
-                    <div className="min-w-0">
-                        <div className="mb-2 flex items-center gap-2">
-              <span className="relative flex h-3 w-3 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-40" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-green" />
-              </span>
-
-                            <p className="text-xs font-bold uppercase tracking-wide text-muted">
-                                Conversa ao vivo
-                            </p>
-                        </div>
-
-                        <h2 className="truncate text-2xl font-bold text-text">
-                            {loading ? "Carregando..." : title}
-                        </h2>
-
-                        <p className="mt-1 text-sm text-muted">
-                            {formatPhone(data?.client?.phone ?? null)}
+        <DetailsSidePanel
+            open={panelOpen}
+            title="Conversa ao vivo"
+            onClose={handleClose}
+            widthClassName="w-[620px]"
+            headerContent={
+                <div className="min-w-0">
+                    <div className="mb-2 flex items-center gap-2">
+                        <span className="relative flex h-3 w-3 items-center justify-center">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-40" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-green" />
+                        </span>
+                        <p className="text-xs font-bold uppercase tracking-wide text-muted">
+                            Conversa ao vivo
                         </p>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                    >
-                        <X size={18} />
-                    </button>
-                </div>
+                    <h3 className="truncate text-2xl font-bold text-text">
+                        {loading ? "Carregando..." : title}
+                    </h3>
 
-                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-6 py-5">
-                    {loading ? (
-                        <div className="space-y-4">
-                            <Skeleton className="h-16 w-[75%] rounded-2xl" />
-                            <Skeleton className="ml-auto h-16 w-[65%] rounded-2xl" />
-                            <Skeleton className="h-16 w-[82%] rounded-2xl" />
-                        </div>
-                    ) : !data ? (
-                        <EmptyMessage message="Não foi possível carregar esta conversa." />
-                    ) : data.messages.length === 0 ? (
-                        <EmptyMessage message="Nenhuma mensagem encontrada." />
-                    ) : (
-                        <div className="space-y-3">
-                            {data.messages.map((message) => (
-                                <MessageBubble key={message.id} message={message} />
-                            ))}
-                        </div>
-                    )}
+                    <p className="mt-1 text-sm text-muted">
+                        {formatPhone(data?.client?.phone ?? null)}
+                    </p>
                 </div>
-            </aside>
-        </div>
+            }
+            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-6 py-5"
+        >
+            {loading ? (
+                <div className="space-y-4">
+                    <Skeleton className="h-16 w-[75%] rounded-2xl" />
+                    <Skeleton className="ml-auto h-16 w-[65%] rounded-2xl" />
+                    <Skeleton className="h-16 w-[82%] rounded-2xl" />
+                </div>
+            ) : !data ? (
+                <EmptyMessage message="Não foi possível carregar esta conversa." />
+            ) : data.messages.length === 0 ? (
+                <EmptyMessage message="Nenhuma mensagem encontrada." />
+            ) : (
+                <div className="space-y-3">
+                    {data.messages.map((message) => (
+                        <MessageBubble key={message.id} message={message} />
+                    ))}
+                </div>
+            )}
+        </DetailsSidePanel>
     );
 }
 
@@ -210,7 +205,6 @@ function EmptyMessage({ message }: { message: string }) {
 
 function formatPhone(phone: string | null) {
     if (!phone) return "Sem telefone";
-
     return phone.split("+55")[1] ?? phone;
 }
 
@@ -222,10 +216,7 @@ function formatTime(date: string) {
 }
 
 function normalize(value: string) {
-    return value
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{Diacritic}/gu, "");
+    return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }
 
 function isClientSender(senderType: string) {
@@ -239,4 +230,3 @@ function isClientSender(senderType: string) {
 function getSenderLabel(senderType: string) {
     return isClientSender(senderType) ? "Cliente" : "Atendente";
 }
-

@@ -6,15 +6,12 @@ import {
     Briefcase,
     ChevronRight,
     Crown,
-    DollarSign,
     Headphones,
     Megaphone,
     ShieldCheck,
-    UsersRound,
 } from "lucide-react";
 
 import {
-    Card,
     SidePanel,
     Skeleton,
     AdvancedFilterButton,
@@ -40,8 +37,7 @@ type PresetId =
     | "admin"
     | "gestor"
     | "atendente"
-    | "marketing"
-    | "financeiro";
+    | "marketing";
 
 type ColorName = "purple" | "blue" | "green" | "orange" | "red";
 
@@ -56,9 +52,8 @@ type PermissionTab = {
 type PermissionPreset = {
     id: PresetId;
     name: string;
-    description: string;
     color: ColorName;
-    icon: "crown" | "briefcase" | "headphones" | "megaphone" | "dollar";
+    icon: "crown" | "briefcase" | "headphones" | "megaphone";
     default_tabs: TabId[];
 };
 
@@ -114,21 +109,21 @@ const TABS: PermissionTab[] = [
         id: "dashboard",
         label: "Dashboard",
         href: "/",
-        color: "purple",
+        color: "blue",
         position: 10,
     },
     {
         id: "mensagens",
         label: "Mensagens",
         href: "/mensagens",
-        color: "purple",
+        color: "green",
         position: 20,
     },
     {
         id: "jornada",
         label: "Jornada",
         href: "/jornada",
-        color: "purple",
+        color: "blue",
         position: 30,
     },
     {
@@ -172,8 +167,7 @@ const PRESETS: PermissionPreset[] = [
     {
         id: "admin",
         name: "Admin",
-        description: "Acesso completo",
-        color: "purple",
+        color: "red",
         icon: "crown",
         default_tabs: [
             "dashboard",
@@ -189,7 +183,6 @@ const PRESETS: PermissionPreset[] = [
     {
         id: "gestor",
         name: "Gestor",
-        description: "Visão operacional",
         color: "blue",
         icon: "briefcase",
         default_tabs: [
@@ -205,7 +198,6 @@ const PRESETS: PermissionPreset[] = [
     {
         id: "atendente",
         name: "Atendente",
-        description: "Operação diária",
         color: "green",
         icon: "headphones",
         default_tabs: ["inbox", "clientes", "funil"],
@@ -213,18 +205,9 @@ const PRESETS: PermissionPreset[] = [
     {
         id: "marketing",
         name: "Marketing",
-        description: "Métricas e eventos",
         color: "orange",
         icon: "megaphone",
         default_tabs: ["dashboard", "jornada", "eventos"],
-    },
-    {
-        id: "financeiro",
-        name: "Financeiro",
-        description: "Eventos e relatórios",
-        color: "red",
-        icon: "dollar",
-        default_tabs: ["eventos", "dashboard"],
     },
 ];
 
@@ -274,10 +257,17 @@ const presetIcons = {
     briefcase: Briefcase,
     headphones: Headphones,
     megaphone: Megaphone,
-    dollar: DollarSign,
 };
 
 const EMPTY_VALUE = "—";
+
+const TAB_COLOR_ORDER: Record<ColorName, number> = {
+    blue: 10,
+    green: 20,
+    orange: 30,
+    red: 40,
+    purple: 50,
+};
 
 export default function UsuariosPage() {
     const [data, setData] = useState<ApiResponse | null>(null);
@@ -645,35 +635,21 @@ export default function UsuariosPage() {
                 )}
 
                 <section className="mb-6">
-                    <Card>
-                        <div className="mb-5">
-                            <h2 className="text-lg font-bold">
-                                Presets de acesso{" "}
-                                <span className="text-slate-400">
-                                    ({PRESETS.length})
-                                </span>
-                            </h2>
 
-                            <p className="mt-1 text-sm text-slate-500">
-                                Cada preset aplica um conjunto inicial de abas. Depois, as permissões podem ser ajustadas por usuário.
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-5 gap-4">
-                            {PRESETS.map((preset) => (
-                                <PresetCard
-                                    key={preset.id}
-                                    preset={preset}
-                                    userCount={
-                                        data?.permissions.filter(
-                                            (permission) =>
-                                                permission.preset === preset.id,
-                                        ).length ?? 0
-                                    }
-                                />
-                            ))}
-                        </div>
-                    </Card>
+                    <div className="grid grid-cols-4 gap-4">
+                        {PRESETS.map((preset) => (
+                            <PresetCard
+                                key={preset.id}
+                                preset={preset}
+                                userCount={
+                                    data?.permissions.filter(
+                                        (permission) =>
+                                            permission.preset === preset.id,
+                                    ).length ?? 0
+                                }
+                            />
+                        ))}
+                    </div>
                 </section>
 
                 <section>
@@ -731,8 +707,6 @@ function PresetCard({
     const colors = getColorClasses(preset.color);
     const Icon = presetIcons[preset.icon] ?? ShieldCheck;
     const tabs = tabsFromIds(preset.default_tabs);
-    const visibleTabs = tabs.slice(0, 6);
-    const hiddenCount = Math.max(0, tabs.length - visibleTabs.length);
 
     return (
         <div className="rounded-2xl border border-border bg-white p-5 shadow-sm">
@@ -751,30 +725,19 @@ function PresetCard({
                     </h3>
 
                     <p className="mt-1 text-sm text-muted">
-                        {preset.description}
+                        {formatUserCount(userCount)}
                     </p>
                 </div>
             </div>
 
-            <div className="mb-4 flex items-center gap-2 text-sm text-muted">
-                <UsersRound size={15} />
-                <span>{userCount} usuários</span>
-            </div>
-
             <div className="flex flex-wrap gap-2">
-                {visibleTabs.map((tab) => (
+                {tabs.map((tab) => (
                     <PermissionBadge
                         key={tab.id}
                         label={tab.label}
                         color={tab.color}
                     />
                 ))}
-
-                {hiddenCount > 0 && (
-                    <span className="rounded-lg bg-purple-soft px-2.5 py-1 text-xs font-bold text-purple">
-                        +{hiddenCount}
-                    </span>
-                )}
             </div>
         </div>
     );
@@ -802,7 +765,13 @@ function tabsFromIds(ids: TabId[]) {
     return ids
         .map((id) => TABS.find((tab) => tab.id === id))
         .filter((tab): tab is PermissionTab => Boolean(tab))
-        .sort((a, b) => a.position - b.position);
+        .sort((a, b) => {
+            const colorDiff = TAB_COLOR_ORDER[a.color] - TAB_COLOR_ORDER[b.color];
+
+            if (colorDiff !== 0) return colorDiff;
+
+            return a.position - b.position;
+        });
 }
 
 function normalizeAllowedTabs(
@@ -822,6 +791,10 @@ function getColorClasses(color: ColorName) {
     return colorClasses[color] ?? colorClasses.blue;
 }
 
+function formatUserCount(count: number) {
+    return `${count} usuário${count === 1 ? "" : "s"}`;
+}
+
 function UsuariosSkeleton() {
     return (
         <>
@@ -831,33 +804,29 @@ function UsuariosSkeleton() {
             </div>
 
             <section className="mb-6">
-                <Card>
-                    <Skeleton className="mb-5 h-6 w-[220px]" />
+                <Skeleton className="mb-5 h-6 w-[220px]" />
 
-                    <div className="grid grid-cols-5 gap-4">
-                        {Array.from({ length: 5 }).map((_, index) => (
-                            <Skeleton
-                                key={index}
-                                className="h-[190px] rounded-2xl"
-                            />
-                        ))}
-                    </div>
-                </Card>
+                <div className="grid grid-cols-4 gap-4">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                        <Skeleton
+                            key={index}
+                            className="h-[190px] rounded-2xl"
+                        />
+                    ))}
+                </div>
             </section>
 
             <section>
-                <Card>
-                    <Skeleton className="mb-5 h-6 w-[220px]" />
+                <Skeleton className="mb-5 h-6 w-[220px]" />
 
-                    <div className="space-y-2">
-                        {Array.from({ length: 8 }).map((_, index) => (
-                            <Skeleton
-                                key={index}
-                                className="h-[76px] rounded-xl"
-                            />
-                        ))}
-                    </div>
-                </Card>
+                <div className="space-y-2">
+                    {Array.from({ length: 8 }).map((_, index) => (
+                        <Skeleton
+                            key={index}
+                            className="h-[76px] rounded-xl"
+                        />
+                    ))}
+                </div>
             </section>
         </>
     );
