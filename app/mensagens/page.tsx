@@ -3,8 +3,6 @@
 
 import {useEffect, useState} from "react";
 import {
-    User,
-    MapPin,
     CircleAlert, ChevronRight,
 } from "lucide-react";
 import {ConversationPanel} from "@/components/conversations/ConversationPanel";
@@ -21,7 +19,6 @@ import type {FiltersResponse} from "@/types";
 import {
     MainFilters,
     DashboardHeader,
-    FilterButton,
     SidePanel,
     Skeleton,
     Pagination
@@ -214,33 +211,20 @@ export default function MessagesPage() {
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
-
-                    <FilterButton
-                        icon={<MapPin size={16}/>}
-                        label="Todas as unidades"
-                        values={unitIds}
-                        onChange={resetPageAndSet(setUnitIds)}
-                        options={filters?.units ?? []}
-                        widthClassName="w-[230px]"
-                    />
-
-                    <FilterButton
-                        icon={<User size={16}/>}
-                        label="Todos os atendentes"
-                        values={attendantIds}
-                        onChange={resetPageAndSet(setAttendantIds)}
-                        options={filters?.attendants ?? []}
-                    />
                     <MainFilters
+                        units={filters?.units}
+                        attendants={filters?.attendants}
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
+                        unitValues={unitIds}
+                        setUnitValues={resetPageAndSet(setUnitIds)}
+                        attendantValues={attendantIds}
+                        setAttendantValues={resetPageAndSet(setAttendantIds)}
                         tunnelValues={tunnelValues}
                         setTunnelValues={resetPageAndSet(setTunnelValues)}
                         originValues={originValues}
                         setOriginValues={resetPageAndSet(setOriginValues)}
                     />
-
-
                 </div>
 
                 <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">

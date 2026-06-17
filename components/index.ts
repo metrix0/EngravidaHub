@@ -17,7 +17,6 @@ export { DashboardHeader } from "./dashboard/DashboardHeader";
 export { MainFilters } from "./dashboard/MainFilters";
 
 export { default as SidePanel } from "./layout/SidePanel";
-export { default as SidePanelCRM } from "./layout/SidePanelCRM";
 
 export { ConversationPanel } from "./conversations/ConversationPanel";
 export { ConversationResultBadge } from "./conversations/ConversationResultBadge";

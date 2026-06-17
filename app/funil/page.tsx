@@ -6,7 +6,6 @@ import {
     CalendarCheck,
     ExternalLink,
     Filter,
-    MapPin,
     Search,
     Trash2,
     TrendingUp,
@@ -20,11 +19,12 @@ import {
     FilterButton,
     HorizontalScroller,
     KpiCard,
+    MainFilters,
     Pagination,
     Skeleton,
 } from "@/components";
 
-import SidePanelCRM from "@/components/layout/SidePanelCRM";
+import SidePanel from "@/components/layout/SidePanel";
 
 import {
     applyArrayParams,
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/CalendarButton";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { Modal } from "@/components/ui/Modal";
+import type { FiltersResponse } from "@/types";
 
 type Pipeline = {
     id: string;
@@ -120,11 +121,13 @@ export default function PipelinePage() {
     const [stages, setStages] = useState<PipelineStage[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [kpis, setKpis] = useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
     const [previousKpis, setPreviousKpis] =
         useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
 
     const [loading, setLoading] = useState(true);
+    const [loadingFilters, setLoadingFilters] = useState(true);
     const [period, setPeriod] = useState<CalendarPresetValue | null>("30");
     const [selectedRange, setSelectedRange] = useState<DateRange>({
         start: null,
@@ -153,12 +156,23 @@ export default function PipelinePage() {
 
     const selectedPipelineId = pipelineIds[0] ?? defaultPipelineId;
 
-    const unitOptions = useMemo(() => {
-        return units.map((unit) => ({
-            label: unit.name,
-            value: unit.id,
-        }));
-    }, [units]);
+
+    useEffect(() => {
+        async function loadFilters() {
+            try {
+                const response = await fetch(
+                    "/api/dashboard/filters?entities=units,origins"
+                );
+                const json: FiltersResponse = await response.json();
+
+                setFilters(json);
+            } finally {
+                setLoadingFilters(false);
+            }
+        }
+
+        loadFilters();
+    }, []);
 
     const loadPipelineData = useCallback(
         async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
@@ -663,10 +677,10 @@ export default function PipelinePage() {
         await loadPipelineData({ showLoading: false });
     }
 
-    if (loading) {
+    if (loading || loadingFilters) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-                <SidePanelCRM />
+                <SidePanel />
 
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <div className="mb-8">
@@ -687,7 +701,7 @@ export default function PipelinePage() {
 
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-            <SidePanelCRM />
+            <SidePanel />
 
             <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
@@ -713,20 +727,15 @@ export default function PipelinePage() {
                     {/*    widthClassName="w-[260px]"*/}
                     {/*/>*/}
 
-                    {/*<FilterButton*/}
-                    {/*    icon={<User size={16}/>}*/}
-                    {/*    label="Todos os atendentes"*/}
-                    {/*    options={[]}*/}
-                    {/*    widthClassName="w-[230px]"*/}
-                    {/*/>*/}
-
-                    <FilterButton
-                        icon={<MapPin size={16} />}
-                        label="Todas as unidades"
-                        values={unitIds}
-                        onChange={setUnitIds}
-                        options={unitOptions}
-                        widthClassName="w-[230px]"
+                    <MainFilters
+                        units={filters?.units}
+                        unitValues={unitIds}
+                        setUnitValues={setUnitIds}
+                        show={{
+                            attendants: false,
+                            tunnels: false,
+                            origins: false,
+                        }}
                     />
                 </div>
 
@@ -808,12 +817,7 @@ export default function PipelinePage() {
                                         title: "Origem",
                                         values: sourceValues,
                                         onChange: setSourceValues,
-                                        options: [
-                                            { label: "Meta Ads", value: "meta_ads" },
-                                            { label: "Instagram", value: "instagram" },
-                                            { label: "Google", value: "google" },
-                                            { label: "Direto", value: "direct" },
-                                        ],
+                                        options: filters?.origins ?? [],
                                     },
                                 ]}
                             />

@@ -24,7 +24,7 @@ import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
-import SidePanelCRM from "@/components/layout/SidePanelCRM";
+import SidePanel from "@/components/layout/SidePanel";
 
 import {
     addClientNote,
@@ -271,7 +271,7 @@ export default function InboxPage() {
 
     return (
         <main className="flex h-screen w-screen overflow-hidden bg-white text-slate-900">
-            <SidePanelCRM affectLayout={false} defaultExpanded={false}/>
+            <SidePanel affectLayout={false} defaultExpanded={false}/>
 
             <section
                 className="grid h-screen min-w-0 flex-1 grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] gap-3 px-3 py-3"

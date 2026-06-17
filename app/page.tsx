@@ -6,11 +6,9 @@ import {
     Calendar,
     Clock,
     HelpCircle,
-    MapPin,
     MessageCircle,
     ShieldCheck,
     Smile,
-    User,
 } from "lucide-react";
 import {
     applyArrayParams,
@@ -38,7 +36,6 @@ import type {ExecutiveDashboardData, FiltersResponse} from "@/types";
 import {
     MainFilters,
     Card,
-    FilterButton,
     KpiCard,
     PercentageBar,
     PercentageValue,
@@ -167,26 +164,15 @@ export default function ExecutiveDashboardPage() {
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
-                    <FilterButton
-                        icon={<MapPin size={16}/>}
-                        label="Todas as unidades"
-                        values={unitIds}
-                        onChange={setUnitIds}
-                        options={filters?.units ?? []}
-                        widthClassName="w-[230px]"
-                    />
-
-                    <FilterButton
-                        icon={<User size={16}/>}
-                        label="Todos os atendentes"
-                        values={attendantIds}
-                        onChange={setAttendantIds}
-                        options={filters?.attendants ?? []}
-                    />
-
                     <MainFilters
+                        units={filters?.units}
+                        attendants={filters?.attendants}
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
+                        unitValues={unitIds}
+                        setUnitValues={setUnitIds}
+                        attendantValues={attendantIds}
+                        setAttendantValues={setAttendantIds}
                         tunnelValues={tunnelValues}
                         setTunnelValues={setTunnelValues}
                         originValues={originValues}
