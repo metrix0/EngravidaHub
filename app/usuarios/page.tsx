@@ -1,7 +1,7 @@
 // app/usuarios/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
     Briefcase,
     ChevronRight,
@@ -18,6 +18,7 @@ import {
     DataTable,
     TableHeaderPreset,
     HoverBadgeList,
+    DetailsSidePanel,
     type HoverBadgeListItem,
     type DataTableColumn,
 } from "@/components";
@@ -277,6 +278,7 @@ export default function UsuariosPage() {
     const [search, setSearch] = useState("");
     const [presetValues, setPresetValues] = useState<string[]>([]);
     const [statusValues, setStatusValues] = useState<string[]>([]);
+    const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
     async function loadUsers() {
         setLoading(true);
@@ -405,6 +407,12 @@ export default function UsuariosPage() {
                 .some((value) => String(value).toLowerCase().includes(term));
         });
     }, [users, search, presetValues, statusValues]);
+
+    const selectedUser = useMemo(() => {
+        if (!selectedUserId) return null;
+
+        return users.find((user) => user.id === selectedUserId) ?? null;
+    }, [users, selectedUserId]);
 
     async function saveUserPermission(
         user: UserView,
@@ -635,6 +643,15 @@ export default function UsuariosPage() {
                 )}
 
                 <section className="mb-6">
+                    <div className="mb-5">
+                        <h2 className="text-lg font-bold">
+                            Presets de acesso
+                        </h2>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                            Cada preset aplica um conjunto inicial de abas. Depois, as permissões podem ser ajustadas por usuário.
+                        </p>
+                    </div>
 
                     <div className="grid grid-cols-4 gap-4">
                         {PRESETS.map((preset) => (
@@ -690,10 +707,242 @@ export default function UsuariosPage() {
                         columns={userColumns}
                         rows={filteredUsers}
                         getRowKey={(user) => user.id}
+                        onRowClick={(user) => setSelectedUserId(user.id)}
                     />
                 </section>
             </section>
+
+            <UserDetailsPanel
+                open={Boolean(selectedUser)}
+                user={selectedUser}
+                attendants={data?.attendants ?? []}
+                saving={selectedUser ? savingUserId === selectedUser.id : false}
+                onClose={() => setSelectedUserId(null)}
+                onSave={saveUserPermission}
+                onToggleTab={toggleUserTab}
+            />
         </main>
+    );
+}
+
+function UserDetailsPanel({
+                              open,
+                              user,
+                              attendants,
+                              saving,
+                              onClose,
+                              onSave,
+                              onToggleTab,
+                          }: {
+    open: boolean;
+    user: UserView | null;
+    attendants: Attendant[];
+    saving: boolean;
+    onClose: () => void;
+    onSave: (
+        user: UserView,
+        patch: Partial<{
+            preset: PresetId;
+            allowed_tabs: TabId[];
+            attendant_id: string | null;
+            active: boolean;
+        }>,
+    ) => Promise<void>;
+    onToggleTab: (user: UserView, tabId: TabId) => void;
+}) {
+    if (!user) return null;
+
+    const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
+
+    return (
+        <DetailsSidePanel
+            open={open}
+            title="Detalhes do usuário"
+            onClose={onClose}
+            widthClassName="w-[520px]"
+            headerContent={(
+                <div className="flex min-w-0 items-center gap-4">
+                    <InitialsAvatar name={user.name} />
+
+                    <div className="min-w-0">
+                        <div
+                            title={user.name}
+                            className="truncate text-base font-bold text-slate-950"
+                        >
+                            {user.name}
+                        </div>
+
+                        <div
+                            title={user.email ?? EMPTY_VALUE}
+                            className="mt-1 truncate text-sm text-slate-500"
+                        >
+                            {user.email ?? EMPTY_VALUE}
+                        </div>
+                    </div>
+                </div>
+            )}
+        >
+            <div className="space-y-5">
+                {saving && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+                        Salvando alterações...
+                    </div>
+                )}
+
+                <PanelSection title="Perfil">
+                    <InfoGrid
+                        items={[
+                            ["Unidade", user.unit_name],
+                            ["Atendente", user.attendant?.name ?? EMPTY_VALUE],
+                            ["Preset", user.preset?.name ?? EMPTY_VALUE],
+                            ["Status", user.active ? "Ativo" : "Inativo"],
+                        ]}
+                    />
+                </PanelSection>
+
+                <PanelSection title="Preset de acesso">
+                    <div className="grid grid-cols-2 gap-2">
+                        {PRESETS.map((preset) => {
+                            const selected = user.preset?.id === preset.id;
+                            const colors = getColorClasses(preset.color);
+
+                            return (
+                                <button
+                                    key={preset.id}
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => void onSave(user, {preset: preset.id})}
+                                    className={`cursor-pointer rounded-xl border px-4 py-3 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                        selected
+                                            ? `${colors.softBg} ${colors.text} border-transparent`
+                                            : "border-slate-100 text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                >
+                                    {preset.name}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </PanelSection>
+
+                <PanelSection title="Status">
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void onSave(user, {active: true})}
+                            className={`cursor-pointer rounded-xl border px-4 py-3 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                user.active
+                                    ? "border-transparent bg-green-soft text-green"
+                                    : "border-slate-100 text-slate-600 hover:bg-slate-50"
+                            }`}
+                        >
+                            Ativo
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void onSave(user, {active: false})}
+                            className={`cursor-pointer rounded-xl border px-4 py-3 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                !user.active
+                                    ? "border-transparent bg-red-soft text-red"
+                                    : "border-slate-100 text-slate-600 hover:bg-slate-50"
+                            }`}
+                        >
+                            Inativo
+                        </button>
+                    </div>
+                </PanelSection>
+
+                <PanelSection title="Atendente vinculado">
+                    <select
+                        value={user.attendant_id ?? "__none__"}
+                        disabled={saving}
+                        onChange={(event) => {
+                            const value = event.target.value;
+
+                            void onSave(user, {
+                                attendant_id: value === "__none__" ? null : value,
+                            });
+                        }}
+                        className="h-11 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <option value="__none__">—</option>
+
+                        {attendants.map((attendant) => (
+                            <option key={attendant.id} value={attendant.id}>
+                                {attendant.name}
+                            </option>
+                        ))}
+                    </select>
+                </PanelSection>
+
+                <PanelSection title="Abas permitidas">
+                    <div className="grid grid-cols-2 gap-2">
+                        {allTabs.map((tab) => {
+                            const selected = user.allowed_tabs.includes(tab.id);
+                            const colors = getColorClasses(tab.color);
+
+                            return (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => onToggleTab(user, tab.id)}
+                                    className={`cursor-pointer rounded-xl border px-4 py-3 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                        selected
+                                            ? `${colors.softBg} ${colors.text} border-transparent`
+                                            : "border-slate-100 text-slate-500 hover:bg-slate-50"
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </PanelSection>
+            </div>
+        </DetailsSidePanel>
+    );
+}
+
+function PanelSection({
+                          title,
+                          children,
+                      }: {
+    title: string;
+    children: ReactNode;
+}) {
+    return (
+        <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <h3 className="mb-4 text-sm font-bold text-slate-950">
+                {title}
+            </h3>
+
+            {children}
+        </section>
+    );
+}
+
+function InfoGrid({items}: {items: [string, string][]}) {
+    return (
+        <div className="grid grid-cols-2 gap-4 text-sm">
+            {items.map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-400">
+                        {label}
+                    </div>
+
+                    <div
+                        title={value}
+                        className="mt-1 truncate font-semibold text-slate-700"
+                    >
+                        {value}
+                    </div>
+                </div>
+            ))}
+        </div>
     );
 }
 

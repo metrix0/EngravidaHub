@@ -60,19 +60,21 @@ const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
 
 const defaultItems: SidePanelEntry[] = [
-    {label: "Dashboard", href: "/", icon: <LayoutDashboard size={18}/>},
 
     // Insights
-    {label: "Mensagens", href: "/mensagens", icon: <MessageCircle size={18}/>},
+    {label: "Dashboard", href: "/", icon: <LayoutDashboard size={18}/>},
     {label: "Jornada", href: "/jornada", icon: <Flag size={18}/>},
     {label: "Eventos", href: "/eventos", icon: <Megaphone size={18}/>},
 
     // CRM
+    {type: "separator", id: "crm"},
     {label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18}/>},
     {label: "Clientes", href: "/clientes", icon: <Users size={18}/>},
+    {label: "Mensagens", href: "/mensagens", icon: <MessageCircle size={18}/>},
     {label: "Funil", href: "/funil", icon: <Funnel size={18}/>},
 
     //
+    {type: "separator", id: "usuarios"},
     {label: "Usuários", href: "/usuarios", icon: <UserCog size={18}/>},
 ];
 
@@ -189,7 +191,7 @@ export default function SidePanel({
 
     return (
         <div
-            className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
+            className="relative z-50 h-screen shrink-0 transition-[width] duration-400 ease-out"
             style={{width: layoutWidth}}
         >
             <aside
@@ -272,7 +274,11 @@ export default function SidePanel({
                     </div>
 
                     <div className="relative min-h-0 flex-1">
-                        <div className="h-full overflow-y-auto overflow-x-hidden px-4 pb-6 pt-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <div
+                            className={`sidepanel-scrollbar h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2 ${
+                                isExpanded ? "sidepanel-scrollbar-visible" : "sidepanel-scrollbar-hidden"
+                            }`}
+                        >
                             <nav className="space-y-2">
                                 {items.map((item) => {
                                     if (isSeparator(item)) {
@@ -325,12 +331,11 @@ export default function SidePanel({
                                     );
                                 })}
                             </nav>
+                            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white to-transparent" />
 
-                            <div className="pb-6" />
                         </div>
-
-                        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent" />
                     </div>
+
                     <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
@@ -349,6 +354,7 @@ export default function SidePanel({
                             {isExpanded && <div>Precisa de ajuda?</div>}
                         </button>
                     </div>
+
                     <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
