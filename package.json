@@ -1,0 +1,29 @@
+{
+  "name": "engravida-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item -Recurse -Force 'apps/insights/.next','apps/crm/.next' -ErrorAction SilentlyContinue\"",
+    "dev": "turbo dev",
+    "dev:insights": "turbo dev --filter=insights",
+    "dev:crm": "turbo dev --filter=crm",
+    "build": "turbo build",
+    "build:insights": "turbo build --filter=insights",
+    "lint": "turbo lint",
+    "headers": "pnpm --filter insights headers && pnpm --filter crm headers",
+    "ui": "pnpm --filter insights ui",
+    "analyze": "pnpm --filter insights analyze",
+    "messages": "pnpm --filter insights messages",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "husky": "latest",
+    "turbo": "latest"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
