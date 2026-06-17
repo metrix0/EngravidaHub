@@ -2,7 +2,8 @@
 
 "use client";
 
-import { ButtonGroup, CalendarButton } from "../index";
+import ButtonGroup from "@/components/ui/ButtonGroup";
+import CalendarButton from "@/components/ui/CalendarButton";
 import {
     DEFAULT_CALENDAR_PRESETS,
     type CalendarPresetValue,
