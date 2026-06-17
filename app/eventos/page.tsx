@@ -1,7 +1,7 @@
 // app/eventos/page.tsx
 "use client";
 
-import {type ReactNode, useEffect, useState, useRef} from "react";
+import {type ReactNode, useEffect, useState} from "react";
 import {
     AlertTriangle,
     BarChart3,
@@ -55,6 +55,8 @@ import {
     SidePanel,
     Skeleton,
     Pagination,
+    HoverBadgeList,
+    type HoverBadgeListItem,
 } from "@/components";
 
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
@@ -648,14 +650,14 @@ function ClickIdRateBox({
     bgClass: string;
 }) {
     return (
-        <div className={`rounded-2xl ${bgClass} p-4`}>
+        <div className={`rounded-2xl py-4`}>
             <div className="mb-3 flex items-center justify-between">
                 <div className={`flex items-center gap-2 text-sm font-bold ${colorClass}`}>
                     {icon}
-                    <span>{label}</span>
+                    <span className={"truncate"}>{label}</span>
                 </div>
 
-                <span className="text-xs font-semibold text-slate-500">
+                <span className="text-xs font-semibold text-slate-500 truncate ml-2">
                     {count.toLocaleString("pt-BR")} eventos
                 </span>
             </div>
@@ -839,58 +841,18 @@ function PlatformBadge({platform}: { platform: string }) {
 }
 
 function ParameterBadges({parameters}: { parameters: string[] }) {
-    const sorted = sortParameters(parameters);
-    const wrapperRef = useRef<HTMLDivElement | null>(null);
-    const [side, setSide] = useState<"left" | "right">("left");
-
-    if (sorted.length === 0) {
-        return <span className="text-xs font-medium text-slate-400">—</span>;
-    }
-
-    function handleMouseEnter() {
-        const wrapper = wrapperRef.current;
-        if (!wrapper) return;
-
-        const card = wrapper.closest("[data-recent-events-card]");
-        if (!card) return;
-
-        const wrapperRect = wrapper.getBoundingClientRect();
-        const cardRect = card.getBoundingClientRect();
-
-        const spaceRight = cardRect.right - wrapperRect.left;
-        const popupWidth = 520;
-
-        setSide(spaceRight < popupWidth ? "right" : "left");
-    }
+    const items: HoverBadgeListItem[] = sortParameters(parameters).map((parameter) => ({
+        key: parameter,
+        label: getParameterLabel(parameter),
+        className: getParameterStyle(parameter),
+    }));
 
     return (
-        <div
-            ref={wrapperRef}
-            onMouseEnter={handleMouseEnter}
-            className="group cursor-pointer relative min-w-0 max-w-full"
-        >
-            <div className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
-                {sorted.map((parameter) => (
-                    <ParameterBadge key={parameter} parameter={parameter}/>
-                ))}
-            </div>
-
-            <div
-                className={`pointer-events-none absolute top-full z-50 mt-2 hidden max-w-[520px] rounded-2xl border border-slate-100 bg-white p-3 shadow-xl group-hover:block ${
-                    side === "right" ? "right-0" : "left-0"
-                }`}
-            >
-                <div className="flex flex-nowrap gap-1.5 overflow-hidden whitespace-nowrap">
-                    {sorted.map((parameter) => (
-                        <ParameterBadge
-                            key={`hover-${parameter}`}
-                            parameter={parameter}
-                            full
-                        />
-                    ))}
-                </div>
-            </div>
-        </div>
+        <HoverBadgeList
+            items={items}
+            emptyLabel="—"
+            popupAlignContainerSelector="[data-recent-events-card]"
+        />
     );
 }
 

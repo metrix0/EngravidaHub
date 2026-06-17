@@ -3,7 +3,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-    Briefcase, ChevronRight,
+    Briefcase,
+    ChevronRight,
     Crown,
     DollarSign,
     Headphones,
@@ -16,7 +17,11 @@ import {
     Card,
     SidePanel,
     Skeleton,
+    AdvancedFilterButton,
     DataTable,
+    TableHeaderPreset,
+    HoverBadgeList,
+    type HoverBadgeListItem,
     type DataTableColumn,
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
@@ -279,6 +284,9 @@ export default function UsuariosPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [savingUserId, setSavingUserId] = useState<string | null>(null);
+    const [search, setSearch] = useState("");
+    const [presetValues, setPresetValues] = useState<string[]>([]);
+    const [statusValues, setStatusValues] = useState<string[]>([]);
 
     async function loadUsers() {
         setLoading(true);
@@ -370,6 +378,43 @@ export default function UsuariosPage() {
             };
         });
     }, [data]);
+
+    const filteredUsers = useMemo(() => {
+        const term = search.trim().toLowerCase();
+
+        return users.filter((user) => {
+            if (
+                presetValues.length > 0 &&
+                (!user.preset || !presetValues.includes(user.preset.id))
+            ) {
+                return false;
+            }
+
+            if (statusValues.length > 0) {
+                const statusValue = user.active ? "active" : "inactive";
+
+                if (!statusValues.includes(statusValue)) {
+                    return false;
+                }
+            }
+
+            if (!term) return true;
+
+            const tabsLabel = user.tabs.map((tab) => tab.label).join(" ");
+
+            return [
+                user.name,
+                user.email,
+                user.unit_name,
+                user.attendant?.name,
+                user.preset?.name,
+                tabsLabel,
+                user.active ? "ativo" : "inativo",
+            ]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(term));
+        });
+    }, [users, search, presetValues, statusValues]);
 
     async function saveUserPermission(
         user: UserView,
@@ -516,15 +561,23 @@ export default function UsuariosPage() {
             label: "Abas permitidas",
             width: "22%",
             render: (user) => {
-                const label = user.tabs.map((tab) => tab.label).join(", ") || EMPTY_VALUE;
+                const items: HoverBadgeListItem[] = user.tabs.map((tab) => {
+                    const colors = getColorClasses(tab.color);
+
+                    return {
+                        key: tab.id,
+                        label: tab.label,
+                        className: `${colors.softBg} ${colors.text}`,
+                    };
+                });
 
                 return (
-                    <div
-                        title={label}
-                        className="truncate text-slate-700"
-                    >
-                        {label}
-                    </div>
+                    <HoverBadgeList
+                        items={items}
+                        emptyLabel={EMPTY_VALUE}
+                        badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold"
+                        maxBadgeWidthClassName="max-w-[120px]"
+                    />
                 );
             },
         },
@@ -624,22 +677,42 @@ export default function UsuariosPage() {
                 </section>
 
                 <section>
-                    <div className="mb-5 px-6">
-                        <h2 className="text-lg font-bold">
-                            Usuários atribuídos{" "}
-                            <span className="text-slate-500">
-                                ({users.length})
-                            </span>
-                        </h2>
-
-                        <p className="mt-1 text-sm text-slate-500">
-                            Defina o preset, as abas permitidas e o perfil de atendente vinculado a cada usuário.
-                        </p>
-                    </div>
+                    <TableHeaderPreset
+                        title="Usuários atribuídos"
+                        count={filteredUsers.length}
+                        searchValue={search}
+                        onSearchChange={setSearch}
+                        searchPlaceholder="Buscar usuário ou atendente..."
+                    >
+                        <AdvancedFilterButton
+                            sections={[
+                                {
+                                    id: "preset",
+                                    title: "Preset",
+                                    values: presetValues,
+                                    onChange: setPresetValues,
+                                    options: PRESETS.map((preset) => ({
+                                        label: preset.name,
+                                        value: preset.id,
+                                    })),
+                                },
+                                {
+                                    id: "status",
+                                    title: "Status",
+                                    values: statusValues,
+                                    onChange: setStatusValues,
+                                    options: [
+                                        {label: "Ativo", value: "active"},
+                                        {label: "Inativo", value: "inactive"},
+                                    ],
+                                },
+                            ]}
+                        />
+                    </TableHeaderPreset>
 
                     <DataTable
                         columns={userColumns}
-                        rows={users}
+                        rows={filteredUsers}
                         getRowKey={(user) => user.id}
                     />
                 </section>

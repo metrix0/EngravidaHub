@@ -18,11 +18,12 @@ export function DataTableRow<TRow,>({
     gridTemplateColumns,
     onClick,
 }: DataTableRowProps<TRow>) {
-    const cells = columns.map((column) => (
+    const cells = columns.map((column, columnIndex) => (
         <div
             key={column.id}
             className={[
-                "min-w-0",
+                "min-w-0 max-w-full",
+                columnIndex === columns.length - 1 ? "pr-0" : "pr-4",
                 getCellAlignClass(column.align),
                 column.className,
             ]

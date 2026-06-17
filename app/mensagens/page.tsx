@@ -23,6 +23,7 @@ import {
     Skeleton,
     Pagination,
     DataTable,
+    TableHeaderPreset,
     type DataTableColumn,
 } from "@/components";
 
@@ -31,7 +32,6 @@ import {
     ConversationResultBadge,
     type ConversationResult,
 } from "@/components/conversations/ConversationResultBadge";
-import {SearchFilter} from "@/components/conversations/SearchFilter";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 
 
@@ -326,61 +326,55 @@ export default function MessagesPage() {
                     />
                 </div>
 
-                <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
-                    <h2 className="text-lg font-bold">
-                        Conversas{" "}
-                        <span className="text-slate-500">
-                            ({totalConversations})
-                        </span>
-                    </h2>
-
-                    <div className="flex items-center gap-3">
-                        <SearchFilter value={search} onChange={resetPageAndSet(setSearch)}/>
-
-                        <AdvancedFilterButton
-                            sections={[
-                                {
-                                    id: "goal",
-                                    title: "Objetivo",
-                                    values: goalValues,
-                                    onChange: resetPageAndSet(setGoalValues),
-                                    options: [
-                                        {label: "Informação", value: "answer_information"},
-                                        {label: "Agendar consulta", value: "schedule_consultation"},
-                                        {label: "Reagendar", value: "reschedule_consultation"},
-                                        {label: "Confirmar presença", value: "confirm_attendance"},
-                                        {label: "Explicar tratamento", value: "explain_treatment"},
-                                        {label: "Objeção de preço", value: "handle_price_objection"},
-                                        {label: "Outro", value: "other"},
-                                    ],
-                                },
-                                {
-                                    id: "result",
-                                    title: "Resultado",
-                                    values: resultValues,
-                                    onChange: resetPageAndSet(setResultValues),
-                                    options: [
-                                        {label: "Resolvida", value: "resolvida"},
-                                        {label: "Parcial", value: "parcial"},
-                                        {label: "Não resolvida", value: "nao_resolvida"},
-                                        {label: "Pendente", value: "pendente"},
-                                    ],
-                                },
-                                {
-                                    id: "notable",
-                                    title: "Notável",
-                                    values: notableValues,
-                                    onChange: resetPageAndSet(setNotableValues),
-                                    multi: false,
-                                    options: [
-                                        {label: "Notáveis", value: "true"},
-                                        {label: "Não notáveis", value: "false"},
-                                    ],
-                                },
-                            ]}
-                        />
-                    </div>
-                </div>
+                <TableHeaderPreset
+                    title="Conversas"
+                    count={totalConversations}
+                    searchValue={search}
+                    onSearchChange={resetPageAndSet(setSearch)}
+                >
+                    <AdvancedFilterButton
+                        sections={[
+                            {
+                                id: "goal",
+                                title: "Objetivo",
+                                values: goalValues,
+                                onChange: resetPageAndSet(setGoalValues),
+                                options: [
+                                    {label: "Informação", value: "answer_information"},
+                                    {label: "Agendar consulta", value: "schedule_consultation"},
+                                    {label: "Reagendar", value: "reschedule_consultation"},
+                                    {label: "Confirmar presença", value: "confirm_attendance"},
+                                    {label: "Explicar tratamento", value: "explain_treatment"},
+                                    {label: "Objeção de preço", value: "handle_price_objection"},
+                                    {label: "Outro", value: "other"},
+                                ],
+                            },
+                            {
+                                id: "result",
+                                title: "Resultado",
+                                values: resultValues,
+                                onChange: resetPageAndSet(setResultValues),
+                                options: [
+                                    {label: "Resolvida", value: "resolvida"},
+                                    {label: "Parcial", value: "parcial"},
+                                    {label: "Não resolvida", value: "nao_resolvida"},
+                                    {label: "Pendente", value: "pendente"},
+                                ],
+                            },
+                            {
+                                id: "notable",
+                                title: "Notável",
+                                values: notableValues,
+                                onChange: resetPageAndSet(setNotableValues),
+                                multi: false,
+                                options: [
+                                    {label: "Notáveis", value: "true"},
+                                    {label: "Não notáveis", value: "false"},
+                                ],
+                            },
+                        ]}
+                    />
+                </TableHeaderPreset>
 
                 {loadingConversations ? (
                     <MessagesTableSkeleton/>

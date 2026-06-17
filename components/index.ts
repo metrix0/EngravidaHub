@@ -12,6 +12,8 @@ export { default as Pagination } from "./ui/Pagination";
 export { default as PercentageBar } from "./ui/PercentageBar";
 export { default as PercentageValue } from "./ui/PercentageValue";
 export { default as Skeleton } from "./ui/Skeleton";
+export { SearchFilter } from "./ui/SearchFilter";
+export { HoverBadgeList } from "./ui/HoverBadgeList";
 
 export { DashboardHeader } from "./dashboard/DashboardHeader";
 export { MainFilters } from "./dashboard/MainFilters";
@@ -21,16 +23,17 @@ export { default as SidePanel } from "./layout/SidePanel";
 export { ConversationPanel } from "./conversations/ConversationPanel";
 export { ConversationResultBadge } from "./conversations/ConversationResultBadge";
 export { InitialsAvatar } from "./conversations/InitialsAvatar";
-export { SearchFilter } from "./conversations/SearchFilter";
 export { StatusBadge } from "./conversations/StatusBadge";
 
-export { DataTable, DataTableRow } from "./table";
+export { DataTable, DataTableRow, TableHeaderPreset } from "./table";
 export type { DataTableColumn } from "./table";
 
 export type {
     AdvancedFilterOption,
     AdvancedFilterSection
 } from "./ui/AdvancedFilterButton";
+
+export type { HoverBadgeListItem } from "./ui/HoverBadgeList";
 
 export type {
     CalendarPreset,

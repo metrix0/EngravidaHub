@@ -5,8 +5,6 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
     CalendarCheck,
     ExternalLink,
-    Filter,
-    Search,
     Trash2,
     TrendingUp,
     Users,
@@ -22,6 +20,7 @@ import {
     MainFilters,
     Pagination,
     Skeleton,
+    SearchFilter,
 } from "@/components";
 
 import SidePanel from "@/components/layout/SidePanel";
@@ -798,19 +797,14 @@ export default function PipelinePage() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                                <Search size={17} className="text-muted" />
-
-                                <input
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Buscar cliente ou telefone..."
-                                    className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
-                                />
-                            </div>
+                            <SearchFilter
+                                value={search}
+                                onChange={setSearch}
+                                placeholder="Buscar cliente ou telefone..."
+                                widthClassName="w-[360px]"
+                            />
 
                             <AdvancedFilterButton
-                                icon={<Filter size={16} />}
                                 sections={[
                                     {
                                         id: "source",
@@ -1132,16 +1126,12 @@ function AddClientToPipelineModal({
             </div>
 
             <div className="shrink-0 border-b border-border px-6 py-4">
-                <div className="flex h-11 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                    <Search size={17} className="shrink-0 text-muted" />
-
-                    <input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Buscar por nome, telefone ou email..."
-                        className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
-                    />
-                </div>
+                <SearchFilter
+                    value={search}
+                    onChange={setSearch}
+                    placeholder="Buscar por nome, telefone ou email..."
+                    widthClassName="w-full"
+                />
             </div>
 
             <div

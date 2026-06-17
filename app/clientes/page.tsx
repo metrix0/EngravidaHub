@@ -7,7 +7,6 @@ import {
     ChevronRight,
     Clock,
     Filter,
-    Search,
     Users,
 } from "lucide-react";
 
@@ -21,6 +20,7 @@ import {
     Pagination,
     Skeleton,
     DataTable,
+    TableHeaderPreset,
     type DataTableColumn,
 } from "@/components";
 
@@ -509,47 +509,35 @@ export default function ClientesPage() {
                 </section>
 
                 <section>
-                    <div className="mb-5 flex items-center justify-between gap-6">
-                        <h2 className="text-lg font-bold text-text">
-                            Clientes <span className={"text-slate-500"}>({totalClients})</span>
-                        </h2>
-
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                                <Search size={17} className="text-muted" />
-
-                                <input
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Buscar por cliente ou telefone..."
-                                    className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
-                                />
-                            </div>
-
-                            <AdvancedFilterButton
-                                icon={<Filter size={16} />}
-                                sections={[
-                                    {
-                                        id: "stage",
-                                        title: "Estágio",
-                                        values: stageValues,
-                                        onChange: setStageValues,
-                                        options: stages.map((stage) => ({
-                                            label: stage.name,
-                                            value: stage.id,
-                                        })),
-                                    },
-                                    {
-                                        id: "source",
-                                        title: "Origem",
-                                        values: sourceValues,
-                                        onChange: setSourceValues,
-                                        options: filters?.origins ?? [],
-                                    },
-                                ]}
-                            />
-                        </div>
-                    </div>
+                    <TableHeaderPreset
+                        title="Clientes"
+                        count={totalClients}
+                        searchValue={search}
+                        onSearchChange={setSearch}
+                        searchPlaceholder="Buscar por cliente ou telefone..."
+                    >
+                        <AdvancedFilterButton
+                            sections={[
+                                {
+                                    id: "stage",
+                                    title: "Estágio",
+                                    values: stageValues,
+                                    onChange: setStageValues,
+                                    options: stages.map((stage) => ({
+                                        label: stage.name,
+                                        value: stage.id,
+                                    })),
+                                },
+                                {
+                                    id: "source",
+                                    title: "Origem",
+                                    values: sourceValues,
+                                    onChange: setSourceValues,
+                                    options: filters?.origins ?? [],
+                                },
+                            ]}
+                        />
+                    </TableHeaderPreset>
 
                     <DataTable
                         columns={CLIENT_COLUMNS}

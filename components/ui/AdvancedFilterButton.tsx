@@ -27,12 +27,12 @@ type AdvancedFilterButtonProps = {
 };
 
 export default function AdvancedFilterButton({
-                                                 icon = <SlidersHorizontal size={16} />,
-                                                 label = "Mais filtros",
-                                                 sections,
-                                                 widthClassName = "w-[150px]",
-                                                 dropdownWidthClassName = "w-[320px]",
-                                             }: AdvancedFilterButtonProps) {
+    icon = <SlidersHorizontal size={16} />,
+    label = "Mais filtros",
+    sections,
+    widthClassName = "w-[150px]",
+    dropdownWidthClassName = "w-[320px]",
+}: AdvancedFilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
     const [open, setOpen] = useState(false);
@@ -51,7 +51,6 @@ export default function AdvancedFilterButton({
             : activeCount === 1
                 ? `${activeCount} filtro`
                 : `${activeCount} filtros`;
-
 
     useEffect(() => {
         const nextDrafts: Record<string, string[]> = {};
@@ -90,7 +89,7 @@ export default function AdvancedFilterButton({
             nextDrafts[section.id] = section.values;
         }
 
-        setTimeout(() => setDraftValuesBySection(nextDrafts), 200)
+        setTimeout(() => setDraftValuesBySection(nextDrafts), 200);
     }, [open, sections]);
 
     function toggleOption(section: AdvancedFilterSection, value: string) {
@@ -131,12 +130,12 @@ export default function AdvancedFilterButton({
             <button
                 type="button"
                 onClick={() => setOpen((current) => !current)}
-                className={`flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!bg-brand !border-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}>
-                <span className="flex min-w-0 items-center gap-2">
+                className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!border-brand !bg-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}
+            >
+                <span className="flex shrink-0 items-center text-current">
                     {icon}
-                    <span className="truncate">{displayLabel}</span>
                 </span>
-
+                <span className="min-w-0 truncate">{displayLabel}</span>
             </button>
 
             <div
@@ -263,15 +262,4 @@ export const __uiDemo = {
             ]}
         />
     ),
-    code: `<AdvancedFilterButton
-  sections={[
-    {
-      id: "status",
-      title: "Status",
-      values,
-      onChange,
-      options,
-    },
-  ]}
-/>`,
 };

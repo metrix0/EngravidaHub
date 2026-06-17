@@ -40,11 +40,12 @@ export function DataTable<TRow,>({
                 className="grid border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold text-slate-500"
                 style={{ gridTemplateColumns }}
             >
-                {columns.map((column) => (
+                {columns.map((column, index) => (
                     <div
                         key={column.id}
                         className={[
                             "min-w-0 truncate",
+                            index === columns.length - 1 ? "pr-0" : "pr-4",
                             getAlignClass(column.align),
                             column.headerClassName,
                         ]
