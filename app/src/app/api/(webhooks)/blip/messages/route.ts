@@ -1,4 +1,4 @@
-// apps/insights/src/app/api/(webhooks)/blip/messages/route.ts
+// app/src/app/api/(webhooks)/blip/messages/route.ts
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 

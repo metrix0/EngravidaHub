@@ -1,4 +1,4 @@
-// apps/insights/src/lib/conversations/processPendingConversationsToAnalysisAndAdEvents.ts
+// app/src/lib/conversations/processPendingConversationsToAnalysisAndAdEvents.ts
 import { supabase } from "@engravida/lib";
 
 import { analyzeConversation } from "@/lib/ai/analyzeConversation";

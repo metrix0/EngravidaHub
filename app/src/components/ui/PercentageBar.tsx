@@ -1,4 +1,4 @@
-// src/components/ui/PercentageBar.tsx
+// app/src/components/ui/PercentageBar.tsx
 type PercentageBarProps = {
     value: number;
     color?: "brand" | "green" | "blue" | "orange" | "purple";

@@ -1,4 +1,4 @@
-// apps/crm/src/app/api/clientes/[clientId]/route.ts
+// app/src/app/api/clientes/[clientID]/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
 

@@ -1,4 +1,4 @@
-// apps/insights/src/app/page.tsx
+// app/src/app/page.tsx
 "use client";
 
 import {useEffect, useState} from "react";

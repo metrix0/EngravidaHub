@@ -1,3 +1,4 @@
+// app/src/components/clientes/ClientPanel.tsx
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";

@@ -1,4 +1,4 @@
-// apps/insights/src/types/analyze-conversation-input.ts
+// app/src/types/analyze-conversation-input.ts
 
 export type AnalyzeConversationInput = {
     conversation_id: string;

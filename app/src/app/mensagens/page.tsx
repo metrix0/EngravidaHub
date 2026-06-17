@@ -1,4 +1,4 @@
-// apps/insights/src/app/mensagens/page.tsx
+// app/src/app/mensagens/page.tsx
 "use client";
 
 import {useEffect, useState} from "react";

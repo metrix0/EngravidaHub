@@ -1,4 +1,4 @@
-// apps/insights/src/types/executive-dashboard-data.ts
+// app/src/types/executive-dashboard-data.ts
 export type ExecutiveDashboardData = {
     filters: {
         days: number;

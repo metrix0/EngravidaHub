@@ -7,239 +7,83 @@ settings:
 importers:
 
   .:
-    devDependencies:
-      '@types/react':
-        specifier: ^19
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19
-        version: 19.2.3(@types/react@19.2.17)
-      husky:
-        specifier: latest
-        version: 9.1.7
-      turbo:
-        specifier: latest
-        version: 2.9.18
-
-  apps/crm:
     dependencies:
-      '@engravida/components':
-        specifier: workspace:*
-        version: link:../../packages/components
-      '@engravida/lib':
-        specifier: workspace:*
-        version: link:../../packages/lib
-      '@engravida/styles':
-        specifier: workspace:*
-        version: link:../../packages/styles
-      '@engravida/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       '@google-cloud/bigquery':
         specifier: ^8.3.1
         version: 8.3.1
       '@supabase/ssr':
         specifier: ^0.10.3
         version: 0.10.3(@supabase/supabase-js@2.108.2)
-      '@supabase/supabase-js':
-        specifier: ^2.106.1
-        version: 2.108.2
-      date-fns:
-        specifier: ^4.2.1
-        version: 4.4.0
-      google-auth-library:
-        specifier: ^10.6.2
-        version: 10.7.0
-      groq-sdk:
-        specifier: ^1.2.0
-        version: 1.2.1
-      lucide-react:
-        specifier: ^1.16.0
-        version: 1.20.0(react@19.2.4)
-      next:
-        specifier: 16.2.6
-        version: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      openai:
-        specifier: ^6.39.0
-        version: 6.42.0(ws@8.21.0)(zod@4.4.3)
-      react:
-        specifier: 19.2.4
-        version: 19.2.4
-      react-dom:
-        specifier: 19.2.4
-        version: 19.2.4(react@19.2.4)
-      react-icons:
-        specifier: ^5.6.0
-        version: 5.6.0(react@19.2.4)
-      recharts:
-        specifier: ^3.8.1
-        version: 3.8.1(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react-is@16.13.1)(react@19.2.4)(redux@5.0.1)
-      tsx:
-        specifier: ^4.22.3
-        version: 4.22.4
-      ws:
-        specifier: ^8.20.1
-        version: 8.21.0
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4.3.0
-        version: 4.3.1
-      '@types/node':
-        specifier: ^20
-        version: 20.19.43
-      '@types/react':
-        specifier: ^19
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19
-        version: 19.2.3(@types/react@19.2.17)
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.7.0)
-      eslint-config-next:
-        specifier: 16.2.6
-        version: 16.2.6(@typescript-eslint/parser@8.61.1(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
-      husky:
-        specifier: ^9.1.7
-        version: 9.1.7
-      tailwindcss:
-        specifier: ^4.3.0
-        version: 4.3.1
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-
-  apps/insights:
-    dependencies:
-      '@engravida/components':
-        specifier: workspace:*
-        version: link:../../packages/components
-      '@engravida/lib':
-        specifier: workspace:*
-        version: link:../../packages/lib
-      '@engravida/styles':
-        specifier: workspace:*
-        version: link:../../packages/styles
-      '@engravida/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@google-cloud/bigquery':
-        specifier: ^8.3.1
-        version: 8.3.1
-      '@supabase/ssr':
-        specifier: ^0.10.3
-        version: 0.10.3(@supabase/supabase-js@2.108.2)
-      '@supabase/supabase-js':
-        specifier: ^2.106.1
-        version: 2.108.2
-      date-fns:
-        specifier: ^4.2.1
-        version: 4.4.0
-      google-auth-library:
-        specifier: ^10.6.2
-        version: 10.7.0
-      groq-sdk:
-        specifier: ^1.2.0
-        version: 1.2.1
-      lucide-react:
-        specifier: ^1.16.0
-        version: 1.20.0(react@19.2.4)
-      next:
-        specifier: 16.2.6
-        version: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      openai:
-        specifier: ^6.39.0
-        version: 6.42.0(ws@8.21.0)(zod@4.4.3)
-      react:
-        specifier: 19.2.4
-        version: 19.2.4
-      react-dom:
-        specifier: 19.2.4
-        version: 19.2.4(react@19.2.4)
-      react-icons:
-        specifier: ^5.6.0
-        version: 5.6.0(react@19.2.4)
-      recharts:
-        specifier: ^3.8.1
-        version: 3.8.1(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react-is@16.13.1)(react@19.2.4)(redux@5.0.1)
-      tsx:
-        specifier: ^4.22.3
-        version: 4.22.4
-      ws:
-        specifier: ^8.20.1
-        version: 8.21.0
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4.3.0
-        version: 4.3.1
-      '@types/node':
-        specifier: ^20
-        version: 20.19.43
-      '@types/react':
-        specifier: ^19
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19
-        version: 19.2.3(@types/react@19.2.17)
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.7.0)
-      eslint-config-next:
-        specifier: 16.2.6
-        version: 16.2.6(@typescript-eslint/parser@8.61.1(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
-      husky:
-        specifier: ^9.1.7
-        version: 9.1.7
-      tailwindcss:
-        specifier: ^4.3.0
-        version: 4.3.1
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-
-  packages/components:
-    dependencies:
-      '@engravida/lib':
-        specifier: workspace:*
-        version: link:../lib
-      lucide-react:
-        specifier: ^1.16.0
-        version: 1.20.0(react@19.2.4)
-      react:
-        specifier: 19.2.4
-        version: 19.2.4
-      react-dom:
-        specifier: 19.2.4
-        version: 19.2.4(react@19.2.4)
-      react-icons:
-        specifier: ^5.6.0
-        version: 5.6.0(react@19.2.4)
-      recharts:
-        specifier: ^3.8.1
-        version: 3.8.1(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react-is@16.13.1)(react@19.2.4)(redux@5.0.1)
-    devDependencies:
-      '@types/react':
-        specifier: ^19
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19
-        version: 19.2.3(@types/react@19.2.17)
-
-  packages/lib:
-    dependencies:
       '@supabase/supabase-js':
         specifier: ^2.108.0
         version: 2.108.2
-
-  packages/styles: {}
-
-  packages/types: {}
+      date-fns:
+        specifier: ^4.2.1
+        version: 4.4.0
+      google-auth-library:
+        specifier: ^10.6.2
+        version: 10.7.0
+      groq-sdk:
+        specifier: ^1.2.0
+        version: 1.2.1
+      lucide-react:
+        specifier: ^1.16.0
+        version: 1.20.0(react@19.2.4)
+      next:
+        specifier: 16.2.6
+        version: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      openai:
+        specifier: ^6.39.0
+        version: 6.43.0(ws@8.21.0)(zod@4.4.3)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+      react-icons:
+        specifier: ^5.6.0
+        version: 5.6.0(react@19.2.4)
+      recharts:
+        specifier: ^3.8.1
+        version: 3.8.1(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react-is@16.13.1)(react@19.2.4)(redux@5.0.1)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.4
+      ws:
+        specifier: ^8.20.1
+        version: 8.21.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.0
+        version: 4.3.1
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@types/react':
+        specifier: ^19
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.2.3(@types/react@19.2.17)
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      eslint-config-next:
+        specifier: 16.2.6
+        version: 16.2.6(@typescript-eslint/parser@8.61.1(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      husky:
+        specifier: ^9.1.7
+        version: 9.1.7
+      tailwindcss:
+        specifier: ^4.3.0
+        version: 4.3.1
+      typescript:
+        specifier: ^5
+        version: 5.9.3
 
 packages:
 
@@ -825,8 +669,8 @@ packages:
     resolution: {integrity: sha512-RNUX8EiBy3iLwAX19jtRzLyePnl11/fHcgwDHLnpKcDSXt/5qBnh3LUwAtIjT21Q66QsmNUR2esrHziLCpNubw==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/phoenix@0.4.3':
-    resolution: {integrity: sha512-jZL/2uPEiK58RFJ+7rctex60AHTdtVWwqw4cqu+5JGrXdu/ZM7ZwttO+yRsRN/E/Xik6s+tmbvH7XAQux4m9nQ==}
+  '@supabase/phoenix@0.4.4':
+    resolution: {integrity: sha512-Gt0pqoXuIqX/8dvG0OKp/wMCobXNH3klNbUPBNyOfN0YA1IswrM3HyWFMOPk1Jy+BRaIyDPcFx4jLBwHNmlyfQ==}
 
   '@supabase/postgrest-js@2.108.2':
     resolution: {integrity: sha512-GQ28/Y8hk3CFmkb3kXH1h/AQx6JIYSQfO0CJMRVBcEKZoNy6C45cXAZ4fcJvRC5Id0cs6xnkUV0+c0rIocigsw==}
@@ -939,36 +783,6 @@ packages:
 
   '@tailwindcss/postcss@4.3.1':
     resolution: {integrity: sha512-dNJuNbdEJT/SWRuXTYP1WSamelsz3ztkUsdtWQPjrexysrTpaEPM40P/71knXiXLYEojqPOEGitVLLpPMS5T6A==}
-
-  '@turbo/darwin-64@2.9.18':
-    resolution: {integrity: sha512-9f27peFu16ur8c0v9nUFUEyBnbKuuFsUTjHFWfmwGfzySBXbHwzU44QhZon6Mznz0cHsIr3984NQj/bVrnGSRw==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@turbo/darwin-arm64@2.9.18':
-    resolution: {integrity: sha512-9A6TMRq/Ib+QnbhLlgkhOm+624wO4pzSQ/yQviQfWHOlFvaYxdnIAYmu2H6TS6y7kSVL0DvzNe04NbESTOzFVQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@turbo/linux-64@2.9.18':
-    resolution: {integrity: sha512-zCdIDtz69AnbYh913elJRRoF3QY5aa2HNnf+4rAkc7bQ+tWujiDkCNV7stazOUPggaDvhKIf2Z87qHftTeXSkw==}
-    cpu: [x64]
-    os: [linux]
-
-  '@turbo/linux-arm64@2.9.18':
-    resolution: {integrity: sha512-Va1kXI04naMgYwqv/5Dfa36dTDx8015U7oaQAjrXa45ua9OoFjSV4OmvkML4EmXvUclQHCiBRbY8bvd0jV7eAg==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@turbo/windows-64@2.9.18':
-    resolution: {integrity: sha512-m0kDhZANxSNz9ck1ybogFscHabriAsp4eDFNrN/1H5WrgTF7b3VlcPZnhuO3v2+E2KnCbeAc+UUT10BZZHdDKw==}
-    cpu: [x64]
-    os: [win32]
-
-  '@turbo/windows-arm64@2.9.18':
-    resolution: {integrity: sha512-nUdR8WqoomUys9iIQmG45TMiizJ+5BV8egSeLLZba/AWblyp3fVBcIH1kSE58OtK4g2YzbMJEth6Ttv9w5rqMA==}
-    cpu: [arm64]
-    os: [win32]
 
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
@@ -1488,8 +1302,8 @@ packages:
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
 
-  electron-to-chromium@1.5.373:
-    resolution: {integrity: sha512-G2Hym8JIf/QreuseqkDibgH8Ci8KfJzqGDKdakbhSx9UltwRBH2cBLAWU/lBX0sCdv0TlhyxQyDCnSfxgMWsjA==}
+  electron-to-chromium@1.5.375:
+    resolution: {integrity: sha512-ZWP5eB4BVPW/ZYo9252hQZHZ5XavtsTgpbhcmMmRwymavC5AsLWQWBPaKMeNd2LW0KGby5HPXvj7+sr4ta5j/Q==}
 
   emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
@@ -2287,8 +2101,8 @@ packages:
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
 
-  openai@6.42.0:
-    resolution: {integrity: sha512-1WFEt/uXMXOLhYRNkgJWo08Y2YNvNwpVU72K7ibrWgWpNOXd4VojXLbe6SQ4bLiUQ3Y8jz4IiyVkylJCL1DtZg==}
+  openai@6.43.0:
+    resolution: {integrity: sha512-wVjioGjbnAZycj5mmkFVxbBxLEp+NkKpdMscCYP9LTbq+nbf1WTMVp+ovmD35jgyco4tldWZJkcqdmlh3O9yHQ==}
     peerDependencies:
       ws: ^8.18.0
       zod: ^3.25 || ^4.0
@@ -2628,10 +2442,6 @@ packages:
   tsx@4.22.4:
     resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
-    hasBin: true
-
-  turbo@2.9.18:
-    resolution: {integrity: sha512-bwabv6PupzeavybzEoArBAkwq5fnzwf8OFnRtpHwnviFWuwJPFxtyH+aVp36TmIqK3aYYgtTJ3J0m2ysxxSzQg==}
     hasBin: true
 
   type-check@0.4.0:
@@ -3255,7 +3065,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@supabase/phoenix@0.4.3': {}
+  '@supabase/phoenix@0.4.4': {}
 
   '@supabase/postgrest-js@2.108.2':
     dependencies:
@@ -3263,7 +3073,7 @@ snapshots:
 
   '@supabase/realtime-js@2.108.2':
     dependencies:
-      '@supabase/phoenix': 0.4.3
+      '@supabase/phoenix': 0.4.4
       tslib: 2.8.1
 
   '@supabase/ssr@0.10.3(@supabase/supabase-js@2.108.2)':
@@ -3356,24 +3166,6 @@ snapshots:
       '@tailwindcss/oxide': 4.3.1
       postcss: 8.5.15
       tailwindcss: 4.3.1
-
-  '@turbo/darwin-64@2.9.18':
-    optional: true
-
-  '@turbo/darwin-arm64@2.9.18':
-    optional: true
-
-  '@turbo/linux-64@2.9.18':
-    optional: true
-
-  '@turbo/linux-arm64@2.9.18':
-    optional: true
-
-  '@turbo/windows-64@2.9.18':
-    optional: true
-
-  '@turbo/windows-arm64@2.9.18':
-    optional: true
 
   '@tybys/wasm-util@0.10.2':
     dependencies:
@@ -3720,7 +3512,7 @@ snapshots:
     dependencies:
       baseline-browser-mapping: 2.10.37
       caniuse-lite: 1.0.30001799
-      electron-to-chromium: 1.5.373
+      electron-to-chromium: 1.5.375
       node-releases: 2.0.47
       update-browserslist-db: 1.2.3(browserslist@4.28.2)
 
@@ -3885,7 +3677,7 @@ snapshots:
     dependencies:
       safe-buffer: 5.2.1
 
-  electron-to-chromium@1.5.373: {}
+  electron-to-chromium@1.5.375: {}
 
   emoji-regex@9.2.2: {}
 
@@ -4856,7 +4648,7 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@6.42.0(ws@8.21.0)(zod@4.4.3):
+  openai@6.43.0(ws@8.21.0)(zod@4.4.3):
     optionalDependencies:
       ws: 8.21.0
       zod: 4.4.3
@@ -5274,15 +5066,6 @@ snapshots:
       esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
-
-  turbo@2.9.18:
-    optionalDependencies:
-      '@turbo/darwin-64': 2.9.18
-      '@turbo/darwin-arm64': 2.9.18
-      '@turbo/linux-64': 2.9.18
-      '@turbo/linux-arm64': 2.9.18
-      '@turbo/windows-64': 2.9.18
-      '@turbo/windows-arm64': 2.9.18
 
   type-check@0.4.0:
     dependencies:

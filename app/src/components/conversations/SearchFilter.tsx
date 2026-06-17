@@ -1,4 +1,4 @@
-// src/components/conversations/SearchFilter.tsx
+// app/src/components/conversations/SearchFilter.tsx
 import { Search } from "lucide-react";
 import {useState} from "react";
 

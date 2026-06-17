@@ -1,4 +1,4 @@
-// apps/insights/src/app/api/analyze/route.ts
+// app/src/app/api/analyze/route.ts
 import { NextResponse } from "next/server";
 
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";

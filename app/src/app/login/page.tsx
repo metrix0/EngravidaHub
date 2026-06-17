@@ -1,4 +1,4 @@
-// apps/insights/src/app/login/page.tsx
+// app/src/app/login/page.tsx
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";

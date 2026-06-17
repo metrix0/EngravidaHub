@@ -1,4 +1,4 @@
-// apps/crm/src/app/api/inbox/threads/[threadId]/route.ts
+// app/src/app/api/inbox/threads/[threadId]/route.ts
 import { NextResponse } from "next/server";
 
 import { supabase } from "@engravida/lib/supabase/client";

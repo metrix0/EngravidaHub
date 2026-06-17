@@ -1,4 +1,4 @@
-// src/components/ui/KpiCard.tsx
+// app/src/components/ui/KpiCard.tsx
 import type { ReactNode } from "react";
 import Card from "./Card";
 

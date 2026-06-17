@@ -1,4 +1,4 @@
-// src/components/dashboard/MainFilters.tsx
+// app/src/components/dashboard/MainFilters.tsx
 
 "use client";
 

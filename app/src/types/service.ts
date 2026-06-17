@@ -1,4 +1,4 @@
-// src/types/service.ts
+// app/src/types/service.ts
 export type Service = {
     id: string;
 

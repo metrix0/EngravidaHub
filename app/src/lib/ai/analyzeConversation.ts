@@ -1,4 +1,4 @@
-// apps/insights/src/lib/ai/analyzeConversation.ts
+// app/src/lib/ai/analyzeConversation.ts
 import { getGroqClient } from "./groq";
 import { conversationAnalysisSchema } from "./conversationAnalysisSchema";
 import type { AnalyzeConversationInput, ConversationAnalysis } from "@engravida/types";

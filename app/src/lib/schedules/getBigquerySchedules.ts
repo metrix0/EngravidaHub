@@ -1,4 +1,4 @@
-// apps/insights/src/lib/schedules/getBigquerySchedules.ts
+// app/src/lib/schedules/getBigquerySchedules.ts
 import { BigQuery } from "@google-cloud/bigquery";
 
 export type BigqueryScheduleRow = {

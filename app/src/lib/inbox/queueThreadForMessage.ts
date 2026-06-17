@@ -1,3 +1,4 @@
+// app/src/lib/inbox/queueThreadForMessage.ts
 import { supabase } from "../";
 
 type InboxChannel = "WhatsApp" | "Instagram" | "Facebook";

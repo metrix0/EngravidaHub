@@ -1,4 +1,4 @@
-// apps/insights/src/types/filters.ts
+// app/src/types/filters.ts
 
 export type FilterOption = {
     label: string;

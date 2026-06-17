@@ -1,4 +1,4 @@
-// src/types/index.ts
+// app/src/types/index.ts
 export * from "./client";
 export * from "./message";
 export * from "./attendant";

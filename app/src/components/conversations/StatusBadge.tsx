@@ -1,4 +1,4 @@
-// src/components/conversations/StatusBadge.tsx
+// app/src/components/conversations/StatusBadge.tsx
 
 export type ConversationStatus = "concluida" | "pendente" | "em_andamento";
 

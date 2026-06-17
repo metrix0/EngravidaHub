@@ -1,4 +1,4 @@
-// src/components/conversations/InitialsAvatar.tsx
+// app/src/components/conversations/InitialsAvatar.tsx
 
 export function InitialsAvatar({ name }: { name: string }) {
     const initials = getInitials(name);

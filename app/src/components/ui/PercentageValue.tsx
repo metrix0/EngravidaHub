@@ -1,4 +1,4 @@
-// src/components/ui/PercentageValue.tsx
+// app/src/components/ui/PercentageValue.tsx
 type PercentageValueProps = {
     value: number;
     greenFrom?: number;

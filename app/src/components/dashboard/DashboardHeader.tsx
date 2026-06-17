@@ -1,4 +1,4 @@
-// src/components/dashboard/DashboardHeader.tsx
+// app/src/components/dashboard/DashboardHeader.tsx
 
 "use client";
 

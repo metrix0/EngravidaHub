@@ -1,4 +1,4 @@
-// apps/insights/src/lib/conversations/matchConversationsSheetAttribution.ts
+// app/src/lib/conversations/matchConversationsSheetAttribution.ts
 import { GoogleAuth } from "google-auth-library";
 
 import { supabase } from "@engravida/lib";

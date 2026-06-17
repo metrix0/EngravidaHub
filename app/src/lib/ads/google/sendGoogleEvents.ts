@@ -1,4 +1,4 @@
-// apps/insights/src/lib/ads/google/sendGoogleEvents.ts
+// app/src/lib/ads/google/sendGoogleEvents.ts
 import {createHash} from "crypto";
 import {supabase} from "@engravida/lib";
 import type {DerivedAdEvent} from "@/lib/ads/deriveAdEventsFromAnalysis";

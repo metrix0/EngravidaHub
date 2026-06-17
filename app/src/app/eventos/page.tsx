@@ -1,4 +1,4 @@
-// apps/insights/src/app/eventos/page.tsx
+// app/src/app/eventos/page.tsx
 "use client";
 
 import {type ReactNode, useEffect, useState, useRef} from "react";

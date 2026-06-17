@@ -3,20 +3,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-
-// scripts/generate-ui-registry.mjs -> monorepo root
 const root = path.resolve(scriptDir, "..");
 
-// app running the script
-const appName = process.env.UI_APP ?? "insights";
-
-const componentsDir = path.join(root, "packages", "components", "ui");
+const componentsDir = path.join(root, "components", "ui");
 
 const outputFile = path.join(
     root,
-    "apps",
-    appName,
-    "src",
     "app",
     "dev",
     "ui",
@@ -72,8 +64,8 @@ function walk(dir) {
 
         result.push({
             filePath,
-            importPath: `@engravida/components/ui/${normalizedPath}`,
-            componentName: normalizedPath,
+            importPath: `@/components/ui/${normalizedPath}`,
+            componentName: normalizedPath
         });
     }
 
@@ -116,7 +108,7 @@ for (const file of files) {
 
 const content = `// AUTO-GENERATED FILE.
 // Do not edit manually.
-// Run: npm run ui
+// Run: pnpm ui
 
 ${imports.join("\n")}
 

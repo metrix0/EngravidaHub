@@ -1,4 +1,4 @@
-// apps/crm/src/lib/attendants/currentAttendantApi.ts
+// app/src/lib/attendants/currentAttendantApi.ts
 export type CurrentAttendant = {
     id: string;
     name: string;

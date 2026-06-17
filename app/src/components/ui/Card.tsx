@@ -1,4 +1,4 @@
-// src/components/ui/Card.tsx
+// app/src/components/ui/Card.tsx
 import type { ReactNode } from "react";
 
 type CardProps = {

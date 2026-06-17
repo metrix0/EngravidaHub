@@ -1,4 +1,4 @@
-// apps/insights/src/types/conversation.ts
+// app/src/types/conversation.ts
 export type ConversationSource =
     | "blip"
     | "whatsapp"

@@ -1,4 +1,4 @@
-// apps/insights/src/lib/units/findOrCreateUnitByName.ts
+// app/src/lib/units/findOrCreateUnitByName.ts
 import { supabase } from "@engravida/lib";
 
 type UnitForName = {

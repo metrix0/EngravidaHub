@@ -1,4 +1,4 @@
-// apps/insights/src/lib/ai/openai.ts
+// app/src/lib/ai/openai.ts
 import OpenAI from "openai";
 
 if (!process.env.OPENAI_API_KEY) {

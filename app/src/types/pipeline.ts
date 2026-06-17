@@ -1,3 +1,4 @@
+// app/src/types/pipeline.ts
 export type Pipeline = {
     id: string;
     name: string;

@@ -1,4 +1,4 @@
-// apps/insights/src/lib/messages/matchMessagesSenderName.ts
+// app/src/lib/messages/matchMessagesSenderName.ts
 import { supabase } from "@engravida/lib";
 import type { SenderType } from "@engravida/types/message";
 

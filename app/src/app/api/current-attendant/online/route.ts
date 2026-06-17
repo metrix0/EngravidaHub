@@ -1,4 +1,4 @@
-// apps/crm/src/app/api/current-attendant/online/route.ts
+// app/src/app/api/current-attendant/online/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";

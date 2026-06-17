@@ -1,4 +1,4 @@
-// apps/crm/src/lib/attendants/getCurrentAttendantFromRequest.ts
+// app/src/lib/attendants/getCurrentAttendantFromRequest.ts
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 

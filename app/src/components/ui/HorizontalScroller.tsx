@@ -1,4 +1,4 @@
-// src/components/ui/HorizontalScroller.tsx
+// app/src/components/ui/HorizontalScroller.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";

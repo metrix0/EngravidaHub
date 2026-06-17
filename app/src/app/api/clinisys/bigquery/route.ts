@@ -1,4 +1,4 @@
-// apps/insights/src/app/api/clinisys/bigquery/route.ts
+// app/src/app/api/clinisys/bigquery/route.ts
 import { NextResponse } from "next/server";
 
 import { syncBigquerySchedules } from "@/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds";

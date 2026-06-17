@@ -1,4 +1,4 @@
-// AUTO-GENERATED FILE.
+// app/src/app/dev/ui/uiRegistry.generated.tsx
 // Do not edit manually.
 // Run: npm run ui
 

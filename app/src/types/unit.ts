@@ -1,4 +1,4 @@
-// src/types/unit.ts
+// app/src/types/unit.ts
 export type Unit = {
     id: string;
 

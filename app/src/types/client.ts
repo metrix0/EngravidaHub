@@ -1,4 +1,4 @@
-// src/types/client.ts
+// app/src/types/client.ts
 
 export type Client = {
     id: string;

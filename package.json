@@ -1,29 +1,47 @@
 {
-  "name": "engravida-monorepo",
+  "name": "engravida-hub",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
-    "predev": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item -Recurse -Force 'apps/insights/.next','apps/crm/.next' -ErrorAction SilentlyContinue\"",
-    "dev": "turbo dev",
-    "dev:insights": "turbo dev --filter=insights",
-    "dev:crm": "turbo dev --filter=crm",
-    "build": "turbo build",
-    "build:insights": "turbo build --filter=insights",
-    "lint": "turbo lint",
-    "headers": "pnpm --filter insights headers && pnpm --filter crm headers",
-    "ui": "pnpm --filter insights ui",
-    "analyze": "pnpm --filter insights analyze",
-    "messages": "pnpm --filter insights messages",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "headers": "node scripts/update-file-headers.js",
+    "ui": "node scripts/generate-ui-registry.mjs",
+    "analyze": "node scripts/test-analyze.mjs",
+    "analysis:save": "node --env-file=.env.local --import tsx scripts/test-save-analysis.ts",
+    "analysis:ads": "node --env-file=.env.local --import tsx scripts/test-derive-ad-events.ts",
+    "messages": "node --env-file=.env.local scripts/add-messages.mjs",
     "prepare": "husky"
   },
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.3.1",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.108.0",
+    "date-fns": "^4.2.1",
+    "google-auth-library": "^10.6.2",
+    "groq-sdk": "^1.2.0",
+    "lucide-react": "^1.16.0",
+    "next": "16.2.6",
+    "openai": "^6.39.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-icons": "^5.6.0",
+    "recharts": "^3.8.1",
+    "tsx": "^4.22.3",
+    "ws": "^8.20.1",
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "husky": "latest",
-    "turbo": "latest"
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "husky": "^9.1.7",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5"
   },
   "packageManager": "pnpm@9.0.0"
 }

@@ -1,4 +1,4 @@
-// src/components/conversations/ConversationResultBadge.tsx
+// app/src/components/conversations/ConversationResultBadge.tsx
 
 export type ConversationResult =
     | "resolvida"

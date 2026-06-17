@@ -1,4 +1,4 @@
-// src/components/conversations/ConversationPanel.tsx
+// app/src/components/conversations/ConversationPanel.tsx
 "use client";
 
 import { useEffect, useState } from "react";

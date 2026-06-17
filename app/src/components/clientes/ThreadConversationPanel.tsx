@@ -1,3 +1,4 @@
+// app/src/components/clientes/ThreadConversationPanel.tsx
 "use client";
 
 import { useEffect, useState } from "react";

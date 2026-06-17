@@ -1,4 +1,4 @@
-// src/lib/ads/adEventRules.ts
+// app/src/lib/ads/adEventRules.ts
 import type { OutcomeEventType } from "../../types";
 
 export type AdPlatformTag = "Meta Ads" | "Google Ads";

@@ -1,4 +1,4 @@
-// src/components/ui/InfoTooltip.tsx
+// app/src/components/ui/InfoTooltip.tsx
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";

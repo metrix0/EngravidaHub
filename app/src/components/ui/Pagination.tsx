@@ -1,4 +1,4 @@
-// src/components/ui/Pagination.tsx
+// app/src/components/ui/Pagination.tsx
 
 "use client";
 

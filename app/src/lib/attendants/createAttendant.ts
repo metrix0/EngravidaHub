@@ -1,4 +1,4 @@
-// apps/insights/src/lib/attendants/createAttendant.ts
+// app/src/lib/attendants/createAttendant.ts
 import { randomUUID } from "crypto";
 
 import { supabase } from "@engravida/lib";

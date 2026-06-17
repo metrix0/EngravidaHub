@@ -1,4 +1,4 @@
-// apps/crm/src/components/layout/SidePanelCRM.tsx
+// app/src/components/layout/SidePanelCRM.tsx
 "use client";
 
 import type { ReactNode } from "react";

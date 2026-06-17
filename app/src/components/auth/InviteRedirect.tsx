@@ -1,4 +1,4 @@
-// src/components/auth/InviteRedirect.tsx
+// app/src/components/auth/InviteRedirect.tsx
 "use client";
 
 import { useEffect } from "react";

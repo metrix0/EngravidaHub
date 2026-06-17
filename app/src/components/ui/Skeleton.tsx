@@ -1,4 +1,4 @@
-// src/components/ui/Skeleton.tsx
+// app/src/components/ui/Skeleton.tsx
 
 type SkeletonProps = {
     className?: string;

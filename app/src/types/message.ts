@@ -1,4 +1,4 @@
-// src/types/message.ts
+// app/src/types/message.ts
 export type SenderType = "client" | "attendant" | "bot" | "system";
 
 export type Message = {

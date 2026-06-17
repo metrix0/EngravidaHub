@@ -1,4 +1,4 @@
-// src/types/attendant.ts
+// app/src/types/attendant.ts
 export type Attendant = {
     id: string;
 
