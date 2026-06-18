@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { InviteRedirect } from "@/components/auth/InviteRedirect";
+import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 
 const inter = Inter({
     variable: "--font-inter",
@@ -39,7 +40,10 @@ export default function RootLayout({
             </div>
         </div>
 
-        <div className="hidden md:block">{children}</div>
+        <div className="hidden md:block">
+            {children}
+            <FloatingConversationPanel />
+        </div>
         </body>
         </html>
     );

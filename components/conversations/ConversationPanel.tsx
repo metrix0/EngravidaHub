@@ -1,7 +1,7 @@
 // components/conversations/ConversationPanel.tsx
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Calendar, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
 
@@ -13,6 +13,7 @@ import {
 } from "@/lib";
 import { DetailsSidePanel, Skeleton } from "@/components";
 import { InitialsAvatar } from "./InitialsAvatar";
+import { OPEN_CONVERSATION_DETAILS_EVENT } from "./FloatingConversationPanel";
 import {
     ConversationResultBadge,
     type ConversationResult,
@@ -59,47 +60,76 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
     const [tab, setTab] = useState<Tab>("messages");
 
+    const requestIdRef = useRef(0);
+
     useEffect(() => {
         if (!conversationId) return;
 
-        setActiveConversationId(conversationId);
+        openConversation(conversationId);
+    }, [conversationId]);
+
+    useEffect(() => {
+        function handleOpenConversationDetails(event: Event) {
+            const conversationDetail = (event as CustomEvent<{ conversationId?: string }>).detail;
+
+            if (!conversationDetail?.conversationId) return;
+
+            openConversation(conversationDetail.conversationId);
+        }
+
+        window.addEventListener(
+            OPEN_CONVERSATION_DETAILS_EVENT,
+            handleOpenConversationDetails,
+        );
+
+        return () => {
+            window.removeEventListener(
+                OPEN_CONVERSATION_DETAILS_EVENT,
+                handleOpenConversationDetails,
+            );
+        };
+    }, []);
+
+    function openConversation(nextConversationId: string) {
+        const requestId = requestIdRef.current + 1;
+        requestIdRef.current = requestId;
+
+        setActiveConversationId(nextConversationId);
         setPanelOpen(false);
         setData(null);
         setLoading(true);
         setTab("messages");
 
-        const openTimer = window.setTimeout(() => setPanelOpen(true), 20);
-        let cancelled = false;
-
-        async function loadConversation() {
-            const startedAt = Date.now();
-
-            try {
-                const response = await fetch(`/api/dashboard/mensagens/${conversationId}`);
-                const json: PanelData = await response.json();
-
-                const elapsed = Date.now() - startedAt;
-                const minimumLoadingTime = 500;
-
-                if (elapsed < minimumLoadingTime) {
-                    await new Promise((resolve) =>
-                        window.setTimeout(resolve, minimumLoadingTime - elapsed),
-                    );
-                }
-
-                if (!cancelled) setData(json);
-            } finally {
-                if (!cancelled) setLoading(false);
+        window.setTimeout(() => {
+            if (requestIdRef.current === requestId) {
+                setPanelOpen(true);
             }
+        }, 20);
+
+        void loadConversation(nextConversationId, requestId);
+    }
+
+    async function loadConversation(nextConversationId: string, requestId: number) {
+        const startedAt = Date.now();
+
+        try {
+            const response = await fetch(`/api/dashboard/mensagens/${nextConversationId}`);
+            const json: PanelData = await response.json();
+
+            const elapsed = Date.now() - startedAt;
+            const minimumLoadingTime = 500;
+
+            if (elapsed < minimumLoadingTime) {
+                await new Promise((resolve) =>
+                    window.setTimeout(resolve, minimumLoadingTime - elapsed),
+                );
+            }
+
+            if (requestIdRef.current === requestId) setData(json);
+        } finally {
+            if (requestIdRef.current === requestId) setLoading(false);
         }
-
-        void loadConversation();
-
-        return () => {
-            cancelled = true;
-            window.clearTimeout(openTimer);
-        };
-    }, [conversationId]);
+    }
 
     if (!activeConversationId) return null;
 

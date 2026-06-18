@@ -16,6 +16,7 @@ import {
 
 import { DetailsSidePanel, Skeleton } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import {
     ConversationResultBadge,
     type ConversationResult,
@@ -112,13 +113,11 @@ type BadgeTone = {
 export default function ClientPanel({
     clientId,
     onClose,
-    onOpenConversation,
-    onOpenThread,
 }: {
     clientId: string | null;
     onClose: () => void;
-    onOpenConversation: (conversationId: string) => void;
-    onOpenThread: (threadId: string) => void;
+    onOpenConversation?: (conversationId: string) => void;
+    onOpenThread?: (threadId: string) => void;
 }) {
     const [data, setData] = useState<ClientDetailResponse | null>(null);
     const [loading, setLoading] = useState(false);
@@ -196,15 +195,9 @@ export default function ClientPanel({
                 <EmptyPanelMessage message="Não foi possível carregar este cliente." />
             ) : (
                 <div className="space-y-4">
-                    <LiveConversationButton
-                        thread={data.live_thread}
-                        onOpenThread={onOpenThread}
-                    />
+                    <LiveConversationButton thread={data.live_thread} />
 
-                    <ConversationHistorySection
-                        conversations={data.conversations}
-                        onOpenConversation={onOpenConversation}
-                    />
+                    <ConversationHistorySection conversations={data.conversations} />
                 </div>
             )}
         </DetailsSidePanel>
@@ -242,7 +235,7 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
                     </div>
                 </div>
 
-                <Chip label={source} tone={sourceTone} />
+                {source !== "—" && <Chip label={source} tone={sourceTone} />}
             </div>
 
             <div className="grid grid-cols-3 gap-4 text-xs">
@@ -320,17 +313,15 @@ function HeaderInfoItem({
 
 function LiveConversationButton({
     thread,
-    onOpenThread,
 }: {
     thread: ClientLiveThread | null;
-    onOpenThread: (threadId: string) => void;
 }) {
     if (!thread) return null;
 
     return (
         <button
             type="button"
-            onClick={() => onOpenThread(thread.id)}
+            onClick={() => openFloatingConversation({ type: "thread", id: thread.id })}
             className="group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-green/20 bg-soft-green px-4 py-4 text-left transition hover:bg-green/10"
         >
             <div className="min-w-0">
@@ -363,10 +354,8 @@ function LiveConversationButton({
 
 function ConversationHistorySection({
     conversations,
-    onOpenConversation,
 }: {
     conversations: ClientConversationSummary[];
-    onOpenConversation: (conversationId: string) => void;
 }) {
     return (
         <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
@@ -396,7 +385,7 @@ function ConversationHistorySection({
                         <button
                             key={conversation.id}
                             type="button"
-                            onClick={() => onOpenConversation(conversation.id)}
+                            onClick={() => openFloatingConversation({ type: "conversation", id: conversation.id })}
                             className="group grid w-full cursor-pointer grid-cols-[1.15fr_1.2fr_1fr_48px_28px] items-center border-t border-slate-100 px-3 py-3 text-left text-sm transition hover:bg-selection/80"
                         >
                             <div className="min-w-0 pr-3">
@@ -505,19 +494,24 @@ function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
 }
 
 function sourceLabel(source: string | null) {
+    const normalized = normalize(source ?? "");
+
+    if (!normalized || normalized === "direct" || normalized === "direto") {
+        return "—";
+    }
+
     const map: Record<string, string> = {
         meta_ads: "Meta Ads",
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
-        direct: "Direto",
     };
 
-    return map[source ?? "direct"] ?? source ?? "Direto";
+    return map[normalized] ?? source ?? "—";
 }
 
 function getSourceVariant(source: string | null): BadgeTone {
-    const normalized = normalize(source ?? "direct");
+    const normalized = normalize(source ?? "");
     if (normalized.includes("meta_ads") || normalized.includes("facebook")) return { bg: "bg-soft-purple", text: "text-purple" };
     if (normalized.includes("google")) return { bg: "bg-soft-blue", text: "text-blue" };
     if (normalized.includes("instagram")) return { bg: "bg-soft-pink", text: "text-pink" };

@@ -1,7 +1,7 @@
 // components/ui/DetailsSidePanel.tsx
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 type DetailsSidePanelProps = {
@@ -16,6 +16,18 @@ type DetailsSidePanelProps = {
     headerClassName?: string;
 };
 
+type DetailsSidePanelStateEvent = CustomEvent<{
+    id: string;
+    open: boolean;
+}>;
+
+type DetailsSidePanelOpenedEvent = CustomEvent<{
+    id: string;
+}>;
+
+const DETAILS_SIDE_PANEL_STATE_EVENT = "engravida:details-side-panel-state";
+const DETAILS_SIDE_PANEL_OPENED_EVENT = "engravida:details-side-panel-opened";
+
 export function DetailsSidePanel({
     open,
     title,
@@ -27,12 +39,21 @@ export function DetailsSidePanel({
     bodyClassName = "min-h-0 flex-1 overflow-y-auto px-5 py-5",
     headerClassName = "border-b border-slate-100 px-6 py-5",
 }: DetailsSidePanelProps) {
+    const panelIdRef = useRef(
+        `details-panel-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
+    const closingFromPeerRef = useRef(false);
     const [mounted, setMounted] = useState(open);
     const [visible, setVisible] = useState(false);
 
     useEffect(() => {
         if (open) {
             setMounted(true);
+            window.dispatchEvent(
+                new CustomEvent(DETAILS_SIDE_PANEL_OPENED_EVENT, {
+                    detail: { id: panelIdRef.current },
+                }),
+            );
 
             const timer = window.setTimeout(() => setVisible(true), 20);
             return () => window.clearTimeout(timer);
@@ -44,6 +65,41 @@ export function DetailsSidePanel({
         return () => window.clearTimeout(timer);
     }, [open]);
 
+    useEffect(() => {
+        function handleOtherPanelOpened(event: Event) {
+            const detail = (event as DetailsSidePanelOpenedEvent).detail;
+
+            if (!detail || detail.id === panelIdRef.current || !mounted) return;
+
+            closingFromPeerRef.current = true;
+            handleClose();
+        }
+
+        window.addEventListener(DETAILS_SIDE_PANEL_OPENED_EVENT, handleOtherPanelOpened);
+
+        return () => {
+            window.removeEventListener(DETAILS_SIDE_PANEL_OPENED_EVENT, handleOtherPanelOpened);
+        };
+    }, [mounted]);
+
+    useEffect(() => {
+        if (!mounted) return;
+
+        window.dispatchEvent(
+            new CustomEvent(DETAILS_SIDE_PANEL_STATE_EVENT, {
+                detail: { id: panelIdRef.current, open: true },
+            }),
+        );
+
+        return () => {
+            window.dispatchEvent(
+                new CustomEvent(DETAILS_SIDE_PANEL_STATE_EVENT, {
+                    detail: { id: panelIdRef.current, open: false },
+                }),
+            );
+        };
+    }, [mounted]);
+
     if (!mounted) return null;
 
     function handleClose() {
@@ -51,7 +107,8 @@ export function DetailsSidePanel({
 
         window.setTimeout(() => {
             onClose();
-        }, 250);
+            closingFromPeerRef.current = false;
+        }, closingFromPeerRef.current ? 180 : 250);
     }
 
     return (
@@ -86,3 +143,5 @@ export function DetailsSidePanel({
         </div>
     );
 }
+
+export { DETAILS_SIDE_PANEL_STATE_EVENT, DETAILS_SIDE_PANEL_OPENED_EVENT };
