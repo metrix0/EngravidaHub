@@ -15,6 +15,7 @@ export { default as Skeleton } from "./ui/Skeleton";
 export { SearchFilter } from "./ui/SearchFilter";
 export { HoverBadgeList } from "./ui/HoverBadgeList";
 export { DetailsSidePanel } from "./ui/DetailsSidePanel";
+export { DropdownSelect } from "./ui/DropdownSelect";
 
 export { DashboardHeader } from "./dashboard/DashboardHeader";
 export { MainFilters } from "./dashboard/MainFilters";
@@ -35,6 +36,7 @@ export type {
 } from "./ui/AdvancedFilterButton";
 
 export type { HoverBadgeListItem } from "./ui/HoverBadgeList";
+export type { DropdownSelectOption } from "./ui/DropdownSelect";
 
 export type {
     CalendarPreset,

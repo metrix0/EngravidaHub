@@ -6,6 +6,7 @@ import { __uiDemo as AdvancedFilterButtonDemo } from "@/components/ui/AdvancedFi
 import { __uiDemo as ButtonGroupDemo } from "@/components/ui/ButtonGroup";
 import { __uiDemo as CalendarButtonDemo } from "@/components/ui/CalendarButton";
 import { __uiDemo as CardDemo } from "@/components/ui/Card";
+import { __uiDemo as DropdownSelectDemo } from "@/components/ui/DropdownSelect";
 import { __uiDemo as FilterButtonDemo } from "@/components/ui/FilterButton";
 import { __uiDemo as HorizontalScrollerDemo } from "@/components/ui/HorizontalScroller";
 import { __uiDemo as InfoTooltipDemo } from "@/components/ui/InfoTooltip";
@@ -30,6 +31,10 @@ export const uiRegistry = [
   {
     name: "Card",
     ...CardDemo,
+  },
+  {
+    name: "DropdownSelect",
+    ...DropdownSelectDemo,
   },
   {
     name: "FilterButton",

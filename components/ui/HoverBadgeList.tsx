@@ -64,7 +64,7 @@ export function HoverBadgeList({
         <div
             ref={wrapperRef}
             onMouseEnter={handleMouseEnter}
-            className={`group relative min-w-0 max-w-full cursor-pointer ${className}`}
+            className={`group/badge-list relative min-w-0 max-w-full cursor-pointer ${className}`}
         >
             <div className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
                 {items.map((item) => (
@@ -78,7 +78,7 @@ export function HoverBadgeList({
             </div>
 
             <div
-                className={`pointer-events-none absolute top-full z-50 mt-2 ${popupMaxWidthClassName} rounded-2xl border border-slate-100 bg-white p-3 opacity-0 shadow-xl transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 ${
+                className={`pointer-events-none absolute top-full z-50 mt-2 ${popupMaxWidthClassName} rounded-2xl border border-slate-100 bg-white p-3 opacity-0 shadow-xl transition-all duration-150 ease-out group-hover/badge-list:pointer-events-auto group-hover/badge-list:translate-y-0 group-hover/badge-list:scale-100 group-hover/badge-list:opacity-100 ${
                     side === "right" ? "right-0" : "left-0"
                 } translate-y-1 scale-[0.98]`}
             >

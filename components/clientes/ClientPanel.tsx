@@ -3,6 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import {
+    Calendar,
     CalendarCheck,
     ChevronRight,
     CircleAlert,
@@ -166,8 +167,6 @@ export default function ClientPanel({
 
     if (!activeClientId) return null;
 
-    const title = loading ? "Carregando..." : data?.client.name ?? "Cliente sem nome";
-
     function handleClose() {
         setPanelOpen(false);
         window.setTimeout(() => {
@@ -181,111 +180,184 @@ export default function ClientPanel({
             open={panelOpen}
             title="Perfil do cliente"
             onClose={handleClose}
-            widthClassName="w-[620px]"
             zIndexClassName="z-40"
             headerContent={
-                <div className="min-w-0">
-                    <h3 className="truncate text-2xl font-bold text-text">
-                        {title}
-                    </h3>
-                    <p className="mt-1 truncate text-sm text-muted">
-                        {formatPhone(data?.client.phone ?? null)}
-                    </p>
-                </div>
+                loading || !data ? (
+                    <ClientPanelHeaderSkeleton />
+                ) : (
+                    <ClientPanelHeader client={data.client} />
+                )
             }
-            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-5"
+            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5"
         >
             {loading ? (
                 <ClientPanelSkeleton />
             ) : !data ? (
                 <EmptyPanelMessage message="Não foi possível carregar este cliente." />
             ) : (
-                <div className="space-y-5">
-                    <ClientInfoSection client={data.client} />
-                    <LiveConversationSection thread={data.live_thread} onOpenThread={onOpenThread} />
-                    <ConversationHistorySection conversations={data.conversations} onOpenConversation={onOpenConversation} />
+                <div className="space-y-4">
+                    <LiveConversationButton
+                        thread={data.live_thread}
+                        onOpenThread={onOpenThread}
+                    />
+
+                    <ConversationHistorySection
+                        conversations={data.conversations}
+                        onOpenConversation={onOpenConversation}
+                    />
                 </div>
             )}
         </DetailsSidePanel>
     );
 }
 
-function ClientInfoSection({ client }: { client: ClientDetail }) {
-    return (
-        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-            <div className="mb-5 flex items-center gap-4">
-                <InitialsAvatar name={client.name ?? "Cliente"} />
+function ClientPanelHeader({ client }: { client: ClientDetail }) {
+    const clientName = client.name ?? "Cliente sem nome";
+    const source = sourceLabel(client.utm_source);
+    const sourceTone = getSourceVariant(client.utm_source);
 
-                <div className="min-w-0">
-                    <div className="truncate text-lg font-bold text-text">
-                        {client.name ?? "Cliente sem nome"}
-                    </div>
-                    <div className="mt-1 text-sm text-muted">
-                        Cliente desde {formatDate(client.first_seen_at)}
+    return (
+        <>
+            <div className="mb-5 flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-4">
+                    <InitialsAvatar name={clientName} />
+
+                    <div className="min-w-0">
+                        <div
+                            title={clientName}
+                            className="truncate text-base font-bold text-slate-950"
+                        >
+                            {clientName}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                            <Phone size={15} />
+                            <span>{formatPhone(client.phone)}</span>
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                            <Calendar size={15} />
+                            <span>Cliente desde {formatDate(client.first_seen_at)}</span>
+                        </div>
                     </div>
                 </div>
+
+                <Chip label={source} tone={sourceTone} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-                <InfoItem icon={<Phone size={15} />} label="Telefone" value={formatPhone(client.phone)} />
-                <InfoItem icon={<Mail size={15} />} label="Email" value={client.email ?? "—"} />
-                <InfoItem icon={<MapPin size={15} />} label="Unidade" value={client.unit?.name ?? "—"} />
-                <InfoItem icon={<Filter size={15} />} label="Funil" value={client.pipeline?.name ?? "—"} />
-                <InfoItem icon={<CalendarCheck size={15} />} label="Estágio" value={client.stage?.name ?? "—"} />
-                <InfoItem icon={<Clock size={15} />} label="Última interação" value={timeAgo(client.last_interaction_at)} />
+            <div className="grid grid-cols-3 gap-4 text-xs">
+                <HeaderInfoItem
+                    icon={<Mail size={18} />}
+                    label="Email"
+                    value={client.email ?? "—"}
+                />
+
+                <HeaderInfoItem
+                    icon={<MapPin size={18} />}
+                    label="Unidade"
+                    value={client.unit?.name ?? "—"}
+                />
+
+                <HeaderInfoItem
+                    icon={<Filter size={18} />}
+                    label="Funil"
+                    value={client.pipeline?.name ?? "—"}
+                />
+
+                <HeaderInfoItem
+                    icon={<CalendarCheck size={18} />}
+                    label="Estágio"
+                    value={client.stage?.name ?? "—"}
+                />
+
+                <HeaderInfoItem
+                    icon={<Clock size={18} />}
+                    label="Última interação"
+                    value={timeAgo(client.last_interaction_at)}
+                />
+
+                <HeaderInfoItem
+                    icon={<Filter size={18} />}
+                    label="Origem"
+                    value={source}
+                />
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-                <Chip label={sourceLabel(client.utm_source)} tone={getSourceVariant(client.utm_source)} />
-                {client.utm_campaign && <Chip label={client.utm_campaign} tone={{ bg: "bg-slate-100", text: "text-slate-500" }} />}
-            </div>
-        </section>
+            {client.utm_campaign && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Chip
+                        label={client.utm_campaign}
+                        tone={{ bg: "bg-slate-100", text: "text-slate-500" }}
+                    />
+                </div>
+            )}
+        </>
     );
 }
 
-function LiveConversationSection({
+function HeaderInfoItem({
+    icon,
+    label,
+    value,
+}: {
+    icon: ReactNode;
+    label: string;
+    value: string;
+}) {
+    return (
+        <div className="flex min-w-0 items-start gap-2">
+            <div className="mt-0.5 text-slate-400">{icon}</div>
+
+            <div className="min-w-0">
+                <div className="text-slate-500">{label}</div>
+                <div title={value} className="truncate font-semibold text-slate-700">
+                    {value}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function LiveConversationButton({
     thread,
     onOpenThread,
 }: {
     thread: ClientLiveThread | null;
     onOpenThread: (threadId: string) => void;
 }) {
+    if (!thread) return null;
+
     return (
-        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-                <div>
-                    <h3 className="text-lg font-bold text-text">Conversas</h3>
-                    <p className="mt-1 text-xs text-muted">Conversa ao vivo e histórico do cliente</p>
+        <button
+            type="button"
+            onClick={() => onOpenThread(thread.id)}
+            className="group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-green/20 bg-soft-green px-4 py-4 text-left transition hover:bg-green/10"
+        >
+            <div className="min-w-0">
+                <div className="mb-1 flex items-center gap-2 text-sm font-bold text-green">
+                    <LiveHalo active small />
+                    <span>Conversa ao vivo</span>
                 </div>
-                <LiveHalo active={Boolean(thread)} />
+
+                <div className="truncate text-sm text-slate-700">
+                    {thread.last_message_text ?? "Sem prévia"}
+                </div>
+
+                <div className="mt-1 text-xs text-muted">
+                    {thread.last_message_at
+                        ? `${timeAgo(thread.last_message_at)} atrás`
+                        : "Sem mensagens"}
+                    {thread.unread_count > 0
+                        ? ` • ${thread.unread_count} não lidas`
+                        : ""}
+                </div>
             </div>
 
-            <div className="mb-3 flex items-center gap-2">
-                <LiveHalo active={Boolean(thread)} small />
-                <span className="text-sm font-bold text-slate-700">Conversa ao vivo</span>
-            </div>
-
-            {!thread ? (
-                <EmptyPanelMessage message="Nenhuma conversa ao vivo para este cliente." />
-            ) : (
-                <button
-                    type="button"
-                    onClick={() => onOpenThread(thread.id)}
-                    className="group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-green/20 bg-soft-green px-4 py-4 text-left transition hover:bg-green/10"
-                >
-                    <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-green">Ao vivo • {thread.channel}</div>
-                        <div className="mt-1 truncate text-sm text-slate-700">{thread.last_message_text ?? "Sem prévia"}</div>
-                        <div className="mt-1 text-xs text-muted">
-                            {thread.last_message_at ? `${timeAgo(thread.last_message_at)} atrás` : "Sem mensagens"}
-                            {thread.unread_count > 0 ? ` • ${thread.unread_count} não lidas` : ""}
-                        </div>
-                    </div>
-
-                    <ChevronRight size={17} className="justify-self-end text-green transition group-hover:translate-x-0.5" />
-                </button>
-            )}
-        </section>
+            <ChevronRight
+                size={17}
+                className="justify-self-end text-green transition group-hover:translate-x-0.5"
+            />
+        </button>
     );
 }
 
@@ -303,7 +375,9 @@ function ConversationHistorySection({
                     <h3 className="text-lg font-bold text-text">Histórico</h3>
                     <p className="mt-1 text-xs text-muted">Conversas anteriores deste cliente</p>
                 </div>
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-muted">{conversations.length}</span>
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-muted">
+                    {conversations.length}
+                </span>
             </div>
 
             {conversations.length === 0 ? (
@@ -327,32 +401,45 @@ function ConversationHistorySection({
                         >
                             <div className="min-w-0 pr-3">
                                 <div className="truncate font-semibold text-slate-700">
-                                    {formatConversationDateRange(conversation.started_at, conversation.ended_at)}
+                                    {formatConversationDateRange(
+                                        conversation.started_at,
+                                        conversation.ended_at,
+                                    )}
                                 </div>
-                                <div className="mt-1 truncate text-xs text-muted">{conversation.attendant_name}</div>
+                                <div className="mt-1 truncate text-xs text-muted">
+                                    {conversation.attendant_name}
+                                </div>
                             </div>
 
-                            <div className="truncate pr-3 text-slate-700" title={conversation.objective}>{conversation.objective}</div>
-                            <div><ConversationResultBadge result={conversation.result} /></div>
+                            <div
+                                className="truncate pr-3 text-slate-700"
+                                title={conversation.objective}
+                            >
+                                {conversation.objective}
+                            </div>
+
+                            <div>
+                                <ConversationResultBadge result={conversation.result} />
+                            </div>
+
                             <div className="flex items-center gap-2 text-slate-600">
-                                {conversation.notable && <CircleAlert size={14} className="text-orange" />}
+                                {conversation.notable && (
+                                    <CircleAlert size={14} className="text-orange" />
+                                )}
                                 {conversation.message_count}
                             </div>
-                            <div className="flex justify-end"><ChevronRight size={16} className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" /></div>
+
+                            <div className="flex justify-end">
+                                <ChevronRight
+                                    size={16}
+                                    className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700"
+                                />
+                            </div>
                         </button>
                     ))}
                 </div>
             )}
         </section>
-    );
-}
-
-function InfoItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-    return (
-        <div className="rounded-xl bg-slate-50 px-3 py-3">
-            <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted">{icon}{label}</div>
-            <div className="truncate text-sm font-semibold text-slate-700" title={value}>{value}</div>
-        </div>
     );
 }
 
@@ -368,11 +455,42 @@ function LiveHalo({ active, small = false }: { active: boolean; small?: boolean 
     );
 }
 
+function ClientPanelHeaderSkeleton() {
+    return (
+        <div>
+            <div className="mb-5 flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-4">
+                    <Skeleton className="h-9 w-9 rounded-full" />
+
+                    <div className="min-w-0 flex-1">
+                        <Skeleton className="h-4 w-36" />
+                        <Skeleton className="mt-3 h-3 w-28" />
+                        <Skeleton className="mt-3 h-3 w-40" />
+                    </div>
+                </div>
+
+                <Skeleton className="h-7 w-16 rounded-md" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="flex gap-2">
+                        <Skeleton className="h-4 w-4 rounded" />
+                        <div className="min-w-0 flex-1">
+                            <Skeleton className="h-3 w-14" />
+                            <Skeleton className="mt-2 h-3 w-20" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function ClientPanelSkeleton() {
     return (
         <div className="space-y-5">
-            <Skeleton className="h-44 rounded-2xl" />
-            <Skeleton className="h-32 rounded-2xl" />
+            <Skeleton className="h-16 rounded-xl" />
             <Skeleton className="h-64 rounded-2xl" />
         </div>
     );
