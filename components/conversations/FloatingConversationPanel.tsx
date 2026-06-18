@@ -5,15 +5,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     ChevronDown,
-    ChevronUp,
     ExternalLink,
-    MessageCircle,
     Phone,
     X,
 } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { ChatMessageList, type SharedChatMessage } from "@/components/conversations/ChatMessageList";
 import { DETAILS_SIDE_PANEL_STATE_EVENT } from "@/components/ui/DetailsSidePanel";
 
 type FloatingConversationTarget = {
@@ -21,14 +20,12 @@ type FloatingConversationTarget = {
     id: string;
 };
 
-type ConversationMessage = {
-    id: string;
+type ConversationMessage = SharedChatMessage & {
     client_id: string;
     conversation_id: string | null;
     thread_id: string | null;
     sender_type: string;
     sender_name: string | null;
-    text: string;
     sent_at: string;
     sequence_index: number;
 };
@@ -93,7 +90,8 @@ export function FloatingConversationPanel() {
     const [data, setData] = useState<FloatingConversationResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
-    const [dock, setDock] = useState<"bottom" | "top">("bottom");
+    const [collapsed, setCollapsed] = useState(false);
+    const [visible, setVisible] = useState(false);
 
     useEffect(() => {
         const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -112,12 +110,23 @@ export function FloatingConversationPanel() {
     }, []);
 
     useEffect(() => {
+        if (!target) return;
+
+        const timer = window.setTimeout(() => setVisible(true), 20);
+        setCollapsed(false);
+
+        return () => window.clearTimeout(timer);
+    }, [target]);
+
+    useEffect(() => {
         function handleOpen(event: Event) {
             const detail = (event as OpenFloatingConversationEvent).detail;
 
             if (!detail?.id || (detail.type !== "thread" && detail.type !== "conversation")) return;
 
             setTarget(detail);
+            setVisible(false);
+            setCollapsed(false);
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(detail));
         }
 
@@ -199,22 +208,42 @@ export function FloatingConversationPanel() {
     const detailsLabel = isLive ? "Abrir inbox" : "Abrir detalhes";
 
     const rightOffset = sidePanelOpen ? 484 : 24;
-    const verticalClass = dock === "bottom" ? "bottom-6" : "top-20";
+    const panelStateClass = !visible
+        ? "translate-y-4 opacity-0"
+        : collapsed
+            ? "translate-y-[calc(100%-52px)] opacity-100"
+            : "translate-y-0 opacity-100";
+
+    const attendantName = data?.conversation?.attendant_chat_name ?? null;
 
     const orderedMessages = useMemo(() => {
-        return [...(data?.messages ?? [])].sort((a, b) => {
-            const dateDiff = new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime();
-            if (dateDiff !== 0) return dateDiff;
-            return a.sequence_index - b.sequence_index;
-        });
-    }, [data?.messages]);
+        return [...(data?.messages ?? [])]
+            .sort((a, b) => {
+                const dateDiff = new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime();
+                if (dateDiff !== 0) return dateDiff;
+                return a.sequence_index - b.sequence_index;
+            })
+            .map((message) => ({
+                ...message,
+                sender_name: getDisplaySenderName(
+                    message.sender_name,
+                    message.sender_type,
+                    attendantName,
+                ),
+            }));
+    }, [data?.messages, attendantName]);
 
     if (!target) return null;
 
     function handleClose() {
-        setTarget(null);
-        setData(null);
-        window.localStorage.removeItem(STORAGE_KEY);
+        setVisible(false);
+
+        window.setTimeout(() => {
+            setTarget(null);
+            setData(null);
+            setCollapsed(false);
+            window.localStorage.removeItem(STORAGE_KEY);
+        }, 180);
     }
 
     function handleOpenDetails() {
@@ -234,7 +263,7 @@ export function FloatingConversationPanel() {
 
     return (
         <div
-            className={`fixed ${verticalClass} z-[35] w-[365px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-[right,top,bottom,transform,opacity] duration-200`}
+            className={`fixed bottom-6 z-[35] w-[365px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-[right,transform,opacity] duration-300 ease-out ${panelStateClass}`}
             style={{ right: rightOffset }}
         >
             <div className="border-b border-slate-100 px-4 py-3">
@@ -273,11 +302,14 @@ export function FloatingConversationPanel() {
                     <div className="flex shrink-0 items-center gap-1">
                         <button
                             type="button"
-                            onClick={() => setDock((current) => current === "bottom" ? "top" : "bottom")}
+                            onClick={() => setCollapsed((current) => !current)}
                             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                            title={dock === "bottom" ? "Mover para cima" : "Mover para baixo"}
+                            title={collapsed ? "Mostrar conversa" : "Ocultar conversa"}
                         >
-                            {dock === "bottom" ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            <ChevronDown
+                                size={16}
+                                className={`transition-transform duration-300 ${collapsed ? "rotate-180" : "rotate-0"}`}
+                            />
                         </button>
 
                         <button
@@ -301,91 +333,52 @@ export function FloatingConversationPanel() {
                 </button>
             </div>
 
-            <div className="h-[360px] overflow-y-auto bg-slate-50 px-4 py-4 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
-                {loading ? (
+            <ChatMessageList
+                messages={orderedMessages}
+                isLoading={loading}
+                skeleton={(
                     <div className="space-y-3">
                         <Skeleton className="h-14 w-[75%] rounded-2xl" />
                         <Skeleton className="ml-auto h-14 w-[65%] rounded-2xl" />
                         <Skeleton className="h-14 w-[82%] rounded-2xl" />
                     </div>
-                ) : !data ? (
-                    <EmptyState text="Não foi possível carregar esta conversa." />
-                ) : orderedMessages.length === 0 ? (
-                    <EmptyState text="Nenhuma mensagem encontrada." />
-                ) : (
-                    <div className="space-y-3">
-                        {orderedMessages.map((message) => (
-                            <MessageBubble key={message.id} message={message} />
-                        ))}
-                    </div>
                 )}
-            </div>
+                emptyMessage={!data ? "Não foi possível carregar esta conversa." : "Nenhuma mensagem encontrada."}
+                className="h-[360px] overflow-y-auto bg-slate-50 px-4 py-4"
+            />
         </div>
     );
 }
 
-function MessageBubble({ message }: { message: ConversationMessage }) {
-    const fromClient = isClientSender(message.sender_type);
-    const label = fromClient
-        ? "Cliente"
-        : message.sender_name ?? getSenderLabel(message.sender_type);
 
-    return (
-        <div className={`flex ${fromClient ? "justify-start" : "justify-end"}`}>
-            <div
-                className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
-                    fromClient
-                        ? "bg-white text-slate-700"
-                        : "bg-brand text-white"
-                }`}
-            >
-                <div
-                    className={`mb-1 text-[11px] font-bold ${
-                        fromClient ? "text-slate-400" : "text-white/75"
-                    }`}
-                >
-                    {label} • {formatTime(message.sent_at)}
-                </div>
+function getDisplaySenderName(
+    senderName: string | null,
+    senderType: string | null,
+    fallbackAttendantName: string | null,
+) {
+    const rawName = senderName?.trim() ?? "";
+    const normalizedSenderType = normalize(senderType ?? "");
+    const fromAttendant =
+        normalizedSenderType.includes("attendant") ||
+        normalizedSenderType.includes("atendente") ||
+        normalizedSenderType.includes("bot") ||
+        normalizedSenderType.includes("system") ||
+        normalizedSenderType.includes("sistema");
 
-                <div className="whitespace-pre-wrap leading-relaxed">{message.text}</div>
-            </div>
-        </div>
-    );
+    if (!fromAttendant) return rawName || senderName;
+    if (rawName && !isEmail(rawName)) return rawName;
+    if (fallbackAttendantName && !isEmail(fallbackAttendantName)) return fallbackAttendantName;
+    if (normalizedSenderType.includes("bot")) return "Bot";
+    if (normalizedSenderType.includes("system") || normalizedSenderType.includes("sistema")) return "Sistema";
+
+    return "Atendente";
 }
 
-function EmptyState({ text }: { text: string }) {
-    return (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm font-medium text-slate-400">
-            <MessageCircle className="mx-auto mb-3 h-5 w-5" />
-            {text}
-        </div>
-    );
+function isEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function formatPhone(phone: string | null) {
     if (!phone) return "Sem telefone";
     return phone.split("+55")[1] ?? phone;
-}
-
-function formatTime(date: string) {
-    return new Intl.DateTimeFormat("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-    }).format(new Date(date));
-}
-
-function normalize(value: string) {
-    return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-}
-
-function isClientSender(senderType: string) {
-    const normalized = normalize(senderType);
-
-    return ["client", "cliente", "customer", "user", "contact"].some((value) =>
-        normalized.includes(value),
-    );
-}
-
-function getSenderLabel(senderType: string) {
-    return isClientSender(senderType) ? "Cliente" : "Atendente";
 }

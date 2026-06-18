@@ -35,7 +35,6 @@ import type { FiltersResponse } from "@/types";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import ClientPanel from "@/components/clientes/ClientPanel";
-import ThreadConversationPanel from "@/components/clientes/ThreadConversationPanel";
 
 type FunnelStage = {
     id: string;
@@ -216,7 +215,6 @@ export default function ClientesPage() {
 
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-    const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
     const [period, setPeriod] = useState<CalendarPresetValue | null>("always");
     const [selectedRange, setSelectedRange] = useState<DateRange>({
@@ -568,7 +566,6 @@ export default function ClientesPage() {
                 clientId={selectedClientId}
                 onClose={() => setSelectedClientId(null)}
                 onOpenConversation={setSelectedConversationId}
-                onOpenThread={setSelectedThreadId}
             />
 
             <ConversationPanel
@@ -576,10 +573,7 @@ export default function ClientesPage() {
                 onClose={() => setSelectedConversationId(null)}
             />
 
-            <ThreadConversationPanel
-                threadId={selectedThreadId}
-                onClose={() => setSelectedThreadId(null)}
-            />
+
         </main>
     );
 }

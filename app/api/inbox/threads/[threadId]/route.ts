@@ -382,7 +382,7 @@ function mapThreadBase(row: any): Omit<InboxThreadDetail, "messages" | "notes"> 
 
         city: client?.state ?? null,
 
-        funnel: funil?.name ?? "Sem funil",
+        funnel: funnel?.name ?? "Sem funil",
         funnelStage: stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
 

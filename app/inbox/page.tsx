@@ -12,7 +12,6 @@ import {
     Funnel,
     MapPin,
     MessagesSquare,
-    MoreVertical,
     Paperclip,
     Search,
     Send,
@@ -24,6 +23,8 @@ import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
+import { ChatMessageList } from "@/components/conversations/ChatMessageList";
+import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import SidePanel from "@/components/layout/SidePanel";
 
 import {
@@ -328,6 +329,7 @@ export default function InboxPage() {
                                     headerConversation={
                                         selectedThreadMatchesSelection ? selectedThread : selectedListThread
                                     }
+                                    threadId={selectedId}
                                     onSendMessage={handleSendMessage}
                                     isLoading={isClientLoading}
                                 />
@@ -554,11 +556,13 @@ function ConversationListItem({
 function ChatPanel({
                        conversation,
                        headerConversation,
+                       threadId,
                        onSendMessage,
                        isLoading,
                    }: {
     conversation: Conversation | null;
     headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
+    threadId: string | null;
     onSendMessage: (text: string) => Promise<void>;
     isLoading: boolean;
 }) {
@@ -622,42 +626,26 @@ function ChatPanel({
 
                     <button
                         type="button"
-                        className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                        disabled={!threadId}
+                        title="Abrir como conversa flutuante"
+                        onClick={() => {
+                            if (!threadId) return;
+                            openFloatingConversation({type: "thread", id: threadId});
+                        }}
+                        className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        <MoreVertical size={18}/>
+                        <MessagesSquare size={18}/>
                     </button>
                 </div>
             </div>
 
-            <div
-                className={`min-h-0 flex-1 overflow-y-auto bg-slate-50/40 px-5 py-5 ${scrollbarClass}`}
-            >
-                <div className="mb-6 flex items-center justify-center gap-4">
-                    <div className="h-px w-44 bg-slate-200"/>
-                    <span className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
-                        Hoje
-                    </span>
-                    <div className="h-px w-44 bg-slate-200"/>
-                </div>
-
-                <div className="space-y-6">
-                    {isLoading && !conversation ? (
-                        <ChatMessagesSkeleton />
-                    ) : (
-                        <>
-                            {conversation?.messages.map((message) => (
-                                <ChatBubble key={message.id} message={message}/>
-                            ))}
-
-                            {conversation?.messages.length === 0 && (
-                                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
-                                    Nenhuma mensagem nesta conversa.
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-            </div>
+            <ChatMessageList
+                messages={conversation?.messages ?? []}
+                isLoading={isLoading && !conversation}
+                skeleton={<ChatMessagesSkeleton />}
+                emptyMessage="Nenhuma mensagem nesta conversa."
+                scrollbarClassName={scrollbarClass}
+            />
 
             <div className="shrink-0 border-t border-slate-100 p-1 px-2 pb-0">
                 <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
@@ -720,36 +708,6 @@ function ChatPanel({
                 </div>
             </div>
         </Card>
-    );
-}
-
-function ChatBubble({
-                        message,
-                    }: {
-    message: Conversation["messages"][number];
-}) {
-    const isAttendant = message.from === "attendant";
-
-    return (
-        <div className={`flex ${isAttendant ? "justify-end" : "justify-start"}`}>
-            <div
-                className={`max-w-[min(72%,520px)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                    isAttendant
-                        ? "rounded-br-sm bg-brand text-white"
-                        : "rounded-bl-sm bg-white text-slate-800"
-                }`}
-            >
-                <p>{message.text}</p>
-
-                <div
-                    className={`text-right text-xs ${
-                        isAttendant ? "text-white/80" : "text-slate-400"
-                    }`}
-                >
-                    {message.time}
-                </div>
-            </div>
-        </div>
     );
 }
 
