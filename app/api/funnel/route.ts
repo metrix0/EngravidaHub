@@ -1,10 +1,10 @@
-// app/api/pipeline/route.ts
+// app/api/funnel/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
-type PipelineStage = {
+type FunnelStage = {
     id: string;
-    pipeline_id: string;
+    funnel_id: string;
     name: string;
 };
 
@@ -14,7 +14,7 @@ type Unit = {
     active: boolean;
 };
 
-type PipelineHistoryMove = {
+type FunnelHistoryMove = {
     client_id: string;
     from_stage_id: string | null;
     to_stage_id: string | null;
@@ -25,14 +25,14 @@ type DateRange = {
     end: string;
 };
 
-const DEFAULT_PIPELINE_ID = "22222222-2222-2222-2222-222222222222";
+const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 const DEFAULT_DAYS = 30;
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
 
-    const selectedPipelineId =
-        searchParams.get("pipeline_id") ?? DEFAULT_PIPELINE_ID;
+    const selectedFunnelId =
+        searchParams.get("funnel_id") ?? DEFAULT_FUNNEL_ID;
     const unitIds = parseIds(searchParams.get("unit_ids"));
 
     const currentRange = getDateRange({
@@ -44,21 +44,21 @@ export async function GET(request: Request) {
     const previousRange = getPreviousDateRange(currentRange);
 
     const [
-        { data: pipelines, error: pipelinesError },
+        { data: funnels, error: funnelsError },
         { data: stages, error: stagesError },
         { data: units, error: unitsError },
         clientsResult,
         unitClientIdsResult,
     ] = await Promise.all([
         supabase
-            .from("pipelines")
+            .from("funnels")
             .select("id, name, active, created_at, updated_at")
             .eq("active", true)
             .order("created_at", { ascending: true }),
 
         supabase
-            .from("pipeline_stages")
-            .select("id, pipeline_id, name, position, color, created_at, updated_at")
+            .from("funnel_stages")
+            .select("id, funnel_id, name, position, color, created_at, updated_at")
             .order("position", { ascending: true }),
 
         supabase
@@ -67,13 +67,13 @@ export async function GET(request: Request) {
             .eq("active", true)
             .order("name"),
 
-        getPipelineClients({ unitIds }),
+        getFunnelClients({ unitIds }),
 
         getClientIdsForUnitFilter(unitIds),
     ]);
 
     if (
-        pipelinesError ||
+        funnelsError ||
         stagesError ||
         unitsError ||
         clientsResult.error ||
@@ -81,9 +81,9 @@ export async function GET(request: Request) {
     ) {
         return NextResponse.json(
             {
-                error: "Failed to load pipeline data",
+                error: "Failed to load funnel data",
                 details: {
-                    pipelinesError,
+                    funnelsError,
                     stagesError,
                     unitsError,
                     clientsError: clientsResult.error,
@@ -95,13 +95,13 @@ export async function GET(request: Request) {
     }
 
     const [currentHistoryResult, previousHistoryResult] = await Promise.all([
-        getPipelineHistory({
-            pipelineId: selectedPipelineId,
+        getFunnelHistory({
+            funnelId: selectedFunnelId,
             dateRange: currentRange,
             clientIds: unitClientIdsResult.clientIds,
         }),
-        getPipelineHistory({
-            pipelineId: selectedPipelineId,
+        getFunnelHistory({
+            funnelId: selectedFunnelId,
             dateRange: previousRange,
             clientIds: unitClientIdsResult.clientIds,
         }),
@@ -110,7 +110,7 @@ export async function GET(request: Request) {
     if (currentHistoryResult.error || previousHistoryResult.error) {
         return NextResponse.json(
             {
-                error: "Failed to load pipeline history",
+                error: "Failed to load funnel history",
                 details: {
                     currentHistoryError: currentHistoryResult.error,
                     previousHistoryError: previousHistoryResult.error,
@@ -120,31 +120,31 @@ export async function GET(request: Request) {
         );
     }
 
-    const pipelineStages = (stages ?? []) as PipelineStage[];
+    const funnelStages = (stages ?? []) as FunnelStage[];
     const currentMoves = currentHistoryResult.history;
     const previousMoves = previousHistoryResult.history;
 
     return NextResponse.json({
-        pipelines: pipelines ?? [],
+        funnels: funnels ?? [],
         stages: stages ?? [],
         units: units ?? [],
         clients: clientsResult.clients,
 
-        kpis: buildPipelineKpis({
+        kpis: buildFunnelKpis({
             history: currentMoves,
-            stages: pipelineStages,
-            pipelineId: selectedPipelineId,
+            stages: funnelStages,
+            funnelId: selectedFunnelId,
         }),
 
-        previous_kpis: buildPipelineKpis({
+        previous_kpis: buildFunnelKpis({
             history: previousMoves,
-            stages: pipelineStages,
-            pipelineId: selectedPipelineId,
+            stages: funnelStages,
+            funnelId: selectedFunnelId,
         }),
     });
 }
 
-async function getPipelineClients({ unitIds }: { unitIds: string[] }) {
+async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
     let query = supabase
         .from("clients")
         .select(
@@ -156,7 +156,7 @@ async function getPipelineClients({ unitIds }: { unitIds: string[] }) {
             external_contact_id,
             first_seen_at,
             last_interaction_at,
-            pipeline_stage_id,
+            funnel_stage_id,
             unit_id,
             utm_source,
             utm_medium,
@@ -167,7 +167,7 @@ async function getPipelineClients({ unitIds }: { unitIds: string[] }) {
             updated_at
             `
         )
-        .not("pipeline_stage_id", "is", null)
+        .not("funnel_stage_id", "is", null)
         .order("last_interaction_at", { ascending: false });
 
     if (unitIds.length > 0) {
@@ -201,30 +201,30 @@ async function getClientIdsForUnitFilter(unitIds: string[]) {
     };
 }
 
-async function getPipelineHistory({
-                                      pipelineId,
+async function getFunnelHistory({
+                                      funnelId,
                                       dateRange,
                                       clientIds,
                                   }: {
-    pipelineId: string;
+    funnelId: string;
     dateRange: DateRange;
     clientIds: string[] | null;
 }) {
     if (clientIds && clientIds.length === 0) {
         return {
-            history: [] as PipelineHistoryMove[],
+            history: [] as FunnelHistoryMove[],
             error: null,
         };
     }
 
-    const history: PipelineHistoryMove[] = [];
+    const history: FunnelHistoryMove[] = [];
     const clientIdBatches = clientIds ? chunk(clientIds, 100) : [null];
 
     for (const clientIdBatch of clientIdBatches) {
         let query = supabase
-            .from("pipeline_history")
+            .from("funnel_history")
             .select("client_id, from_stage_id, to_stage_id")
-            .eq("pipeline_id", pipelineId)
+            .eq("funnel_id", funnelId)
             .gte("moved_at", dateRange.start)
             .lte("moved_at", dateRange.end);
 
@@ -241,7 +241,7 @@ async function getPipelineHistory({
             };
         }
 
-        history.push(...((data ?? []) as PipelineHistoryMove[]));
+        history.push(...((data ?? []) as FunnelHistoryMove[]));
     }
 
     return {
@@ -250,22 +250,22 @@ async function getPipelineHistory({
     };
 }
 
-function buildPipelineKpis({
+function buildFunnelKpis({
                                history,
                                stages,
-                               pipelineId,
+                               funnelId,
                            }: {
-    history: PipelineHistoryMove[];
-    stages: PipelineStage[];
-    pipelineId: string;
+    history: FunnelHistoryMove[];
+    stages: FunnelStage[];
+    funnelId: string;
 }) {
     const stageById = new Map(
         stages
-            .filter((stage) => stage.pipeline_id === pipelineId)
+            .filter((stage) => stage.funnel_id === funnelId)
             .map((stage) => [stage.id, stage])
     );
 
-    const pipelineEntries = countUniqueClients(
+    const funnelEntries = countUniqueClients(
         history.filter((move) => move.from_stage_id === null && move.to_stage_id)
     );
 
@@ -289,7 +289,7 @@ function buildPipelineKpis({
     const proceduresScheduled = countUniqueClients(evaluationToProcedureMoves);
 
     return {
-        pipeline_entries: pipelineEntries,
+        funnel_entries: funnelEntries,
         evaluations_done: evaluationsDone,
         procedures_scheduled: proceduresScheduled,
         procedure_conversion_rate: percentage(
@@ -301,14 +301,14 @@ function buildPipelineKpis({
 
 function getStageName(
     stageId: string | null,
-    stageById: Map<string, PipelineStage>
+    stageById: Map<string, FunnelStage>
 ) {
     if (!stageId) return "";
 
     return normalize(stageById.get(stageId)?.name ?? "");
 }
 
-function countUniqueClients(history: PipelineHistoryMove[]) {
+function countUniqueClients(history: FunnelHistoryMove[]) {
     return new Set(history.map((move) => move.client_id).filter(Boolean)).size;
 }
 

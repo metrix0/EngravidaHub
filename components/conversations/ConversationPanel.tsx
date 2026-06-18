@@ -113,7 +113,7 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
         const startedAt = Date.now();
 
         try {
-            const response = await fetch(`/api/dashboard/mensagens/${nextConversationId}`);
+            const response = await fetch(`/api/dashboard/conversas/${nextConversationId}`);
             const json: PanelData = await response.json();
 
             const elapsed = Date.now() - startedAt;

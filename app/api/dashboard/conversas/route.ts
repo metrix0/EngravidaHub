@@ -1,4 +1,4 @@
-// app/api/dashboard/mensagens/route.ts
+// app/api/dashboard/conversas/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 

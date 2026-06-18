@@ -41,14 +41,14 @@ export async function GET(
                 country,
                 utm_source,
                 utm_campaign,
-                pipeline_stage_id,
+                funnel_stage_id,
                 notes,
-                pipeline_stages (
+                funnel_stages (
                     id,
                     name,
                     position,
                     color,
-                    pipelines (
+                    funnels (
                         id,
                         name
                     )
@@ -176,10 +176,10 @@ export async function PATCH(
         }
     }
 
-    if (body.pipeline_stage_id) {
+    if (body.funnel_stage_id) {
         const result = await moveClientToStage({
             threadId,
-            toStageId: body.pipeline_stage_id,
+            toStageId: body.funnel_stage_id,
             attendantId: attendant.id,
         });
 
@@ -226,10 +226,10 @@ async function moveClientByDirection({
             assigned_attendant_id,
             clients (
                 id,
-                pipeline_stage_id,
-                pipeline_stages (
+                funnel_stage_id,
+                funnel_stages (
                     id,
-                    pipeline_id,
+                    funnel_id,
                     position
                 )
             )
@@ -247,16 +247,16 @@ async function moveClientByDirection({
     }
 
     const client = thread.clients as any;
-    const currentStage = client?.pipeline_stages;
+    const currentStage = client?.funnel_stages;
 
-    if (!client?.pipeline_stage_id || !currentStage?.pipeline_id) {
-        return { ok: false, error: "Client has no current pipeline stage" };
+    if (!client?.funnel_stage_id || !currentStage?.funnel_id) {
+        return { ok: false, error: "Client has no current funnel stage" };
     }
 
     let query = supabase
-        .from("pipeline_stages")
+        .from("funnel_stages")
         .select("*")
-        .eq("pipeline_id", currentStage.pipeline_id)
+        .eq("funnel_id", currentStage.funnel_id)
         .order("position", { ascending: direction === "next" })
         .limit(1);
 
@@ -301,7 +301,7 @@ async function moveClientToStage({
             assigned_attendant_id,
             clients (
                 id,
-                pipeline_stage_id
+                funnel_stage_id
             )
         `)
         .eq("id", threadId)
@@ -317,11 +317,11 @@ async function moveClientToStage({
     }
 
     const client = thread.clients as any;
-    const fromStageId = client?.pipeline_stage_id ?? null;
+    const fromStageId = client?.funnel_stage_id ?? null;
 
     const { data: toStage, error: toStageError } = await supabase
-        .from("pipeline_stages")
-        .select("id, pipeline_id")
+        .from("funnel_stages")
+        .select("id, funnel_id")
         .eq("id", toStageId)
         .maybeSingle();
 
@@ -330,21 +330,21 @@ async function moveClientToStage({
     }
 
     if (!toStage) {
-        return { ok: false, error: "Pipeline stage not found" };
+        return { ok: false, error: "Funnel stage not found" };
     }
 
     const { error: updateError } = await supabase
         .from("clients")
-        .update({ pipeline_stage_id: toStageId })
+        .update({ funnel_stage_id: toStageId })
         .eq("id", thread.client_id);
 
     if (updateError) {
         return { ok: false, error: updateError.message };
     }
 
-    await supabase.from("pipeline_history").insert({
+    await supabase.from("funnel_history").insert({
         client_id: thread.client_id,
-        pipeline_id: toStage.pipeline_id,
+        funnel_id: toStage.funnel_id,
         from_stage_id: fromStageId,
         to_stage_id: toStageId,
         moved_by_attendant_id: thread.assigned_attendant_id ?? null,
@@ -359,8 +359,8 @@ function mapThreadBase(row: any): Omit<InboxThreadDetail, "messages" | "notes"> 
     const attendant = row.attendants;
     const conversation = row.conversations;
     const analysis = conversation?.analysis;
-    const stage = client?.pipeline_stages;
-    const pipeline = stage?.pipelines;
+    const stage = client?.funnel_stages;
+    const funnel = stage?.funnels;
 
     const name = client?.name ?? "Cliente sem nome";
 
@@ -382,9 +382,9 @@ function mapThreadBase(row: any): Omit<InboxThreadDetail, "messages" | "notes"> 
 
         city: client?.state ?? null,
 
-        funnel: pipeline?.name ?? "Sem funil",
+        funnel: funil?.name ?? "Sem funil",
         funnelStage: stage?.name ?? "Sem etapa",
-        pipeline_stage_id: client?.pipeline_stage_id ?? null,
+        funnel_stage_id: client?.funnel_stage_id ?? null,
 
         intent:
             analysis?.customer_start_intent ??

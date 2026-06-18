@@ -1,4 +1,4 @@
-// app/api/pipeline/available-clients/route.ts
+// app/api/funnel/available-clients/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
@@ -15,7 +15,7 @@ export async function GET() {
                 name,
                 phone,
                 email,
-                pipeline_stage_id,
+                funnel_stage_id,
                 first_seen_at,
                 last_interaction_at,
                 utm_source,
@@ -28,8 +28,8 @@ export async function GET() {
             .order("last_interaction_at", { ascending: false }),
 
         supabase
-            .from("pipeline_stages")
-            .select("id, pipeline_id, name, position, color")
+            .from("funnel_stages")
+            .select("id, funnel_id, name, position, color")
             .order("position", { ascending: true }),
     ]);
 

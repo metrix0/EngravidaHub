@@ -58,13 +58,13 @@ export async function GET(request: Request) {
                 country,
                 utm_source,
                 utm_campaign,
-                pipeline_stage_id,
-                pipeline_stages (
+                funnel_stage_id,
+                funnel_stages (
                     id,
                     name,
                     position,
                     color,
-                    pipelines (
+                    funnels (
                         id,
                         name
                     )
@@ -146,8 +146,8 @@ function mapThreadRow(row: any): InboxThreadListItem {
     const attendant = row.attendants;
     const conversation = row.conversations;
     const analysis = conversation?.analysis;
-    const stage = client?.pipeline_stages;
-    const pipeline = stage?.pipelines;
+    const stage = client?.funnel_stages;
+    const funnel = stage?.funnels;
 
     const name = client?.name ?? "Cliente sem nome";
 
@@ -169,9 +169,9 @@ function mapThreadRow(row: any): InboxThreadListItem {
 
         city: client?.state ?? null,
 
-        funnel: pipeline?.name ?? "Sem funil",
+        funnel: funnel?.name ?? "Sem funil",
         funnelStage: stage?.name ?? "Sem etapa",
-        pipeline_stage_id: client?.pipeline_stage_id ?? null,
+        funnel_stage_id: client?.funnel_stage_id ?? null,
 
         intent:
             analysis?.customer_start_intent ??

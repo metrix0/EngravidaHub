@@ -1,10 +1,10 @@
-// app/api/pipeline/client-stage/route.ts
+// app/api/funnel/client-stage/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
 type ClientStageRequest = {
     client_id?: string;
-    pipeline_id?: string;
+    funnel_id?: string;
     from_stage_id?: string | null;
     to_stage_id?: string | null;
     moved_by_attendant_id?: string | null;
@@ -15,7 +15,7 @@ export async function PATCH(request: Request) {
 
     const {
         client_id,
-        pipeline_id,
+        funnel_id,
         from_stage_id = null,
         to_stage_id = null,
         moved_by_attendant_id = null,
@@ -28,16 +28,16 @@ export async function PATCH(request: Request) {
         );
     }
 
-    if (!pipeline_id) {
+    if (!funnel_id) {
         return NextResponse.json(
-            { error: "pipeline_id is required" },
+            { error: "funnel_id is required" },
             { status: 400 }
         );
     }
 
     const { data: client, error: clientError } = await supabase
         .from("clients")
-        .select("id, pipeline_stage_id")
+        .select("id, funnel_stage_id")
         .eq("id", client_id)
         .single();
 
@@ -51,12 +51,12 @@ export async function PATCH(request: Request) {
         );
     }
 
-    const currentStageId = client.pipeline_stage_id ?? null;
+    const currentStageId = client.funnel_stage_id ?? null;
 
     if (currentStageId === to_stage_id) {
         return NextResponse.json({
             client,
-            removed_from_pipeline: to_stage_id === null,
+            removed_from_funnel: to_stage_id === null,
             unchanged: true,
         });
     }
@@ -64,7 +64,7 @@ export async function PATCH(request: Request) {
     const { data: updatedClient, error: updateError } = await supabase
         .from("clients")
         .update({
-            pipeline_stage_id: to_stage_id,
+            funnel_stage_id: to_stage_id,
             updated_at: new Date().toISOString(),
         })
         .eq("id", client_id)
@@ -76,7 +76,7 @@ export async function PATCH(request: Request) {
             email,
             first_seen_at,
             last_interaction_at,
-            pipeline_stage_id,
+            funnel_stage_id,
             utm_source,
             utm_medium,
             utm_campaign,
@@ -89,7 +89,7 @@ export async function PATCH(request: Request) {
     if (updateError || !updatedClient) {
         return NextResponse.json(
             {
-                error: "Failed to update client pipeline stage",
+                error: "Failed to update client funnel stage",
                 details: updateError,
             },
             { status: 500 }
@@ -99,15 +99,15 @@ export async function PATCH(request: Request) {
     if (to_stage_id === null) {
         return NextResponse.json({
             client: updatedClient,
-            removed_from_pipeline: true,
+            removed_from_funnel: true,
         });
     }
 
     const { error: historyError } = await supabase
-        .from("pipeline_history")
+        .from("funnel_history")
         .insert({
             client_id,
-            pipeline_id,
+            funnel_id,
             from_stage_id: from_stage_id ?? currentStageId,
             to_stage_id,
             moved_by_attendant_id,
@@ -116,7 +116,7 @@ export async function PATCH(request: Request) {
     if (historyError) {
         return NextResponse.json(
             {
-                error: "Client stage updated, but failed to create pipeline history",
+                error: "Client stage updated, but failed to create funnel history",
                 details: historyError,
                 client: updatedClient,
             },
@@ -126,6 +126,6 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({
         client: updatedClient,
-        removed_from_pipeline: false,
+        removed_from_funnel: false,
     });
 }

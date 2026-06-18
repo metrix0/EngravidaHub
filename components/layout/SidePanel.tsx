@@ -70,7 +70,7 @@ const defaultItems: SidePanelEntry[] = [
     {type: "separator", id: "crm"},
     {label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18}/>},
     {label: "Clientes", href: "/clientes", icon: <Users size={18}/>},
-    {label: "Mensagens", href: "/mensagens", icon: <MessageCircle size={18}/>},
+    {label: "Conversas", href: "/conversas", icon: <MessageCircle size={18}/>},
     {label: "Funil", href: "/funil", icon: <Funnel size={18}/>},
 
     //

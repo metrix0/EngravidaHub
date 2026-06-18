@@ -1,5 +1,5 @@
-// types/pipeline.ts
-export type Pipeline = {
+// types/funnel.ts
+export type Funnel = {
     id: string;
     name: string;
     active: boolean;
@@ -7,9 +7,9 @@ export type Pipeline = {
     updated_at: string;
 };
 
-export type PipelineStage = {
+export type FunnelStage = {
     id: string;
-    pipeline_id: string;
+    funnel_id: string;
     name: string;
     position: number;
     color: string | null;

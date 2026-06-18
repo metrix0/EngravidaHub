@@ -294,7 +294,7 @@ function buildSheetCandidates(rows: SheetRow[]): SheetCandidate[] {
         if (!date) continue;
 
         const tunnel = emptyToNull(
-            getFirstColumnValue(row, ["Tunnel", "Túnel", "Funil"])
+            getFirstColumnValue(row, ["Tunnel", "Túnel", "Funil", "Funnel"])
         );
 
         const origin = emptyToNull(

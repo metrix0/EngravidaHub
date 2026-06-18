@@ -108,7 +108,7 @@ async function fetchClient(clientId: string) {
             first_seen_at,
             last_interaction_at,
             unit_id,
-            pipeline_stage_id,
+            funnel_stage_id,
             utm_source,
             utm_medium,
             utm_campaign

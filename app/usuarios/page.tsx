@@ -29,7 +29,7 @@ import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 
 type TabId =
     | "dashboard"
-    | "mensagens"
+    | "conversas"
     | "jornada"
     | "eventos"
     | "usuarios"
@@ -117,9 +117,9 @@ const TABS: PermissionTab[] = [
         position: 10,
     },
     {
-        id: "mensagens",
-        label: "Mensagens",
-        href: "/mensagens",
+        id: "conversas",
+        label: "Conversas",
+        href: "/conversas",
         color: "green",
         position: 20,
     },
@@ -175,7 +175,7 @@ const PRESETS: PermissionPreset[] = [
         icon: "crown",
         default_tabs: [
             "dashboard",
-            "mensagens",
+            "conversas",
             "jornada",
             "eventos",
             "usuarios",
@@ -191,7 +191,7 @@ const PRESETS: PermissionPreset[] = [
         icon: "briefcase",
         default_tabs: [
             "dashboard",
-            "mensagens",
+            "conversas",
             "jornada",
             "eventos",
             "inbox",
@@ -368,7 +368,7 @@ export default function UsuariosPage() {
                 tabs: tabsFromIds(allowedTabs),
                 attendant,
                 attendant_id: attendant?.id ?? permission?.attendant_id ?? null,
-                unit_name: attendant?.unit_name ?? EMPTY_VALUE,
+                unit_name: "Todas",
                 active: permission?.active ?? true,
             };
         });
@@ -552,7 +552,7 @@ export default function UsuariosPage() {
             label: "Unidade",
             width: "12%",
             render: (user) => (
-                <div title={user.unit_name} className="truncate text-slate-700">
+                <div title={user.unit_name} className="truncate text-slate-700 ml-1">
                     {user.unit_name}
                 </div>
             ),

@@ -1,4 +1,4 @@
-// app/mensagens/page.tsx
+// app/conversas/page.tsx
 "use client";
 
 import {useEffect, useState} from "react";
@@ -250,7 +250,7 @@ export default function MessagesPage() {
 
             try {
                 const response = await fetch(
-                    `/api/dashboard/mensagens?${params.toString()}`
+                    `/api/dashboard/conversas?${params.toString()}`
                 );
                 const json: ConversationsResponse = await response.json();
 
@@ -301,7 +301,7 @@ export default function MessagesPage() {
 
             <section className="flex-1 px-8 py-8">
                 <DashboardHeader
-                    title="Mensagens"
+                    title="Conversas"
                     description="Visualize e explore todas as conversas com seus clientes"
                     period={period}
                     setPeriod={resetPageAndSet(setPeriod)}

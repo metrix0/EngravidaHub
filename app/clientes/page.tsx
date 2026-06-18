@@ -37,14 +37,14 @@ import { ConversationPanel } from "@/components/conversations/ConversationPanel"
 import ClientPanel from "@/components/clientes/ClientPanel";
 import ThreadConversationPanel from "@/components/clientes/ThreadConversationPanel";
 
-type PipelineStage = {
+type FunnelStage = {
     id: string;
-    pipeline_id: string;
+    funnel_id: string;
     name: string;
     position: number;
     color: string | null;
-    pipeline_name?: string | null;
-    pipeline?: {
+    funnel_name?: string | null;
+    funnel?: {
         id: string;
         name: string | null;
     } | null;
@@ -55,7 +55,7 @@ type Client = {
     name: string | null;
     phone: string | null;
     email: string | null;
-    pipeline_stage_id: string | null;
+    funnel_stage_id: string | null;
     first_seen_at: string;
     last_interaction_at: string;
     utm_source: string | null;
@@ -66,12 +66,12 @@ type Client = {
 
 type ClientsResponse = {
     clients: Client[];
-    stages: PipelineStage[];
+    stages: FunnelStage[];
 };
 
 type ClientTableRow = {
     client: Client;
-    stage: PipelineStage | null;
+    stage: FunnelStage | null;
 };
 
 type BadgeTone = {
@@ -209,7 +209,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
 
 export default function ClientesPage() {
     const [clients, setClients] = useState<Client[]>([]);
-    const [stages, setStages] = useState<PipelineStage[]>([]);
+    const [stages, setStages] = useState<FunnelStage[]>([]);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingFilters, setLoadingFilters] = useState(true);
@@ -296,8 +296,8 @@ export default function ClientesPage() {
         return clients.filter((client) => {
             if (
                 stageValues.length > 0 &&
-                (!client.pipeline_stage_id ||
-                    !stageValues.includes(client.pipeline_stage_id))
+                (!client.funnel_stage_id ||
+                    !stageValues.includes(client.funnel_stage_id))
             ) {
                 return false;
             }
@@ -363,8 +363,8 @@ export default function ClientesPage() {
     const paginatedClientRows = useMemo(() => {
         return paginatedClients.map((client) => ({
             client,
-            stage: client.pipeline_stage_id
-                ? stageById.get(client.pipeline_stage_id) ?? null
+            stage: client.funnel_stage_id
+                ? stageById.get(client.funnel_stage_id) ?? null
                 : null,
         }));
     }, [paginatedClients, stageById]);
@@ -378,14 +378,14 @@ export default function ClientesPage() {
     );
 
     const withoutFunnel = filteredClients.filter((client) => {
-        if (!client.pipeline_stage_id) return true;
+        if (!client.funnel_stage_id) return true;
 
-        return !stageById.has(client.pipeline_stage_id);
+        return !stageById.has(client.funnel_stage_id);
     }).length;
 
     const scheduled = filteredClients.filter((client) => {
-        const stage = client.pipeline_stage_id
-            ? stageById.get(client.pipeline_stage_id)
+        const stage = client.funnel_stage_id
+            ? stageById.get(client.funnel_stage_id)
             : null;
 
         return normalize(stage?.name ?? "").includes("agend");
@@ -584,10 +584,10 @@ export default function ClientesPage() {
     );
 }
 
-function getFunnelName(stage: PipelineStage | null) {
+function getFunnelName(stage: FunnelStage | null) {
     if (!stage) return "Sem funil";
 
-    return stage.pipeline_name ?? stage.pipeline?.name ?? "Funil não informado";
+    return stage.funnel_name ?? stage.funnel?.name ?? "Funil não informado";
 }
 
 function Chip({ label, tone }: { label: string; tone: BadgeTone }) {

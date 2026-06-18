@@ -32,7 +32,7 @@ export type InboxThreadListItem = {
 
     funnel: string;
     funnelStage: string;
-    pipeline_stage_id: string | null;
+    funnel_stage_id: string | null;
 
     intent: string | null;
     origin: string | null;

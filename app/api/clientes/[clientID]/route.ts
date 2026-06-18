@@ -38,7 +38,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             utm_term,
             state,
             country,
-            pipeline_stage_id,
+            funnel_stage_id,
             unit_id,
             notes
             `,
@@ -56,7 +56,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 
     const [unit, stage, liveThread, conversations] = await Promise.all([
         fetchUnit(client.unit_id),
-        fetchStageWithPipeline(client.pipeline_stage_id),
+        fetchStageWithFunnel(client.funnel_stage_id),
         fetchLiveThread(clientId),
         fetchClientConversations(clientId),
     ]);
@@ -82,7 +82,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             ...client,
             unit,
             stage: stage?.stage ?? null,
-            pipeline: stage?.pipeline ?? null,
+            funnel: stage?.funnel ?? null,
         },
         live_thread: liveThread,
         conversations: historicalConversations.map((conversation) => {
@@ -129,29 +129,29 @@ async function fetchUnit(unitId: string | null) {
     return data ?? null;
 }
 
-async function fetchStageWithPipeline(stageId: string | null) {
+async function fetchStageWithFunnel(stageId: string | null) {
     if (!stageId) return null;
 
     const { data: stage, error: stageError } = await supabase
-        .from("pipeline_stages")
-        .select("id, pipeline_id, name, position, color")
+        .from("funnel_stages")
+        .select("id, funnel_id, name, position, color")
         .eq("id", stageId)
         .maybeSingle();
 
     if (stageError) throw stageError;
     if (!stage) return null;
 
-    const { data: pipeline, error: pipelineError } = await supabase
-        .from("pipelines")
+    const { data: funnel, error: funnelError } = await supabase
+        .from("funnels")
         .select("id, name")
-        .eq("id", stage.pipeline_id)
+        .eq("id", stage.funnel_id)
         .maybeSingle();
 
-    if (pipelineError) throw pipelineError;
+    if (funnelError) throw funnelError;
 
     return {
         stage,
-        pipeline: pipeline ?? null,
+        funnel: funnel ?? null,
     };
 }
 

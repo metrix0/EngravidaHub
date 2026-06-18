@@ -35,7 +35,7 @@ import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { Modal } from "@/components/ui/Modal";
 import type { FiltersResponse } from "@/types";
 
-type Pipeline = {
+type Funnel = {
     id: string;
     name: string;
     active: boolean;
@@ -52,7 +52,7 @@ type AvailableClient = {
     name: string | null;
     phone: string | null;
     email: string | null;
-    pipeline_stage_id: string | null;
+    funnel_stage_id: string | null;
     unit_id: string | null;
     first_seen_at: string;
     last_interaction_at: string;
@@ -65,12 +65,12 @@ type AvailableClient = {
 
 type AvailableClientsResponse = {
     clients: AvailableClient[];
-    stages: PipelineStage[];
+    stages: FunnelStage[];
 };
 
-type PipelineStage = {
+type FunnelStage = {
     id: string;
-    pipeline_id: string;
+    funnel_id: string;
     name: string;
     position: number;
     color: string | null;
@@ -81,7 +81,7 @@ type Client = {
     name: string | null;
     phone: string | null;
     email: string | null;
-    pipeline_stage_id: string | null;
+    funnel_stage_id: string | null;
     unit_id: string | null;
     last_interaction_at: string;
     utm_source: string | null;
@@ -90,40 +90,40 @@ type Client = {
     updated_at: string;
 };
 
-type PipelineKpis = {
-    pipeline_entries: number;
+type FunnelKpis = {
+    funnel_entries: number;
     evaluations_done: number;
     procedures_scheduled: number;
     procedure_conversion_rate: number;
 };
 
-type PipelineResponse = {
-    pipelines: Pipeline[];
-    stages: PipelineStage[];
+type FunnelResponse = {
+    funnels: Funnel[];
+    stages: FunnelStage[];
     units: Unit[];
     clients: Client[];
-    kpis: PipelineKpis;
-    previous_kpis: PipelineKpis;
+    kpis: FunnelKpis;
+    previous_kpis: FunnelKpis;
 };
 
-const DEFAULT_PIPELINE_ID = "22222222-2222-2222-2222-222222222222";
+const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 
-const EMPTY_PIPELINE_KPIS: PipelineKpis = {
-    pipeline_entries: 0,
+const EMPTY_FUNNEL_KPIS: FunnelKpis = {
+    funnel_entries: 0,
     evaluations_done: 0,
     procedures_scheduled: 0,
     procedure_conversion_rate: 0,
 };
 
-export default function PipelinePage() {
-    const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-    const [stages, setStages] = useState<PipelineStage[]>([]);
+export default function FunnelPage() {
+    const [funnels, setFunnels] = useState<Funnel[]>([]);
+    const [stages, setStages] = useState<FunnelStage[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
-    const [kpis, setKpis] = useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
+    const [kpis, setKpis] = useState<FunnelKpis>(EMPTY_FUNNEL_KPIS);
     const [previousKpis, setPreviousKpis] =
-        useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
+        useState<FunnelKpis>(EMPTY_FUNNEL_KPIS);
 
     const [loading, setLoading] = useState(true);
     const [loadingFilters, setLoadingFilters] = useState(true);
@@ -135,7 +135,7 @@ export default function PipelinePage() {
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [availableClients, setAvailableClients] = useState<AvailableClient[]>([]);
-    const [availableStages, setAvailableStages] = useState<PipelineStage[]>([]);
+    const [availableStages, setAvailableStages] = useState<FunnelStage[]>([]);
     const [availableClientsLoading, setAvailableClientsLoading] = useState(false);
     const [clientSearch, setClientSearch] = useState("");
     const [addingClientId, setAddingClientId] = useState<string | null>(null);
@@ -144,16 +144,16 @@ export default function PipelinePage() {
     const [availableClientsPage, setAvailableClientsPage] = useState(1);
 
     const [unitIds, setUnitIds] = useState<string[]>([]);
-    const [pipelineIds, setPipelineIds] = useState<string[]>([]);
+    const [funnelIds, setFunnelIds] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
-    const defaultPipelineId =
-        pipelines.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID)?.id ??
-        pipelines[0]?.id ??
+    const defaultFunnelId =
+        funnels.find((funnel) => funnel.id === DEFAULT_FUNNEL_ID)?.id ??
+        funnels[0]?.id ??
         null;
 
-    const selectedPipelineId = pipelineIds[0] ?? defaultPipelineId;
+    const selectedFunnelId = funnelIds[0] ?? defaultFunnelId;
 
 
     useEffect(() => {
@@ -173,7 +173,7 @@ export default function PipelinePage() {
         loadFilters();
     }, []);
 
-    const loadPipelineData = useCallback(
+    const loadFunnelData = useCallback(
         async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
             if (showLoading) {
                 setLoading(true);
@@ -191,9 +191,9 @@ export default function PipelinePage() {
                 unit_ids: unitIds,
             });
 
-            params.set("pipeline_id", selectedPipelineId ?? DEFAULT_PIPELINE_ID);
+            params.set("funnel_id", selectedFunnelId ?? DEFAULT_FUNNEL_ID);
 
-            const response = await fetch(`/api/pipeline?${params.toString()}`, {
+            const response = await fetch(`/api/funnel?${params.toString()}`, {
                 cache: "no-store",
             });
 
@@ -206,25 +206,25 @@ export default function PipelinePage() {
                 return;
             }
 
-            const data = (await response.json()) as PipelineResponse;
+            const data = (await response.json()) as FunnelResponse;
 
-            setPipelines(data.pipelines ?? []);
+            setFunnels(data.funnels ?? []);
             setStages(data.stages ?? []);
             setUnits(data.units ?? []);
             setClients(data.clients ?? []);
-            setKpis(data.kpis ?? EMPTY_PIPELINE_KPIS);
-            setPreviousKpis(data.previous_kpis ?? EMPTY_PIPELINE_KPIS);
+            setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
+            setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
 
-            const defaultPipeline =
-                data.pipelines?.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID) ??
-                data.pipelines?.[0];
+            const defaultFunnel =
+                data.funnels?.find((funnel) => funnel.id === DEFAULT_FUNNEL_ID) ??
+                data.funnels?.[0];
 
-            const selectedPipelineStillExists = data.pipelines?.some(
-                (pipeline) => pipeline.id === selectedPipelineId
+            const selectedFunnelStillExists = data.funnels?.some(
+                (funnel) => funnel.id === selectedFunnelId
             );
 
-            if (!selectedPipelineStillExists && defaultPipeline?.id) {
-                setPipelineIds([defaultPipeline.id]);
+            if (!selectedFunnelStillExists && defaultFunnel?.id) {
+                setFunnelIds([defaultFunnel.id]);
             }
 
             if (showLoading) {
@@ -236,19 +236,19 @@ export default function PipelinePage() {
             unitIds,
             selectedRange.start,
             selectedRange.end,
-            selectedPipelineId,
+            selectedFunnelId,
         ]
     );
 
     useEffect(() => {
-        loadPipelineData();
-    }, [loadPipelineData]);
+        loadFunnelData();
+    }, [loadFunnelData]);
 
     const visibleStages = useMemo(() => {
-        if (!selectedPipelineId) return [];
+        if (!selectedFunnelId) return [];
 
-        return stages.filter((stage) => stage.pipeline_id === selectedPipelineId);
-    }, [stages, selectedPipelineId]);
+        return stages.filter((stage) => stage.funnel_id === selectedFunnelId);
+    }, [stages, selectedFunnelId]);
 
     const visibleStageIds = useMemo(() => {
         return new Set(visibleStages.map((stage) => stage.id));
@@ -258,12 +258,12 @@ export default function PipelinePage() {
         const term = search.trim().toLowerCase();
 
         return clients.filter((client) => {
-            if (!client.pipeline_stage_id) return false;
-            if (!visibleStageIds.has(client.pipeline_stage_id)) return false;
+            if (!client.funnel_stage_id) return false;
+            if (!visibleStageIds.has(client.funnel_stage_id)) return false;
 
             if (
                 sourceValues.length > 0 &&
-                !sourceValues.includes(client.utm_source ?? "direct")
+                !sourceValues.includes(client.utm_source ?? "-")
             ) {
                 return false;
             }
@@ -283,14 +283,14 @@ export default function PipelinePage() {
 
         for (const stage of visibleStages) {
             grouped[stage.id] = filteredClients.filter(
-                (client) => client.pipeline_stage_id === stage.id
+                (client) => client.funnel_stage_id === stage.id
             );
         }
 
         return grouped;
     }, [filteredClients, visibleStages]);
 
-    const firstStageInSelectedPipeline = visibleStages[0] ?? null;
+    const firstStageInSelectedFunnel = visibleStages[0] ?? null;
 
     const availableStageById = useMemo(() => {
         return new Map(availableStages.map((stage) => [stage.id, stage]));
@@ -320,8 +320,8 @@ export default function PipelinePage() {
         setAvailableClientsPage(1);
     }, [clientSearch]);
 
-    const selectedPipeline = pipelines.find(
-        (pipeline) => pipeline.id === selectedPipelineId
+    const selectedFunnel = funnels.find(
+        (funnel) => funnel.id === selectedFunnelId
     );
 
     const totalClients = filteredClients.length;
@@ -332,7 +332,7 @@ export default function PipelinePage() {
         return normalize(stages.find((stage) => stage.id === stageId)?.name ?? "");
     }
 
-    function calculateProcedureConversionRate(nextKpis: PipelineKpis) {
+    function calculateProcedureConversionRate(nextKpis: FunnelKpis) {
         if (nextKpis.evaluations_done === 0) return 0;
 
         return Math.round(
@@ -354,7 +354,7 @@ export default function PipelinePage() {
             const next = { ...current };
 
             if (!fromStageId && toStageId) {
-                next.pipeline_entries += 1;
+                next.funnel_entries += 1;
             }
 
             if (toStageName.includes("avaliacao realizada")) {
@@ -386,8 +386,8 @@ export default function PipelinePage() {
         setSelectedClientIds([]);
     }, []);
 
-    async function addSelectedClientsToPipeline() {
-        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
+    async function addSelectedClientsToFunnel() {
+        if (!selectedFunnelId || !firstStageInSelectedFunnel) return;
         if (selectedClientIds.length === 0) return;
 
         const selectedClients = availableClients.filter((client) =>
@@ -397,22 +397,22 @@ export default function PipelinePage() {
         setAddingManyClients(true);
 
         for (const client of selectedClients) {
-            const alreadyInCurrentPipeline = visibleStageIds.has(
-                client.pipeline_stage_id ?? ""
+            const alreadyInCurrentFunnel = visibleStageIds.has(
+                client.funnel_stage_id ?? ""
             );
 
-            if (alreadyInCurrentPipeline) continue;
+            if (alreadyInCurrentFunnel) continue;
 
-            const response = await fetch("/api/pipeline/client-stage", {
+            const response = await fetch("/api/funnel/client-stage", {
                 method: "PATCH",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                     client_id: client.id,
-                    pipeline_id: selectedPipelineId,
-                    from_stage_id: client.pipeline_stage_id,
-                    to_stage_id: firstStageInSelectedPipeline.id,
+                    funnel_id: selectedFunnelId,
+                    from_stage_id: client.funnel_stage_id,
+                    to_stage_id: firstStageInSelectedFunnel.id,
                     moved_by_attendant_id: null,
                 }),
             });
@@ -429,7 +429,7 @@ export default function PipelinePage() {
 
             const updatedClient = {
                 ...client,
-                pipeline_stage_id: firstStageInSelectedPipeline.id,
+                funnel_stage_id: firstStageInSelectedFunnel.id,
                 updated_at: new Date().toISOString(),
             };
 
@@ -450,15 +450,15 @@ export default function PipelinePage() {
             });
 
             incrementLiveKpis({
-                fromStageId: client.pipeline_stage_id,
-                toStageId: firstStageInSelectedPipeline.id,
+                fromStageId: client.funnel_stage_id,
+                toStageId: firstStageInSelectedFunnel.id,
             });
         }
 
         setAddingManyClients(false);
         closeAddClientModal();
 
-        await loadPipelineData({ showLoading: false });
+        await loadFunnelData({ showLoading: false });
     }
 
     function closeAddClientModal() {
@@ -484,7 +484,7 @@ export default function PipelinePage() {
         const queryString = params.toString();
 
         const response = await fetch(
-            `/api/pipeline/available-clients${queryString ? `?${queryString}` : ""}`,
+            `/api/funnel/available-clients${queryString ? `?${queryString}` : ""}`,
             {
                 cache: "no-store",
             }
@@ -504,13 +504,13 @@ export default function PipelinePage() {
     }
 
     async function moveClient(clientId: string, toStageId: string) {
-        if (!selectedPipelineId) return;
+        if (!selectedFunnelId) return;
 
         const client = clients.find((client) => client.id === clientId);
 
         if (!client) return;
 
-        const fromStageId = client.pipeline_stage_id;
+        const fromStageId = client.funnel_stage_id;
 
         if (fromStageId === toStageId) return;
 
@@ -522,7 +522,7 @@ export default function PipelinePage() {
                 client.id === clientId
                     ? {
                         ...client,
-                        pipeline_stage_id: toStageId,
+                        funnel_stage_id: toStageId,
                         updated_at: now,
                     }
                     : client
@@ -534,14 +534,14 @@ export default function PipelinePage() {
             toStageId,
         });
 
-        const response = await fetch("/api/pipeline/client-stage", {
+        const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
                 client_id: clientId,
-                pipeline_id: selectedPipelineId,
+                funnel_id: selectedFunnelId,
                 from_stage_id: fromStageId,
                 to_stage_id: toStageId,
                 moved_by_attendant_id: null,
@@ -550,48 +550,48 @@ export default function PipelinePage() {
 
         if (!response.ok) {
             setClients(previousClients);
-            await loadPipelineData({ showLoading: false });
+            await loadFunnelData({ showLoading: false });
             console.error(await response.json());
             return;
         }
 
-        await loadPipelineData({ showLoading: false });
+        await loadFunnelData({ showLoading: false });
     }
 
     function openClientProfile(clientId: string) {
         window.location.href = `/clientes?client_id=${clientId}`;
     }
 
-    async function removeClientFromPipeline(clientId: string) {
-        if (!selectedPipelineId) return;
+    async function removeClientFromFunnel(clientId: string) {
+        if (!selectedFunnelId) return;
 
         const client = clients.find((client) => client.id === clientId);
 
-        if (!client?.pipeline_stage_id) return;
+        if (!client?.funnel_stage_id) return;
 
         const previousClients = clients;
-        const fromStageId = client.pipeline_stage_id;
+        const fromStageId = client.funnel_stage_id;
 
         setClients((current) =>
             current.map((client) =>
                 client.id === clientId
                     ? {
                         ...client,
-                        pipeline_stage_id: null,
+                        funnel_stage_id: null,
                         updated_at: new Date().toISOString(),
                     }
                     : client
             )
         );
 
-        const response = await fetch("/api/pipeline/client-stage", {
+        const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
                 client_id: clientId,
-                pipeline_id: selectedPipelineId,
+                funnel_id: selectedFunnelId,
                 from_stage_id: fromStageId,
                 to_stage_id: null,
                 moved_by_attendant_id: null,
@@ -604,30 +604,30 @@ export default function PipelinePage() {
             return;
         }
 
-        await loadPipelineData({ showLoading: false });
+        await loadFunnelData({ showLoading: false });
     }
 
-    async function addClientToPipeline(client: AvailableClient) {
-        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
+    async function addClientToFunnel(client: AvailableClient) {
+        if (!selectedFunnelId || !firstStageInSelectedFunnel) return;
 
-        const alreadyInCurrentPipeline = visibleStageIds.has(
-            client.pipeline_stage_id ?? ""
+        const alreadyInCurrentFunnel = visibleStageIds.has(
+            client.funnel_stage_id ?? ""
         );
 
-        if (alreadyInCurrentPipeline) return;
+        if (alreadyInCurrentFunnel) return;
 
         setAddingClientId(client.id);
 
-        const response = await fetch("/api/pipeline/client-stage", {
+        const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
                 client_id: client.id,
-                pipeline_id: selectedPipelineId,
-                from_stage_id: client.pipeline_stage_id,
-                to_stage_id: firstStageInSelectedPipeline.id,
+                funnel_id: selectedFunnelId,
+                from_stage_id: client.funnel_stage_id,
+                to_stage_id: firstStageInSelectedFunnel.id,
                 moved_by_attendant_id: null,
             }),
         });
@@ -645,7 +645,7 @@ export default function PipelinePage() {
 
         const updatedClient = {
             ...client,
-            pipeline_stage_id: firstStageInSelectedPipeline.id,
+            funnel_stage_id: firstStageInSelectedFunnel.id,
             updated_at: new Date().toISOString(),
         };
 
@@ -666,14 +666,14 @@ export default function PipelinePage() {
         });
 
         incrementLiveKpis({
-            fromStageId: client.pipeline_stage_id,
-            toStageId: firstStageInSelectedPipeline.id,
+            fromStageId: client.funnel_stage_id,
+            toStageId: firstStageInSelectedFunnel.id,
         });
 
         setAddingClientId(null);
         closeAddClientModal();
 
-        await loadPipelineData({ showLoading: false });
+        await loadFunnelData({ showLoading: false });
     }
 
     if (loading || loadingFilters) {
@@ -714,14 +714,14 @@ export default function PipelinePage() {
 
                 <div className="mb-8 flex justify-end gap-3">
                     {/*<FilterButton*/}
-                    {/*    label={selectedPipeline?.name ?? "Funil Comercial Principal"}*/}
-                    {/*    values={pipelineIds}*/}
+                    {/*    label={selectedFunnel?.name ?? "Funnel Comercial Principal"}*/}
+                    {/*    values={funnelIds}*/}
                     {/*    onChange={(values) => {*/}
-                    {/*        setPipelineIds(values.slice(0, 1));*/}
+                    {/*        setFunnelIds(values.slice(0, 1));*/}
                     {/*    }}*/}
-                    {/*    options={pipelines.map((pipeline) => ({*/}
-                    {/*        label: pipeline.name,*/}
-                    {/*        value: pipeline.id,*/}
+                    {/*    options={funnels.map((funnel) => ({*/}
+                    {/*        label: funnel.name,*/}
+                    {/*        value: funnel.id,*/}
                     {/*    }))}*/}
                     {/*    widthClassName="w-[260px]"*/}
                     {/*/>*/}
@@ -744,8 +744,8 @@ export default function PipelinePage() {
                             <KpiCard
                                 icon={<Users size={26} />}
                                 label="Entradas no funil"
-                                currentValue={kpis.pipeline_entries}
-                                previousValue={previousKpis.pipeline_entries}
+                                currentValue={kpis.funnel_entries}
+                                previousValue={previousKpis.funnel_entries}
                                 color="purple"
                             />
                         </div>
@@ -787,7 +787,7 @@ export default function PipelinePage() {
                     <div className="mb-5 flex items-center justify-between gap-6">
                         <div>
                             <h2 className="text-xl font-bold text-text">
-                                {selectedPipeline?.name ?? "Funil FIV"}
+                                {selectedFunnel?.name ?? "Funil FIV"}
                             </h2>
 
                             <p className="mt-1 text-sm text-muted">
@@ -832,12 +832,12 @@ export default function PipelinePage() {
                                 const stageClients = clientsByStage[stage.id] ?? [];
 
                                 return (
-                                    <PipelineColumn
+                                    <FunnelColumn
                                         key={stage.id}
                                         stage={stage}
                                         clients={stageClients}
                                         onMoveClient={moveClient}
-                                        onRemoveClient={removeClientFromPipeline}
+                                        onRemoveClient={removeClientFromFunnel}
                                         onOpenClientProfile={openClientProfile}
                                     />
                                 );
@@ -847,11 +847,11 @@ export default function PipelinePage() {
                 </section>
             </section>
 
-            <AddClientToPipelineModal
+            <AddClientToFunnelModal
                 open={addClientModalOpen}
                 clients={filteredAvailableClients}
                 stageById={availableStageById}
-                selectedPipelineStageIds={visibleStageIds}
+                selectedFunnelStageIds={visibleStageIds}
                 selectedClientIds={selectedClientIds}
                 currentPage={availableClientsPage}
                 onPageChange={setAvailableClientsPage}
@@ -860,25 +860,25 @@ export default function PipelinePage() {
                 loading={availableClientsLoading}
                 addingClientId={addingClientId}
                 addingManyClients={addingManyClients}
-                firstStageName={firstStageInSelectedPipeline?.name ?? null}
+                firstStageName={firstStageInSelectedFunnel?.name ?? null}
                 onClose={closeAddClientModal}
                 onExitComplete={resetAddClientModal}
-                onAddClient={addClientToPipeline}
+                onAddClient={addClientToFunnel}
                 onToggleClient={toggleSelectedClient}
-                onAddSelectedClients={addSelectedClientsToPipeline}
+                onAddSelectedClients={addSelectedClientsToFunnel}
             />
         </main>
     );
 }
 
-function PipelineColumn({
+function FunnelColumn({
                             stage,
                             clients,
                             onMoveClient,
                             onRemoveClient,
                             onOpenClientProfile,
                         }: {
-    stage: PipelineStage;
+    stage: FunnelStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
     onRemoveClient: (clientId: string) => void;
@@ -917,7 +917,7 @@ function PipelineColumn({
 
             <div className="space-y-3">
                 {visibleClients.map((client) => (
-                    <PipelineClientCard
+                    <FunnelClientCard
                         key={client.id}
                         client={client}
                         onRemoveClient={onRemoveClient}
@@ -941,7 +941,7 @@ function PipelineColumn({
     );
 }
 
-function PipelineClientCard({
+function FunnelClientCard({
                                 client,
                                 onRemoveClient,
                                 onOpenClientProfile,
@@ -955,7 +955,7 @@ function PipelineClientCard({
             <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                 <button
                     type="button"
-                    title="Remover do pipeline"
+                    title="Remover do funil"
                     onClick={(event) => {
                         event.stopPropagation();
                         onRemoveClient(client.id);
@@ -1041,11 +1041,11 @@ function normalize(value: string) {
         .replace(/\p{Diacritic}/gu, "");
 }
 
-function AddClientToPipelineModal({
+function AddClientToFunnelModal({
                                       open,
                                       clients,
                                       stageById,
-                                      selectedPipelineStageIds,
+                                      selectedFunnelStageIds,
                                       selectedClientIds,
                                       currentPage,
                                       onPageChange,
@@ -1063,8 +1063,8 @@ function AddClientToPipelineModal({
                                   }: {
     open: boolean;
     clients: AvailableClient[];
-    stageById: Map<string, PipelineStage>;
-    selectedPipelineStageIds: Set<string>;
+    stageById: Map<string, FunnelStage>;
+    selectedFunnelStageIds: Set<string>;
     selectedClientIds: string[];
     currentPage: number;
     onPageChange: (page: number) => void;
@@ -1162,13 +1162,13 @@ function AddClientToPipelineModal({
                 ) : (
                     <div>
                         {paginatedClients.map((client) => {
-                            const currentStage = client.pipeline_stage_id
-                                ? stageById.get(client.pipeline_stage_id)
+                            const currentStage = client.funnel_stage_id
+                                ? stageById.get(client.funnel_stage_id)
                                 : null;
 
-                            const alreadyInCurrentPipeline =
-                                selectedPipelineStageIds.has(
-                                    client.pipeline_stage_id ?? ""
+                            const alreadyInCurrentFunnel =
+                                selectedFunnelStageIds.has(
+                                    client.funnel_stage_id ?? ""
                                 );
 
                             return (
@@ -1176,11 +1176,11 @@ function AddClientToPipelineModal({
                                     key={client.id}
                                     client={client}
                                     currentStageName={
-                                        currentStage?.name ?? "Sem pipeline"
+                                        currentStage?.name ?? "Sem funil"
                                     }
                                     checked={selectedIdsSet.has(client.id)}
-                                    alreadyInCurrentPipeline={
-                                        alreadyInCurrentPipeline
+                                    alreadyInCurrentFunnel={
+                                        alreadyInCurrentFunnel
                                     }
                                     addingClientId={addingClientId}
                                     addingManyClients={addingManyClients}
@@ -1256,7 +1256,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
                                                                   client,
                                                                   currentStageName,
                                                                   checked,
-                                                                  alreadyInCurrentPipeline,
+                                                                  alreadyInCurrentFunnel,
                                                                   addingClientId,
                                                                   addingManyClients,
                                                                   onToggleClient,
@@ -1265,7 +1265,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
     client: AvailableClient;
     currentStageName: string;
     checked: boolean;
-    alreadyInCurrentPipeline: boolean;
+    alreadyInCurrentFunnel: boolean;
     addingClientId: string | null;
     addingManyClients: boolean;
     onToggleClient: (clientId: string) => void;
@@ -1277,7 +1277,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
         <div
             className={[
                 "grid min-h-[76px] items-center border-b border-slate-100 px-4 py-3",
-                alreadyInCurrentPipeline
+                alreadyInCurrentFunnel
                     ? "bg-slate-50 opacity-55"
                     : "hover:bg-slate-50",
             ].join(" ")}
@@ -1286,14 +1286,14 @@ const SelectableClientRow = memo(function SelectableClientRow({
             <div>
                 <button
                     type="button"
-                    disabled={alreadyInCurrentPipeline}
+                    disabled={alreadyInCurrentFunnel}
                     onClick={() => onToggleClient(client.id)}
                     className={[
                         "flex h-5 w-5 items-center justify-center rounded-md border text-[13px] font-bold leading-none",
                         checked
                             ? "border-brand bg-brand text-white"
                             : "border-slate-300 bg-white text-transparent hover:border-brand",
-                        alreadyInCurrentPipeline
+                        alreadyInCurrentFunnel
                             ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
                             : "cursor-pointer bg-brand text-white shadow-sm hover:opacity-90",
                     ].join(" ")}
@@ -1349,19 +1349,19 @@ const SelectableClientRow = memo(function SelectableClientRow({
                 <button
                     type="button"
                     disabled={
-                        alreadyInCurrentPipeline ||
+                        alreadyInCurrentFunnel ||
                         addingClientId === client.id ||
                         addingManyClients
                     }
                     onClick={() => onAddClient(client)}
                     className={[
                         "h-9 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition",
-                        alreadyInCurrentPipeline
+                        alreadyInCurrentFunnel
                             ? "cursor-not-allowed bg-slate-100 text-slate-400"
                             : "cursor-pointer bg-brand text-white shadow-sm hover:opacity-90",
                     ].join(" ")}
                 >
-                    {alreadyInCurrentPipeline
+                    {alreadyInCurrentFunnel
                         ? "Adicionado"
                         : addingClientId === client.id
                             ? "..."

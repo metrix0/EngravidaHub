@@ -105,13 +105,13 @@ export async function updateInboxThread({
                                             status,
                                             read,
                                             stageAction,
-                                            pipelineStageId,
+                                            funnelStageId,
                                         }: {
     threadId: string;
     status?: InboxStatus;
     read?: boolean;
     stageAction?: "previous" | "next";
-    pipelineStageId?: string;
+    funnelStageId?: string;
 }) {
     const response = await fetch(`/api/inbox/threads/${threadId}`, {
         method: "PATCH",
@@ -122,7 +122,7 @@ export async function updateInboxThread({
             status,
             read,
             stage_action: stageAction,
-            pipeline_stage_id: pipelineStageId,
+            funnel_stage_id: funnelStageId,
         }),
     });
 

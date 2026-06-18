@@ -12,7 +12,7 @@ import {
 } from "@/lib/schedules/getBigquerySchedules";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
 
-const FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID =
+const FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID =
     "22222222-2222-2222-2222-222222222222";
 const FIRST_REPRODUCTION_EVALUATION_STAGE_ID =
     "21111111-1111-1111-1111-111111111111";
@@ -39,7 +39,7 @@ type ClientForSchedule = {
     phone: string | null;
     email: string | null;
     unit_id: string | null;
-    pipeline_stage_id: string | null;
+    funnel_stage_id: string | null;
 };
 
 export async function syncBigquerySchedules({
@@ -96,7 +96,7 @@ export async function syncBigquerySchedules({
     let savedToSupabase = 0;
     let metaSent = 0;
     let googleSent = 0;
-    let fivPipelineStageUpdated = 0;
+    let fivFunnelStageUpdated = 0;
 
     for (const schedule of newSchedules) {
         const client = await findOrCreateClientFromSchedule(schedule);
@@ -128,14 +128,14 @@ export async function syncBigquerySchedules({
 
         savedToSupabase += 1;
 
-        const pipelineMove =
+        const funnelMove =
             await moveClientToFirstReproductionEvaluationStageIfEmpty({
                 client,
                 schedule,
             });
 
-        if (pipelineMove.updated) {
-            fivPipelineStageUpdated += 1;
+        if (funnelMove.updated) {
+            fivFunnelStageUpdated += 1;
         }
 
         const eventTime = getScheduleEventTime(schedule.created_in_source_at);
@@ -186,15 +186,15 @@ export async function syncBigquerySchedules({
             schedule_id: insertedSchedule.id,
             client_id: client.id,
             source_hash: schedule.source_hash,
-            pipeline_move: pipelineMove,
+            funnel_move: funnelMove,
             meta,
             google,
         });
     }
 
     console.log(`[syncBigquerySchedules] SAVED ${savedToSupabase} TO SUPABASE`);
-    console.log("[syncBigquerySchedules] UPDATED FIV pipeline stages", {
-        fiv_pipeline_stage_updated: fivPipelineStageUpdated,
+    console.log("[syncBigquerySchedules] UPDATED FIV funnel stages", {
+        fiv_funnel_stage_updated: fivFunnelStageUpdated,
     });
     console.log("[syncBigquerySchedules] SENT schedule events", {
         meta_sent: metaSent,
@@ -208,7 +208,7 @@ export async function syncBigquerySchedules({
         existing: existingHashes.size,
         inserted: newSchedules.length,
         saved_to_supabase: savedToSupabase,
-        fiv_pipeline_stage_updated: fivPipelineStageUpdated,
+        fiv_funnel_stage_updated: fivFunnelStageUpdated,
         meta_sent: metaSent,
         google_sent: googleSent,
         results,
@@ -294,7 +294,7 @@ async function findOrCreateClientFromSchedule(
     if (phoneOptions.length > 0) {
         const { data: existingClient, error } = await supabase
             .from("clients")
-            .select("id, name, phone, email, unit_id, pipeline_stage_id")
+            .select("id, name, phone, email, unit_id, funnel_stage_id")
             .or(phoneOptions.map((phone) => `phone.eq.${phone}`).join(","))
             .maybeSingle();
 
@@ -349,7 +349,7 @@ async function findOrCreateClientFromSchedule(
             first_seen_at: now,
             last_interaction_at: now,
         })
-        .select("id, name, phone, email, unit_id, pipeline_stage_id")
+        .select("id, name, phone, email, unit_id, funnel_stage_id")
         .single();
 
     if (createError) {
@@ -373,10 +373,10 @@ async function moveClientToFirstReproductionEvaluationStageIfEmpty({
         };
     }
 
-    if (client.pipeline_stage_id) {
+    if (client.funnel_stage_id) {
         return {
             updated: false,
-            skipped_reason: "client_already_in_pipeline_stage" as const,
+            skipped_reason: "client_already_in_funnel_stage" as const,
         };
     }
 
@@ -385,12 +385,12 @@ async function moveClientToFirstReproductionEvaluationStageIfEmpty({
     const { data: updatedClient, error: updateError } = await supabase
         .from("clients")
         .update({
-            pipeline_stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
+            funnel_stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
             updated_at: now,
         })
         .eq("id", client.id)
-        .is("pipeline_stage_id", null)
-        .select("id, pipeline_stage_id")
+        .is("funnel_stage_id", null)
+        .select("id, funnel_stage_id")
         .maybeSingle();
 
     if (updateError) {
@@ -400,15 +400,15 @@ async function moveClientToFirstReproductionEvaluationStageIfEmpty({
     if (!updatedClient) {
         return {
             updated: false,
-            skipped_reason: "client_already_in_pipeline_stage" as const,
+            skipped_reason: "client_already_in_funnel_stage" as const,
         };
     }
 
     const { error: historyError } = await supabase
-        .from("pipeline_history")
+        .from("funnel_history")
         .insert({
             client_id: client.id,
-            pipeline_id: FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID,
+            funnel_id: FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID,
             from_stage_id: null,
             to_stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
             moved_by_attendant_id: null,
@@ -422,11 +422,11 @@ async function moveClientToFirstReproductionEvaluationStageIfEmpty({
         throw historyError;
     }
 
-    client.pipeline_stage_id = FIRST_REPRODUCTION_EVALUATION_STAGE_ID;
+    client.funnel_stage_id = FIRST_REPRODUCTION_EVALUATION_STAGE_ID;
 
     return {
         updated: true,
-        pipeline_id: FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID,
+        funnel_id: FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID,
         stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
     };
 }

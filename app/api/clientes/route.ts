@@ -4,7 +4,7 @@ import { supabase } from "@/lib";
 
 type Body = {
     client_id: string;
-    pipeline_id: string;
+    funnel_id: string;
     from_stage_id: string | null;
     to_stage_id: string;
     moved_by_attendant_id?: string | null;
@@ -20,7 +20,7 @@ export async function GET() {
         name,
         phone,
         email,
-        pipeline_stage_id,
+        funnel_stage_id,
         first_seen_at,
         last_interaction_at,
         utm_source,
@@ -47,11 +47,11 @@ export async function GET() {
         }
 
         const { data: stages, error: stagesError } = await supabase
-            .from("pipeline_stages")
+            .from("funnel_stages")
             .select(
                 `
                 id,
-                pipeline_id,
+                funnel_id,
                 name,
                 position,
                 color
@@ -63,7 +63,7 @@ export async function GET() {
             return NextResponse.json(
                 {
                     ok: false,
-                    error: "Failed to load pipeline stages",
+                    error: "Failed to load funnel stages",
                     details: stagesError,
                 },
                 { status: 500 }

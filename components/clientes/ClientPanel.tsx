@@ -22,14 +22,14 @@ import {
     type ConversationResult,
 } from "@/components/conversations/ConversationResultBadge";
 
-type PipelineStage = {
+type FunnelStage = {
     id: string;
-    pipeline_id: string;
+    funnel_id: string;
     name: string;
     position: number;
     color: string | null;
-    pipeline_name?: string | null;
-    pipeline?: {
+    funnel_name?: string | null;
+    funnel?: {
         id: string;
         name: string | null;
     } | null;
@@ -57,8 +57,8 @@ type ClientDetail = {
         id: string;
         name: string;
     } | null;
-    stage: PipelineStage | null;
-    pipeline: {
+    stage: FunnelStage | null;
+    funnel: {
         id: string;
         name: string | null;
     } | null;
@@ -254,7 +254,7 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
                 <HeaderInfoItem
                     icon={<Filter size={18} />}
                     label="Funil"
-                    value={client.pipeline?.name ?? "—"}
+                    value={client.funnel?.name ?? "—"}
                 />
 
                 <HeaderInfoItem
