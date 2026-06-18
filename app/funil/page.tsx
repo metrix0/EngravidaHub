@@ -997,7 +997,7 @@ function FunnelClientCard({
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-2">
-                        <span className="rounded-md bg-blue-soft px-2 py-1 text-[11px] font-bold text-blue">
+                        <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${sourceBadgeClass(client.utm_source)}`}>
                             {sourceLabel(client.utm_source)}
                         </span>
 
@@ -1012,15 +1012,26 @@ function FunnelClientCard({
 }
 
 function sourceLabel(source: string | null) {
+    const normalized = normalize(source ?? "");
+
+    if (!normalized || normalized === "direct" || normalized === "direto") {
+        return "—";
+    }
+
     const map: Record<string, string> = {
         meta_ads: "Meta Ads",
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
-        direct: "Direto",
     };
 
-    return map[source ?? "direct"] ?? source ?? "Direto";
+    return map[normalized] ?? source ?? "—";
+}
+
+function sourceBadgeClass(source: string | null) {
+    return sourceLabel(source) === "—"
+        ? "bg-slate-100 text-slate-500"
+        : "bg-blue-soft text-blue";
 }
 
 function timeAgo(date: string) {
@@ -1328,11 +1339,9 @@ const SelectableClientRow = memo(function SelectableClientRow({
             </div>
 
             <div className="min-w-0 pr-3">
-                {client.utm_source !== null && (
-                    <span className="inline-flex max-w-full truncate rounded-md bg-blue-soft px-2 py-1 text-xs font-bold text-blue">
-                        {sourceLabel(client.utm_source)}
-                    </span>
-                )}
+                <span className={`inline-flex max-w-full truncate rounded-md px-2 py-1 text-xs font-bold ${sourceBadgeClass(client.utm_source)}`}>
+                    {sourceLabel(client.utm_source)}
+                </span>
             </div>
 
             <div className="min-w-0 pr-3">

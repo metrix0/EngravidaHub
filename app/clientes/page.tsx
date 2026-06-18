@@ -599,19 +599,24 @@ function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
 }
 
 function sourceLabel(source: string | null) {
+    const normalized = normalize(source ?? "");
+
+    if (!normalized || normalized === "direct" || normalized === "direto") {
+        return "—";
+    }
+
     const map: Record<string, string> = {
         meta_ads: "Meta Ads",
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
-        direct: "Direto",
     };
 
-    return map[source ?? "direct"] ?? source ?? "Direto";
+    return map[normalized] ?? source ?? "—";
 }
 
 function getSourceVariant(source: string | null): BadgeTone {
-    const normalized = normalize(source ?? "direct");
+    const normalized = normalize(source ?? "");
 
     if (normalized.includes("meta_ads") || normalized.includes("facebook")) {
         return { bg: "bg-soft-purple", text: "text-purple" };

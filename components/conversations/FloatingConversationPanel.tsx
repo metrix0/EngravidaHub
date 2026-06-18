@@ -382,3 +382,11 @@ function formatPhone(phone: string | null) {
     if (!phone) return "Sem telefone";
     return phone.split("+55")[1] ?? phone;
 }
+
+
+function normalize(value: string) {
+    return value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "");
+}
