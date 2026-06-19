@@ -1,6 +1,7 @@
 // app/api/inbox/threads/[threadId]/notes/route.ts
 import { NextResponse } from "next/server";
 
+import { supabase } from "@/lib";
 import type { ClientNote } from "@/types/inbox";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 
@@ -20,7 +21,7 @@ export async function POST(
         );
     }
 
-    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+    const { attendant } = await getCurrentAttendantFromRequest();
 
     if (!attendant || !attendant.is_online) {
         return NextResponse.json(
@@ -31,9 +32,8 @@ export async function POST(
 
     const { data: thread, error: threadError } = await supabase
         .from("thread")
-        .select("id, client_id")
+        .select("id, client_id, assigned_attendant_id")
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendant.id)
         .maybeSingle();
 
     if (threadError) {
@@ -47,6 +47,16 @@ export async function POST(
         return NextResponse.json(
             { ok: false, error: "Thread not found" },
             { status: 404 }
+        );
+    }
+
+    if (
+        thread.assigned_attendant_id &&
+        thread.assigned_attendant_id !== attendant.id
+    ) {
+        return NextResponse.json(
+            { ok: false, error: "Not allowed" },
+            { status: 403 }
         );
     }
 
@@ -85,7 +95,10 @@ export async function POST(
 
     const { error: updateError } = await supabase
         .from("clients")
-        .update({ notes: nextNotes })
+        .update({
+            notes: nextNotes,
+            updated_at: new Date().toISOString(),
+        })
         .eq("id", client.id);
 
     if (updateError) {

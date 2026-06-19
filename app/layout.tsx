@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { InviteRedirect } from "@/components/auth/InviteRedirect";
+import { CurrentUserProvider } from "@/components/auth/CurrentUserProvider";
+import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 
 const inter = Inter({
@@ -19,8 +21,8 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({
-                                       children,
-                                   }: Readonly<{
+    children,
+}: Readonly<{
     children: React.ReactNode;
 }>) {
     return (
@@ -41,8 +43,12 @@ export default function RootLayout({
         </div>
 
         <div className="hidden md:block">
-            {children}
-            <FloatingConversationPanel />
+            <CurrentUserProvider>
+                <PermissionGuard>
+                    {children}
+                    <FloatingConversationPanel />
+                </PermissionGuard>
+            </CurrentUserProvider>
         </div>
         </body>
         </html>

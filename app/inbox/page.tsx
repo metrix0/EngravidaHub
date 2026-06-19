@@ -12,6 +12,7 @@ import {
     Filter,
     Funnel,
     MapPin,
+    LoaderCircle,
     MessagesSquare,
     Paperclip, Pin,
     Search,
@@ -967,7 +968,11 @@ function CustomerPanel({
                                     onClick={handleAddNote}
                                     className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <Send size={16}/>
+                                    {isSavingNote ? (
+                                        <LoaderCircle size={16} className="animate-spin"/>
+                                    ) : (
+                                        <Send size={16}/>
+                                    )}
                                 </button>
                             </div>
                         </div>

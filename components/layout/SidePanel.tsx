@@ -1,10 +1,9 @@
 // components/layout/SidePanel.tsx
 "use client";
 
-import type {ReactNode} from "react";
-import {useEffect, useState} from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import {usePathname, useRouter} from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
     ChevronRight,
     Flag,
@@ -14,23 +13,30 @@ import {
     Megaphone,
     MessageCircle,
     MessagesSquare,
+    UserCog,
     Users,
-    UserCog
 } from "lucide-react";
 
-import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
     type CurrentAttendant,
     fetchCurrentAttendant,
     setCurrentAttendantOffline,
     setCurrentAttendantOnline,
 } from "@/lib/attendants/currentAttendantApi";
+import {
+    getFirstAllowedHref,
+    getTabIdForPathname,
+    type AppTabId,
+} from "@/lib/auth/userAccess";
 
 type SidePanelItem = {
     type?: "item";
     label: string;
     href: string;
     icon: ReactNode;
+    tabId?: AppTabId;
 };
 
 type SidePanelSeparator = {
@@ -49,10 +55,7 @@ type SidePanelProps = {
      */
     affectLayout?: boolean;
 
-    /**
-     * Initial open state.
-     * Example: inbox can use defaultExpanded={false}
-     */
+    /** Initial open state. */
     defaultExpanded?: boolean;
 };
 
@@ -60,42 +63,76 @@ const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
 
 const defaultItems: SidePanelEntry[] = [
+    { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, tabId: "dashboard" },
+    { label: "Jornada", href: "/jornada", icon: <Flag size={18} />, tabId: "jornada" },
+    { label: "Eventos", href: "/eventos", icon: <Megaphone size={18} />, tabId: "eventos" },
 
-    // Insights
-    {label: "Dashboard", href: "/", icon: <LayoutDashboard size={18}/>},
-    {label: "Jornada", href: "/jornada", icon: <Flag size={18}/>},
-    {label: "Eventos", href: "/eventos", icon: <Megaphone size={18}/>},
+    { type: "separator", id: "crm" },
+    { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
+    { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
+    { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
+    { label: "Funil", href: "/funil", icon: <Funnel size={18} />, tabId: "funil" },
 
-    // CRM
-    {type: "separator", id: "crm"},
-    {label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18}/>},
-    {label: "Clientes", href: "/clientes", icon: <Users size={18}/>},
-    {label: "Conversas", href: "/conversas", icon: <MessageCircle size={18}/>},
-    {label: "Funil", href: "/funil", icon: <Funnel size={18}/>},
-
-    //
-    {type: "separator", id: "usuarios"},
-    {label: "Usuários", href: "/usuarios", icon: <UserCog size={18}/>},
+    { type: "separator", id: "usuarios" },
+    { label: "Usuários", href: "/usuarios", icon: <UserCog size={18} />, tabId: "usuarios" },
 ];
 
 function isSeparator(item: SidePanelEntry): item is SidePanelSeparator {
     return item.type === "separator";
 }
 
+function filterEntriesByPermission(
+    entries: SidePanelEntry[],
+    allowedTabs: readonly AppTabId[],
+) {
+    const allowed = new Set(allowedTabs);
+
+    const filtered = entries.filter((entry) => {
+        if (isSeparator(entry)) return true;
+
+        const tabId = entry.tabId ?? getTabIdForPathname(entry.href);
+
+        return tabId ? allowed.has(tabId) : true;
+    });
+
+    const compacted: SidePanelEntry[] = [];
+
+    for (const entry of filtered) {
+        if (isSeparator(entry)) {
+            if (
+                compacted.length === 0 ||
+                isSeparator(compacted[compacted.length - 1])
+            ) {
+                continue;
+            }
+        }
+
+        compacted.push(entry);
+    }
+
+    while (
+        compacted.length > 0 &&
+        isSeparator(compacted[compacted.length - 1])
+    ) {
+        compacted.pop();
+    }
+
+    return compacted;
+}
+
 export default function SidePanel({
-                                      items = defaultItems,
-                                      affectLayout = true,
-                                      defaultExpanded = true,
-                                  }: SidePanelProps) {
+    items = defaultItems,
+    affectLayout = true,
+    defaultExpanded = true,
+}: SidePanelProps) {
     const router = useRouter();
     const pathname = usePathname();
+    const { currentUser } = useCurrentUser();
 
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-
     const [currentAttendant, setCurrentAttendant] =
         useState<CurrentAttendant | null>(null);
-    const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
@@ -109,11 +146,10 @@ export default function SidePanel({
                 if (!isMounted) return;
 
                 setCurrentAttendant(response.attendant);
-                setCurrentUserEmail(response.user?.email ?? null);
             } catch (error) {
                 console.error(
                     "[SidePanel] failed to load current attendant",
-                    error
+                    error,
                 );
             }
         }
@@ -126,28 +162,46 @@ export default function SidePanel({
 
         window.addEventListener(
             "attendant-status-changed",
-            handleAttendantStatusChanged
+            handleAttendantStatusChanged,
         );
 
         return () => {
             isMounted = false;
             window.removeEventListener(
                 "attendant-status-changed",
-                handleAttendantStatusChanged
+                handleAttendantStatusChanged,
             );
         };
     }, []);
 
-    const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+    const permission = currentUser?.permission ?? null;
+    const shouldEnforcePermissions = Boolean(permission);
+    const allowedTabs = permission?.active ? permission.allowed_tabs : [];
 
+    const visibleItems = useMemo(
+        () =>
+            shouldEnforcePermissions
+                ? filterEntriesByPermission(items, allowedTabs)
+                : items,
+        [items, allowedTabs, shouldEnforcePermissions],
+    );
+
+    const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
     const layoutWidth = affectLayout ? sidebarWidth : COLLAPSED_WIDTH;
 
     const profileName =
-        currentAttendant?.name ?? currentUserEmail ?? "Usuário";
+        currentAttendant?.name ??
+        currentUser?.user?.name ??
+        currentUser?.user?.email ??
+        "Usuário";
 
     const profileSubtitle = currentAttendant
         ? currentAttendant.units?.name ?? "Sem unidade"
         : "Não vinculado a atendente";
+
+    const homeHref = shouldEnforcePermissions
+        ? getFirstAllowedHref(allowedTabs) ?? "/"
+        : "/";
 
     async function handleToggleAttendantStatus() {
         if (!currentAttendant || isStatusUpdating) return;
@@ -182,7 +236,7 @@ export default function SidePanel({
         } catch (error) {
             console.error(
                 "[SidePanel] failed to update attendant status",
-                error
+                error,
             );
         } finally {
             setIsStatusUpdating(false);
@@ -192,7 +246,7 @@ export default function SidePanel({
     return (
         <div
             className="relative z-50 h-screen shrink-0 transition-[width] duration-400 ease-out"
-            style={{width: layoutWidth}}
+            style={{ width: layoutWidth }}
         >
             <aside
                 onMouseEnter={() => setIsSidebarHovered(true)}
@@ -258,7 +312,7 @@ export default function SidePanel({
                 <div className="flex h-full max-h-screen flex-col overflow-hidden py-7">
                     <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
-                            href="/"
+                            href={homeHref}
                             className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition hover:bg-slate-50 ${
                                 isExpanded ? "w-full" : "w-9"
                             }`}
@@ -276,11 +330,13 @@ export default function SidePanel({
                     <div className="relative min-h-0 flex-1">
                         <div
                             className={`sidepanel-scrollbar h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2 ${
-                                isExpanded ? "sidepanel-scrollbar-visible" : "sidepanel-scrollbar-hidden"
+                                isExpanded
+                                    ? "sidepanel-scrollbar-visible"
+                                    : "sidepanel-scrollbar-hidden"
                             }`}
                         >
                             <nav className="space-y-2">
-                                {items.map((item) => {
+                                {visibleItems.map((item) => {
                                     if (isSeparator(item)) {
                                         return (
                                             <div
@@ -331,8 +387,8 @@ export default function SidePanel({
                                     );
                                 })}
                             </nav>
-                            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white to-transparent" />
 
+                            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white to-transparent" />
                         </div>
                     </div>
 
@@ -358,25 +414,34 @@ export default function SidePanel({
                     <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
-                            onClick={() =>
-                                setIsStatusMenuOpen((value) => !value)
+                            onClick={
+                                currentAttendant
+                                    ? () => setIsStatusMenuOpen((value) => !value)
+                                    : undefined
                             }
                             title={profileName}
-                            className={`flex w-full min-w-0 cursor-pointer items-center rounded-xl border bg-white p-3 text-left transition-colors duration-150 hover:bg-slate-50 ${
+                            className={`flex w-full min-w-0 items-center rounded-xl border bg-white p-3 text-left transition-colors duration-150 ${
+                                currentAttendant
+                                    ? "cursor-pointer hover:bg-slate-50"
+                                    : "cursor-default"
+                            } ${
                                 isExpanded
                                     ? "gap-3 border-border"
                                     : "justify-center border-transparent"
                             }`}
                         >
                             <div className="relative shrink-0">
-                                <InitialsAvatar name={profileName}/>
-                                <span
-                                    className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
-                                        currentAttendant?.is_online
-                                            ? "bg-green"
-                                            : "bg-red"
-                                    }`}
-                                />
+                                <InitialsAvatar name={profileName} />
+
+                                {currentAttendant && (
+                                    <span
+                                        className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                                            currentAttendant.is_online
+                                                ? "bg-green"
+                                                : "bg-red"
+                                        }`}
+                                    />
+                                )}
                             </div>
 
                             {isExpanded && (
