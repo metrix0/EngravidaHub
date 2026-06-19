@@ -4,6 +4,7 @@
 import {useCallback, useEffect, useState} from "react";
 import {
     Bot,
+    CalendarCheck,
     ChevronLeft,
     ChevronRight,
     Clock,
@@ -25,6 +26,7 @@ import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import SidePanel from "@/components/layout/SidePanel";
 
 import {
@@ -63,6 +65,7 @@ export default function InboxPage() {
     const [threads, setThreads] = useState<InboxThreadListItem[]>([]);
     const [totalThreads, setTotalThreads] = useState(0);
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
+    const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
 
     const [isLoadingThreads, setIsLoadingThreads] = useState(true);
     const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
@@ -341,6 +344,7 @@ export default function InboxPage() {
                                     }
                                     onMoveStage={handleMoveStage}
                                     onAddNote={handleAddNote}
+                                    onSchedule={() => setSchedulingPanelOpen(true)}
                                 />
                             </>
                         ) : (
@@ -355,6 +359,28 @@ export default function InboxPage() {
                     </>
                 )}
             </section>
+
+            <SchedulingPanel
+                open={schedulingPanelOpen}
+                onClose={() => setSchedulingPanelOpen(false)}
+                client={
+                    selectedThreadMatchesSelection && selectedThread
+                        ? {
+                            name: selectedThread.name,
+                            phone: selectedThread.phone,
+                            city: selectedThread.city,
+                            channel: selectedThread.channel,
+                        }
+                        : selectedListThread
+                            ? {
+                                name: selectedListThread.name,
+                                phone: null,
+                                city: null,
+                                channel: selectedListThread.channel,
+                            }
+                            : null
+                }
+            />
         </main>
     );
 }
@@ -716,11 +742,13 @@ function CustomerPanel({
                            headerConversation,
                            onMoveStage,
                            onAddNote,
+                           onSchedule,
                        }: {
     conversation: Conversation | null;
     headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
     onMoveStage: (direction: "previous" | "next") => Promise<void>;
     onAddNote: (text: string) => Promise<void>;
+    onSchedule: () => void;
 }) {
     const [noteText, setNoteText] = useState("");
     const [isSavingNote, setIsSavingNote] = useState(false);
@@ -750,7 +778,7 @@ function CustomerPanel({
             <h2 className="mb-4 text-lg font-bold text-slate-950">Cliente</h2>
 
             <button
-                className="mb-5 flex w-full cursor-pointer items-center justify-between rounded-2xl border border-slate-200 p-4 text-left transition-colors hover:bg-slate-50">
+                className="mb-5 flex w-full cursor-pointer items-center justify-between px-1 py-2 text-left transition-opacity hover:opacity-80">
                 <div className="flex min-w-0 items-center gap-4">
                     <InitialsAvatar name={headerName}/>
 
@@ -768,9 +796,14 @@ function CustomerPanel({
                                     {conversation.phone ?? "Sem telefone"}
                                 </div>
 
-                                <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-                                    <MapPin size={13}/>
-                                    <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
+                                <div className={"flex gap-3"}>
+                                    <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
+                                        <MapPin size={13}/>
+                                        <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
+                                    </div>
+                                    <div className="mt-2">
+                                        <ChannelBadge channel={headerChannel}/>
+                                    </div>
                                 </div>
                             </>
                         ) : (
@@ -780,9 +813,6 @@ function CustomerPanel({
                             </>
                         )}
 
-                        <div className="mt-2">
-                            <ChannelBadge channel={headerChannel}/>
-                        </div>
                     </div>
                 </div>
 
@@ -791,8 +821,17 @@ function CustomerPanel({
 
             {conversation ? (
                 <>
+                    <button
+                        type="button"
+                        onClick={onSchedule}
+                        className="mb-5 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
+                    >
+                        <CalendarCheck size={17}/>
+                        Agendar
+                    </button>
+
                     <PanelBlock>
-                        <div className="group/funnel relative rounded-2xl border border-slate-200 p-4">
+                        <div className="group/funnel relative px-1 py-2">
                             <div
                                 className="pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/funnel:pointer-events-auto group-hover/funnel:opacity-100">
                                 <button
@@ -838,7 +877,6 @@ function CustomerPanel({
                             </div>
                         </div>
                     </PanelBlock>
-
                     <PanelBlock title="Notas internas">
                         <div className="rounded-2xl border border-slate-200 p-4">
                             {conversation.notes.length > 0 ? (
@@ -1184,7 +1222,6 @@ function ChannelBadge({channel}: { channel: InboxChannel }) {
             className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${className}`}
         >
             <ChannelIcon channel={channel}/>
-            {channel}
         </span>
     );
 }
@@ -1209,7 +1246,7 @@ function PanelBlock({
     children: React.ReactNode;
 }) {
     return (
-        <div className="mb-4">
+        <div className="mb-6">
             {title && (
                 <h3 className="mb-2.5 text-base font-bold text-slate-950">{title}</h3>
             )}

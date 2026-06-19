@@ -10,6 +10,7 @@ type DetailsSidePanelProps = {
     onClose: () => void;
     children: ReactNode;
     headerContent?: ReactNode;
+    width?: number | string;
     widthClassName?: string;
     zIndexClassName?: string;
     bodyClassName?: string;
@@ -27,6 +28,7 @@ type DetailsSidePanelOpenedEvent = CustomEvent<{
 
 const DETAILS_SIDE_PANEL_STATE_EVENT = "engravida:details-side-panel-state";
 const DETAILS_SIDE_PANEL_OPENED_EVENT = "engravida:details-side-panel-opened";
+const DEFAULT_DETAILS_SIDE_PANEL_WIDTH = 460;
 
 export function DetailsSidePanel({
     open,
@@ -34,7 +36,8 @@ export function DetailsSidePanel({
     onClose,
     children,
     headerContent,
-    widthClassName = "w-[460px]",
+    width = DEFAULT_DETAILS_SIDE_PANEL_WIDTH,
+    widthClassName,
     zIndexClassName = "z-50",
     bodyClassName = "min-h-0 flex-1 overflow-y-auto px-5 py-5",
     headerClassName = "border-b border-slate-100 px-6 py-5",
@@ -111,12 +114,16 @@ export function DetailsSidePanel({
         }, closingFromPeerRef.current ? 180 : 250);
     }
 
+    const resolvedWidth = typeof width === "number" ? `${width}px` : width;
+    const panelStyle = widthClassName ? undefined : { width: resolvedWidth };
+
     return (
         <div className={`fixed inset-0 ${zIndexClassName} pointer-events-none`}>
             <aside
-                className={`pointer-events-auto absolute right-0 top-0 flex h-full max-w-[calc(100vw-64px)] flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${widthClassName} ${
+                className={`pointer-events-auto absolute right-0 top-0 flex h-full max-w-[calc(100vw-64px)] flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${widthClassName ?? ""} ${
                     visible ? "translate-x-0" : "translate-x-full"
                 }`}
+                style={panelStyle}
             >
                 <div className="flex h-full min-h-0 flex-col">
                     <div className={headerClassName}>
