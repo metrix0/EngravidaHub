@@ -355,17 +355,6 @@ export default function SchedulingPanel({
                         </div>
                     </section>
 
-
-                    {autofillError && (
-                        <ErrorMessage message={autofillError} />
-                    )}
-
-                    {autofillSuccess && (
-                        <div className="rounded-xl border border-green/20 bg-soft-green px-4 py-3 text-sm font-semibold text-green">
-                            Dados atualizados com base no cadastro e nas últimas mensagens.
-                        </div>
-                    )}
-
                     <FormField
                         label="Data do agendamento"
                         value={form.schedulingDate}

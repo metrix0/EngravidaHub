@@ -33,6 +33,7 @@ import {
     type DateRange,
 } from "@/components/ui/CalendarButton";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import ClientPanel from "@/components/clientes/ClientPanel";
 import { Modal } from "@/components/ui/Modal";
 import type { FiltersResponse } from "@/types";
 
@@ -135,6 +136,7 @@ export default function FunnelPage() {
     });
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [availableClients, setAvailableClients] = useState<AvailableClient[]>([]);
     const [availableStages, setAvailableStages] = useState<FunnelStage[]>([]);
     const [availableClientsLoading, setAvailableClientsLoading] = useState(false);
@@ -559,7 +561,7 @@ export default function FunnelPage() {
     }
 
     function openClientProfile(clientId: string) {
-        window.location.href = `/clientes?client_id=${clientId}`;
+        setSelectedClientId(clientId);
     }
 
     async function removeClientFromFunnel(clientId: string) {
@@ -866,6 +868,11 @@ export default function FunnelPage() {
                 onAddClient={addClientToFunnel}
                 onToggleClient={toggleSelectedClient}
                 onAddSelectedClients={addSelectedClientsToFunnel}
+            />
+
+            <ClientPanel
+                clientId={selectedClientId}
+                onClose={() => setSelectedClientId(null)}
             />
         </main>
     );
