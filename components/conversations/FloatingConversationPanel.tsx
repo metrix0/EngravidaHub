@@ -75,6 +75,8 @@ export const OPEN_FLOATING_CONVERSATION_EVENT = "engravida:open-floating-convers
 export const OPEN_CONVERSATION_DETAILS_EVENT = "engravida:open-conversation-details";
 
 const STORAGE_KEY = "engravida:floating-conversation";
+const ANIMATION_MS = 360;
+const COLLAPSED_VISIBLE_HEIGHT_PX = 54;
 
 export function openFloatingConversation(target: FloatingConversationTarget) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(target));
@@ -86,6 +88,8 @@ export function openFloatingConversation(target: FloatingConversationTarget) {
 export function FloatingConversationPanel() {
     const router = useRouter();
     const openedSidePanelIds = useRef(new Set<string>());
+    const showTimerRef = useRef<number | null>(null);
+    const closeTimerRef = useRef<number | null>(null);
     const [target, setTarget] = useState<FloatingConversationTarget | null>(null);
     const [data, setData] = useState<FloatingConversationResponse | null>(null);
     const [loading, setLoading] = useState(false);
@@ -112,10 +116,29 @@ export function FloatingConversationPanel() {
     useEffect(() => {
         if (!target) return;
 
-        const timer = window.setTimeout(() => setVisible(true), 20);
-        setCollapsed(false);
+        if (showTimerRef.current) {
+            window.clearTimeout(showTimerRef.current);
+        }
 
-        return () => window.clearTimeout(timer);
+        if (closeTimerRef.current) {
+            window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+
+        setCollapsed(false);
+        setVisible(false);
+
+        showTimerRef.current = window.setTimeout(() => {
+            setVisible(true);
+            showTimerRef.current = null;
+        }, 30);
+
+        return () => {
+            if (showTimerRef.current) {
+                window.clearTimeout(showTimerRef.current);
+                showTimerRef.current = null;
+            }
+        };
     }, [target]);
 
     useEffect(() => {
@@ -124,9 +147,19 @@ export function FloatingConversationPanel() {
 
             if (!detail?.id || (detail.type !== "thread" && detail.type !== "conversation")) return;
 
-            setTarget(detail);
+            if (closeTimerRef.current) {
+                window.clearTimeout(closeTimerRef.current);
+                closeTimerRef.current = null;
+            }
+
+            if (showTimerRef.current) {
+                window.clearTimeout(showTimerRef.current);
+                showTimerRef.current = null;
+            }
+
             setVisible(false);
             setCollapsed(false);
+            setTarget(detail);
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(detail));
         }
 
@@ -202,17 +235,30 @@ export function FloatingConversationPanel() {
         };
     }, [target]);
 
+    useEffect(() => {
+        return () => {
+            if (showTimerRef.current) {
+                window.clearTimeout(showTimerRef.current);
+            }
+
+            if (closeTimerRef.current) {
+                window.clearTimeout(closeTimerRef.current);
+            }
+        };
+    }, []);
+
     const clientName = data?.client?.name ?? "Cliente sem nome";
     const phone = formatPhone(data?.client?.phone ?? null);
     const isLive = target?.type === "thread";
     const detailsLabel = isLive ? "Abrir inbox" : "Abrir detalhes";
 
     const rightOffset = sidePanelOpen ? 484 : 24;
-    const panelStateClass = !visible
-        ? "translate-y-4 opacity-0"
+    const panelTransform = !visible
+        ? "translate3d(0, calc(100% + 28px), 0) scale(0.98)"
         : collapsed
-            ? "translate-y-[calc(100%-52px)] opacity-100"
-            : "translate-y-0 opacity-100";
+            ? `translate3d(0, calc(100% - ${COLLAPSED_VISIBLE_HEIGHT_PX}px), 0) scale(1)`
+            : "translate3d(0, 0, 0) scale(1)";
+    const panelOpacity = visible ? 1 : 0;
 
     const attendantName = data?.conversation?.attendant_chat_name ?? null;
 
@@ -236,14 +282,24 @@ export function FloatingConversationPanel() {
     if (!target) return null;
 
     function handleClose() {
+        if (showTimerRef.current) {
+            window.clearTimeout(showTimerRef.current);
+            showTimerRef.current = null;
+        }
+
+        if (closeTimerRef.current) {
+            window.clearTimeout(closeTimerRef.current);
+        }
+
         setVisible(false);
 
-        window.setTimeout(() => {
+        closeTimerRef.current = window.setTimeout(() => {
             setTarget(null);
             setData(null);
             setCollapsed(false);
             window.localStorage.removeItem(STORAGE_KEY);
-        }, 180);
+            closeTimerRef.current = null;
+        }, ANIMATION_MS + 40);
     }
 
     function handleOpenDetails() {
@@ -263,8 +319,18 @@ export function FloatingConversationPanel() {
 
     return (
         <div
-            className={`fixed bottom-6 z-[35] w-[365px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-[right,transform,opacity] duration-300 ease-out ${panelStateClass}`}
-            style={{ right: rightOffset }}
+            className="fixed bottom-6 z-[35] w-[365px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl will-change-transform"
+            style={{
+                right: rightOffset,
+                opacity: panelOpacity,
+                pointerEvents: visible ? "auto" : "none",
+                transform: panelTransform,
+                transition: [
+                    `right ${ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                    `transform ${ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                    `opacity ${Math.round(ANIMATION_MS * 0.7)}ms ease`,
+                ].join(", "),
+            }}
         >
             <div className="border-b border-slate-100 px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -303,19 +369,19 @@ export function FloatingConversationPanel() {
                         <button
                             type="button"
                             onClick={() => setCollapsed((current) => !current)}
-                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                             title={collapsed ? "Mostrar conversa" : "Ocultar conversa"}
                         >
                             <ChevronDown
                                 size={16}
-                                className={`transition-transform duration-300 ${collapsed ? "rotate-180" : "rotate-0"}`}
+                                className={`transition-transform duration-300 ease-out ${collapsed ? "rotate-180" : "rotate-0"}`}
                             />
                         </button>
 
                         <button
                             type="button"
                             onClick={handleClose}
-                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                             title="Fechar conversa"
                         >
                             <X size={16} />

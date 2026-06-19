@@ -12,11 +12,11 @@ import {
     Funnel,
     MapPin,
     MessagesSquare,
-    Paperclip,
+    Paperclip, Pin,
     Search,
     Send,
     SlidersHorizontal,
-    Smile,
+    Smile, SquareArrowOutUpRight,
     UserRound,
 } from "lucide-react";
 import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
@@ -627,14 +627,14 @@ function ChatPanel({
                     <button
                         type="button"
                         disabled={!threadId}
-                        title="Abrir como conversa flutuante"
+                        title="Fixar conversa"
                         onClick={() => {
                             if (!threadId) return;
                             openFloatingConversation({type: "thread", id: threadId});
                         }}
                         className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        <MessagesSquare size={18}/>
+                        <Pin size={18} className={"rotate-45 "}/>
                     </button>
                 </div>
             </div>

@@ -43,6 +43,9 @@ type PresetId =
     | "atendente"
     | "marketing";
 
+const NO_PRESET_ID = "__none__" as const;
+type AccessPresetId = PresetId | typeof NO_PRESET_ID;
+
 type ColorName = "purple" | "blue" | "green" | "orange" | "red";
 
 type PermissionTab = {
@@ -71,7 +74,7 @@ type ApiUser = {
 
 type UserPermission = {
     auth_user_id: string;
-    preset: PresetId;
+    preset: AccessPresetId;
     allowed_tabs: TabId[];
     attendant_id: string | null;
     active: boolean;
@@ -347,7 +350,9 @@ export default function UsuariosPage() {
             const permission = permissionsByUserId.get(user.id) ?? null;
 
             const preset =
-                PRESETS.find((item) => item.id === permission?.preset) ?? null;
+                permission?.preset === NO_PRESET_ID
+                    ? null
+                    : PRESETS.find((item) => item.id === permission?.preset) ?? null;
 
             const allowedTabs = normalizeAllowedTabs(
                 permission?.allowed_tabs,
@@ -378,11 +383,12 @@ export default function UsuariosPage() {
         const term = search.trim().toLowerCase();
 
         return users.filter((user) => {
-            if (
-                presetValues.length > 0 &&
-                (!user.preset || !presetValues.includes(user.preset.id))
-            ) {
-                return false;
+            if (presetValues.length > 0) {
+                const userPresetValue = user.preset?.id ?? NO_PRESET_ID;
+
+                if (!presetValues.includes(userPresetValue)) {
+                    return false;
+                }
             }
 
             if (statusValues.length > 0) {
@@ -420,29 +426,31 @@ export default function UsuariosPage() {
     async function saveUserPermission(
         user: UserView,
         patch: Partial<{
-            preset: PresetId;
+            preset: AccessPresetId;
             allowed_tabs: TabId[];
             attendant_id: string | null;
             active: boolean;
         }>,
     ) {
+        const patchHasPreset = patch.preset !== undefined;
         const nextPresetId =
-            patch.preset ??
-            user.preset?.id ??
-            user.permission?.preset ??
-            "atendente";
+            patchHasPreset
+                ? patch.preset!
+                : user.preset?.id ?? user.permission?.preset ?? "atendente";
 
-        const nextPreset =
-            PRESETS.find((preset) => preset.id === nextPresetId) ??
+        const noPresetSelected = nextPresetId === NO_PRESET_ID;
+        const nextPreset = noPresetSelected
+            ? null
+            : PRESETS.find((preset) => preset.id === nextPresetId) ??
             PRESETS.find((preset) => preset.id === "atendente")!;
 
         const nextAllowedTabs =
             patch.allowed_tabs ??
-            (patch.preset
-                ? nextPreset.default_tabs
+            (patchHasPreset
+                ? nextPreset?.default_tabs ?? []
                 : user.allowed_tabs.length > 0
                     ? user.allowed_tabs
-                    : nextPreset.default_tabs);
+                    : nextPreset?.default_tabs ?? []);
 
         const nextAttendantId =
             patch.attendant_id !== undefined
@@ -463,7 +471,7 @@ export default function UsuariosPage() {
                 },
                 body: JSON.stringify({
                     auth_user_id: user.id,
-                    preset: nextPreset.id,
+                    preset: nextPreset?.id ?? NO_PRESET_ID,
                     allowed_tabs: nextAllowedTabs,
                     attendant_id: nextAttendantId ?? "__none__",
                     active: nextActive,
@@ -478,7 +486,7 @@ export default function UsuariosPage() {
 
             const nextPermission: UserPermission = {
                 auth_user_id: user.id,
-                preset: nextPreset.id,
+                preset: nextPreset?.id ?? NO_PRESET_ID,
                 allowed_tabs: nextAllowedTabs,
                 attendant_id: nextAttendantId,
                 active: nextActive,
@@ -704,10 +712,13 @@ export default function UsuariosPage() {
                                     title: "Preset",
                                     values: presetValues,
                                     onChange: setPresetValues,
-                                    options: PRESETS.map((preset) => ({
-                                        label: preset.name,
-                                        value: preset.id,
-                                    })),
+                                    options: [
+                                        {label: "Nenhum", value: NO_PRESET_ID},
+                                        ...PRESETS.map((preset) => ({
+                                            label: preset.name,
+                                            value: preset.id,
+                                        })),
+                                    ],
                                 },
                                 {
                                     id: "status",
@@ -762,7 +773,7 @@ function UserDetailsPanel({
     onSave: (
         user: UserView,
         patch: Partial<{
-            preset: PresetId;
+            preset: AccessPresetId;
             allowed_tabs: TabId[];
             attendant_id: string | null;
             active: boolean;
@@ -776,10 +787,13 @@ function UserDetailsPanel({
     const accessInfo = getAccessInfo(user);
     const accessColors = accessInfo.preset ? getColorClasses(accessInfo.preset.color) : null;
 
-    const presetOptions: DropdownSelectOption[] = PRESETS.map((preset) => ({
-        label: preset.name,
-        value: preset.id,
-    }));
+    const presetOptions: DropdownSelectOption[] = [
+        {label: "Nenhum", value: NO_PRESET_ID},
+        ...PRESETS.map((preset) => ({
+            label: preset.name,
+            value: preset.id,
+        })),
+    ];
 
     const statusOptions: DropdownSelectOption[] = [
         {label: "Ativo", value: "active"},
@@ -827,9 +841,9 @@ function UserDetailsPanel({
                     <div className="space-y-4">
                         <PanelControlRow label="Acesso">
                             <DropdownSelect
-                                value={user.preset?.id ?? "atendente"}
+                                value={user.preset?.id ?? NO_PRESET_ID}
                                 disabled={saving}
-                                onChange={(value) => void onSave(user, {preset: value as PresetId})}
+                                onChange={(value) => void onSave(user, {preset: value as AccessPresetId})}
                                 options={presetOptions}
                                 widthClassName="w-[230px]"
                             />
@@ -1026,7 +1040,7 @@ function PermissionBadge({
 function getAccessInfo(user: UserView) {
     if (!user.preset) {
         return {
-            label: EMPTY_VALUE,
+            label: "Nenhum",
             preset: null,
         };
     }

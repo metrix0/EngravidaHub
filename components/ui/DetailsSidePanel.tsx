@@ -61,7 +61,7 @@ export function DetailsSidePanel({
 
         setVisible(false);
 
-        const timer = window.setTimeout(() => setMounted(false), 250);
+        const timer = window.setTimeout(() => setMounted(false), 50);
         return () => window.clearTimeout(timer);
     }, [open]);
 

@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
+const NO_PRESET_ID = "__none__";
+
 type UserPermissionRow = {
     auth_user_id: string;
     preset: string;
@@ -142,8 +144,7 @@ export async function PATCH(request: NextRequest) {
         const authUserId =
             typeof body.auth_user_id === "string" ? body.auth_user_id : "";
 
-        const preset =
-            typeof body.preset === "string" ? body.preset : "";
+        const preset = normalizePresetValue(body.preset);
 
         const allowedTabs = Array.isArray(body.allowed_tabs)
             ? body.allowed_tabs.filter((item: unknown): item is string => {
@@ -167,20 +168,13 @@ export async function PATCH(request: NextRequest) {
             );
         }
 
-        if (!preset) {
-            return NextResponse.json(
-                { error: "preset is required" },
-                { status: 400 }
-            );
-        }
-
         const { data, error } = await supabase
             .from("user_permissions")
             .upsert(
                 {
                     auth_user_id: authUserId,
                     preset,
-                    allowed_tabs: allowedTabs,
+                    allowed_tabs: preset === NO_PRESET_ID ? [] : allowedTabs,
                     attendant_id: attendantId,
                     active,
                     updated_at: new Date().toISOString(),
@@ -216,6 +210,18 @@ export async function PATCH(request: NextRequest) {
             { status: 500 }
         );
     }
+}
+
+function normalizePresetValue(value: unknown) {
+    if (value === null || value === undefined || value === "") {
+        return NO_PRESET_ID;
+    }
+
+    if (typeof value !== "string") {
+        return NO_PRESET_ID;
+    }
+
+    return value;
 }
 
 function normalizeNestedUnit(value: UnitRow | UnitRow[] | null | undefined) {
