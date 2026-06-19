@@ -4,19 +4,37 @@
 import { useEffect } from "react";
 
 import { supabase } from "@/lib/supabase/client";
+import { INBOX_THREAD_CACHE_CHANGED_EVENT } from "@/lib/inbox/inboxApi";
+
+type InboxThreadCacheChangedDetail = {
+    threadId: string;
+};
 
 export function useInboxRealtime({
-                                     selectedThreadId,
-                                     selectedClientId,
-                                     onThreadChange,
-                                     onSelectedThreadChange,
-                                 }: {
+                                      selectedThreadId,
+                                      selectedClientId,
+                                      onThreadChange,
+                                      onSelectedThreadChange,
+                                  }: {
     selectedThreadId: string | null;
     selectedClientId: string | null;
     onThreadChange: () => void;
     onSelectedThreadChange: () => void;
 }) {
     useEffect(() => {
+        function handleThreadCacheChanged(event: Event) {
+            const customEvent = event as CustomEvent<InboxThreadCacheChangedDetail>;
+
+            if (customEvent.detail?.threadId === selectedThreadId) {
+                onSelectedThreadChange();
+            }
+        }
+
+        window.addEventListener(
+            INBOX_THREAD_CACHE_CHANGED_EVENT,
+            handleThreadCacheChanged,
+        );
+
         const channel = supabase
             .channel("inbox-realtime")
             .on(
@@ -81,6 +99,10 @@ export function useInboxRealtime({
             .subscribe();
 
         return () => {
+            window.removeEventListener(
+                INBOX_THREAD_CACHE_CHANGED_EVENT,
+                handleThreadCacheChanged,
+            );
             supabase.removeChannel(channel);
         };
     }, [

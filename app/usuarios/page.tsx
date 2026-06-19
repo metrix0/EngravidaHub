@@ -37,11 +37,7 @@ type TabId =
     | "clientes"
     | "funil";
 
-type PresetId =
-    | "admin"
-    | "gestor"
-    | "atendente"
-    | "marketing";
+type PresetId = "admin" | "gestor" | "atendente" | "marketing";
 
 const NO_PRESET_ID = "__none__" as const;
 type AccessPresetId = PresetId | typeof NO_PRESET_ID;
@@ -295,7 +291,6 @@ export default function UsuariosPage() {
             const response = await fetch("/api/usuarios", {
                 cache: "no-store",
             });
-
             const json: ApiResponse | { error?: string } = await response.json();
 
             if (!response.ok) {
@@ -333,11 +328,9 @@ export default function UsuariosPage() {
                 permission,
             ]),
         );
-
         const attendantsById = new Map(
             data.attendants.map((attendant) => [attendant.id, attendant]),
         );
-
         const attendantsByAuthUserId = new Map<string, Attendant>();
 
         for (const attendant of data.attendants) {
@@ -348,19 +341,21 @@ export default function UsuariosPage() {
 
         return data.users.map((user) => {
             const permission = permissionsByUserId.get(user.id) ?? null;
-
             const preset =
                 permission?.preset === NO_PRESET_ID
                     ? null
                     : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-
             const allowedTabs = normalizeAllowedTabs(
                 permission?.allowed_tabs,
                 permission ? [] : preset?.default_tabs ?? [],
             );
 
-            const attendant = permission?.attendant_id
-                ? attendantsById.get(permission.attendant_id) ?? null
+            // Once a permission record exists, attendant_id is authoritative.
+            // A null value means the user is intentionally not an attendant.
+            const attendant = permission
+                ? permission.attendant_id
+                    ? attendantsById.get(permission.attendant_id) ?? null
+                    : null
                 : attendantsByAuthUserId.get(user.id) ?? null;
 
             return {
@@ -372,7 +367,9 @@ export default function UsuariosPage() {
                 allowed_tabs: allowedTabs,
                 tabs: tabsFromIds(allowedTabs),
                 attendant,
-                attendant_id: attendant?.id ?? permission?.attendant_id ?? null,
+                attendant_id: permission
+                    ? permission.attendant_id
+                    : attendant?.id ?? null,
                 unit_name: "Todas",
                 active: permission?.active ?? true,
             };
@@ -433,37 +430,48 @@ export default function UsuariosPage() {
         }>,
     ) {
         const patchHasPreset = patch.preset !== undefined;
-        const nextPresetId =
-            patchHasPreset
-                ? patch.preset!
-                : user.preset?.id ?? user.permission?.preset ?? "atendente";
-
+        const nextPresetId = patchHasPreset
+            ? patch.preset!
+            : user.preset?.id ?? user.permission?.preset ?? NO_PRESET_ID;
         const noPresetSelected = nextPresetId === NO_PRESET_ID;
         const nextPreset = noPresetSelected
             ? null
-            : PRESETS.find((preset) => preset.id === nextPresetId) ??
-            PRESETS.find((preset) => preset.id === "atendente")!;
-
+            : PRESETS.find((preset) => preset.id === nextPresetId) ?? null;
         const nextAllowedTabs =
             patch.allowed_tabs ??
             (patchHasPreset
                 ? nextPreset?.default_tabs ?? []
-                : user.allowed_tabs.length > 0
-                    ? user.allowed_tabs
-                    : nextPreset?.default_tabs ?? []);
-
+                : user.allowed_tabs);
         const nextAttendantId =
             patch.attendant_id !== undefined
                 ? patch.attendant_id
                 : user.attendant_id;
-
         const nextActive =
             patch.active !== undefined ? patch.active : user.active;
+        const nextPermission: UserPermission = {
+            auth_user_id: user.id,
+            preset: nextPreset?.id ?? NO_PRESET_ID,
+            allowed_tabs: nextAllowedTabs,
+            attendant_id: nextAttendantId,
+            active: nextActive,
+        };
+
+        const previousData = data;
+
+        // Optimistic update so the dropdown and table change immediately.
+        setData((current) => {
+            if (!current) return current;
+
+            return applyPermissionUpdate({
+                current,
+                userId: user.id,
+                nextPermission,
+            });
+        });
+        setSavingUserId(user.id);
+        setError(null);
 
         try {
-            setSavingUserId(user.id);
-            setError(null);
-
             const response = await fetch("/api/usuarios", {
                 method: "PATCH",
                 headers: {
@@ -471,49 +479,20 @@ export default function UsuariosPage() {
                 },
                 body: JSON.stringify({
                     auth_user_id: user.id,
-                    preset: nextPreset?.id ?? NO_PRESET_ID,
-                    allowed_tabs: nextAllowedTabs,
+                    preset: nextPermission.preset,
+                    allowed_tabs: nextPermission.allowed_tabs,
                     attendant_id: nextAttendantId ?? "__none__",
-                    active: nextActive,
+                    active: nextPermission.active,
                 }),
             });
-
             const json = await response.json();
 
             if (!response.ok) {
                 throw new Error(json.error ?? "Erro ao salvar permissões");
             }
-
-            const nextPermission: UserPermission = {
-                auth_user_id: user.id,
-                preset: nextPreset?.id ?? NO_PRESET_ID,
-                allowed_tabs: nextAllowedTabs,
-                attendant_id: nextAttendantId,
-                active: nextActive,
-            };
-
-            setData((current) => {
-                if (!current) return current;
-
-                const existingPermission = current.permissions.some(
-                    (permission) => permission.auth_user_id === user.id,
-                );
-
-                const nextPermissions = existingPermission
-                    ? current.permissions.map((permission) =>
-                        permission.auth_user_id === user.id
-                            ? nextPermission
-                            : permission,
-                    )
-                    : [...current.permissions, nextPermission];
-
-                return {
-                    ...current,
-                    permissions: nextPermissions,
-                };
-            });
         } catch (saveError) {
             console.error("[usuarios] failed to save", saveError);
+            setData(previousData);
             setError(
                 saveError instanceof Error
                     ? saveError.message
@@ -560,7 +539,7 @@ export default function UsuariosPage() {
             label: "Unidade",
             width: "12%",
             render: (user) => (
-                <div title={user.unit_name} className="truncate text-slate-700 ml-1">
+                <div title={user.unit_name} className="ml-1 truncate text-slate-700">
                     {user.unit_name}
                 </div>
             ),
@@ -688,8 +667,7 @@ export default function UsuariosPage() {
                                 preset={preset}
                                 userCount={
                                     data?.permissions.filter(
-                                        (permission) =>
-                                            permission.preset === preset.id,
+                                        (permission) => permission.preset === preset.id,
                                     ).length ?? 0
                                 }
                             />
@@ -756,15 +734,81 @@ export default function UsuariosPage() {
     );
 }
 
+function applyPermissionUpdate({
+    current,
+    userId,
+    nextPermission,
+}: {
+    current: ApiResponse;
+    userId: string;
+    nextPermission: UserPermission;
+}): ApiResponse {
+    const existingPermission = current.permissions.some(
+        (permission) => permission.auth_user_id === userId,
+    );
+
+    const permissions = existingPermission
+        ? current.permissions.map((permission) => {
+            if (permission.auth_user_id === userId) {
+                return nextPermission;
+            }
+
+            if (
+                nextPermission.attendant_id &&
+                permission.attendant_id === nextPermission.attendant_id
+            ) {
+                return {
+                    ...permission,
+                    attendant_id: null,
+                };
+            }
+
+            return permission;
+        })
+        : [
+            ...current.permissions.map((permission) =>
+                nextPermission.attendant_id &&
+                permission.attendant_id === nextPermission.attendant_id
+                    ? { ...permission, attendant_id: null }
+                    : permission,
+            ),
+            nextPermission,
+        ];
+
+    const attendants = current.attendants.map((attendant) => {
+        if (attendant.id === nextPermission.attendant_id) {
+            return {
+                ...attendant,
+                auth_user_id: userId,
+            };
+        }
+
+        if (attendant.auth_user_id === userId) {
+            return {
+                ...attendant,
+                auth_user_id: null,
+            };
+        }
+
+        return attendant;
+    });
+
+    return {
+        ...current,
+        permissions,
+        attendants,
+    };
+}
+
 function UserDetailsPanel({
-                              open,
-                              user,
-                              attendants,
-                              saving,
-                              onClose,
-                              onSave,
-                              onToggleTab,
-                          }: {
+    open,
+    user,
+    attendants,
+    saving,
+    onClose,
+    onSave,
+    onToggleTab,
+}: {
     open: boolean;
     user: UserView | null;
     attendants: Attendant[];
@@ -785,7 +829,9 @@ function UserDetailsPanel({
 
     const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
     const accessInfo = getAccessInfo(user);
-    const accessColors = accessInfo.preset ? getColorClasses(accessInfo.preset.color) : null;
+    const accessColors = accessInfo.preset
+        ? getColorClasses(accessInfo.preset.color)
+        : null;
 
     const presetOptions: DropdownSelectOption[] = [
         {label: "Nenhum", value: NO_PRESET_ID},
@@ -794,12 +840,10 @@ function UserDetailsPanel({
             value: preset.id,
         })),
     ];
-
     const statusOptions: DropdownSelectOption[] = [
         {label: "Ativo", value: "active"},
         {label: "Inativo", value: "inactive"},
     ];
-
     const attendantOptions: DropdownSelectOption[] = [
         {label: "(Não é atendente)", value: "__none__"},
         ...attendants.map((attendant) => ({
@@ -836,14 +880,17 @@ function UserDetailsPanel({
             )}
         >
             <div className="space-y-5">
-
                 <PanelSection>
                     <div className="space-y-4">
                         <PanelControlRow label="Acesso">
                             <DropdownSelect
                                 value={user.preset?.id ?? NO_PRESET_ID}
                                 disabled={saving}
-                                onChange={(value) => void onSave(user, {preset: value as AccessPresetId})}
+                                onChange={(value) =>
+                                    void onSave(user, {
+                                        preset: value as AccessPresetId,
+                                    })
+                                }
                                 options={presetOptions}
                                 widthClassName="w-[230px]"
                             />
@@ -853,7 +900,11 @@ function UserDetailsPanel({
                             <DropdownSelect
                                 value={user.active ? "active" : "inactive"}
                                 disabled={saving}
-                                onChange={(value) => void onSave(user, {active: value === "active"})}
+                                onChange={(value) =>
+                                    void onSave(user, {
+                                        active: value === "active",
+                                    })
+                                }
                                 options={statusOptions}
                                 widthClassName="w-[230px]"
                             />
@@ -865,7 +916,8 @@ function UserDetailsPanel({
                                 disabled={saving}
                                 onChange={(value) => {
                                     void onSave(user, {
-                                        attendant_id: value === "__none__" ? null : value,
+                                        attendant_id:
+                                            value === "__none__" ? null : value,
                                     });
                                 }}
                                 options={attendantOptions}
@@ -900,7 +952,7 @@ function UserDetailsPanel({
                                     type="button"
                                     disabled={saving}
                                     onClick={() => onToggleTab(user, tab.id)}
-                                    className={`flex cursor-pointer items-center gap-3 border-slate-200 shadow-sm rounded-xl border px-4 py-3 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                    className={`flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
                                         selected
                                             ? "bg-soft-brand text-slate-700 hover:bg-selection"
                                             : "bg-white text-slate-600 hover:bg-selection"
@@ -913,7 +965,9 @@ function UserDetailsPanel({
                                                 : "border-slate-300 bg-white"
                                         }`}
                                     >
-                                        {selected && <Check size={12} className="text-white" />}
+                                        {selected && (
+                                            <Check size={12} className="text-white" />
+                                        )}
                                     </span>
 
                                     <span className="truncate">{tab.label}</span>
@@ -928,10 +982,10 @@ function UserDetailsPanel({
 }
 
 function PanelSection({
-                          title,
-                          action,
-                          children,
-                      }: {
+    title,
+    action,
+    children,
+}: {
     title?: string;
     action?: ReactNode;
     children: ReactNode;
@@ -944,7 +998,9 @@ function PanelSection({
                         <h3 className="text-sm font-bold text-slate-950">
                             {title}
                         </h3>
-                    ) : <span />}
+                    ) : (
+                        <span />
+                    )}
 
                     {action}
                 </div>
@@ -956,9 +1012,9 @@ function PanelSection({
 }
 
 function PanelControlRow({
-                             label,
-                             children,
-                         }: {
+    label,
+    children,
+}: {
     label: string;
     children: ReactNode;
 }) {
@@ -974,9 +1030,9 @@ function PanelControlRow({
 }
 
 function PresetCard({
-                        preset,
-                        userCount,
-                    }: {
+    preset,
+    userCount,
+}: {
     preset: PermissionPreset;
     userCount: number;
 }) {
@@ -994,9 +1050,7 @@ function PresetCard({
                 </div>
 
                 <div className="min-w-0">
-                    <h3
-                        className={`truncate text-base font-bold ${colors.text}`}
-                    >
+                    <h3 className={`truncate text-base font-bold ${colors.text}`}>
                         {preset.name}
                     </h3>
 
@@ -1020,9 +1074,9 @@ function PresetCard({
 }
 
 function PermissionBadge({
-                             label,
-                             color,
-                         }: {
+    label,
+    color,
+}: {
     label: string;
     color: ColorName;
 }) {
@@ -1045,7 +1099,10 @@ function getAccessInfo(user: UserView) {
         };
     }
 
-    const customized = !sameTabSet(user.allowed_tabs, user.preset.default_tabs);
+    const customized = !sameTabSet(
+        user.allowed_tabs,
+        user.preset.default_tabs,
+    );
 
     return {
         label: `${user.preset.name}${customized ? " (Customizado)" : ""}`,

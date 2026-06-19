@@ -2,21 +2,25 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { Eye, EyeOff } from "lucide-react";
 
 import { Card } from "@/components";
+import { clearCurrentAttendantCache } from "@/lib/attendants/currentAttendantApi";
+import { clearCurrentUserCache } from "@/lib/auth/currentUserApi";
 
 export default function LoginPage() {
-    const router = useRouter();
-
     function getNextUrl() {
         if (typeof window === "undefined") return "/";
 
         const params = new URLSearchParams(window.location.search);
+        const next = params.get("next");
 
-        return params.get("next") ?? "/";
+        if (!next || !next.startsWith("/") || next.startsWith("//")) {
+            return "/";
+        }
+
+        return next;
     }
 
     const [supabase] = useState(() =>
@@ -81,7 +85,12 @@ export default function LoginPage() {
         }
 
         handleInviteToken();
-    }, []);
+    }, [supabase]);
+
+    function resetCachedSessionData() {
+        clearCurrentUserCache();
+        clearCurrentAttendantCache();
+    }
 
     async function handleLogin(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -94,16 +103,18 @@ export default function LoginPage() {
             password,
         });
 
-
-        setLoading(false);
-
         if (error) {
+            setLoading(false);
             setErrorMessage("Email ou senha inválidos.");
             return;
         }
 
-        router.replace(getNextUrl());
-        router.refresh();
+        resetCachedSessionData();
+
+        // The full navigation mounts CurrentUserProvider once on the protected
+        // app. That provider performs the single permissions fetch and then
+        // keeps the result in memory/sessionStorage across tab changes.
+        window.location.replace(getNextUrl());
     }
 
     async function handleSetPassword(event: FormEvent<HTMLFormElement>) {
@@ -122,15 +133,14 @@ export default function LoginPage() {
             password: newPassword,
         });
 
-        setLoading(false);
-
         if (error) {
+            setLoading(false);
             setErrorMessage("Não foi possível criar a senha.");
             return;
         }
 
-        router.replace("/");
-        router.refresh();
+        resetCachedSessionData();
+        window.location.replace("/");
     }
 
     if (isInvite) {

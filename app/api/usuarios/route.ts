@@ -4,6 +4,17 @@ import { supabase } from "@/lib";
 
 const NO_PRESET_ID = "__none__";
 
+const VALID_TAB_IDS = new Set([
+    "dashboard",
+    "conversas",
+    "jornada",
+    "eventos",
+    "usuarios",
+    "inbox",
+    "clientes",
+    "funil",
+]);
+
 type UserPermissionRow = {
     auth_user_id: string;
     preset: string;
@@ -62,21 +73,21 @@ export async function GET() {
         if (authUsersResult.error) {
             return NextResponse.json(
                 { error: authUsersResult.error.message },
-                { status: 500 }
+                { status: 500 },
             );
         }
 
         if (permissionsResult.error) {
             return NextResponse.json(
                 { error: permissionsResult.error.message },
-                { status: 500 }
+                { status: 500 },
             );
         }
 
         if (attendantsResult.error) {
             return NextResponse.json(
                 { error: attendantsResult.error.message },
-                { status: 500 }
+                { status: 500 },
             );
         }
 
@@ -96,20 +107,20 @@ export async function GET() {
                     unit_id: unit?.id ?? null,
                     unit_name: unit?.name ?? "Sem unidade",
                 };
-            }
+            },
         );
 
         const users = authUsersResult.data.users.map((user) => {
-            const metadata = (user.user_metadata ?? {}) as Record<string, any>;
+            const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
 
             return {
                 id: user.id,
                 email: user.email ?? null,
                 name:
-                    metadata.name ??
-                    metadata.full_name ??
-                    metadata.display_name ??
-                    metadata.user_name ??
+                    getMetadataString(metadata, "name") ??
+                    getMetadataString(metadata, "full_name") ??
+                    getMetadataString(metadata, "display_name") ??
+                    getMetadataString(metadata, "user_name") ??
                     user.email?.split("@")[0] ??
                     "Usuário",
                 created_at: user.created_at,
@@ -132,7 +143,7 @@ export async function GET() {
                         ? error.message
                         : "Erro inesperado ao carregar usuários",
             },
-            { status: 500 }
+            { status: 500 },
         );
     }
 }
@@ -142,33 +153,43 @@ export async function PATCH(request: NextRequest) {
         const body = await request.json();
 
         const authUserId =
-            typeof body.auth_user_id === "string" ? body.auth_user_id : "";
-
+            typeof body.auth_user_id === "string" ? body.auth_user_id.trim() : "";
         const preset = normalizePresetValue(body.preset);
-
-        const allowedTabs = Array.isArray(body.allowed_tabs)
-            ? body.allowed_tabs.filter((item: unknown): item is string => {
-                return typeof item === "string";
-            })
-            : [];
-
-        const attendantId =
-            typeof body.attendant_id === "string" &&
-            body.attendant_id !== "__none__"
-                ? body.attendant_id
-                : null;
-
-        const active =
-            typeof body.active === "boolean" ? body.active : true;
+        const allowedTabs = normalizeAllowedTabs(body.allowed_tabs);
+        const attendantId = normalizeAttendantId(body.attendant_id);
+        const active = typeof body.active === "boolean" ? body.active : true;
 
         if (!authUserId) {
             return NextResponse.json(
                 { error: "auth_user_id is required" },
-                { status: 400 }
+                { status: 400 },
             );
         }
 
-        const { data, error } = await supabase
+        if (attendantId) {
+            const { data: selectedAttendant, error: selectedAttendantError } =
+                await supabase
+                    .from("attendants")
+                    .select("id")
+                    .eq("id", attendantId)
+                    .maybeSingle();
+
+            if (selectedAttendantError) {
+                return NextResponse.json(
+                    { error: selectedAttendantError.message },
+                    { status: 500 },
+                );
+            }
+
+            if (!selectedAttendant) {
+                return NextResponse.json(
+                    { error: "Atendente não encontrado" },
+                    { status: 404 },
+                );
+            }
+        }
+
+        const { data: permission, error: permissionError } = await supabase
             .from("user_permissions")
             .upsert(
                 {
@@ -181,21 +202,34 @@ export async function PATCH(request: NextRequest) {
                 },
                 {
                     onConflict: "auth_user_id",
-                }
+                },
             )
             .select()
             .single();
 
-        if (error) {
+        if (permissionError) {
             return NextResponse.json(
-                { error: error.message },
-                { status: 500 }
+                { error: permissionError.message },
+                { status: 500 },
+            );
+        }
+
+        const attendantSyncError = await syncAttendantLink({
+            authUserId,
+            attendantId,
+        });
+
+        if (attendantSyncError) {
+            return NextResponse.json(
+                { error: attendantSyncError },
+                { status: 500 },
             );
         }
 
         return NextResponse.json({
             ok: true,
-            permission: data,
+            permission,
+            attendant_id: attendantId,
         });
     } catch (error) {
         console.error("[usuarios] PATCH failed", error);
@@ -207,9 +241,56 @@ export async function PATCH(request: NextRequest) {
                         ? error.message
                         : "Erro inesperado ao salvar permissões",
             },
-            { status: 500 }
+            { status: 500 },
         );
     }
+}
+
+async function syncAttendantLink({
+    authUserId,
+    attendantId,
+}: {
+    authUserId: string;
+    attendantId: string | null;
+}) {
+    if (!attendantId) {
+        const { error } = await supabase
+            .from("attendants")
+            .update({ auth_user_id: null })
+            .eq("auth_user_id", authUserId);
+
+        return error?.message ?? null;
+    }
+
+    const { error: clearCurrentUserLinksError } = await supabase
+        .from("attendants")
+        .update({ auth_user_id: null })
+        .eq("auth_user_id", authUserId)
+        .neq("id", attendantId);
+
+    if (clearCurrentUserLinksError) {
+        return clearCurrentUserLinksError.message;
+    }
+
+    const { error: clearOtherPermissionsError } = await supabase
+        .from("user_permissions")
+        .update({
+            attendant_id: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq("attendant_id", attendantId)
+        .neq("auth_user_id", authUserId);
+
+    if (clearOtherPermissionsError) {
+        return clearOtherPermissionsError.message;
+    }
+
+    const { error: linkAttendantError } = await supabase
+        .from("attendants")
+        .update({ auth_user_id: authUserId })
+        .eq("id", attendantId);
+
+    return linkAttendantError?.message ?? null;
 }
 
 function normalizePresetValue(value: unknown) {
@@ -217,11 +298,39 @@ function normalizePresetValue(value: unknown) {
         return NO_PRESET_ID;
     }
 
-    if (typeof value !== "string") {
-        return NO_PRESET_ID;
+    return typeof value === "string" ? value : NO_PRESET_ID;
+}
+
+function normalizeAllowedTabs(value: unknown) {
+    if (!Array.isArray(value)) return [];
+
+    return [...new Set(
+        value.filter(
+            (item: unknown): item is string =>
+                typeof item === "string" && VALID_TAB_IDS.has(item),
+        ),
+    )];
+}
+
+function normalizeAttendantId(value: unknown) {
+    if (
+        typeof value !== "string" ||
+        !value.trim() ||
+        value === "__none__"
+    ) {
+        return null;
     }
 
-    return value;
+    return value.trim();
+}
+
+function getMetadataString(
+    metadata: Record<string, unknown>,
+    key: string,
+) {
+    const value = metadata[key];
+
+    return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeNestedUnit(value: UnitRow | UnitRow[] | null | undefined) {

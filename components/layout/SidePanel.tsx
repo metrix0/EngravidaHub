@@ -22,6 +22,7 @@ import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
     type CurrentAttendant,
     fetchCurrentAttendant,
+    getCachedCurrentAttendant,
     setCurrentAttendantOffline,
     setCurrentAttendantOnline,
 } from "@/lib/attendants/currentAttendantApi";
@@ -128,20 +129,36 @@ export default function SidePanel({
     const router = useRouter();
     const pathname = usePathname();
     const { currentUser } = useCurrentUser();
+    const currentUserId = currentUser?.user?.id ?? null;
+    const cachedAttendant = getCachedCurrentAttendant(currentUserId);
 
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isSidebarHovered, setIsSidebarHovered] = useState(false);
     const [currentAttendant, setCurrentAttendant] =
-        useState<CurrentAttendant | null>(null);
+        useState<CurrentAttendant | null>(() => cachedAttendant?.attendant ?? null);
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
 
-        async function loadCurrentAttendant() {
+        async function loadCurrentAttendant(force = false) {
+            if (!currentUserId) {
+                if (isMounted) setCurrentAttendant(null);
+                return;
+            }
+
+            const cached = getCachedCurrentAttendant(currentUserId);
+
+            if (cached && isMounted) {
+                setCurrentAttendant(cached.attendant);
+            }
+
             try {
-                const response = await fetchCurrentAttendant();
+                const response = await fetchCurrentAttendant({
+                    force,
+                    userId: currentUserId,
+                });
 
                 if (!isMounted) return;
 
@@ -155,7 +172,7 @@ export default function SidePanel({
         }
 
         function handleAttendantStatusChanged() {
-            void loadCurrentAttendant();
+            void loadCurrentAttendant(true);
         }
 
         void loadCurrentAttendant();
@@ -172,18 +189,18 @@ export default function SidePanel({
                 handleAttendantStatusChanged,
             );
         };
-    }, []);
+    }, [currentUserId]);
 
     const permission = currentUser?.permission ?? null;
-    const shouldEnforcePermissions = Boolean(permission);
+    const hasAuthenticatedUser = Boolean(currentUser?.user);
     const allowedTabs = permission?.active ? permission.allowed_tabs : [];
 
     const visibleItems = useMemo(
         () =>
-            shouldEnforcePermissions
+            hasAuthenticatedUser
                 ? filterEntriesByPermission(items, allowedTabs)
-                : items,
-        [items, allowedTabs, shouldEnforcePermissions],
+                : [],
+        [items, allowedTabs, hasAuthenticatedUser],
     );
 
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
@@ -196,12 +213,12 @@ export default function SidePanel({
         "Usuário";
 
     const profileSubtitle = currentAttendant
-        ? currentAttendant.units?.name ?? "Sem unidade"
-        : "Não vinculado a atendente";
+        ? currentAttendant.is_online
+            ? "Online"
+            : "Offline"
+        : "";
 
-    const homeHref = shouldEnforcePermissions
-        ? getFirstAllowedHref(allowedTabs) ?? "/"
-        : "/";
+    const homeHref = getFirstAllowedHref(allowedTabs) ?? pathname;
 
     async function handleToggleAttendantStatus() {
         if (!currentAttendant || isStatusUpdating) return;
@@ -453,12 +470,14 @@ export default function SidePanel({
                                         {profileName}
                                     </div>
 
-                                    <div
-                                        title={profileSubtitle}
-                                        className="mt-0.5 truncate text-xs text-slate-500"
-                                    >
-                                        {profileSubtitle}
-                                    </div>
+                                    {profileSubtitle && (
+                                        <div
+                                            title={profileSubtitle}
+                                            className="mt-0.5 truncate text-xs text-slate-500"
+                                        >
+                                            {profileSubtitle}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </button>

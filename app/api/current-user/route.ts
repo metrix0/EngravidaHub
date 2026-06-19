@@ -22,17 +22,10 @@ export async function GET() {
         error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError) {
-        return NextResponse.json(
-            {
-                ok: false,
-                error: userError.message,
-            },
-            { status: 401 },
-        );
-    }
-
-    if (!user) {
+    // Having no session is an expected application state, not an API failure.
+    // Returning 200 prevents noisy 401 errors in the browser; the client guard
+    // is responsible for redirecting unauthenticated users to /login.
+    if (userError || !user) {
         return NextResponse.json({
             ok: true,
             user: null,

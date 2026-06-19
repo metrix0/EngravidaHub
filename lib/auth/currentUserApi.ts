@@ -22,6 +22,12 @@ type FetchOptions = {
     force?: boolean;
 };
 
+const EMPTY_CURRENT_USER: CurrentUserResponse = {
+    ok: true,
+    user: null,
+    permission: null,
+};
+
 const CACHE_KEY = "engravida:current-user-access:v1";
 const OLD_CACHE_KEY = "engravida:current-user:v2";
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -135,15 +141,25 @@ export async function fetchCurrentUser(options: FetchOptions = {}) {
 
         const json = await response.json();
 
-        if (!response.ok) {
-            if (response.status === 401) {
-                clearCurrentUserCache();
-            }
+        // Defensive fallback for deployments that still return 401 while the
+        // corrected route is propagating. Missing authentication is not logged
+        // as an application error; it is handled by PermissionGuard.
+        if (response.status === 401) {
+            clearCurrentUserCache();
+            return EMPTY_CURRENT_USER;
+        }
 
+        if (!response.ok) {
             throw new Error(json.error ?? "Failed to load current user");
         }
 
         const data = json as CurrentUserResponse;
+
+        if (!data.user) {
+            clearCurrentUserCache();
+            return EMPTY_CURRENT_USER;
+        }
+
         setCurrentUserCache(data);
 
         return data;

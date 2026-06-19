@@ -12,6 +12,10 @@ import {
     getTabIdForPathname,
 } from "@/lib/auth/userAccess";
 
+function isPublicPath(pathname: string) {
+    return pathname === "/login" || pathname.startsWith("/login/");
+}
+
 export function PermissionGuard({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
@@ -21,44 +25,73 @@ export function PermissionGuard({ children }: { children: ReactNode }) {
         currentUserError,
     } = useCurrentUser();
 
+    const publicPath = isPublicPath(pathname);
+    const authenticated = Boolean(currentUser?.user);
     const guardedTab = getTabIdForPathname(pathname);
     const permission = currentUser?.permission ?? null;
     const allowedTabs = permission?.allowed_tabs ?? [];
     const firstAllowedHref = getFirstAllowedHref(allowedTabs);
 
-    const shouldRedirect =
-        Boolean(currentUser?.user) &&
+    const shouldRedirectToLogin =
+        !publicPath &&
+        !isLoadingCurrentUser &&
+        !currentUserError &&
+        !authenticated;
+
+    const shouldRedirectForPermission =
+        !publicPath &&
+        authenticated &&
         Boolean(permission?.active) &&
         Boolean(guardedTab) &&
         !canAccessPathname(pathname, allowedTabs) &&
         Boolean(firstAllowedHref);
 
     useEffect(() => {
-        if (!shouldRedirect || !firstAllowedHref) return;
+        if (!shouldRedirectToLogin) return;
+
+        const next = pathname || "/";
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
+    }, [pathname, router, shouldRedirectToLogin]);
+
+    useEffect(() => {
+        if (!shouldRedirectForPermission || !firstAllowedHref) return;
 
         router.replace(firstAllowedHref);
-    }, [firstAllowedHref, router, shouldRedirect]);
+    }, [firstAllowedHref, router, shouldRedirectForPermission]);
 
-    if (!guardedTab) {
+    if (publicPath) {
         return <>{children}</>;
     }
 
-    if (isLoadingCurrentUser && !currentUser) {
+    if (isLoadingCurrentUser && !authenticated) {
         return <AccessLoading />;
     }
 
-    // Fail open on a temporary permission-loading error so the app is never locked.
-    if (currentUserError && !currentUser) {
-        return <>{children}</>;
+    // Never expose the protected application when authentication could not be
+    // verified. A temporary API failure shows an explicit error instead of
+    // failing open and rendering every page.
+    if (currentUserError && !authenticated) {
+        return (
+            <AccessMessage
+                title="Não foi possível validar o acesso"
+                description="Atualize a página para tentar novamente."
+            />
+        );
     }
 
-    if (!currentUser?.user) {
-        return <>{children}</>;
+    if (!authenticated) {
+        return <AccessLoading />;
     }
 
-    // Existing users without a permission row keep legacy full access.
+    // No permission row means no tabs. Access must be explicitly granted in
+    // Usuários instead of falling back to full access.
     if (!permission) {
-        return <>{children}</>;
+        return (
+            <AccessMessage
+                title="Nenhuma aba liberada"
+                description="Seu usuário não possui nenhuma aba permitida no momento."
+            />
+        );
     }
 
     if (!permission.active) {
