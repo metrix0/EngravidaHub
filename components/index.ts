@@ -1,5 +1,6 @@
 // components/index.ts
 export { default as AdvancedFilterButton } from "./ui/AdvancedFilterButton";
+export { Badge, getBadgeLabel } from "./ui/Badge";
 export { default as ButtonGroup } from "./ui/ButtonGroup";
 export { default as CalendarButton } from "./ui/CalendarButton";
 export { default as Card } from "./ui/Card";
@@ -23,7 +24,6 @@ export { MainFilters } from "./dashboard/MainFilters";
 export { default as SidePanel } from "./layout/SidePanel";
 
 export { ConversationPanel } from "./conversations/ConversationPanel";
-export { ConversationResultBadge } from "./conversations/ConversationResultBadge";
 export { InitialsAvatar } from "./conversations/InitialsAvatar";
 export { StatusBadge } from "./conversations/StatusBadge";
 
@@ -35,6 +35,7 @@ export type {
     AdvancedFilterSection
 } from "./ui/AdvancedFilterButton";
 
+export type { ConversationResult } from "./ui/Badge";
 export type { HoverBadgeListItem } from "./ui/HoverBadgeList";
 export type { DropdownSelectOption } from "./ui/DropdownSelect";
 

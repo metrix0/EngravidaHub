@@ -3,6 +3,7 @@
 // Run: pnpm ui
 
 import { __uiDemo as AdvancedFilterButtonDemo } from "@/components/ui/AdvancedFilterButton";
+import { __uiDemo as BadgeDemo } from "@/components/ui/Badge";
 import { __uiDemo as ButtonGroupDemo } from "@/components/ui/ButtonGroup";
 import { __uiDemo as CalendarButtonDemo } from "@/components/ui/CalendarButton";
 import { __uiDemo as CardDemo } from "@/components/ui/Card";
@@ -19,6 +20,10 @@ export const uiRegistry = [
   {
     name: "AdvancedFilterButton",
     ...AdvancedFilterButtonDemo,
+  },
+  {
+    name: "Badge",
+    ...BadgeDemo,
   },
   {
     name: "ButtonGroup",

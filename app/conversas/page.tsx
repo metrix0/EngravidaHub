@@ -17,6 +17,7 @@ import {
 import type {FiltersResponse} from "@/types";
 
 import {
+    Badge,
     MainFilters,
     DashboardHeader,
     SidePanel,
@@ -24,14 +25,11 @@ import {
     Pagination,
     DataTable,
     TableHeaderPreset,
+    type ConversationResult,
     type DataTableColumn,
 } from "@/components";
 
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
-import {
-    ConversationResultBadge,
-    type ConversationResult,
-} from "@/components/conversations/ConversationResultBadge";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 
 
@@ -130,7 +128,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         id: "result",
         label: "Resultado",
         width: "11%",
-        render: (conversation) => <ConversationResultBadge result={conversation.result}/>,
+        render: (conversation) => <Badge value={conversation.result}/>,
     },
     {
         id: "notable",
@@ -570,5 +568,3 @@ function MessagesTableSkeleton() {
         </div>
     );
 }
-
-

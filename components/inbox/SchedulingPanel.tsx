@@ -1,35 +1,35 @@
 // components/inbox/SchedulingPanel.tsx
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Info, MapPin, Send, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+    AlertCircle,
+    ChevronRight,
+    Info,
+    LoaderCircle,
+    MapPin,
+    Send,
+    Sparkles,
+} from "lucide-react";
 import { FaFacebookF, FaInstagram, FaWhatsapp } from "react-icons/fa6";
 
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import type { InboxChannel } from "@/types/inbox";
-
-type SchedulingFormat = "congelamento" | "casal";
-
-type PersonFields = {
-    fullName: string;
-    cpf: string;
-    birthDate: string;
-    email: string;
-    phone: string;
-};
-
-type SchedulingForm = {
-    schedulingDate: string;
-    primary: PersonFields;
-    spouse: PersonFields;
-    address: string;
-};
+import type {
+    SchedulingDataResponse,
+    SchedulingForm,
+    SchedulingFormat,
+    SchedulingPersonFields,
+} from "@/types/scheduling";
 
 type SchedulingPanelProps = {
     open: boolean;
+    threadId: string | null;
+    clientId: string | null;
     onClose: () => void;
+    onOpenClientProfile: (clientId: string) => void;
     client: {
         name: string;
         phone: string | null;
@@ -40,7 +40,7 @@ type SchedulingPanelProps = {
 
 type ErrorMap = Record<string, string>;
 
-const emptyPerson: PersonFields = {
+const emptyPerson: SchedulingPersonFields = {
     fullName: "",
     cpf: "",
     birthDate: "",
@@ -55,17 +55,101 @@ const initialForm: SchedulingForm = {
     address: "",
 };
 
-export default function SchedulingPanel({ open, onClose, client }: SchedulingPanelProps) {
-    const [format, setFormat] = useState<SchedulingFormat>("congelamento");
+export default function SchedulingPanel({
+                                            open,
+                                            threadId,
+                                            clientId,
+                                            onClose,
+                                            onOpenClientProfile,
+                                            client,
+                                        }: SchedulingPanelProps) {
+    const [format, setFormat] =
+        useState<SchedulingFormat>("congelamento");
     const [form, setForm] = useState<SchedulingForm>(initialForm);
+    const [data, setData] = useState<SchedulingDataResponse | null>(null);
     const [errors, setErrors] = useState<ErrorMap>({});
     const [submitted, setSubmitted] = useState(false);
+    const [loadingData, setLoadingData] = useState(false);
+    const [autofilling, setAutofilling] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [autofillError, setAutofillError] = useState<string | null>(null);
+    const [autofillSuccess, setAutofillSuccess] = useState(false);
 
-    const clientName = client?.name ?? "Cliente sem nome";
+    useEffect(() => {
+        if (!open) return;
+
+        if (!threadId) {
+            setData(null);
+            setForm(initialForm);
+            setLoadError("Não foi possível identificar esta conversa.");
+            return;
+        }
+
+        const controller = new AbortController();
+
+        async function loadSchedulingData() {
+            setLoadingData(true);
+            setLoadError(null);
+            setAutofillError(null);
+            setAutofillSuccess(false);
+            setSubmitted(false);
+            setErrors({});
+
+            try {
+                const response = await fetch(
+                    `/api/inbox/scheduling-data?thread_id=${encodeURIComponent(threadId!)}`,
+                    {
+                        cache: "no-store",
+                        signal: controller.signal,
+                    },
+                );
+                const json = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        json?.error ?? "Não foi possível carregar os dados.",
+                    );
+                }
+
+                const nextData = json as SchedulingDataResponse;
+
+                setData(nextData);
+                setFormat(nextData.suggestedFormat);
+                setForm(nextData.form);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+
+                setData(null);
+                setForm(initialForm);
+                setLoadError(
+                    error instanceof Error
+                        ? error.message
+                        : "Não foi possível carregar os dados.",
+                );
+            } finally {
+                if (!controller.signal.aborted) {
+                    setLoadingData(false);
+                }
+            }
+        }
+
+        void loadSchedulingData();
+
+        return () => controller.abort();
+    }, [open, threadId]);
+
+    const clientName =
+        data?.client.name ?? client?.name ?? "Cliente sem nome";
+    const clientPhone =
+        data?.client.phone ?? client?.phone ?? "Sem telefone";
+    const clientCity =
+        data?.client.state ?? client?.city ?? "Sem cidade";
+    const profileClientId = data?.client.id ?? clientId;
+    const disabled = loadingData || autofilling;
 
     function updatePerson(
         person: "primary" | "spouse",
-        field: keyof PersonFields,
+        field: keyof SchedulingPersonFields,
         value: string,
     ) {
         const formattedValue = formatFieldValue(field, value);
@@ -79,6 +163,7 @@ export default function SchedulingPanel({ open, onClose, client }: SchedulingPan
         }));
 
         clearError(`${person}.${field}`);
+        setAutofillSuccess(false);
     }
 
     function clearError(field: string) {
@@ -96,6 +181,53 @@ export default function SchedulingPanel({ open, onClose, client }: SchedulingPan
         setFormat(nextFormat);
         setErrors({});
         setSubmitted(false);
+        setAutofillSuccess(false);
+    }
+
+    async function handleAutofill() {
+        if (!threadId || autofilling || loadingData) return;
+
+        setAutofilling(true);
+        setAutofillError(null);
+        setAutofillSuccess(false);
+        setSubmitted(false);
+
+        try {
+            const response = await fetch(
+                "/api/inbox/scheduling-autofill",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        threadId,
+                        format,
+                        form,
+                    }),
+                },
+            );
+            const json = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    json?.error ??
+                    "Não foi possível preencher os dados automaticamente.",
+                );
+            }
+
+            setForm(json.form as SchedulingForm);
+            setErrors({});
+            setAutofillSuccess(true);
+        } catch (error) {
+            setAutofillError(
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível preencher os dados automaticamente.",
+            );
+        } finally {
+            setAutofilling(false);
+        }
     }
 
     function handleSubmit() {
@@ -110,153 +242,238 @@ export default function SchedulingPanel({ open, onClose, client }: SchedulingPan
             title="Agendar"
             onClose={onClose}
             headerContent={
-                <div className="flex min-w-0 items-center gap-4">
-                    <InitialsAvatar name={clientName} />
-
-                    <div className="min-w-0 flex-1">
-                        <div
-                            title={clientName}
-                            className="truncate font-bold text-slate-950"
-                        >
-                            {clientName}
-                        </div>
-                        <div className={"flex gap-3 mt-1 items-center"}>
-                            <div className="text-sm text-slate-500">
-                                {client?.phone ?? "Sem telefone"}
-                            </div>
-
-                            <div className="flex min-w-0 items-center gap-1.5 text-sm text-slate-500">
-                                <MapPin size={13} className="shrink-0" />
-                                <span className="truncate">{client?.city ?? "Sem cidade"}</span>
-                            </div>
-
-                            {client?.channel && (
-                                <div className="">
-                                    <SchedulingChannelBadge channel={client.channel} />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            }
-            bodyClassName="min-h-0 flex-1 overflow-y-auto px-6 py-6"
-        >
-            <div className="space-y-6">
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => undefined}
-                        className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-selection"
-                    >
-                        <Sparkles size={16} className="text-brand" />
-                        Autopreencher
-                    </button>
-
-                    <InfoTooltip text="Este botão preenche os dados automaticamente com base no Chat.">
-                        <button
-                            type="button"
-                            className="flex h-9 w-9 cursor-help items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                            aria-label="Informações sobre o autopreenchimento"
-                        >
-                            <Info size={17} />
-                        </button>
-                    </InfoTooltip>
-                </div>
-
-                <section className={"py-2"}>
-                    <div className="mb-3 text-sm font-bold text-slate-950">
-                        Formato do agendamento
-                    </div>
-
-                    <div className="flex flex-wrap gap-5">
-                        <FormatOption
-                            active={format === "congelamento"}
-                            label="Congelamento"
-                            onClick={() => selectFormat("congelamento")}
-                        />
-
-                        <FormatOption
-                            active={format === "casal"}
-                            label="Casal"
-                            onClick={() => selectFormat("casal")}
-                        />
-                    </div>
-                </section>
-
-
-                <FormField
-                    label="Data do agendamento"
-                    value={form.schedulingDate}
-                    onChange={(value) => {
-                        setForm((current) => ({ ...current, schedulingDate: value }));
-                        clearError("schedulingDate");
-                    }}
-                    error={errors.schedulingDate}
-                    placeholder="DD/MM/AAAA"
-                />
-
-                <PersonSection
-                    person="primary"
-                    values={form.primary}
-                    errors={errors}
-                    onChange={updatePerson}
-                />
-
-                {format === "casal" && (
-                    <PersonSection
-                        title="Cônjuge"
-                        person="spouse"
-                        values={form.spouse}
-                        errors={errors}
-                        onChange={updatePerson}
-                    />
-                )}
-
-                <FormField
-                    label="Endereço completo com CEP"
-                    value={form.address}
-                    onChange={(value) => {
-                        setForm((current) => ({ ...current, address: value }));
-                        clearError("address");
-                    }}
-                    error={errors.address}
-                    placeholder="Rua, número, bairro, cidade, estado e CEP"
-                    multiline
-                />
-
-                {submitted && (
-                    <div className="rounded-xl border border-green/20 bg-soft-green px-4 py-3 text-sm font-semibold text-green">
-                        Todos os campos foram validados.
-                    </div>
-                )}
-
                 <button
                     type="button"
-                    onClick={handleSubmit}
-                    className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
+                    disabled={!profileClientId}
+                    onClick={() => {
+                        if (profileClientId) {
+                            onOpenClientProfile(profileClientId);
+                        }
+                    }}
+                    className="flex w-full cursor-pointer items-center justify-between px-1 py-1 text-left transition-opacity hover:opacity-80 disabled:cursor-default disabled:opacity-50"
+                    aria-label="Abrir perfil do cliente"
                 >
-                    <Send size={17} />
-                    Enviar
+                    <div className="flex min-w-0 items-center gap-4">
+                        <InitialsAvatar name={clientName} />
+
+                        <div className="min-w-0 flex-1">
+                            <div
+                                title={clientName}
+                                className="truncate font-bold text-slate-950"
+                            >
+                                {clientName}
+                            </div>
+
+                            <div className="mt-1 text-sm text-slate-500">
+                                {clientPhone}
+                            </div>
+
+                            <div className="mt-1 flex min-w-0 items-center gap-3">
+                                <div className="flex min-w-0 items-center gap-1.5 text-sm text-slate-500">
+                                    <MapPin size={13} className="shrink-0" />
+                                    <span className="truncate">{clientCity}</span>
+                                </div>
+
+                                {client?.channel && (
+                                    <SchedulingChannelBadge
+                                        channel={client.channel}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <ChevronRight
+                        size={18}
+                        className="shrink-0 text-slate-400"
+                    />
                 </button>
+            }
+            bodyClassName="min-h-0 flex-1 overflow-y-auto px-6 py-6 pt-3"
+        >
+            <div className="relative">
+                <div
+                    className={`space-y-6 transition-opacity duration-200 ${
+                        loadingData
+                            ? "pointer-events-none select-none opacity-45"
+                            : "opacity-100"
+                    }`}
+                    aria-busy={disabled}
+                >
+                    {loadError && (
+                        <ErrorMessage message={loadError} />
+                    )}
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={!threadId || disabled}
+                            onClick={handleAutofill}
+                            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                            {autofilling ? (
+                                <LoaderCircle
+                                    size={16}
+                                    className="animate-spin text-brand"
+                                />
+                            ) : (
+                                <Sparkles size={16} className="text-brand" />
+                            )}
+                            {autofilling ? "Preenchendo..." : "Autopreencher"}
+                        </button>
+
+                        <InfoTooltip text="Este botão preenche os dados automaticamente com base no Chat.">
+                            <button
+                                type="button"
+                                className="flex h-9 w-9 cursor-help items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                aria-label="Informações sobre o autopreenchimento"
+                            >
+                                <Info size={17} />
+                            </button>
+                        </InfoTooltip>
+                    </div>
+
+                    <section className="py-2">
+                        <div className="mb-3 text-sm font-bold text-slate-950">
+                            Formato do agendamento
+                        </div>
+
+                        <div className="flex flex-wrap gap-5">
+                            <FormatOption
+                                active={format === "congelamento"}
+                                label="Congelamento"
+                                disabled={disabled}
+                                onClick={() => selectFormat("congelamento")}
+                            />
+
+                            <FormatOption
+                                active={format === "casal"}
+                                label="Casal"
+                                disabled={disabled}
+                                onClick={() => selectFormat("casal")}
+                            />
+                        </div>
+                    </section>
+
+
+                    {autofillError && (
+                        <ErrorMessage message={autofillError} />
+                    )}
+
+                    {autofillSuccess && (
+                        <div className="rounded-xl border border-green/20 bg-soft-green px-4 py-3 text-sm font-semibold text-green">
+                            Dados atualizados com base no cadastro e nas últimas mensagens.
+                        </div>
+                    )}
+
+                    <FormField
+                        label="Data do agendamento"
+                        value={form.schedulingDate}
+                        disabled={disabled}
+                        onChange={(value) => {
+                            setForm((current) => ({
+                                ...current,
+                                schedulingDate: formatDate(value),
+                            }));
+                            clearError("schedulingDate");
+                            setAutofillSuccess(false);
+                        }}
+                        error={errors.schedulingDate}
+                        placeholder="DD/MM/AAAA"
+                        inputMode="numeric"
+                    />
+
+                    <PersonSection
+                        person="primary"
+                        values={form.primary}
+                        errors={errors}
+                        disabled={disabled}
+                        onChange={updatePerson}
+                    />
+
+                    {format === "casal" && (
+                        <PersonSection
+                            title="Cônjuge"
+                            person="spouse"
+                            values={form.spouse}
+                            errors={errors}
+                            disabled={disabled}
+                            onChange={updatePerson}
+                        />
+                    )}
+
+                    <FormField
+                        label="Endereço completo com CEP"
+                        value={form.address}
+                        disabled={disabled}
+                        onChange={(value) => {
+                            setForm((current) => ({
+                                ...current,
+                                address: value,
+                            }));
+                            clearError("address");
+                            setAutofillSuccess(false);
+                        }}
+                        error={errors.address}
+                        placeholder="Rua, número, cidade, estado e CEP"
+                        multiline
+                    />
+
+                    {submitted && (
+                        <div className="rounded-xl border border-green/20 bg-soft-green px-4 py-3 text-sm font-semibold text-green">
+                            Todos os campos foram validados.
+                        </div>
+                    )}
+
+                    <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={handleSubmit}
+                        className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                        <Send size={17} />
+                        Enviar
+                    </button>
+                </div>
+
+                {loadingData && (
+                    <div
+                        className="absolute inset-0 z-20 cursor-wait rounded-2xl bg-white/35"
+                        aria-hidden="true"
+                    />
+                )}
             </div>
         </DetailsSidePanel>
     );
 }
 
+
+function ErrorMessage({ message }: { message: string }) {
+    return (
+        <div className="flex items-start gap-2 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-medium text-red">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            {message}
+        </div>
+    );
+}
+
 function FormatOption({
-    active,
-    label,
-    onClick,
-}: {
+                          active,
+                          label,
+                          disabled,
+                          onClick,
+                      }: {
     active: boolean;
     label: string;
+    disabled: boolean;
     onClick: () => void;
 }) {
     return (
         <button
             type="button"
+            disabled={disabled}
             onClick={onClick}
-            className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700"
+            className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-55"
         >
             <span
                 className={`flex h-5 w-5 items-center justify-center rounded-full border transition-colors ${
@@ -276,36 +493,44 @@ function FormatOption({
 }
 
 function PersonSection({
-    title,
-    person,
-    values,
-    errors,
-    onChange,
-}: {
+                           title,
+                           person,
+                           values,
+                           errors,
+                           disabled,
+                           onChange,
+                       }: {
     title?: string;
     person: "primary" | "spouse";
-    values: PersonFields;
+    values: SchedulingPersonFields;
     errors: ErrorMap;
+    disabled: boolean;
     onChange: (
         person: "primary" | "spouse",
-        field: keyof PersonFields,
+        field: keyof SchedulingPersonFields,
         value: string,
     ) => void;
 }) {
     return (
         <section className="space-y-4">
-            {title && <h3 className="text-sm font-bold text-slate-950">{title}</h3>}
+            {title && (
+                <h3 className="text-sm font-bold text-slate-950">{title}</h3>
+            )}
 
             <FormField
                 label="Nome completo (sem abreviações)"
                 value={values.fullName}
-                onChange={(value) => onChange(person, "fullName", value)}
+                disabled={disabled}
+                onChange={(value) =>
+                    onChange(person, "fullName", value)
+                }
                 error={errors[`${person}.fullName`]}
             />
 
             <FormField
                 label="CPF"
                 value={values.cpf}
+                disabled={disabled}
                 onChange={(value) => onChange(person, "cpf", value)}
                 error={errors[`${person}.cpf`]}
                 placeholder="000.000.000-00"
@@ -315,7 +540,10 @@ function PersonSection({
             <FormField
                 label="Data de nascimento"
                 value={values.birthDate}
-                onChange={(value) => onChange(person, "birthDate", value)}
+                disabled={disabled}
+                onChange={(value) =>
+                    onChange(person, "birthDate", value)
+                }
                 error={errors[`${person}.birthDate`]}
                 placeholder="DD/MM/AAAA"
                 inputMode="numeric"
@@ -324,6 +552,7 @@ function PersonSection({
             <FormField
                 label="E-mail"
                 value={values.email}
+                disabled={disabled}
                 onChange={(value) => onChange(person, "email", value)}
                 error={errors[`${person}.email`]}
                 placeholder="nome@exemplo.com"
@@ -333,6 +562,7 @@ function PersonSection({
             <FormField
                 label="Telefone"
                 value={values.phone}
+                disabled={disabled}
                 onChange={(value) => onChange(person, "phone", value)}
                 error={errors[`${person}.phone`]}
                 placeholder="(00) 00000-0000"
@@ -343,15 +573,16 @@ function PersonSection({
 }
 
 function FormField({
-    label,
-    value,
-    onChange,
-    error,
-    placeholder,
-    inputMode,
-    type = "text",
-    multiline = false,
-}: {
+                       label,
+                       value,
+                       onChange,
+                       error,
+                       placeholder,
+                       inputMode,
+                       type = "text",
+                       multiline = false,
+                       disabled = false,
+                   }: {
     label: string;
     value: string;
     onChange: (value: string) => void;
@@ -360,9 +591,9 @@ function FormField({
     inputMode?: "numeric" | "text" | "email";
     type?: string;
     multiline?: boolean;
-    icon?: ReactNode;
+    disabled?: boolean;
 }) {
-    const controlClass = `w-full appearance-none rounded-xl border bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:outline-none focus-visible:outline-none focus:ring-0 ${
+    const controlClass = `w-full appearance-none rounded-xl border bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:outline-none focus-visible:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
         error
             ? "border-red"
             : "border-slate-200 focus:border-brand"
@@ -377,6 +608,7 @@ function FormField({
             {multiline ? (
                 <textarea
                     value={value}
+                    disabled={disabled}
                     onChange={(event) => onChange(event.target.value)}
                     placeholder={placeholder}
                     rows={3}
@@ -385,6 +617,7 @@ function FormField({
             ) : (
                 <input
                     value={value}
+                    disabled={disabled}
                     onChange={(event) => onChange(event.target.value)}
                     placeholder={placeholder}
                     inputMode={inputMode}
@@ -402,7 +635,11 @@ function FormField({
     );
 }
 
-function SchedulingChannelBadge({ channel }: { channel: InboxChannel }) {
+function SchedulingChannelBadge({
+                                    channel,
+                                }: {
+    channel: InboxChannel;
+}) {
     const config = {
         WhatsApp: {
             icon: <FaWhatsapp size={14} />,
@@ -420,26 +657,34 @@ function SchedulingChannelBadge({ channel }: { channel: InboxChannel }) {
 
     return (
         <span
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${config.classes}`}
+            className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-bold ${config.classes}`}
         >
             {config.icon}
         </span>
     );
 }
 
-function formatFieldValue(field: keyof PersonFields, value: string) {
+function formatFieldValue(
+    field: keyof SchedulingPersonFields,
+    value: string,
+) {
     if (field === "cpf") return formatCpf(value);
     if (field === "phone") return formatPhone(value);
     if (field === "birthDate") return formatDate(value);
     if (field === "email") return value.trimStart().toLowerCase();
+
     return value;
 }
 
-function validateForm(form: SchedulingForm, format: SchedulingFormat): ErrorMap {
+function validateForm(
+    form: SchedulingForm,
+    format: SchedulingFormat,
+): ErrorMap {
     const errors: ErrorMap = {};
 
-    if (!form.schedulingDate.trim()) {
-        errors.schedulingDate = "Informe a data do agendamento.";
+    if (!isValidDate(form.schedulingDate)) {
+        errors.schedulingDate =
+            "Use uma data válida no formato DD/MM/AAAA.";
     }
 
     validatePerson(form.primary, "primary", errors);
@@ -458,12 +703,13 @@ function validateForm(form: SchedulingForm, format: SchedulingFormat): ErrorMap 
 }
 
 function validatePerson(
-    person: PersonFields,
+    person: SchedulingPersonFields,
     prefix: "primary" | "spouse",
     errors: ErrorMap,
 ) {
     if (person.fullName.trim().split(/\s+/).length < 2) {
-        errors[`${prefix}.fullName`] = "Informe o nome completo, sem abreviações.";
+        errors[`${prefix}.fullName`] =
+            "Informe o nome completo, sem abreviações.";
     }
 
     if (!isValidCpf(person.cpf)) {
@@ -471,7 +717,8 @@ function validatePerson(
     }
 
     if (!isValidBirthDate(person.birthDate)) {
-        errors[`${prefix}.birthDate`] = "Use uma data válida no formato DD/MM/AAAA.";
+        errors[`${prefix}.birthDate`] =
+            "Use uma data válida no formato DD/MM/AAAA.";
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email.trim())) {
@@ -494,7 +741,13 @@ function formatCpf(value: string) {
 }
 
 function formatPhone(value: string) {
-    const digits = onlyDigits(value).slice(0, 11);
+    let digits = onlyDigits(value);
+
+    if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+        digits = digits.slice(2);
+    }
+
+    digits = digits.slice(0, 11);
 
     if (digits.length <= 10) {
         return digits
@@ -530,10 +783,17 @@ function isValidCpf(value: string) {
         return remainder === 10 ? 0 : remainder;
     };
 
-    return calculateDigit(9) === Number(cpf[9]) && calculateDigit(10) === Number(cpf[10]);
+    return (
+        calculateDigit(9) === Number(cpf[9]) &&
+        calculateDigit(10) === Number(cpf[10])
+    );
 }
 
 function isValidBirthDate(value: string) {
+    return isValidDate(value, true);
+}
+
+function isValidDate(value: string, mustBePast = false) {
     const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
     if (!match) return false;
 
@@ -542,17 +802,19 @@ function isValidBirthDate(value: string) {
     const year = Number(match[3]);
     const date = new Date(year, month - 1, day);
 
-    return (
-        date.getFullYear() === year &&
-        date.getMonth() === month - 1 &&
-        date.getDate() === day &&
-        date <= new Date()
-    );
+    if (
+        date.getFullYear() !== year ||
+        date.getMonth() !== month - 1 ||
+        date.getDate() !== day
+    ) {
+        return false;
+    }
+
+    return !mustBePast || date <= new Date();
 }
 
 function hasCep(value: string) {
-    const match = value.match(/\b\d{5}-?\d{3}\b/);
-    return Boolean(match);
+    return /\b\d{5}-?\d{3}\b/.test(value);
 }
 
 function onlyDigits(value: string) {

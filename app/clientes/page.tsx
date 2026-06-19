@@ -12,6 +12,7 @@ import {
 
 import {
     AdvancedFilterButton,
+    Badge,
     DashboardHeader,
     FilterButton,
     HorizontalScroller,
@@ -73,11 +74,6 @@ type ClientTableRow = {
     stage: FunnelStage | null;
 };
 
-type BadgeTone = {
-    bg: string;
-    text: string;
-};
-
 const CLIENTS_PER_PAGE = 100;
 
 const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
@@ -112,7 +108,6 @@ const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
         endOffsetDays: 0,
     },
 ];
-
 
 const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
@@ -151,10 +146,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
 
             return (
                 <div title={funnelName} className="min-w-0">
-                    <Chip
-                        label={stage?.name ?? "-"}
-                        tone={getStageVariant(stage?.name ?? null)}
-                    />
+                    <Badge value={stage?.name ?? null} />
                 </div>
             );
         },
@@ -164,10 +156,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
         label: "Origem",
         width: "12%",
         render: ({client}) => (
-            <Chip
-                label={sourceLabel(client.utm_source)}
-                tone={getSourceVariant(client.utm_source)}
-            />
+            <Badge value={client.utm_source} />
         ),
     },
     {
@@ -572,8 +561,6 @@ export default function ClientesPage() {
                 conversationId={selectedConversationId}
                 onClose={() => setSelectedConversationId(null)}
             />
-
-
         </main>
     );
 }
@@ -582,89 +569,6 @@ function getFunnelName(stage: FunnelStage | null) {
     if (!stage) return "Sem funil";
 
     return stage.funnel_name ?? stage.funnel?.name ?? "Funil não informado";
-}
-
-function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
-    return (
-        <span
-            className={[
-                "inline-flex max-w-full truncate rounded-md px-2.5 py-1 text-xs font-bold",
-                tone.bg,
-                tone.text,
-            ].join(" ")}
-        >
-      {label}
-    </span>
-    );
-}
-
-function sourceLabel(source: string | null) {
-    const normalized = normalize(source ?? "");
-
-    if (!normalized || normalized === "direct" || normalized === "direto") {
-        return "—";
-    }
-
-    const map: Record<string, string> = {
-        meta_ads: "Meta Ads",
-        facebook: "Meta Ads",
-        instagram: "Instagram",
-        google: "Google",
-    };
-
-    return map[normalized] ?? source ?? "—";
-}
-
-function getSourceVariant(source: string | null): BadgeTone {
-    const normalized = normalize(source ?? "");
-
-    if (normalized.includes("meta_ads") || normalized.includes("facebook")) {
-        return { bg: "bg-soft-purple", text: "text-purple" };
-    }
-
-    if (normalized.includes("google")) {
-        return { bg: "bg-soft-blue", text: "text-blue" };
-    }
-
-    if (normalized.includes("instagram")) {
-        return { bg: "bg-soft-pink", text: "text-pink" };
-    }
-
-    return { bg: "bg-slate-100", text: "text-slate-500" };
-}
-
-function getStageVariant(stageName: string | null): BadgeTone {
-    const stage = normalize(stageName ?? "");
-
-    if (stage.includes("novo")) {
-        return { bg: "bg-soft-blue", text: "text-blue" };
-    }
-
-    if (stage.includes("tentando")) {
-        return { bg: "bg-soft-yellow", text: "text-yellow" };
-    }
-
-    if (stage.includes("atendimento")) {
-        return { bg: "bg-soft-purple", text: "text-purple" };
-    }
-
-    if (stage.includes("interessado")) {
-        return { bg: "bg-soft-yellow", text: "text-yellow" };
-    }
-
-    if (stage.includes("agend")) {
-        return { bg: "bg-soft-blue", text: "text-blue" };
-    }
-
-    if (stage.includes("realizad") || stage.includes("compareceu")) {
-        return { bg: "bg-soft-green", text: "text-green" };
-    }
-
-    if (stage.includes("perdid")) {
-        return { bg: "bg-soft-red", text: "text-red" };
-    }
-
-    return { bg: "bg-slate-100", text: "text-slate-500" };
 }
 
 function formatPhone(phone: string | null) {
@@ -682,13 +586,6 @@ function timeAgo(date: string) {
     if (minutes < 60) return `${Math.max(minutes, 1)} min`;
     if (hours < 24) return `${hours} h`;
     return `${days} dia${days > 1 ? "s" : ""}`;
-}
-
-function formatSince(date: string) {
-    return new Intl.DateTimeFormat("pt-BR", {
-        month: "short",
-        year: "numeric",
-    }).format(new Date(date));
 }
 
 function normalize(value: string) {
@@ -745,4 +642,3 @@ function getDateWithOffset(offsetDays: number) {
 function toDateString(date: string) {
     return new Date(date).toISOString().slice(0, 10);
 }
-

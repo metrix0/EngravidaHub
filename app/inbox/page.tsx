@@ -24,6 +24,7 @@ import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
+import ClientPanel from "@/components/clientes/ClientPanel";
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
@@ -66,6 +67,7 @@ export default function InboxPage() {
     const [totalThreads, setTotalThreads] = useState(0);
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
+    const [clientProfileId, setClientProfileId] = useState<string | null>(null);
 
     const [isLoadingThreads, setIsLoadingThreads] = useState(true);
     const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
@@ -273,6 +275,11 @@ export default function InboxPage() {
         !!selectedId &&
         (isLoadingSelectedThread || !selectedThreadMatchesSelection);
 
+    const selectedClientId =
+        selectedThreadMatchesSelection && selectedThread
+            ? selectedThread.client_id
+            : selectedListThread?.client_id ?? null;
+
     return (
         <main className="flex h-screen w-screen overflow-hidden bg-white text-slate-900">
             <SidePanel affectLayout={false} defaultExpanded={false}/>
@@ -342,9 +349,15 @@ export default function InboxPage() {
                                     headerConversation={
                                         selectedThreadMatchesSelection ? selectedThread : selectedListThread
                                     }
+                                    clientId={selectedClientId}
                                     onMoveStage={handleMoveStage}
                                     onAddNote={handleAddNote}
                                     onSchedule={() => setSchedulingPanelOpen(true)}
+                                    onOpenClientProfile={() => {
+                                        if (selectedClientId) {
+                                            setClientProfileId(selectedClientId);
+                                        }
+                                    }}
                                 />
                             </>
                         ) : (
@@ -362,7 +375,13 @@ export default function InboxPage() {
 
             <SchedulingPanel
                 open={schedulingPanelOpen}
+                threadId={selectedId}
+                clientId={selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
+                onOpenClientProfile={(clientId) => {
+                    setSchedulingPanelOpen(false);
+                    setClientProfileId(clientId);
+                }}
                 client={
                     selectedThreadMatchesSelection && selectedThread
                         ? {
@@ -374,12 +393,17 @@ export default function InboxPage() {
                         : selectedListThread
                             ? {
                                 name: selectedListThread.name,
-                                phone: null,
-                                city: null,
+                                phone: selectedListThread.phone,
+                                city: selectedListThread.city,
                                 channel: selectedListThread.channel,
                             }
                             : null
                 }
+            />
+
+            <ClientPanel
+                clientId={clientProfileId}
+                onClose={() => setClientProfileId(null)}
             />
         </main>
     );
@@ -740,15 +764,19 @@ function ChatPanel({
 function CustomerPanel({
                            conversation,
                            headerConversation,
+                           clientId,
                            onMoveStage,
                            onAddNote,
                            onSchedule,
+                           onOpenClientProfile,
                        }: {
     conversation: Conversation | null;
     headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
+    clientId: string | null;
     onMoveStage: (direction: "previous" | "next") => Promise<void>;
     onAddNote: (text: string) => Promise<void>;
     onSchedule: () => void;
+    onOpenClientProfile: () => void;
 }) {
     const [noteText, setNoteText] = useState("");
     const [isSavingNote, setIsSavingNote] = useState(false);
@@ -778,7 +806,10 @@ function CustomerPanel({
             <h2 className="mb-4 text-lg font-bold text-slate-950">Cliente</h2>
 
             <button
-                className="mb-5 flex w-full cursor-pointer items-center justify-between px-1 py-2 text-left transition-opacity hover:opacity-80">
+                type="button"
+                onClick={onOpenClientProfile}
+                disabled={!clientId}
+                className="mb-5 flex w-full cursor-pointer items-center justify-between px-1 py-2 text-left transition-opacity hover:opacity-80 disabled:cursor-default disabled:opacity-60">
                 <div className="flex min-w-0 items-center gap-4">
                     <InitialsAvatar name={headerName}/>
 
@@ -796,7 +827,7 @@ function CustomerPanel({
                                     {conversation.phone ?? "Sem telefone"}
                                 </div>
 
-                                <div className={"flex gap-3"}>
+                                <div className="flex gap-3">
                                     <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
                                         <MapPin size={13}/>
                                         <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
@@ -877,6 +908,7 @@ function CustomerPanel({
                             </div>
                         </div>
                     </PanelBlock>
+
                     <PanelBlock title="Notas internas">
                         <div className="rounded-2xl border border-slate-200 p-4">
                             {conversation.notes.length > 0 ? (

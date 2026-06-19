@@ -14,13 +14,15 @@ import {
     Phone,
 } from "lucide-react";
 
-import { DetailsSidePanel, Skeleton } from "@/components";
+import {
+    Badge,
+    DetailsSidePanel,
+    getBadgeLabel,
+    Skeleton,
+    type ConversationResult,
+} from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
-import {
-    ConversationResultBadge,
-    type ConversationResult,
-} from "@/components/conversations/ConversationResultBadge";
 
 type FunnelStage = {
     id: string;
@@ -103,11 +105,6 @@ type ClientDetailResponse = {
     client: ClientDetail;
     live_thread: ClientLiveThread | null;
     conversations: ClientConversationSummary[];
-};
-
-type BadgeTone = {
-    bg: string;
-    text: string;
 };
 
 export default function ClientPanel({
@@ -196,7 +193,6 @@ export default function ClientPanel({
             ) : (
                 <div className="space-y-4">
                     <LiveConversationButton thread={data.live_thread} />
-
                     <ConversationHistorySection conversations={data.conversations} />
                 </div>
             )}
@@ -206,8 +202,7 @@ export default function ClientPanel({
 
 function ClientPanelHeader({ client }: { client: ClientDetail }) {
     const clientName = client.name ?? "Cliente sem nome";
-    const source = sourceLabel(client.utm_source);
-    const sourceTone = getSourceVariant(client.utm_source);
+    const source = getBadgeLabel(client.utm_source);
 
     return (
         <>
@@ -235,7 +230,7 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
                     </div>
                 </div>
 
-                {source !== "—" && <Chip label={source} tone={sourceTone} />}
+                <Badge value={client.utm_source} none={""} />
             </div>
 
             <div className="grid grid-cols-3 gap-4 text-xs">
@@ -278,10 +273,7 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
 
             {client.utm_campaign && (
                 <div className="mt-4 flex flex-wrap gap-2">
-                    <Chip
-                        label={client.utm_campaign}
-                        tone={{ bg: "bg-slate-100", text: "text-slate-500" }}
-                    />
+                    <Badge value={client.utm_campaign} />
                 </div>
             )}
         </>
@@ -408,7 +400,7 @@ function ConversationHistorySection({
                             </div>
 
                             <div>
-                                <ConversationResultBadge result={conversation.result} />
+                                <Badge value={conversation.result} />
                             </div>
 
                             <div className="flex items-center gap-2 text-slate-600">
@@ -489,35 +481,6 @@ function EmptyPanelMessage({ message }: { message: string }) {
     return <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm font-medium text-slate-400">{message}</div>;
 }
 
-function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
-    return <span className={["inline-flex max-w-full truncate rounded-md px-2.5 py-1 text-xs font-bold", tone.bg, tone.text].join(" ")}>{label}</span>;
-}
-
-function sourceLabel(source: string | null) {
-    const normalized = normalize(source ?? "");
-
-    if (!normalized || normalized === "direct" || normalized === "direto") {
-        return "—";
-    }
-
-    const map: Record<string, string> = {
-        meta_ads: "Meta Ads",
-        facebook: "Meta Ads",
-        instagram: "Instagram",
-        google: "Google",
-    };
-
-    return map[normalized] ?? source ?? "—";
-}
-
-function getSourceVariant(source: string | null): BadgeTone {
-    const normalized = normalize(source ?? "");
-    if (normalized.includes("meta_ads") || normalized.includes("facebook")) return { bg: "bg-soft-purple", text: "text-purple" };
-    if (normalized.includes("google")) return { bg: "bg-soft-blue", text: "text-blue" };
-    if (normalized.includes("instagram")) return { bg: "bg-soft-pink", text: "text-pink" };
-    return { bg: "bg-slate-100", text: "text-slate-500" };
-}
-
 function formatPhone(phone: string | null) {
     if (!phone) return "Sem telefone";
     return phone.split("+55")[1] ?? phone;
@@ -548,8 +511,4 @@ function formatConversationDateRange(startValue: string, endValue: string | null
     const sameDay = start.toDateString() === end.toDateString();
     if (sameDay) return `${formatDate(startValue)} ${formatTime(startValue)} às ${formatTime(endValue!)}`;
     return `de ${formatDate(startValue)} a ${formatDate(endValue!)}`;
-}
-
-function normalize(value: string) {
-    return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }

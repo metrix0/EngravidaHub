@@ -12,6 +12,7 @@ import {
 
 import {
     AdvancedFilterButton,
+    Badge,
     Card,
     DashboardHeader,
     FilterButton,
@@ -19,8 +20,8 @@ import {
     KpiCard,
     MainFilters,
     Pagination,
-    Skeleton,
     SearchFilter,
+    Skeleton,
 } from "@/components";
 
 import SidePanel from "@/components/layout/SidePanel";
@@ -154,7 +155,6 @@ export default function FunnelPage() {
         null;
 
     const selectedFunnelId = funnelIds[0] ?? defaultFunnelId;
-
 
     useEffect(() => {
         async function loadFilters() {
@@ -955,7 +955,7 @@ function FunnelClientCard({
             <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                 <button
                     type="button"
-                    title="Remover do funil"
+                    title="Remover do funnel"
                     onClick={(event) => {
                         event.stopPropagation();
                         onRemoveClient(client.id);
@@ -997,9 +997,7 @@ function FunnelClientCard({
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-2">
-                        <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${sourceBadgeClass(client.utm_source)}`}>
-                            {sourceLabel(client.utm_source)}
-                        </span>
+                        <Badge value={client.utm_source} none={""} />
 
                         <span className="text-[11px] font-medium text-muted">
                             {timeAgo(client.last_interaction_at)}
@@ -1011,28 +1009,6 @@ function FunnelClientCard({
     );
 }
 
-function sourceLabel(source: string | null) {
-    const normalized = normalize(source ?? "");
-
-    if (!normalized || normalized === "direct" || normalized === "direto") {
-        return "—";
-    }
-
-    const map: Record<string, string> = {
-        meta_ads: "Meta Ads",
-        facebook: "Meta Ads",
-        instagram: "Instagram",
-        google: "Google",
-    };
-
-    return map[normalized] ?? source ?? "—";
-}
-
-function sourceBadgeClass(source: string | null) {
-    return sourceLabel(source) === "—"
-        ? "bg-slate-100 text-slate-500"
-        : "bg-blue-soft text-blue";
-}
 
 function timeAgo(date: string) {
     const diff = Date.now() - new Date(date).getTime();
@@ -1187,7 +1163,7 @@ function AddClientToFunnelModal({
                                     key={client.id}
                                     client={client}
                                     currentStageName={
-                                        currentStage?.name ?? "Sem funil"
+                                        currentStage?.name ?? "Sem funnel"
                                     }
                                     checked={selectedIdsSet.has(client.id)}
                                     alreadyInCurrentFunnel={
@@ -1339,15 +1315,11 @@ const SelectableClientRow = memo(function SelectableClientRow({
             </div>
 
             <div className="min-w-0 pr-3">
-                <span className={`inline-flex max-w-full truncate rounded-md px-2 py-1 text-xs font-bold ${sourceBadgeClass(client.utm_source)}`}>
-                    {sourceLabel(client.utm_source)}
-                </span>
+                <Badge value={client.utm_source} />
             </div>
 
             <div className="min-w-0 pr-3">
-                <span className="inline-flex max-w-full truncate rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">
-                    {currentStageName}
-                </span>
+                <Badge value={currentStageName} />
             </div>
 
             <div className="flex justify-center whitespace-nowrap text-sm text-slate-700">

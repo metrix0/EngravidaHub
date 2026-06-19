@@ -11,13 +11,14 @@ import {
     QUALIFIED_LEAD_OUTCOME_EVENTS,
     SCHEDULE_OUTCOME_EVENTS,
 } from "@/lib";
-import { DetailsSidePanel, Skeleton } from "@/components";
+import {
+    Badge,
+    DetailsSidePanel,
+    Skeleton,
+    type ConversationResult,
+} from "@/components";
 import { InitialsAvatar } from "./InitialsAvatar";
 import { OPEN_CONVERSATION_DETAILS_EVENT } from "./FloatingConversationPanel";
-import {
-    ConversationResultBadge,
-    type ConversationResult,
-} from "./ConversationResultBadge";
 
 type SenderType = "client" | "attendant" | "bot" | "system";
 
@@ -181,7 +182,7 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                             </div>
 
                             <span title={`Resolução ${result}`}>
-                                <ConversationResultBadge result={result} />
+                                <Badge value={result} />
                             </span>
                         </div>
 
