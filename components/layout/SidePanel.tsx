@@ -58,6 +58,12 @@ type SidePanelProps = {
 
     /** Initial open state. */
     defaultExpanded?: boolean;
+
+    /**
+     * Only the root layout instance remains mounted between page changes.
+     * Existing page-level instances render nothing.
+     */
+    persistent?: boolean;
 };
 
 const COLLAPSED_WIDTH = 76;
@@ -121,10 +127,24 @@ function filterEntriesByPermission(
     return compacted;
 }
 
-export default function SidePanel({
+export default function SidePanel(props: SidePanelProps) {
+    const pathname = usePathname();
+
+    const shouldHideSidePanel =
+        pathname === "/login" ||
+        pathname.startsWith("/dev");
+
+    if (!props.persistent || shouldHideSidePanel) {
+        return null;
+    }
+
+    return <PersistentSidePanel {...props} />;
+}
+
+function PersistentSidePanel({
     items = defaultItems,
-    affectLayout = true,
-    defaultExpanded = true,
+    affectLayout,
+    defaultExpanded,
 }: SidePanelProps) {
     const router = useRouter();
     const pathname = usePathname();
@@ -132,8 +152,18 @@ export default function SidePanel({
     const currentUserId = currentUser?.user?.id ?? null;
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
 
-    const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-    const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+    const isInbox = pathname.startsWith("/inbox");
+    const resolvedAffectLayout = affectLayout ?? !isInbox;
+
+    const [isExpanded, setIsExpanded] = useState(
+        () => defaultExpanded ?? !isInbox,
+    );
+
+    useEffect(() => {
+        if (isInbox) {
+            setIsExpanded(false);
+        }
+    }, [isInbox]);
     const [currentAttendant, setCurrentAttendant] =
         useState<CurrentAttendant | null>(() => cachedAttendant?.attendant ?? null);
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
@@ -175,11 +205,22 @@ export default function SidePanel({
             void loadCurrentAttendant(true);
         }
 
-        void loadCurrentAttendant();
+        function handleCurrentUserPermissionsChanged() {
+            void loadCurrentAttendant(true);
+        }
+
+        // Same behavior as CurrentUserProvider:
+        // show the cached value immediately, but always revalidate once
+        // when the protected app/sidebar mounts for this authenticated user.
+        void loadCurrentAttendant(true);
 
         window.addEventListener(
             "attendant-status-changed",
             handleAttendantStatusChanged,
+        );
+        window.addEventListener(
+            "current-user-permissions-changed",
+            handleCurrentUserPermissionsChanged,
         );
 
         return () => {
@@ -187,6 +228,10 @@ export default function SidePanel({
             window.removeEventListener(
                 "attendant-status-changed",
                 handleAttendantStatusChanged,
+            );
+            window.removeEventListener(
+                "current-user-permissions-changed",
+                handleCurrentUserPermissionsChanged,
             );
         };
     }, [currentUserId]);
@@ -204,7 +249,7 @@ export default function SidePanel({
     );
 
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-    const layoutWidth = affectLayout ? sidebarWidth : COLLAPSED_WIDTH;
+    const layoutWidth = resolvedAffectLayout ? sidebarWidth : COLLAPSED_WIDTH;
 
     const profileName =
         currentAttendant?.name ??
@@ -266,13 +311,11 @@ export default function SidePanel({
             style={{ width: layoutWidth }}
         >
             <aside
-                onMouseEnter={() => setIsSidebarHovered(true)}
-                onMouseLeave={() => setIsSidebarHovered(false)}
-                className="fixed left-0 top-0 z-50 h-screen max-h-screen overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow] duration-300 ease-out"
+                className="group fixed left-0 top-0 z-50 h-screen max-h-screen overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow] duration-300 ease-out"
                 style={{
                     width: sidebarWidth,
                     boxShadow:
-                        !affectLayout && isExpanded
+                        !resolvedAffectLayout && isExpanded
                             ? "0 25px 50px -12px rgb(15 23 42 / 0.18)"
                             : undefined,
                 }}
@@ -281,9 +324,9 @@ export default function SidePanel({
                     type="button"
                     onClick={() => setIsExpanded((value) => !value)}
                     className={`absolute top-[46px] z-[60] flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-all duration-200 hover:bg-selection hover:text-text ${
-                        !isExpanded || isSidebarHovered
-                            ? "pointer-events-auto opacity-100"
-                            : "pointer-events-none opacity-0"
+                        isExpanded
+                            ? "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                            : "pointer-events-auto opacity-100"
                     } ${!isExpanded ? "right-5" : "-right-5"}`}
                     title={isExpanded ? "Recolher menu" : "Expandir menu"}
                 >

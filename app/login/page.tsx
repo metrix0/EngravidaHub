@@ -26,8 +26,16 @@ export default function LoginPage() {
     const [supabase] = useState(() =>
         createBrowserClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        )
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+                auth: {
+                    // The invite hash is handled explicitly below.
+                    // Disabling automatic URL detection prevents the same
+                    // refresh token from being consumed twice.
+                    detectSessionInUrl: false,
+                },
+            },
+        ),
     );
 
     const [email, setEmail] = useState("");
@@ -42,6 +50,8 @@ export default function LoginPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
+        let isMounted = true;
+
         async function handleInviteToken() {
             if (typeof window === "undefined") return;
 
@@ -50,41 +60,66 @@ export default function LoginPage() {
             if (!hash.includes("type=invite")) return;
 
             setIsInvite(true);
+            setInviteReady(false);
+            setErrorMessage(null);
 
-            const existingSession = await supabase.auth.getSession();
-
-            if (existingSession.data.session) {
-                window.history.replaceState(null, "", "/login");
-                setInviteReady(true);
-                return;
-            }
-
-            const params = new URLSearchParams(hash.replace("#", ""));
-
+            const params = new URLSearchParams(hash.replace(/^#/, ""));
             const accessToken = params.get("access_token");
             const refreshToken = params.get("refresh_token");
 
             if (!accessToken || !refreshToken) {
-                setErrorMessage("Convite inválido ou expirado.");
+                if (isMounted) {
+                    setErrorMessage(
+                        "Convite inválido ou expirado. Solicite um novo convite.",
+                    );
+                }
                 return;
             }
 
-            const { error } = await supabase.auth.setSession({
+            const { error: sessionError } = await supabase.auth.setSession({
                 access_token: accessToken,
                 refresh_token: refreshToken,
             });
 
-            if (error) {
-                console.error("[login] invite setSession failed", error);
-                setErrorMessage("Convite inválido ou expirado.");
+            if (sessionError) {
+                console.error("[login] invite setSession failed", sessionError);
+
+                if (isMounted) {
+                    setErrorMessage(
+                        "Convite inválido ou expirado. Solicite um novo convite.",
+                    );
+                }
+                return;
+            }
+
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                console.error("[login] invite getUser failed", userError);
+
+                if (isMounted) {
+                    setErrorMessage(
+                        "A sessão do convite expirou. Solicite um novo convite.",
+                    );
+                }
                 return;
             }
 
             window.history.replaceState(null, "", "/login");
-            setInviteReady(true);
+
+            if (isMounted) {
+                setInviteReady(true);
+            }
         }
 
-        handleInviteToken();
+        void handleInviteToken();
+
+        return () => {
+            isMounted = false;
+        };
     }, [supabase]);
 
     function resetCachedSessionData() {
@@ -99,7 +134,7 @@ export default function LoginPage() {
         setErrorMessage(null);
 
         const { error } = await supabase.auth.signInWithPassword({
-            email,
+            email: email.trim().toLowerCase(),
             password,
         });
 
@@ -129,12 +164,40 @@ export default function LoginPage() {
             return;
         }
 
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setLoading(false);
+            setInviteReady(false);
+            setErrorMessage(
+                "A sessão do convite expirou. Solicite um novo convite.",
+            );
+            return;
+        }
+
         const { error } = await supabase.auth.updateUser({
             password: newPassword,
         });
 
         if (error) {
+            console.error("[login] invite updateUser failed", error);
+
             setLoading(false);
+
+            if (
+                error.status === 403 ||
+                error.message.toLowerCase().includes("session")
+            ) {
+                setInviteReady(false);
+                setErrorMessage(
+                    "A sessão do convite expirou. Solicite um novo convite.",
+                );
+                return;
+            }
+
             setErrorMessage("Não foi possível criar a senha.");
             return;
         }

@@ -6,6 +6,7 @@ import { InviteRedirect } from "@/components/auth/InviteRedirect";
 import { CurrentUserProvider } from "@/components/auth/CurrentUserProvider";
 import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
+import SidePanel from "@/components/layout/SidePanel";
 
 const inter = Inter({
     variable: "--font-inter",
@@ -29,6 +30,7 @@ export default function RootLayout({
         <html lang="pt-BR" className={`${inter.variable} antialiased`}>
         <body>
         <InviteRedirect />
+
         <div className="flex min-h-screen items-center justify-center bg-white px-6 text-center md:hidden">
             <div>
                 <h1 className="text-2xl font-bold text-slate-950">
@@ -45,8 +47,15 @@ export default function RootLayout({
         <div className="hidden md:block">
             <CurrentUserProvider>
                 <PermissionGuard>
-                    {children}
-                    <FloatingConversationPanel />
+                    <div className="flex h-screen w-screen overflow-hidden">
+                        <SidePanel persistent />
+
+                        <div className="min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
+                            {children}
+                        </div>
+
+                        <FloatingConversationPanel />
+                    </div>
                 </PermissionGuard>
             </CurrentUserProvider>
         </div>
