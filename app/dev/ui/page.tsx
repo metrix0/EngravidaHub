@@ -26,8 +26,8 @@ export default function DevUiPage() {
                             </div>
 
                             <pre className="overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-slate-100">
-                <code>{demo.code}</code>
-              </pre>
+                                <code>{"code" in demo ? demo.code : ""}</code>
+                            </pre>
                         </section>
                     ))}
                 </div>
