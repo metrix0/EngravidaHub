@@ -184,8 +184,24 @@ export default function InboxPrewrittenMessagesController({
             setIsOpen((current) => !current);
         }
 
-        function handleTextareaInput() {
+        function handleTextareaInput(event: Event) {
+            const inputEvent = event as InputEvent;
             const value = textarea.value;
+
+            if (!inputEvent.isComposing) {
+                const message = resolvePrewrittenMessage(value);
+
+                if (message) {
+                    setComposerValue(textarea, message.text);
+                    setQuery(message.text);
+                    setSendError(null);
+                    setIsOpen(false);
+                    textarea.focus();
+                    textarea.setSelectionRange(message.text.length, message.text.length);
+                    return;
+                }
+            }
+
             setQuery(value);
 
             if (isSlashQuery(value)) {
