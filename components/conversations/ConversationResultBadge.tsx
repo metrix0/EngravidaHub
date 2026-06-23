@@ -12,8 +12,7 @@ export function ConversationResultBadge({
 }: {
     result: ConversationResult;
 }) {
-    return <Badge preset="result" value={result} />;
-}
+    return <Badge value={result} />;}
 
 export const __uiDemo = {
     element: (

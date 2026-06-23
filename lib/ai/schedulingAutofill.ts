@@ -133,28 +133,28 @@ function normalizeResult(
 
 function normalizePerson(
     current: SchedulingPersonFields,
-    ai: SchedulingPersonFields,
+    ai: Partial<SchedulingPersonFields>,
 ): SchedulingPersonFields {
     return {
-        fullName: chooseName(current.fullName, ai.fullName),
+        fullName: chooseName(current.fullName, ai.fullName ?? ""),
         cpf: chooseValidated(
             formatCpf(current.cpf),
-            formatCpf(ai.cpf),
+            formatCpf(ai.cpf ?? ""),
             isValidCpf,
         ),
         birthDate: chooseValidated(
             formatDate(current.birthDate),
-            formatDate(ai.birthDate),
+            formatDate(ai.birthDate ?? ""),
             isValidDate,
         ),
         email: chooseValidated(
             current.email.trim().toLowerCase(),
-            ai.email.trim().toLowerCase(),
+            (ai.email ?? "").trim().toLowerCase(),
             isValidEmail,
         ),
         phone: chooseValidated(
             formatPhone(current.phone),
-            formatPhone(ai.phone),
+            formatPhone(ai.phone ?? ""),
             isValidPhone,
         ),
     };
