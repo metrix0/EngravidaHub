@@ -1,7 +1,9 @@
 // components/conversations/ChatMessageList.tsx
 "use client";
 
-import type { ReactNode } from "react";
+import {useRef, type ReactNode} from "react";
+
+import InboxPrewrittenMessagesController from "@/components/inbox/InboxPrewrittenMessagesController";
 
 import { ChatMessageBubble, type SharedChatMessage } from "./ChatMessageBubble";
 
@@ -29,6 +31,8 @@ export function ChatMessageList({
     scrollbarClassName = DEFAULT_SCROLLBAR_CLASS,
     topContent,
 }: ChatMessageListProps) {
+    const rootRef = useRef<HTMLDivElement>(null);
+
     const orderedMessages = [...messages].sort((a, b) => {
         const dateDiff = getMessageTime(a) - getMessageTime(b);
         if (dateDiff !== 0) return dateDiff;
@@ -39,39 +43,46 @@ export function ChatMessageList({
     const groups = groupMessagesByDate(orderedMessages);
 
     return (
-        <div className={`${className} ${scrollbarClassName}`}>
-            {topContent ? <div className="mb-5">{topContent}</div> : null}
+        <>
+            <div
+                ref={rootRef}
+                className={`${className} ${scrollbarClassName}`}
+            >
+                {topContent ? <div className="mb-5">{topContent}</div> : null}
 
-            {isLoading ? (
-                skeleton ?? null
-            ) : groups.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
-                    {emptyMessage}
-                </div>
-            ) : (
-                <div className="space-y-6">
-                    {groups.map((group) => (
-                        <div key={group.key} className="space-y-6">
-                            <DateDivider label={group.label} />
+                {isLoading ? (
+                    skeleton ?? null
+                ) : groups.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
+                        {emptyMessage}
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        {groups.map((group) => (
+                            <div key={group.key} className="space-y-6">
+                                <DateDivider label={group.label} />
 
-                            <div className="space-y-6">
-                                {group.messages.map((message) => (
-                                    <div key={message.id} className="space-y-6">
-                                        {message.conversation_boundary_label ? (
-                                            <ConversationDivider
-                                                label={message.conversation_boundary_label}
-                                            />
-                                        ) : null}
+                                <div className="space-y-6">
+                                    {group.messages.map((message) => (
+                                        <div key={message.id} className="space-y-6">
+                                            {message.conversation_boundary_label ? (
+                                                <ConversationDivider
+                                                    label={message.conversation_boundary_label}
+                                                />
+                                            ) : null}
 
-                                        <ChatMessageBubble message={message} />
-                                    </div>
-                                ))}
+                                            <ChatMessageBubble message={message} />
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <InboxPrewrittenMessagesController messageListRef={rootRef} />
+        </>
     );
 }
 
