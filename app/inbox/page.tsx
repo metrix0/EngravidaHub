@@ -100,6 +100,11 @@ export default function InboxPage() {
     const [hasOlderConversations, setHasOlderConversations] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const historyLoadedRef = useRef(false);
+    const forcedSelectionRef = useRef<{
+        id: string;
+        itemType: InboxItemType;
+    } | null>(null);
+    const selectedThreadRequestRef = useRef(0);
 
     const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
@@ -131,14 +136,25 @@ export default function InboxPage() {
             setTotalThreads(response.total);
 
             setSelectedId((currentSelectedId) => {
+                const expectedItemType: InboxItemType =
+                    status === "closed" ? "conversation" : "thread";
+                const forcedSelection = forcedSelectionRef.current;
+
+                if (
+                    forcedSelection &&
+                    forcedSelection.itemType === expectedItemType
+                ) {
+                    setSelectedItemType(forcedSelection.itemType);
+                    return forcedSelection.id;
+                }
+
                 const currentItem = currentSelectedId
                     ? response.items.find((item) => item.id === currentSelectedId)
                     : null;
                 const nextItem = currentItem ?? response.items[0] ?? null;
 
                 setSelectedItemType(
-                    nextItem?.item_type ??
-                    (status === "closed" ? "conversation" : "thread"),
+                    nextItem?.item_type ?? expectedItemType,
                 );
 
                 return nextItem?.id ?? null;
@@ -163,8 +179,11 @@ export default function InboxPage() {
     }, []);
 
     const loadSelectedThread = useCallback(async () => {
+        const requestId = ++selectedThreadRequestRef.current;
+
         if (!selectedId) {
             setSelectedThread(null);
+            setIsLoadingSelectedThread(false);
             return;
         }
 
@@ -175,6 +194,11 @@ export default function InboxPage() {
                 selectedId,
                 selectedItemType,
             );
+
+            if (requestId !== selectedThreadRequestRef.current) {
+                return;
+            }
+
             setSelectedThread(response.item);
 
             if (!historyLoadedRef.current) {
@@ -184,10 +208,16 @@ export default function InboxPage() {
                 );
             }
         } catch (error) {
+            if (requestId !== selectedThreadRequestRef.current) {
+                return;
+            }
+
             console.error("[inbox] failed to load selected thread", error);
             setSelectedThread(null);
         } finally {
-            setIsLoadingSelectedThread(false);
+            if (requestId === selectedThreadRequestRef.current) {
+                setIsLoadingSelectedThread(false);
+            }
         }
     }, [selectedId, selectedItemType]);
 
@@ -260,6 +290,9 @@ export default function InboxPage() {
     });
 
     function handleSelectThread(item: InboxThreadListItem) {
+        forcedSelectionRef.current = null;
+        selectedThreadRequestRef.current += 1;
+
         setSelectedId(item.id);
         setSelectedItemType(item.item_type);
         setSelectedThread(null);
@@ -277,6 +310,9 @@ export default function InboxPage() {
     }
 
     function handleStatusChange(nextStatus: InboxStatus) {
+        forcedSelectionRef.current = null;
+        selectedThreadRequestRef.current += 1;
+
         setStatus(nextStatus);
         setSelectedItemType(
             nextStatus === "closed" ? "conversation" : "thread",
@@ -299,6 +335,12 @@ export default function InboxPage() {
             if (!result.thread_id) {
                 return;
             }
+
+            forcedSelectionRef.current = {
+                id: result.thread_id,
+                itemType: "thread",
+            };
+            selectedThreadRequestRef.current += 1;
 
             setStatus("open");
             setSearch("");
@@ -348,6 +390,12 @@ export default function InboxPage() {
                 await Promise.all([loadThreads(), loadQueueCount()]);
                 return;
             }
+
+            forcedSelectionRef.current = {
+                id: result.conversation_id,
+                itemType: "conversation",
+            };
+            selectedThreadRequestRef.current += 1;
 
             setStatus("closed");
             setSearch("");
@@ -403,6 +451,12 @@ export default function InboxPage() {
         });
 
         if (result.reopened) {
+            forcedSelectionRef.current = {
+                id: result.thread_id,
+                itemType: "thread",
+            };
+            selectedThreadRequestRef.current += 1;
+
             setStatus("open");
             setSearch("");
             setCurrentPage(1);
@@ -563,6 +617,10 @@ export default function InboxPage() {
                             onPullConversation={handlePullConversation}
                             search={search}
                             onSearchChange={(value) => {
+                                forcedSelectionRef.current = null;
+                                selectedThreadRequestRef.current += 1;
+                                setSelectedId(null);
+                                setSelectedThread(null);
                                 setSearch(value);
                                 setCurrentPage(1);
                             }}
@@ -570,7 +628,13 @@ export default function InboxPage() {
                             totalConversations={totalThreads}
                             totalPages={totalPages}
                             currentPage={currentPage}
-                            onPageChange={setCurrentPage}
+                            onPageChange={(page) => {
+                                forcedSelectionRef.current = null;
+                                selectedThreadRequestRef.current += 1;
+                                setSelectedId(null);
+                                setSelectedThread(null);
+                                setCurrentPage(page);
+                            }}
                             selectedConversationId={selectedId ?? ""}
                             onSelectConversation={handleSelectThread}
                             isLoading={isLoadingThreads}
