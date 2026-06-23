@@ -373,7 +373,7 @@ function PersistentSidePanel({
                     <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
                             href={homeHref}
-                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition hover:bg-slate-50 ${
+                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition ${
                                 isExpanded ? "w-full" : "w-9"
                             }`}
                         >

@@ -1,6 +1,8 @@
 // lib/inbox/inboxApi.ts
 import type {
     ClientNote,
+    InboxHistoryResponse,
+    InboxItemType,
     InboxNote,
     InboxStatus,
     InboxThreadDetailResponse,
@@ -20,15 +22,31 @@ type OptimisticAddClientNoteResponse = {
     optimistic: true;
 };
 
+type SendInboxMessageResponse = {
+    ok: true;
+    message: unknown;
+    thread_id: string;
+    reopened: boolean;
+};
+
+type FinalizeInboxThreadResponse = {
+    ok: true;
+    conversation_id: string | null;
+};
+
 const threadDetailCache = new Map<string, InboxThreadDetailResponse>();
 const pendingNoteIdsByThread = new Map<string, Set<string>>();
 
+function getDetailCacheKey(itemId: string, itemType: InboxItemType) {
+    return `${itemType}:${itemId}`;
+}
+
 export async function fetchInboxThreads({
-                                             status,
-                                             search,
-                                             page,
-                                             pageSize,
-                                         }: {
+    status,
+    search,
+    page,
+    pageSize,
+}: {
     status: InboxStatus;
     search: string;
     page: number;
@@ -44,50 +62,74 @@ export async function fetchInboxThreads({
         params.set("search", search.trim());
     }
 
-    const response = await fetch(`/api/inbox/threads?${params.toString()}`);
+    const response = await fetch(`/api/inbox/threads?${params.toString()}`, {
+        credentials: "include",
+        cache: "no-store",
+    });
     const json = await response.json();
 
     if (!response.ok) {
-        throw new Error(json.error ?? "Failed to load inbox threads");
+        throw new Error(json.error ?? "Failed to load inbox items");
     }
 
     return json as InboxThreadsResponse;
 }
 
-export async function fetchInboxThread(threadId: string) {
-    const cachedThread = threadDetailCache.get(threadId);
+export async function fetchInboxThread(
+    itemId: string,
+    itemType: InboxItemType = "thread",
+) {
+    const cacheKey = getDetailCacheKey(itemId, itemType);
+    const cachedThread = threadDetailCache.get(cacheKey);
 
-    if (cachedThread && hasPendingNotes(threadId)) {
+    if (
+        cachedThread &&
+        cachedThread.item.thread_id &&
+        hasPendingNotes(cachedThread.item.thread_id)
+    ) {
         return cloneThreadResponse(cachedThread);
     }
 
-    const response = await fetch(`/api/inbox/threads/${threadId}`);
+    const params = new URLSearchParams({ item_type: itemType });
+    const response = await fetch(
+        `/api/inbox/threads/${itemId}?${params.toString()}`,
+        {
+            credentials: "include",
+            cache: "no-store",
+        },
+    );
     const json = await response.json();
 
     if (!response.ok) {
-        throw new Error(json.error ?? "Failed to load inbox thread");
+        throw new Error(json.error ?? "Failed to load inbox item");
     }
 
     const threadResponse = json as InboxThreadDetailResponse;
 
-    threadDetailCache.set(threadId, threadResponse);
+    threadDetailCache.set(cacheKey, threadResponse);
 
     return cloneThreadResponse(threadResponse);
 }
 
 export async function sendInboxMessage({
-                                            threadId,
-                                            text,
-                                        }: {
-    threadId: string;
+    itemId,
+    itemType,
+    text,
+}: {
+    itemId: string;
+    itemType: InboxItemType;
     text: string;
 }) {
-    const response = await fetch(`/api/inbox/threads/${threadId}/messages`, {
+    const response = await fetch(`/api/inbox/threads/${itemId}/messages`, {
         method: "POST",
+        credentials: "include",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+            text,
+            item_type: itemType,
+        }),
     });
 
     const json = await response.json();
@@ -96,20 +138,63 @@ export async function sendInboxMessage({
         throw new Error(json.error ?? "Failed to send message");
     }
 
-    return json;
+    return json as SendInboxMessageResponse;
+}
+
+export async function finalizeInboxThread(threadId: string) {
+    const response = await fetch(
+        `/api/inbox/threads/${threadId}/finalize`,
+        {
+            method: "POST",
+            credentials: "include",
+        },
+    );
+
+    const json = await response.json();
+
+    if (!response.ok) {
+        throw new Error(json.error ?? "Failed to finalize conversation");
+    }
+
+    return json as FinalizeInboxThreadResponse;
+}
+
+export async function fetchPreviousInboxConversation({
+    clientId,
+    before,
+}: {
+    clientId: string;
+    before: string;
+}) {
+    const params = new URLSearchParams({
+        client_id: clientId,
+        before,
+    });
+
+    const response = await fetch(`/api/inbox/history?${params.toString()}`, {
+        credentials: "include",
+        cache: "no-store",
+    });
+    const json = await response.json();
+
+    if (!response.ok) {
+        throw new Error(json.error ?? "Failed to load conversation history");
+    }
+
+    return json as InboxHistoryResponse;
 }
 
 export async function addClientNote({
-                                         threadId,
-                                         text,
-                                         authorName,
-                                     }: {
+    threadId,
+    text,
+    authorName,
+}: {
     threadId: string;
     text: string;
     authorName?: string;
 }): Promise<AddClientNoteResponse | OptimisticAddClientNoteResponse> {
     const normalizedText = text.trim();
-    const cachedThread = threadDetailCache.get(threadId);
+    const cachedThread = findCachedThreadByThreadId(threadId);
 
     if (!cachedThread) {
         return persistClientNote({
@@ -133,11 +218,11 @@ export async function addClientNote({
         created_at: createdAt,
     };
 
-    threadDetailCache.set(threadId, {
-        ...cachedThread,
+    replaceCachedThread(cachedThread.cacheKey, {
+        ...cachedThread.response,
         item: {
-            ...cachedThread.item,
-            notes: [optimisticNote, ...cachedThread.item.notes],
+            ...cachedThread.response.item,
+            notes: [optimisticNote, ...cachedThread.response.item.notes],
         },
     });
 
@@ -171,25 +256,23 @@ export async function addClientNote({
 }
 
 export async function updateInboxThread({
-                                             threadId,
-                                             status,
-                                             read,
-                                             stageAction,
-                                             funnelStageId,
-                                         }: {
+    threadId,
+    read,
+    stageAction,
+    funnelStageId,
+}: {
     threadId: string;
-    status?: InboxStatus;
     read?: boolean;
     stageAction?: "previous" | "next";
     funnelStageId?: string;
 }) {
     const response = await fetch(`/api/inbox/threads/${threadId}`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
             "Content-Type": "application/json",
         },
         body: JSON.stringify({
-            status,
             read,
             stage_action: stageAction,
             funnel_stage_id: funnelStageId,
@@ -206,16 +289,17 @@ export async function updateInboxThread({
 }
 
 async function persistClientNote({
-                                     threadId,
-                                     text,
-                                     authorName,
-                                 }: {
+    threadId,
+    text,
+    authorName,
+}: {
     threadId: string;
     text: string;
     authorName?: string;
 }): Promise<AddClientNoteResponse> {
     const response = await fetch(`/api/inbox/threads/${threadId}/notes`, {
         method: "POST",
+        credentials: "include",
         headers: {
             "Content-Type": "application/json",
         },
@@ -257,20 +341,40 @@ function mapClientNote(note: ClientNote): InboxNote {
     };
 }
 
+function findCachedThreadByThreadId(threadId: string) {
+    for (const [cacheKey, response] of threadDetailCache.entries()) {
+        if (response.item.thread_id === threadId) {
+            return {
+                cacheKey,
+                response,
+                item: response.item,
+            };
+        }
+    }
+
+    return null;
+}
+
+function replaceCachedThread(
+    cacheKey: string,
+    response: InboxThreadDetailResponse,
+) {
+    threadDetailCache.set(cacheKey, response);
+}
+
 function replaceOptimisticNote(
     threadId: string,
     optimisticId: string,
     savedNote: InboxNote,
 ) {
-    const cachedThread = threadDetailCache.get(threadId);
-
+    const cachedThread = findCachedThreadByThreadId(threadId);
     if (!cachedThread) return;
 
-    threadDetailCache.set(threadId, {
-        ...cachedThread,
+    replaceCachedThread(cachedThread.cacheKey, {
+        ...cachedThread.response,
         item: {
-            ...cachedThread.item,
-            notes: cachedThread.item.notes.map((note) =>
+            ...cachedThread.response.item,
+            notes: cachedThread.response.item.notes.map((note) =>
                 note.id === optimisticId ? savedNote : note,
             ),
         },
@@ -278,15 +382,14 @@ function replaceOptimisticNote(
 }
 
 function removeOptimisticNote(threadId: string, optimisticId: string) {
-    const cachedThread = threadDetailCache.get(threadId);
-
+    const cachedThread = findCachedThreadByThreadId(threadId);
     if (!cachedThread) return;
 
-    threadDetailCache.set(threadId, {
-        ...cachedThread,
+    replaceCachedThread(cachedThread.cacheKey, {
+        ...cachedThread.response,
         item: {
-            ...cachedThread.item,
-            notes: cachedThread.item.notes.filter(
+            ...cachedThread.response.item,
+            notes: cachedThread.response.item.notes.filter(
                 (note) => note.id !== optimisticId,
             ),
         },

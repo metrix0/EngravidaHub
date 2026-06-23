@@ -5,17 +5,22 @@ import { useEffect } from "react";
 
 import { supabase } from "@/lib/supabase/client";
 import { INBOX_THREAD_CACHE_CHANGED_EVENT } from "@/lib/inbox/inboxApi";
+import type { InboxItemType } from "@/types/inbox";
 
 type InboxThreadCacheChangedDetail = {
     threadId: string;
 };
 
 export function useInboxRealtime({
-                                      selectedThreadId,
-                                      selectedClientId,
-                                      onThreadChange,
-                                      onSelectedThreadChange,
-                                  }: {
+    selectedItemId,
+    selectedItemType,
+    selectedThreadId,
+    selectedClientId,
+    onThreadChange,
+    onSelectedThreadChange,
+}: {
+    selectedItemId: string | null;
+    selectedItemType: InboxItemType;
     selectedThreadId: string | null;
     selectedClientId: string | null;
     onThreadChange: () => void;
@@ -51,10 +56,36 @@ export function useInboxRealtime({
 
                     onThreadChange();
 
-                    if (changedThreadId && changedThreadId === selectedThreadId) {
+                    if (
+                        changedThreadId &&
+                        changedThreadId === selectedThreadId
+                    ) {
                         onSelectedThreadChange();
                     }
-                }
+                },
+            )
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "conversations",
+                },
+                (payload) => {
+                    const newRecord = payload.new as { id?: string } | null;
+                    const oldRecord = payload.old as { id?: string } | null;
+                    const changedConversationId =
+                        newRecord?.id ?? oldRecord?.id ?? null;
+
+                    onThreadChange();
+
+                    if (
+                        selectedItemType === "conversation" &&
+                        changedConversationId === selectedItemId
+                    ) {
+                        onSelectedThreadChange();
+                    }
+                },
             )
             .on(
                 "postgres_changes",
@@ -64,18 +95,33 @@ export function useInboxRealtime({
                     table: "messages",
                 },
                 (payload) => {
-                    const newRecord = payload.new as { thread_id?: string } | null;
-                    const oldRecord = payload.old as { thread_id?: string } | null;
+                    const newRecord = payload.new as {
+                        thread_id?: string;
+                        conversation_id?: string;
+                    } | null;
+                    const oldRecord = payload.old as {
+                        thread_id?: string;
+                        conversation_id?: string;
+                    } | null;
 
                     const changedThreadId =
                         newRecord?.thread_id ?? oldRecord?.thread_id ?? null;
+                    const changedConversationId =
+                        newRecord?.conversation_id ??
+                        oldRecord?.conversation_id ??
+                        null;
 
                     onThreadChange();
 
-                    if (changedThreadId && changedThreadId === selectedThreadId) {
+                    const selectedChanged =
+                        selectedItemType === "thread"
+                            ? changedThreadId === selectedThreadId
+                            : changedConversationId === selectedItemId;
+
+                    if (selectedChanged) {
                         onSelectedThreadChange();
                     }
-                }
+                },
             )
             .on(
                 "postgres_changes",
@@ -87,14 +133,16 @@ export function useInboxRealtime({
                 (payload) => {
                     const newRecord = payload.new as { id?: string } | null;
                     const oldRecord = payload.old as { id?: string } | null;
-
                     const changedClientId = newRecord?.id ?? oldRecord?.id ?? null;
 
-                    if (changedClientId && changedClientId === selectedClientId) {
+                    if (
+                        changedClientId &&
+                        changedClientId === selectedClientId
+                    ) {
                         onThreadChange();
                         onSelectedThreadChange();
                     }
-                }
+                },
             )
             .subscribe();
 
@@ -106,6 +154,8 @@ export function useInboxRealtime({
             supabase.removeChannel(channel);
         };
     }, [
+        selectedItemId,
+        selectedItemType,
         selectedThreadId,
         selectedClientId,
         onThreadChange,

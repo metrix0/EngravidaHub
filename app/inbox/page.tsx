@@ -1,9 +1,10 @@
 // app/inbox/page.tsx
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {
     Bot,
+    Archive,
     CalendarCheck,
     ChevronLeft,
     ChevronRight,
@@ -35,9 +36,15 @@ import {
     addClientNote,
     fetchInboxThread,
     fetchInboxThreads,
+    fetchPreviousInboxConversation,
+    finalizeInboxThread,
     sendInboxMessage,
     updateInboxThread,
 } from "@/lib/inbox/inboxApi";
+import {
+    claimNextInboxConversation,
+    fetchInboxQueueCount,
+} from "@/lib/inbox/queueApi";
 import {useInboxRealtime} from "@/lib/inbox/useInboxRealtime";
 import {
     fetchCurrentAttendant,
@@ -46,6 +53,9 @@ import {
 } from "@/lib/attendants/currentAttendantApi";
 import type {
     InboxChannel,
+    InboxHistoryConversation,
+    InboxItemType,
+    InboxMessage,
     InboxStatus,
     InboxThreadDetail,
     InboxThreadListItem,
@@ -62,6 +72,8 @@ export default function InboxPage() {
     const [status, setStatus] = useState<InboxStatus>("open");
     const [search, setSearch] = useState("");
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedItemType, setSelectedItemType] =
+        useState<InboxItemType>("thread");
     const [currentPage, setCurrentPage] = useState(1);
 
     const [threads, setThreads] = useState<InboxThreadListItem[]>([]);
@@ -77,6 +89,17 @@ export default function InboxPage() {
         useState<CurrentAttendant | null>(null);
     const [isLoadingCurrentAttendant, setIsLoadingCurrentAttendant] = useState(true);
     const [isSettingOnline, setIsSettingOnline] = useState(false);
+
+    const [queueCount, setQueueCount] = useState(0);
+    const [isPullingConversation, setIsPullingConversation] = useState(false);
+    const [isFinalizingConversation, setIsFinalizingConversation] = useState(false);
+
+    const [historyConversations, setHistoryConversations] =
+        useState<InboxHistoryConversation[]>([]);
+    const [historyBefore, setHistoryBefore] = useState<string | null>(null);
+    const [hasOlderConversations, setHasOlderConversations] = useState(false);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const historyLoadedRef = useRef(false);
 
     const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
@@ -108,11 +131,17 @@ export default function InboxPage() {
             setTotalThreads(response.total);
 
             setSelectedId((currentSelectedId) => {
-                if (currentSelectedId) {
-                    return currentSelectedId;
-                }
+                const currentItem = currentSelectedId
+                    ? response.items.find((item) => item.id === currentSelectedId)
+                    : null;
+                const nextItem = currentItem ?? response.items[0] ?? null;
 
-                return response.items[0]?.id ?? null;
+                setSelectedItemType(
+                    nextItem?.item_type ??
+                    (status === "closed" ? "conversation" : "thread"),
+                );
+
+                return nextItem?.id ?? null;
             });
         } catch (error) {
             console.error("[inbox] failed to load threads", error);
@@ -123,6 +152,16 @@ export default function InboxPage() {
         }
     }, [status, search, currentPage]);
 
+    const loadQueueCount = useCallback(async () => {
+        try {
+            const response = await fetchInboxQueueCount();
+            setQueueCount(response.count);
+        } catch (error) {
+            console.error("[inbox] failed to load queue count", error);
+            setQueueCount(0);
+        }
+    }, []);
+
     const loadSelectedThread = useCallback(async () => {
         if (!selectedId) {
             setSelectedThread(null);
@@ -132,15 +171,32 @@ export default function InboxPage() {
         setIsLoadingSelectedThread(true);
 
         try {
-            const response = await fetchInboxThread(selectedId);
+            const response = await fetchInboxThread(
+                selectedId,
+                selectedItemType,
+            );
             setSelectedThread(response.item);
+
+            if (!historyLoadedRef.current) {
+                setHistoryBefore(response.item.history_before);
+                setHasOlderConversations(
+                    response.item.has_older_conversations,
+                );
+            }
         } catch (error) {
             console.error("[inbox] failed to load selected thread", error);
             setSelectedThread(null);
         } finally {
             setIsLoadingSelectedThread(false);
         }
-    }, [selectedId]);
+    }, [selectedId, selectedItemType]);
+
+    useEffect(() => {
+        historyLoadedRef.current = false;
+        setHistoryConversations([]);
+        setHistoryBefore(null);
+        setHasOlderConversations(false);
+    }, [selectedId, selectedItemType]);
 
     useEffect(() => {
         let isMounted = true;
@@ -149,7 +205,7 @@ export default function InboxPage() {
             setIsLoadingCurrentAttendant(true);
 
             try {
-                const response = await fetchCurrentAttendant();
+                const response = await fetchCurrentAttendant({ force: true });
 
                 if (!isMounted) return;
 
@@ -177,8 +233,8 @@ export default function InboxPage() {
     useEffect(() => {
         if (!canShowInbox) return;
 
-        loadThreads();
-    }, [canShowInbox, loadThreads]);
+        void Promise.all([loadThreads(), loadQueueCount()]);
+    }, [canShowInbox, loadQueueCount, loadThreads]);
 
     useEffect(() => {
         if (!canShowInbox) return;
@@ -186,31 +242,139 @@ export default function InboxPage() {
         loadSelectedThread();
     }, [canShowInbox, loadSelectedThread]);
 
+    const handleRealtimeThreadChange = useCallback(() => {
+        void Promise.all([loadThreads(), loadQueueCount()]);
+    }, [loadQueueCount, loadThreads]);
+
     useInboxRealtime({
-        selectedThreadId: canShowInbox ? selectedId : null,
-        selectedClientId: canShowInbox ? selectedThread?.client_id ?? null : null,
-        onThreadChange: loadThreads,
+        selectedItemId: canShowInbox ? selectedId : null,
+        selectedItemType,
+        selectedThreadId: canShowInbox
+            ? selectedThread?.thread_id ?? null
+            : null,
+        selectedClientId: canShowInbox
+            ? selectedThread?.client_id ?? null
+            : null,
+        onThreadChange: handleRealtimeThreadChange,
         onSelectedThreadChange: loadSelectedThread,
     });
 
-    function handleSelectThread(threadId: string) {
-        setSelectedId(threadId);
+    function handleSelectThread(item: InboxThreadListItem) {
+        setSelectedId(item.id);
+        setSelectedItemType(item.item_type);
+        setSelectedThread(null);
 
         setThreads((currentThreads) =>
             currentThreads.map((thread) =>
-                thread.id === threadId
+                thread.id === item.id
                     ? {
                         ...thread,
                         unread: 0,
                     }
-                    : thread
-            )
+                    : thread,
+            ),
         );
     }
 
     function handleStatusChange(nextStatus: InboxStatus) {
         setStatus(nextStatus);
+        setSelectedItemType(
+            nextStatus === "closed" ? "conversation" : "thread",
+        );
         setCurrentPage(1);
+        setSelectedId(null);
+        setSelectedThread(null);
+    }
+
+    async function handlePullConversation() {
+        if (isPullingConversation || queueCount <= 0) return;
+
+        setIsPullingConversation(true);
+
+        try {
+            const result = await claimNextInboxConversation();
+
+            await loadQueueCount();
+
+            if (!result.thread_id) {
+                return;
+            }
+
+            setStatus("open");
+            setSearch("");
+            setCurrentPage(1);
+            setSelectedId(result.thread_id);
+            setSelectedItemType("thread");
+            setSelectedThread(null);
+
+            const [threadResponse, listResponse] = await Promise.all([
+                fetchInboxThread(result.thread_id, "thread"),
+                fetchInboxThreads({
+                    status: "open",
+                    search: "",
+                    page: 1,
+                    pageSize: PAGE_SIZE,
+                }),
+            ]);
+
+            setSelectedThread(threadResponse.item);
+            setThreads(listResponse.items);
+            setTotalThreads(listResponse.total);
+        } catch (error) {
+            console.error("[inbox] failed to claim conversation", error);
+        } finally {
+            setIsPullingConversation(false);
+        }
+    }
+
+    async function handleFinalizeConversation() {
+        const threadId = selectedThread?.thread_id;
+
+        if (
+            !threadId ||
+            selectedItemType !== "thread" ||
+            isFinalizingConversation
+        ) {
+            return;
+        }
+
+        setIsFinalizingConversation(true);
+
+        try {
+            const result = await finalizeInboxThread(threadId);
+
+            if (!result.conversation_id) {
+                setSelectedThread(null);
+                await Promise.all([loadThreads(), loadQueueCount()]);
+                return;
+            }
+
+            setStatus("closed");
+            setSearch("");
+            setCurrentPage(1);
+            setSelectedId(result.conversation_id);
+            setSelectedItemType("conversation");
+            setSelectedThread(null);
+
+            const [conversationResponse, listResponse] = await Promise.all([
+                fetchInboxThread(result.conversation_id, "conversation"),
+                fetchInboxThreads({
+                    status: "closed",
+                    search: "",
+                    page: 1,
+                    pageSize: PAGE_SIZE,
+                }),
+                loadQueueCount(),
+            ]);
+
+            setSelectedThread(conversationResponse.item);
+            setThreads(listResponse.items);
+            setTotalThreads(listResponse.total);
+        } catch (error) {
+            console.error("[inbox] failed to finalize conversation", error);
+        } finally {
+            setIsFinalizingConversation(false);
+        }
     }
 
     async function handleStayOnline() {
@@ -232,19 +396,83 @@ export default function InboxPage() {
     async function handleSendMessage(text: string) {
         if (!selectedId || !text.trim()) return;
 
-        await sendInboxMessage({
-            threadId: selectedId,
+        const result = await sendInboxMessage({
+            itemId: selectedId,
+            itemType: selectedItemType,
             text,
         });
+
+        if (result.reopened) {
+            setStatus("open");
+            setSearch("");
+            setCurrentPage(1);
+            setSelectedId(result.thread_id);
+            setSelectedItemType("thread");
+            setSelectedThread(null);
+
+            const [threadResponse, listResponse] = await Promise.all([
+                fetchInboxThread(result.thread_id, "thread"),
+                fetchInboxThreads({
+                    status: "open",
+                    search: "",
+                    page: 1,
+                    pageSize: PAGE_SIZE,
+                }),
+            ]);
+
+            setSelectedThread(threadResponse.item);
+            setThreads(listResponse.items);
+            setTotalThreads(listResponse.total);
+            return;
+        }
 
         await Promise.all([loadThreads(), loadSelectedThread()]);
     }
 
+    async function handleLoadPreviousConversation() {
+        if (
+            !selectedThread ||
+            !historyBefore ||
+            !hasOlderConversations ||
+            isLoadingHistory
+        ) {
+            return;
+        }
+
+        setIsLoadingHistory(true);
+
+        try {
+            const response = await fetchPreviousInboxConversation({
+                clientId: selectedThread.client_id,
+                before: historyBefore,
+            });
+
+            historyLoadedRef.current = true;
+
+            if (!response.item) {
+                setHasOlderConversations(false);
+                return;
+            }
+
+            setHistoryConversations((current) => [
+                response.item!,
+                ...current,
+            ]);
+            setHistoryBefore(response.next_before);
+            setHasOlderConversations(response.has_more);
+        } catch (error) {
+            console.error("[inbox] failed to load previous conversation", error);
+        } finally {
+            setIsLoadingHistory(false);
+        }
+    }
+
     async function handleMoveStage(direction: "previous" | "next") {
-        if (!selectedId) return;
+        const threadId = selectedThread?.thread_id;
+        if (!threadId) return;
 
         await updateInboxThread({
-            threadId: selectedId,
+            threadId,
             stageAction: direction,
         });
 
@@ -252,10 +480,11 @@ export default function InboxPage() {
     }
 
     async function handleAddNote(text: string) {
-        if (!selectedId || !text.trim()) return;
+        const threadId = selectedThread?.thread_id;
+        if (!threadId || !text.trim()) return;
 
         await addClientNote({
-            threadId: selectedId,
+            threadId,
             text,
         });
 
@@ -269,7 +498,18 @@ export default function InboxPage() {
         threads.find((thread) => thread.id === selectedId) ?? null;
 
     const selectedThreadMatchesSelection =
-        !!selectedThread && selectedThread.id === selectedId;
+        !!selectedThread &&
+        selectedThread.id === selectedId &&
+        selectedThread.item_type === selectedItemType;
+
+    const displayedMessages = useMemo<InboxMessage[]>(() => {
+        return [
+            ...historyConversations.flatMap((item) => item.messages),
+            ...(selectedThreadMatchesSelection && selectedThread
+                ? selectedThread.messages
+                : []),
+        ];
+    }, [historyConversations, selectedThread, selectedThreadMatchesSelection]);
 
     const isClientLoading =
         canShowInbox &&
@@ -318,6 +558,9 @@ export default function InboxPage() {
                         <ConversationListPanel
                             status={status}
                             onStatusChange={handleStatusChange}
+                            queueCount={queueCount}
+                            isPullingConversation={isPullingConversation}
+                            onPullConversation={handlePullConversation}
                             search={search}
                             onSearchChange={(value) => {
                                 setSearch(value);
@@ -340,8 +583,19 @@ export default function InboxPage() {
                                     headerConversation={
                                         selectedThreadMatchesSelection ? selectedThread : selectedListThread
                                     }
-                                    threadId={selectedId}
+                                    itemId={selectedId}
+                                    itemType={selectedItemType}
+                                    displayMessages={displayedMessages}
                                     onSendMessage={handleSendMessage}
+                                    onFinalizeConversation={handleFinalizeConversation}
+                                    canFinalize={
+                                        selectedItemType === "thread" &&
+                                        status === "open"
+                                    }
+                                    isFinalizingConversation={isFinalizingConversation}
+                                    onLoadPreviousConversation={handleLoadPreviousConversation}
+                                    hasOlderConversations={hasOlderConversations}
+                                    isLoadingHistory={isLoadingHistory}
                                     isLoading={isClientLoading}
                                 />
 
@@ -376,7 +630,11 @@ export default function InboxPage() {
 
             <SchedulingPanel
                 open={schedulingPanelOpen}
-                threadId={selectedId}
+                threadId={
+                    selectedThreadMatchesSelection
+                        ? selectedThread?.thread_id ?? null
+                        : selectedListThread?.thread_id ?? null
+                }
                 clientId={selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onOpenClientProfile={(clientId) => {
@@ -413,6 +671,9 @@ export default function InboxPage() {
 function ConversationListPanel({
                                    status,
                                    onStatusChange,
+                                   queueCount,
+                                   isPullingConversation,
+                                   onPullConversation,
                                    search,
                                    onSearchChange,
                                    conversations,
@@ -426,6 +687,9 @@ function ConversationListPanel({
                                }: {
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
+    queueCount: number;
+    isPullingConversation: boolean;
+    onPullConversation: () => void;
     search: string;
     onSearchChange: (value: string) => void;
     conversations: InboxThreadListItem[];
@@ -434,12 +698,12 @@ function ConversationListPanel({
     currentPage: number;
     onPageChange: (page: number) => void;
     selectedConversationId: string;
-    onSelectConversation: (id: string) => void;
+    onSelectConversation: (item: InboxThreadListItem) => void;
     isLoading: boolean;
 }) {
     return (
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="mb-5 shrink-0">
+            <div className="mb-4 shrink-0">
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                     Inbox
                 </h1>
@@ -449,19 +713,32 @@ function ConversationListPanel({
                 </p>
             </div>
 
-            <div className="mb-4 grid h-10 shrink-0 grid-cols-3 rounded-xl border border-slate-200 bg-white p-1">
+            <div className="mb-4 shrink-0 rounded-xl p-1">
+                <div className="flex items-center justify-left gap-3">
+                    <button
+                        type="button"
+                        onClick={onPullConversation}
+                        disabled={queueCount <= 0 || isPullingConversation}
+                        className="flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none"
+                    >
+                        {isPullingConversation ? "Puxando..." : "Puxar conversa"}
+                    </button>
+                    <div className="min-w-0">
+                        <div className="text-sm text-slate-500">
+                            {queueCount} na fila
+                        </div>
+                    </div>
+
+
+                </div>
+            </div>
+
+            <div className="mb-4 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1">
                 <InboxStatusButton
                     active={status === "open"}
                     onClick={() => onStatusChange("open")}
                 >
                     Abertas
-                </InboxStatusButton>
-
-                <InboxStatusButton
-                    active={status === "pending"}
-                    onClick={() => onStatusChange("pending")}
-                >
-                    Pendentes
                 </InboxStatusButton>
 
                 <InboxStatusButton
@@ -504,7 +781,7 @@ function ConversationListPanel({
                             key={conversation.id}
                             conversation={conversation}
                             active={conversation.id === selectedConversationId}
-                            onClick={() => onSelectConversation(conversation.id)}
+                            onClick={() => onSelectConversation(conversation)}
                         />
                     ))}
 
@@ -607,14 +884,30 @@ function ConversationListItem({
 function ChatPanel({
                        conversation,
                        headerConversation,
-                       threadId,
+                       itemId,
+                       itemType,
+                       displayMessages,
                        onSendMessage,
+                       onFinalizeConversation,
+                       canFinalize,
+                       isFinalizingConversation,
+                       onLoadPreviousConversation,
+                       hasOlderConversations,
+                       isLoadingHistory,
                        isLoading,
                    }: {
     conversation: Conversation | null;
     headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
-    threadId: string | null;
+    itemId: string | null;
+    itemType: InboxItemType;
+    displayMessages: InboxMessage[];
     onSendMessage: (text: string) => Promise<void>;
+    onFinalizeConversation: () => Promise<void>;
+    canFinalize: boolean;
+    isFinalizingConversation: boolean;
+    onLoadPreviousConversation: () => Promise<void>;
+    hasOlderConversations: boolean;
+    isLoadingHistory: boolean;
     isLoading: boolean;
 }) {
     const [messageText, setMessageText] = useState("");
@@ -623,10 +916,14 @@ function ChatPanel({
     const headerName = headerConversation?.name ?? "Carregando conversa";
     const headerChannel = headerConversation?.channel ?? "-";
 
+    useEffect(() => {
+        setMessageText("");
+    }, [itemId, itemType]);
+
     async function handleSubmit() {
         const text = messageText.trim();
 
-        if (!conversation || !text || isSending) return;
+        if (!conversation || !conversation.can_reply || !text || isSending) return;
 
         setIsSending(true);
 
@@ -654,21 +951,20 @@ function ChatPanel({
                         >
                             {headerName}
                         </div>
-
-                        <div
-                            className="mt-1 flex min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap text-sm text-slate-500">
-                            <span className="shrink-0">{headerChannel}</span>
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green"/>
-                            <span className="shrink-0">
-                                {isLoading ? "Atualizando..." : "Online agora"}
-                            </span>
-                        </div>
                     </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-3">
-                    <span className="whitespace-nowrap rounded-xl bg-green-soft px-3 py-2 text-xs font-bold text-green">
-                        Em atendimento
+                    <span
+                        className={`whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold ${
+                            conversation?.status === "closed"
+                                ? "bg-slate-100 text-slate-600"
+                                : "bg-green-soft text-green"
+                        }`}
+                    >
+                        {conversation?.status === "closed"
+                            ? "Fechada"
+                            : "Em atendimento"}
                     </span>
 
                     <span className="whitespace-nowrap rounded-xl bg-brand-soft px-3 py-2 text-xs font-bold text-brand">
@@ -677,25 +973,57 @@ function ChatPanel({
 
                     <button
                         type="button"
-                        disabled={!threadId}
+                        disabled={!itemId}
                         title="Fixar conversa"
                         onClick={() => {
-                            if (!threadId) return;
-                            openFloatingConversation({type: "thread", id: threadId});
+                            if (!itemId) return;
+                            openFloatingConversation({type: itemType, id: itemId});
                         }}
                         className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <Pin size={18} className={"rotate-45 "}/>
                     </button>
+
+                    {canFinalize && (
+                        <button
+                            type="button"
+                            disabled={!itemId || isFinalizingConversation}
+                            title="Finalizar conversa"
+                            onClick={() => void onFinalizeConversation()}
+                            className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-red/30 hover:bg-red-soft hover:text-red disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {isFinalizingConversation ? (
+                                <LoaderCircle size={18} className="animate-spin"/>
+                            ) : (
+                                <Archive size={18}/>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
 
             <ChatMessageList
-                messages={conversation?.messages ?? []}
+                messages={displayMessages}
                 isLoading={isLoading && !conversation}
                 skeleton={<ChatMessagesSkeleton />}
                 emptyMessage="Nenhuma mensagem nesta conversa."
                 scrollbarClassName={scrollbarClass}
+                topContent={
+                    hasOlderConversations ? (
+                        <div className="flex justify-center">
+                            <button
+                                type="button"
+                                onClick={() => void onLoadPreviousConversation()}
+                                disabled={isLoadingHistory}
+                                className="flex h-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {isLoadingHistory
+                                    ? "Carregando..."
+                                    : "Carregar conversa anterior"}
+                            </button>
+                        </div>
+                    ) : null
+                }
             />
 
             <div className="shrink-0 border-t border-slate-100 p-1 px-2 pb-0">
@@ -703,7 +1031,7 @@ function ChatPanel({
                     <textarea
                         rows={1}
                         value={messageText}
-                        disabled={!conversation}
+                        disabled={!conversation || !conversation.can_reply}
                         onChange={(event) => setMessageText(event.target.value)}
                         onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
@@ -711,7 +1039,11 @@ function ChatPanel({
                                 handleSubmit();
                             }
                         }}
-                        placeholder="Responder como atendente..."
+                        placeholder={
+                            conversation && !conversation.can_reply
+                                ? "Janela de 24h encerrada"
+                                : "Responder como atendente..."
+                        }
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
                         onInput={(event) => {
                             const target = event.currentTarget;
@@ -749,7 +1081,12 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Enviar"
-                            disabled={isSending || !messageText.trim() || !conversation}
+                            disabled={
+                                isSending ||
+                                !messageText.trim() ||
+                                !conversation ||
+                                !conversation.can_reply
+                            }
                             onClick={handleSubmit}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -831,7 +1168,7 @@ function CustomerPanel({
                                 <div className="flex gap-3">
                                     <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
                                         <MapPin size={13}/>
-                                        <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
+                                        <span className="truncate">{conversation.unit_name ?? "Sem unidade"}</span>
                                     </div>
                                     <div className="mt-2">
                                         <ChannelBadge channel={headerChannel}/>

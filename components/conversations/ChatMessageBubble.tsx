@@ -10,6 +10,7 @@ export type SharedChatMessage = {
     sent_at?: string | null;
     time?: string | null;
     sequence_index?: number | null;
+    conversation_boundary_label?: string | null;
 };
 
 type ChatMessageBubbleProps = {

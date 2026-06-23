@@ -17,6 +17,7 @@ type ChatMessageListProps = {
     emptyMessage?: string;
     className?: string;
     scrollbarClassName?: string;
+    topContent?: ReactNode;
 };
 
 export function ChatMessageList({
@@ -26,6 +27,7 @@ export function ChatMessageList({
     emptyMessage = "Nenhuma mensagem nesta conversa.",
     className = "min-h-0 flex-1 overflow-y-auto bg-slate-50/40 px-5 py-5",
     scrollbarClassName = DEFAULT_SCROLLBAR_CLASS,
+    topContent,
 }: ChatMessageListProps) {
     const orderedMessages = [...messages].sort((a, b) => {
         const dateDiff = getMessageTime(a) - getMessageTime(b);
@@ -38,6 +40,8 @@ export function ChatMessageList({
 
     return (
         <div className={`${className} ${scrollbarClassName}`}>
+            {topContent ? <div className="mb-5">{topContent}</div> : null}
+
             {isLoading ? (
                 skeleton ?? null
             ) : groups.length === 0 ? (
@@ -52,13 +56,33 @@ export function ChatMessageList({
 
                             <div className="space-y-6">
                                 {group.messages.map((message) => (
-                                    <ChatMessageBubble key={message.id} message={message} />
+                                    <div key={message.id} className="space-y-6">
+                                        {message.conversation_boundary_label ? (
+                                            <ConversationDivider
+                                                label={message.conversation_boundary_label}
+                                            />
+                                        ) : null}
+
+                                        <ChatMessageBubble message={message} />
+                                    </div>
                                 ))}
                             </div>
                         </div>
                     ))}
                 </div>
             )}
+        </div>
+    );
+}
+
+function ConversationDivider({ label }: { label: string }) {
+    return (
+        <div className="flex items-center justify-center gap-3 py-1">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+                {label}
+            </span>
+            <div className="h-px flex-1 bg-slate-200" />
         </div>
     );
 }

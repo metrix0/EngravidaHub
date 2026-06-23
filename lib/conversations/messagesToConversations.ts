@@ -3,19 +3,23 @@ import { supabase } from "@/lib";
 import type { AnalyzeConversationInput, Message } from "@/types";
 
 export async function messageToConversations({
-                                                 inactivityHours = 6,
-                                                 limit = 1000,
-                                             }: {
+    inactivityHours = 6,
+    limit = 1000,
+}: {
     inactivityHours?: number;
     limit?: number;
 } = {}): Promise<AnalyzeConversationInput[]> {
     const cutoff = new Date(Date.now() - inactivityHours * 60 * 60 * 1000);
     const oldestAllowed = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+    // Inbox threads are finalized explicitly through "Finalizar conversa".
+    // This legacy inactivity processor must only handle messages that do not
+    // belong to an Inbox thread, otherwise it would create duplicate sessions.
     const { data, error } = await supabase
         .from("messages")
         .select("*")
         .is("conversation_id", null)
+        .is("thread_id", null)
         .gte("sent_at", oldestAllowed.toISOString())
         .lte("sent_at", cutoff.toISOString())
         .order("sent_at", { ascending: true })
@@ -26,46 +30,25 @@ export async function messageToConversations({
     }
 
     const pendingMessages = (data ?? []) as Message[];
-
-    console.log("[messageToConversations] Gathered non-analyzed messages", {
-        pending_messages_found: pendingMessages.length,
-        inactivity_hours: inactivityHours,
-        cutoff: cutoff.toISOString(),
-    });
-
     const endedGroups = getEndedMessageGroups(
         pendingMessages,
         cutoff,
-        inactivityHours
+        inactivityHours,
     );
-
-    console.log("[messageToConversations] Ended message groups found", {
-        ended_groups_found: endedGroups.length,
-    });
-
     const analysisInputs: AnalyzeConversationInput[] = [];
 
     for (const messages of endedGroups) {
         const conversationMessages = await removeIgnoredFinalBotMessage(messages);
 
         if (shouldDeleteInvalidGroup(conversationMessages)) {
-            console.log("[messageToConversations] Deleting group: invalid one-sided/bot-only conversation", {
-                messages_count: conversationMessages.length,
-                client_id: conversationMessages[0]?.client_id,
-                sender_types: Array.from(new Set(conversationMessages.map((message) => message.sender_type))),
-            });
-
             await deleteMessages(conversationMessages);
             continue;
         }
 
-        const analysisInput = await createConversationAndAttachMessages(conversationMessages);
-        analysisInputs.push(analysisInput);
+        analysisInputs.push(
+            await createConversationAndAttachMessages(conversationMessages),
+        );
     }
-
-    console.log("[messageToConversations] Conversations saved to Supabase", {
-        conversations_created: analysisInputs.length,
-    });
 
     return analysisInputs;
 }
@@ -73,7 +56,7 @@ export async function messageToConversations({
 function getEndedMessageGroups(
     messages: Message[],
     cutoff: Date,
-    inactivityHours: number
+    inactivityHours: number,
 ): Message[][] {
     const messagesByClient = new Map<string, Message[]>();
 
@@ -89,9 +72,8 @@ function getEndedMessageGroups(
         const sortedMessages = [...clientMessages].sort(
             (a, b) =>
                 new Date(a.sent_at).getTime() -
-                new Date(b.sent_at).getTime()
+                new Date(b.sent_at).getTime(),
         );
-
         let currentGroup: Message[] = [];
 
         for (const message of sortedMessages) {
@@ -129,23 +111,22 @@ function getEndedMessageGroups(
     return endedGroups;
 }
 
-function isEnded(messages: Message[], cutoff: Date): boolean {
+function isEnded(messages: Message[], cutoff: Date) {
     const lastMessage = messages.at(-1);
-
-    if (!lastMessage) return false;
-
-    return new Date(lastMessage.sent_at).getTime() <= cutoff.getTime();
+    return Boolean(
+        lastMessage &&
+        new Date(lastMessage.sent_at).getTime() <= cutoff.getTime(),
+    );
 }
 
 async function createConversationAndAttachMessages(
-    messages: Message[]
+    messages: Message[],
 ): Promise<AnalyzeConversationInput> {
     const sortedMessages = [...messages].sort(
         (a, b) =>
             new Date(a.sent_at).getTime() -
-            new Date(b.sent_at).getTime()
+            new Date(b.sent_at).getTime(),
     );
-
     const firstMessage = sortedMessages[0];
     const lastMessage = sortedMessages.at(-1);
 
@@ -154,9 +135,8 @@ async function createConversationAndAttachMessages(
     }
 
     const attendantMessage = sortedMessages.find(
-        (message) => message.sender_type === "attendant"
+        (message) => message.sender_type === "attendant",
     );
-
     const attendant = attendantMessage?.external_attendant_id
         ? await getAttendantByExternalId(attendantMessage.external_attendant_id)
         : null;
@@ -166,14 +146,11 @@ async function createConversationAndAttachMessages(
         .insert({
             client_id: firstMessage.client_id,
             source: "blip",
-
             started_at: firstMessage.sent_at,
             ended_at: lastMessage.sent_at,
-
             attendant_id: attendant?.id ?? null,
             attendant_chat_name:
                 attendant?.name ?? attendantMessage?.sender_name ?? null,
-
             unit_id: null,
             service_id: null,
         })
@@ -182,13 +159,12 @@ async function createConversationAndAttachMessages(
 
     if (conversationError) {
         throw new Error(
-            `Failed to create conversation: ${conversationError.message}`
+            `Failed to create conversation: ${conversationError.message}`,
         );
     }
 
-    for (let index = 0; index < sortedMessages.length; index++) {
+    for (let index = 0; index < sortedMessages.length; index += 1) {
         const message = sortedMessages[index];
-
         const { error: updateMessageError } = await supabase
             .from("messages")
             .update({
@@ -199,7 +175,7 @@ async function createConversationAndAttachMessages(
 
         if (updateMessageError) {
             throw new Error(
-                `Failed to attach message to conversation: ${updateMessageError.message}`
+                `Failed to attach message to conversation: ${updateMessageError.message}`,
             );
         }
     }
@@ -207,101 +183,83 @@ async function createConversationAndAttachMessages(
     return {
         conversation_id: conversation.id,
         client_id: firstMessage.client_id,
-
         started_at: firstMessage.sent_at,
         ended_at: lastMessage.sent_at,
-
         attendant_id: attendant?.id ?? null,
         unit_id: null,
         service_id: null,
-
         conversationText: buildConversationText(sortedMessages),
     };
 }
 
-function buildConversationText(messages: Message[]): string {
+function buildConversationText(messages: Message[]) {
     return messages
         .map((message) => {
             const date = new Date(message.sent_at).toLocaleString("pt-BR");
             const sender = getSenderLabel(message);
-
             return `[${date}] ${sender}: ${message.text}`;
         })
         .join("\n");
 }
 
-function getSenderLabel(message: Message): string {
+function getSenderLabel(message: Message) {
     if (message.sender_type === "client") return "Cliente";
-
     if (message.sender_type === "attendant") {
         return message.sender_name ?? "Atendente";
     }
-
     if (message.sender_type === "bot") return "Bot";
-
     return "Sistema";
 }
 
-function shouldDeleteInvalidGroup(messages: Message[]): boolean {
+function shouldDeleteInvalidGroup(messages: Message[]) {
     if (messages.length === 0) return true;
 
     const hasClient = messages.some(
-        (message) => message.sender_type === "client"
+        (message) => message.sender_type === "client",
     );
-
     const hasAttendant = messages.some(
-        (message) => message.sender_type === "attendant"
+        (message) => message.sender_type === "attendant",
     );
 
     return !hasClient || !hasAttendant;
 }
 
 async function deleteMessages(messages: Message[]) {
-    const messageIds = messages.map((message) => message.id);
+    if (messages.length === 0) return;
 
     const { error } = await supabase
         .from("messages")
         .delete()
-        .in("id", messageIds);
+        .in("id", messages.map((message) => message.id));
 
     if (error) {
         throw new Error(
-            `Failed to delete only-attendant messages: ${error.message}`
+            `Failed to delete invalid conversation messages: ${error.message}`,
         );
     }
 }
 
-async function removeIgnoredFinalBotMessage(messages: Message[]): Promise<Message[]> {
+async function removeIgnoredFinalBotMessage(messages: Message[]) {
     const sortedMessages = [...messages].sort(
         (a, b) =>
             new Date(a.sent_at).getTime() -
-            new Date(b.sent_at).getTime()
+            new Date(b.sent_at).getTime(),
     );
-
     const lastMessage = sortedMessages.at(-1);
 
     if (!lastMessage || lastMessage.sender_type !== "bot") {
         return sortedMessages;
     }
 
-    const previousFourMessages = sortedMessages.slice(-5, -1);
+    const hasRecentAttendant = sortedMessages
+        .slice(-5, -1)
+        .some((message) => message.sender_type === "attendant");
 
-    const hasAttendantInPreviousFourMessages = previousFourMessages.some(
-        (message) => message.sender_type === "attendant"
-    );
-
-    if (!hasAttendantInPreviousFourMessages) {
+    if (!hasRecentAttendant) {
         return sortedMessages;
     }
 
-    console.log("[messageToConversations] Deleting ignored final bot message", {
-        message_id: lastMessage.id,
-        client_id: lastMessage.client_id,
-        text: lastMessage.text,
-    });
-
     await deleteMessages([lastMessage]);
-
     return sortedMessages.slice(0, -1);
 }
 

@@ -1,23 +1,16 @@
 // app/api/(webhooks)/blip/messages/route.ts
-import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { NextResponse } from "next/server";
 
-import { supabase } from "@/lib";
-import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
-import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { createAttendantFromParsedMessage } from "@/lib/attendants/createAttendant";
+import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { queueThreadForMessage } from "@/lib/inbox/queueThreadForMessage";
-
-type ThreadRow = {
-    id: string;
-    client_id: string;
-    latest_conversation_id: string | null;
-};
+import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
+import { supabase } from "@/lib";
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-
         const parsedMessage = parseBlipMessage(body);
 
         if (!parsedMessage) {
@@ -45,26 +38,21 @@ export async function POST(request: Request) {
             clientId: client.id,
             source: "blip",
             channel: "WhatsApp",
+            senderType: parsedMessage.sender_type,
         });
 
         const sequenceIndex = await getNextSequenceIndex(thread.id);
 
         const { error: messageError } = await supabase.from("messages").insert({
             id: randomUUID(),
-
             client_id: client.id,
-            conversation_id: thread.latest_conversation_id,
-
+            conversation_id: null,
             thread_id: thread.id,
-
             sender_type: parsedMessage.sender_type,
             sender_name: parsedMessage.sender_name,
-
             text: parsedMessage.text,
-
             sent_at: parsedMessage.sent_at,
             sequence_index: sequenceIndex,
-
             external_id: parsedMessage.external_id,
             external_contact_id: parsedMessage.external_contact_id,
             external_thread_id: parsedMessage.external_thread_id,
@@ -102,12 +90,10 @@ export async function POST(request: Request) {
                         ? error.message
                         : "Failed to receive Blip message",
             },
-            { status: 500 }
+            { status: 500 },
         );
     }
 }
-
-
 
 async function getNextSequenceIndex(threadId: string) {
     const { data, error } = await supabase
