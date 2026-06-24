@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, MessageCircle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 import {
     AdvancedFilterButton,
@@ -14,10 +14,7 @@ import {
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openInternalChat } from "@/components/conversations/FloatingConversationPanel";
-import {
-    fetchInternalUsers,
-    heartbeatInternalPresence,
-} from "@/lib/internal-chat/internalChatApi";
+import { fetchInternalUsers } from "@/lib/internal-chat/internalChatApi";
 import type { InternalChatUser } from "@/types/internalChat";
 
 const REFRESH_INTERVAL_MS = 15_000;
@@ -34,7 +31,6 @@ export default function InternosPage() {
 
         try {
             setError(null);
-            await heartbeatInternalPresence();
             const response = await fetchInternalUsers();
             setUsers(response);
         } catch (loadError) {
@@ -180,20 +176,12 @@ export default function InternosPage() {
 
             <section className="min-w-0 flex-1 px-8 py-8 pb-16">
                 <header className="mb-8">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-soft text-purple">
-                            <MessageCircle size={21} />
-                        </div>
-
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-                                Internos
-                            </h1>
-                            <p className="mt-2 text-sm text-slate-500">
-                                Converse diretamente com outros usuários do sistema
-                            </p>
-                        </div>
-                    </div>
+                    <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                        Internos
+                    </h1>
+                    <p className="mt-2 text-sm text-slate-500">
+                        Converse diretamente com outros usuários do sistema
+                    </p>
                 </header>
 
                 {error ? (
@@ -202,7 +190,7 @@ export default function InternosPage() {
                     </div>
                 ) : null}
 
-                <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+                <section>
                     <TableHeaderPreset
                         title="Usuários"
                         count={filteredUsers.length}

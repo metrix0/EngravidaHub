@@ -7,15 +7,24 @@ import type {
 } from "@/types/internalChat";
 
 export async function heartbeatInternalPresence() {
-    const response = await fetch("/api/internal-chat/presence", {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-    });
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+        return false;
+    }
 
-    if (!response.ok) {
-        const json = await safeJson(response);
-        throw new Error(json?.error ?? "Failed to update presence");
+    try {
+        const response = await fetch("/api/internal-chat/presence", {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+            keepalive: true,
+            signal: AbortSignal.timeout(8_000),
+        });
+
+        return response.ok;
+    } catch {
+        // Presence is best-effort. A temporary dev-server restart, offline tab,
+        // or aborted request must never surface as an application error.
+        return false;
     }
 }
 

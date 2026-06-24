@@ -1,21 +1,37 @@
 // lib/internal-chat/useInternalChatRealtime.ts
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { supabase } from "@/lib/supabase/client";
+import type { InternalMessage } from "@/types/internalChat";
+
+export type InternalChatRealtimeMessageChange = {
+    eventType: "INSERT" | "UPDATE" | "DELETE";
+    conversationId: string | null;
+    message: InternalMessage | null;
+};
 
 export function useInternalChatRealtime({
     currentUserId,
-    selectedConversationId,
     onConversationListChange,
-    onSelectedConversationChange,
+    onMessageChange,
 }: {
     currentUserId: string | null;
-    selectedConversationId: string | null;
     onConversationListChange: () => void;
-    onSelectedConversationChange: () => void;
+    onMessageChange: (change: InternalChatRealtimeMessageChange) => void;
 }) {
+    const onConversationListChangeRef = useRef(onConversationListChange);
+    const onMessageChangeRef = useRef(onMessageChange);
+
+    useEffect(() => {
+        onConversationListChangeRef.current = onConversationListChange;
+    }, [onConversationListChange]);
+
+    useEffect(() => {
+        onMessageChangeRef.current = onMessageChange;
+    }, [onMessageChange]);
+
     useEffect(() => {
         if (!currentUserId) return;
 
@@ -29,7 +45,7 @@ export function useInternalChatRealtime({
                     table: "internal_conversations",
                 },
                 () => {
-                    onConversationListChange();
+                    onConversationListChangeRef.current();
                 },
             )
             .on(
@@ -40,30 +56,29 @@ export function useInternalChatRealtime({
                     table: "internal_messages",
                 },
                 (payload) => {
-                    const next = payload.new as { conversation_id?: string } | null;
-                    const previous = payload.old as { conversation_id?: string } | null;
-                    const changedConversationId =
-                        next?.conversation_id ?? previous?.conversation_id ?? null;
+                    const next = payload.new as InternalMessage | null;
+                    const previous = payload.old as InternalMessage | null;
+                    const message = next ?? previous;
+                    const conversationId = message?.conversation_id ?? null;
 
-                    onConversationListChange();
-
-                    if (
-                        changedConversationId &&
-                        changedConversationId === selectedConversationId
-                    ) {
-                        onSelectedConversationChange();
-                    }
+                    onMessageChangeRef.current({
+                        eventType: payload.eventType,
+                        conversationId,
+                        message,
+                    });
+                    onConversationListChangeRef.current();
                 },
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                    console.warn(
+                        `[internal-chat-realtime] subscription status: ${status}`,
+                    );
+                }
+            });
 
         return () => {
             void supabase.removeChannel(channel);
         };
-    }, [
-        currentUserId,
-        selectedConversationId,
-        onConversationListChange,
-        onSelectedConversationChange,
-    ]);
+    }, [currentUserId]);
 }
