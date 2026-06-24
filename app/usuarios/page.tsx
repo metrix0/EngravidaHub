@@ -34,6 +34,7 @@ type TabId =
     | "eventos"
     | "usuarios"
     | "inbox"
+    | "internos"
     | "clientes"
     | "funil";
 
@@ -129,8 +130,9 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
-    { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 70 },
-    { id: "funil", label: "Funil", href: "/funil", color: "green", position: 80 },
+    { id: "internos", label: "Internos", href: "/internos", color: "purple", position: 70 },
+    { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
+    { id: "funil", label: "Funil", href: "/funil", color: "green", position: 90 },
 ];
 
 const PRESETS: PermissionPreset[] = [
@@ -146,6 +148,7 @@ const PRESETS: PermissionPreset[] = [
             "eventos",
             "usuarios",
             "inbox",
+            "internos",
             "clientes",
             "funil",
         ],
@@ -161,6 +164,7 @@ const PRESETS: PermissionPreset[] = [
             "jornada",
             "eventos",
             "inbox",
+            "internos",
             "clientes",
             "funil",
         ],
@@ -170,14 +174,14 @@ const PRESETS: PermissionPreset[] = [
         name: "Atendente",
         color: "green",
         icon: "headphones",
-        default_tabs: ["inbox", "clientes", "funil"],
+        default_tabs: ["inbox", "internos", "clientes", "funil"],
     },
     {
         id: "marketing",
         name: "Marketing",
         color: "orange",
         icon: "megaphone",
-        default_tabs: ["dashboard", "jornada", "eventos"],
+        default_tabs: ["dashboard", "jornada", "eventos", "internos"],
     },
 ];
 

@@ -11,6 +11,7 @@ const VALID_TAB_IDS = new Set([
     "eventos",
     "usuarios",
     "inbox",
+    "internos",
     "clientes",
     "funil",
 ]);

@@ -7,6 +7,7 @@ export type SharedChatMessage = {
     from?: string | null;
     sender_type?: string | null;
     sender_name?: string | null;
+    sender_label?: string | null;
     sent_at?: string | null;
     time?: string | null;
     sequence_index?: number | null;
@@ -68,6 +69,9 @@ export function isAttendantMessage(message: SharedChatMessage) {
 }
 
 function getSenderLabel(message: SharedChatMessage, isAttendant: boolean) {
+    const explicitLabel = message.sender_label?.trim();
+    if (explicitLabel) return explicitLabel;
+
     if (!isAttendant) return "Cliente";
 
     const rawName = message.sender_name?.trim();

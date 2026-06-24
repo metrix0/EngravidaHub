@@ -3,7 +3,6 @@ import { randomUUID } from "crypto";
 
 const BLIP_WHATSAPP_SUFFIX = "@wa.gw.msging.net";
 const BLIP_REQUEST_TIMEOUT_MS = 20_000;
-const NOTIFICATION_POLL_DELAYS_MS = [350, 650, 1_000, 1_500, 2_000];
 
 export type BlipDeliveryEvent = {
     event: string;
@@ -44,7 +43,6 @@ export type BlipHttpDebug = {
     };
     body: {
         id: string;
-        from: string;
         to: string;
         type: "text/plain";
         content: string;
@@ -85,7 +83,7 @@ export class BlipApiError extends Error {
 
 export type SentBlipTextMessage = {
     id: string;
-    from: string;
+    from: string | null;
     to: string;
     delivery: BlipDeliveryStatus;
     debug: BlipHttpDebug;
@@ -109,10 +107,19 @@ export async function sendBlipTextMessage({
     const contractId = getBlipContractId();
     const authKey = getBlipAuthKey();
     const endpoint = `https://${contractId}.http.msging.net/messages`;
-    const from = `${contractId}@msging.net`;
     const to = toBlipWhatsAppIdentity(recipientNumber);
     const id = randomUUID();
     const startedAtMs = Date.now();
+
+    // IMPORTANT:
+    // Do not include `from` here. The authenticated Blip contract determines
+    // the sender identity automatically.
+    const messageBody = {
+        id,
+        to,
+        type: "text/plain" as const,
+        content: normalizedText,
+    };
 
     const debug: BlipHttpDebug = {
         request_id: requestId ?? id,
@@ -126,13 +133,7 @@ export async function sendBlipTextMessage({
             Accept: "application/json",
             Authorization: "Key ***",
         },
-        body: {
-            id,
-            from,
-            to,
-            type: "text/plain",
-            content: normalizedText,
-        },
+        body: messageBody,
         response: {
             status: null,
             status_text: null,
@@ -161,7 +162,7 @@ export async function sendBlipTextMessage({
                 Accept: "application/json",
                 Authorization: `Key ${authKey}`,
             },
-            body: JSON.stringify(debug.body),
+            body: JSON.stringify(messageBody),
             cache: "no-store",
             signal: AbortSignal.timeout(BLIP_REQUEST_TIMEOUT_MS),
         });
@@ -211,226 +212,27 @@ export async function sendBlipTextMessage({
         );
     }
 
-    const delivery = await waitForBlipDeliveryStatus({
-        contractId,
-        authKey,
-        messageId: id,
-        requestId: debug.request_id,
-    });
+    // A 202 response means Blip accepted the envelope. Do not query
+    // /notifications?id=... here: that endpoint is unavailable in this setup
+    // and previously added several seconds to every send.
+    const delivery: BlipDeliveryStatus = {
+        state: "pending",
+        final_event: null,
+        reason: null,
+        events: [],
+        attempts: 0,
+        command_status: null,
+        command_reason: null,
+    };
 
     debug.delivery = delivery;
 
-    console.info(`[blip-send:${debug.request_id}] Final delivery check`, delivery);
-
-    if (delivery.state === "failed") {
-        const description =
-            delivery.reason?.description ?? "A Blip informou falha na entrega.";
-        const code = delivery.reason?.code;
-        const codeSuffix = code === null || code === undefined ? "" : ` (código ${code})`;
-
-        throw new BlipApiError(
-            `${description}${codeSuffix}`,
-            502,
-            debug,
-        );
-    }
-
-    return { id, from, to, delivery, debug };
-}
-
-async function waitForBlipDeliveryStatus({
-    contractId,
-    authKey,
-    messageId,
-    requestId,
-}: {
-    contractId: string;
-    authKey: string;
-    messageId: string;
-    requestId: string;
-}): Promise<BlipDeliveryStatus> {
-    let latestEvents: BlipDeliveryEvent[] = [];
-    let latestCommandStatus: string | null = null;
-    let latestCommandReason: unknown = null;
-
-    for (let attempt = 0; attempt < NOTIFICATION_POLL_DELAYS_MS.length; attempt += 1) {
-        await sleep(NOTIFICATION_POLL_DELAYS_MS[attempt]);
-
-        const result = await getBlipMessageNotifications({
-            contractId,
-            authKey,
-            messageId,
-            requestId,
-            attempt: attempt + 1,
-        });
-
-        latestEvents = result.events;
-        latestCommandStatus = result.commandStatus;
-        latestCommandReason = result.commandReason;
-
-        const failed = [...latestEvents]
-            .reverse()
-            .find((event) => event.event.toLowerCase() === "failed");
-
-        if (failed) {
-            return {
-                state: "failed",
-                final_event: "failed",
-                reason: failed.reason,
-                events: latestEvents,
-                attempts: attempt + 1,
-                command_status: latestCommandStatus,
-                command_reason: latestCommandReason,
-            };
-        }
-
-        const delivered = [...latestEvents]
-            .reverse()
-            .find((event) =>
-                ["received", "consumed"].includes(event.event.toLowerCase()),
-            );
-
-        if (delivered) {
-            return {
-                state: "delivered",
-                final_event: delivered.event,
-                reason: null,
-                events: latestEvents,
-                attempts: attempt + 1,
-                command_status: latestCommandStatus,
-                command_reason: latestCommandReason,
-            };
-        }
-    }
-
-    if (latestCommandStatus === "failure") {
-        return {
-            state: "unavailable",
-            final_event: null,
-            reason: null,
-            events: latestEvents,
-            attempts: NOTIFICATION_POLL_DELAYS_MS.length,
-            command_status: latestCommandStatus,
-            command_reason: latestCommandReason,
-        };
-    }
-
     return {
-        state: "pending",
-        final_event: latestEvents.at(-1)?.event ?? null,
-        reason: null,
-        events: latestEvents,
-        attempts: NOTIFICATION_POLL_DELAYS_MS.length,
-        command_status: latestCommandStatus,
-        command_reason: latestCommandReason,
-    };
-}
-
-async function getBlipMessageNotifications({
-    contractId,
-    authKey,
-    messageId,
-    requestId,
-    attempt,
-}: {
-    contractId: string;
-    authKey: string;
-    messageId: string;
-    requestId: string;
-    attempt: number;
-}) {
-    const endpoint = `https://${contractId}.http.msging.net/commands`;
-    const command = {
-        id: randomUUID(),
-        to: "postmaster@msging.net",
-        method: "get",
-        uri: `/notifications?id=${encodeURIComponent(messageId)}`,
-    };
-
-    console.info(`[blip-send:${requestId}] Querying message notifications`, {
-        attempt,
-        endpoint,
-        command,
-    });
-
-    try {
-        const response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                Authorization: `Key ${authKey}`,
-            },
-            body: JSON.stringify(command),
-            cache: "no-store",
-            signal: AbortSignal.timeout(BLIP_REQUEST_TIMEOUT_MS),
-        });
-
-        const rawBody = await response.text();
-        const parsed = safeJson(rawBody);
-        const commandStatus = getString(parsed, "status");
-        const commandReason = getRecordValue(parsed, "reason");
-        const resource = getRecordValue(parsed, "resource");
-        const rawItems = Array.isArray(resource?.items) ? resource.items : [];
-        const events = rawItems
-            .map(parseDeliveryEvent)
-            .filter((item): item is BlipDeliveryEvent => Boolean(item));
-
-        console.info(`[blip-send:${requestId}] Notification query response`, {
-            attempt,
-            http_status: response.status,
-            command_status: commandStatus,
-            command_reason: commandReason,
-            events,
-            raw_body: rawBody || null,
-        });
-
-        return {
-            events,
-            commandStatus,
-            commandReason,
-        };
-    } catch (error) {
-        console.error(`[blip-send:${requestId}] Notification query failed`, {
-            attempt,
-            error,
-        });
-
-        return {
-            events: [] as BlipDeliveryEvent[],
-            commandStatus: "failure",
-            commandReason:
-                error instanceof Error
-                    ? { description: `${error.name}: ${error.message}` }
-                    : { description: String(error) },
-        };
-    }
-}
-
-function parseDeliveryEvent(value: unknown): BlipDeliveryEvent | null {
-    if (!isRecord(value)) return null;
-
-    const event = getString(value, "event");
-    if (!event) return null;
-
-    const reasonValue = getRecordValue(value, "reason");
-    const codeValue = reasonValue?.code;
-
-    return {
-        event,
-        id: getString(value, "id"),
-        from: getString(value, "from"),
-        to: getString(value, "to"),
-        reason: reasonValue
-            ? {
-                code:
-                    typeof codeValue === "number" || typeof codeValue === "string"
-                        ? codeValue
-                        : null,
-                description: getString(reasonValue, "description"),
-            }
-            : null,
-        metadata: getRecordValue(value, "metadata"),
+        id,
+        from: null,
+        to,
+        delivery,
+        debug,
     };
 }
 
@@ -525,37 +327,6 @@ function extractBlipErrorDetails(responseBody: string) {
     }
 
     return limitLength(trimmedBody.replace(/\s+/g, " "));
-}
-
-function safeJson(value: string): Record<string, unknown> | null {
-    if (!value.trim()) return null;
-
-    try {
-        const parsed = JSON.parse(value);
-        return isRecord(parsed) ? parsed : null;
-    } catch {
-        return null;
-    }
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(value: unknown, key: string) {
-    if (!isRecord(value)) return null;
-    const candidate = value[key];
-    return typeof candidate === "string" ? candidate : null;
-}
-
-function getRecordValue(value: unknown, key: string) {
-    if (!isRecord(value)) return null;
-    const candidate = value[key];
-    return isRecord(candidate) ? candidate : null;
-}
-
-function sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function limitLength(value: string) {

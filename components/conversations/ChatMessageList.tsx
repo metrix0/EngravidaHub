@@ -1,7 +1,7 @@
 // components/conversations/ChatMessageList.tsx
 "use client";
 
-import {useRef, type ReactNode} from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import InboxPrewrittenMessagesController from "@/components/inbox/InboxPrewrittenMessagesController";
 
@@ -20,6 +20,8 @@ type ChatMessageListProps = {
     className?: string;
     scrollbarClassName?: string;
     topContent?: ReactNode;
+    enablePrewrittenMessages?: boolean;
+    autoScrollToBottom?: boolean;
 };
 
 export function ChatMessageList({
@@ -30,6 +32,8 @@ export function ChatMessageList({
     className = "min-h-0 flex-1 overflow-y-auto bg-slate-50/40 px-5 py-5",
     scrollbarClassName = DEFAULT_SCROLLBAR_CLASS,
     topContent,
+    enablePrewrittenMessages = true,
+    autoScrollToBottom = false,
 }: ChatMessageListProps) {
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -41,6 +45,18 @@ export function ChatMessageList({
     });
 
     const groups = groupMessagesByDate(orderedMessages);
+
+    useEffect(() => {
+        if (!autoScrollToBottom || isLoading) return;
+
+        const frame = window.requestAnimationFrame(() => {
+            const root = rootRef.current;
+            if (!root) return;
+            root.scrollTop = root.scrollHeight;
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [autoScrollToBottom, isLoading, orderedMessages.length]);
 
     return (
         <>
@@ -81,7 +97,9 @@ export function ChatMessageList({
                 )}
             </div>
 
-            <InboxPrewrittenMessagesController messageListRef={rootRef} />
+            {enablePrewrittenMessages ? (
+                <InboxPrewrittenMessagesController messageListRef={rootRef} />
+            ) : null}
         </>
     );
 }
@@ -129,13 +147,11 @@ function groupMessagesByDate(messages: SharedChatMessage[]) {
 
 function getMessageTime(message: SharedChatMessage) {
     if (!message.sent_at) return 0;
-
     return new Date(message.sent_at).getTime();
 }
 
 function getMessageDateKey(message: SharedChatMessage) {
     if (!message.sent_at) return "today";
-
     return new Date(message.sent_at).toISOString().slice(0, 10);
 }
 
