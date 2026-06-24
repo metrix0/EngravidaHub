@@ -148,10 +148,14 @@ export default function InboxPage() {
                     return forcedSelection.id;
                 }
 
-                const currentItem = currentSelectedId
-                    ? response.items.find((item) => item.id === currentSelectedId)
-                    : null;
-                const nextItem = currentItem ?? response.items[0] ?? null;
+                // The selected conversation belongs to the middle panel.
+                // Changing the left-side tab must never replace it.
+                if (currentSelectedId) {
+                    return currentSelectedId;
+                }
+
+                // Select the first list item only when nothing is open yet.
+                const nextItem = response.items[0] ?? null;
 
                 setSelectedItemType(
                     nextItem?.item_type ?? expectedItemType,
@@ -310,16 +314,13 @@ export default function InboxPage() {
     }
 
     function handleStatusChange(nextStatus: InboxStatus) {
-        forcedSelectionRef.current = null;
-        selectedThreadRequestRef.current += 1;
+        if (nextStatus === status) return;
 
+        // The tab controls only the list at the left.
+        // Keep the current middle and customer panels untouched.
+        forcedSelectionRef.current = null;
         setStatus(nextStatus);
-        setSelectedItemType(
-            nextStatus === "closed" ? "conversation" : "thread",
-        );
         setCurrentPage(1);
-        setSelectedId(null);
-        setSelectedThread(null);
     }
 
     async function handlePullConversation() {
@@ -380,44 +381,86 @@ export default function InboxPage() {
             return;
         }
 
+        const selectedIndex = Math.max(
+            0,
+            threads.findIndex((thread) => thread.id === selectedId),
+        );
+
         setIsFinalizingConversation(true);
 
         try {
             const result = await finalizeInboxThread(threadId);
 
-            if (!result.conversation_id) {
-                setSelectedThread(null);
-                await Promise.all([loadThreads(), loadQueueCount()]);
-                return;
+            // Keep the current Abertas/Fechadas tab and its current search.
+            let targetPage = currentPage;
+
+            let listResponse = await fetchInboxThreads({
+                status,
+                search,
+                page: targetPage,
+                pageSize: PAGE_SIZE,
+            });
+
+            // Closing the last item on a page can reduce the page count.
+            const lastAvailablePage = Math.max(
+                1,
+                Math.ceil(listResponse.total / PAGE_SIZE),
+            );
+
+            if (targetPage > lastAvailablePage) {
+                targetPage = lastAvailablePage;
+
+                listResponse = await fetchInboxThreads({
+                    status,
+                    search,
+                    page: targetPage,
+                    pageSize: PAGE_SIZE,
+                });
             }
 
-            forcedSelectionRef.current = {
-                id: result.conversation_id,
-                itemType: "conversation",
-            };
+            // Never automatically open the conversation that was just closed.
+            const availableItems = listResponse.items.filter(
+                (item) =>
+                    item.id !== result.conversation_id &&
+                    item.id !== threadId,
+            );
+
+            const nextItem =
+                availableItems[
+                    Math.min(
+                        selectedIndex,
+                        Math.max(availableItems.length - 1, 0),
+                    )
+                ] ??
+                availableItems[0] ??
+                null;
+
             selectedThreadRequestRef.current += 1;
 
-            setStatus("closed");
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.conversation_id);
-            setSelectedItemType("conversation");
-            setSelectedThread(null);
-
-            const [conversationResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.conversation_id, "conversation"),
-                fetchInboxThreads({
-                    status: "closed",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-                loadQueueCount(),
-            ]);
-
-            setSelectedThread(conversationResponse.item);
             setThreads(listResponse.items);
             setTotalThreads(listResponse.total);
+            setCurrentPage(targetPage);
+
+            if (nextItem) {
+                forcedSelectionRef.current = {
+                    id: nextItem.id,
+                    itemType: nextItem.item_type,
+                };
+
+                setSelectedId(nextItem.id);
+                setSelectedItemType(nextItem.item_type);
+                setSelectedThread(null);
+            } else {
+                forcedSelectionRef.current = null;
+
+                setSelectedId(null);
+                setSelectedThread(null);
+                setSelectedItemType(
+                    status === "closed" ? "conversation" : "thread",
+                );
+            }
+
+            await loadQueueCount();
         } catch (error) {
             console.error("[inbox] failed to finalize conversation", error);
         } finally {
@@ -654,7 +697,8 @@ export default function InboxPage() {
                                     onFinalizeConversation={handleFinalizeConversation}
                                     canFinalize={
                                         selectedItemType === "thread" &&
-                                        status === "open"
+                                        selectedThreadMatchesSelection &&
+                                        selectedThread?.status === "open"
                                     }
                                     isFinalizingConversation={isFinalizingConversation}
                                     onLoadPreviousConversation={handleLoadPreviousConversation}

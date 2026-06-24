@@ -40,6 +40,7 @@ type TabId =
 type PresetId = "admin" | "gestor" | "atendente" | "marketing";
 
 const NO_PRESET_ID = "__none__" as const;
+const NO_VALUE_ID = "__none__" as const;
 type AccessPresetId = PresetId | typeof NO_PRESET_ID;
 
 type ColorName = "purple" | "blue" | "green" | "orange" | "red";
@@ -76,6 +77,15 @@ type UserPermission = {
     active: boolean;
 };
 
+type Queue = {
+    id: string;
+    name: string;
+    sector: string;
+    unit_id: string | null;
+    unit_name: string | null;
+    active: boolean;
+};
+
 type Attendant = {
     id: string;
     name: string;
@@ -85,12 +95,15 @@ type Attendant = {
     auth_user_id: string | null;
     unit_id: string | null;
     unit_name: string;
+    queue_id: string | null;
+    queue_name: string | null;
 };
 
 type ApiResponse = {
     users: ApiUser[];
     permissions: UserPermission[];
     attendants: Attendant[];
+    queues: Queue[];
 };
 
 type UserView = {
@@ -104,66 +117,20 @@ type UserView = {
     attendant: Attendant | null;
     attendant_id: string | null;
     unit_name: string;
+    queue_id: string | null;
+    queue_name: string;
     active: boolean;
 };
 
 const TABS: PermissionTab[] = [
-    {
-        id: "dashboard",
-        label: "Dashboard",
-        href: "/",
-        color: "blue",
-        position: 10,
-    },
-    {
-        id: "conversas",
-        label: "Conversas",
-        href: "/conversas",
-        color: "green",
-        position: 20,
-    },
-    {
-        id: "jornada",
-        label: "Jornada",
-        href: "/jornada",
-        color: "blue",
-        position: 30,
-    },
-    {
-        id: "eventos",
-        label: "Eventos",
-        href: "/eventos",
-        color: "orange",
-        position: 40,
-    },
-    {
-        id: "usuarios",
-        label: "Usuários",
-        href: "/usuarios",
-        color: "red",
-        position: 50,
-    },
-    {
-        id: "inbox",
-        label: "Inbox",
-        href: "/inbox",
-        color: "green",
-        position: 60,
-    },
-    {
-        id: "clientes",
-        label: "Clientes",
-        href: "/clientes",
-        color: "green",
-        position: 70,
-    },
-    {
-        id: "funil",
-        label: "Funil",
-        href: "/funil",
-        color: "green",
-        position: 80,
-    },
+    { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
+    { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
+    { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
+    { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
+    { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
+    { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
+    { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 70 },
+    { id: "funil", label: "Funil", href: "/funil", color: "green", position: 80 },
 ];
 
 const PRESETS: PermissionPreset[] = [
@@ -216,43 +183,13 @@ const PRESETS: PermissionPreset[] = [
 
 const colorClasses: Record<
     ColorName,
-    {
-        iconBg: string;
-        iconText: string;
-        softBg: string;
-        text: string;
-    }
+    { iconBg: string; iconText: string; softBg: string; text: string }
 > = {
-    purple: {
-        iconBg: "bg-purple-soft",
-        iconText: "text-purple",
-        softBg: "bg-purple-soft",
-        text: "text-purple",
-    },
-    blue: {
-        iconBg: "bg-blue-soft",
-        iconText: "text-blue",
-        softBg: "bg-blue-soft",
-        text: "text-blue",
-    },
-    green: {
-        iconBg: "bg-green-soft",
-        iconText: "text-green",
-        softBg: "bg-green-soft",
-        text: "text-green",
-    },
-    orange: {
-        iconBg: "bg-orange-soft",
-        iconText: "text-orange",
-        softBg: "bg-orange-soft",
-        text: "text-orange",
-    },
-    red: {
-        iconBg: "bg-red-soft",
-        iconText: "text-red",
-        softBg: "bg-red-soft",
-        text: "text-red",
-    },
+    purple: { iconBg: "bg-purple-soft", iconText: "text-purple", softBg: "bg-purple-soft", text: "text-purple" },
+    blue: { iconBg: "bg-blue-soft", iconText: "text-blue", softBg: "bg-blue-soft", text: "text-blue" },
+    green: { iconBg: "bg-green-soft", iconText: "text-green", softBg: "bg-green-soft", text: "text-green" },
+    orange: { iconBg: "bg-orange-soft", iconText: "text-orange", softBg: "bg-orange-soft", text: "text-orange" },
+    red: { iconBg: "bg-red-soft", iconText: "text-red", softBg: "bg-red-soft", text: "text-red" },
 };
 
 const presetIcons = {
@@ -288,9 +225,7 @@ export default function UsuariosPage() {
         try {
             setError(null);
 
-            const response = await fetch("/api/usuarios", {
-                cache: "no-store",
-            });
+            const response = await fetch("/api/usuarios", { cache: "no-store" });
             const json: ApiResponse | { error?: string } = await response.json();
 
             if (!response.ok) {
@@ -349,9 +284,6 @@ export default function UsuariosPage() {
                 permission?.allowed_tabs,
                 permission ? [] : preset?.default_tabs ?? [],
             );
-
-            // Once a permission record exists, attendant_id is authoritative.
-            // A null value means the user is intentionally not an attendant.
             const attendant = permission
                 ? permission.attendant_id
                     ? attendantsById.get(permission.attendant_id) ?? null
@@ -370,7 +302,9 @@ export default function UsuariosPage() {
                 attendant_id: permission
                     ? permission.attendant_id
                     : attendant?.id ?? null,
-                unit_name: "Todas",
+                unit_name: attendant?.unit_name ?? "Todas",
+                queue_id: attendant?.queue_id ?? null,
+                queue_name: attendant?.queue_name ?? "Nenhum",
                 active: permission?.active ?? true,
             };
         });
@@ -382,18 +316,12 @@ export default function UsuariosPage() {
         return users.filter((user) => {
             if (presetValues.length > 0) {
                 const userPresetValue = user.preset?.id ?? NO_PRESET_ID;
-
-                if (!presetValues.includes(userPresetValue)) {
-                    return false;
-                }
+                if (!presetValues.includes(userPresetValue)) return false;
             }
 
             if (statusValues.length > 0) {
                 const statusValue = user.active ? "active" : "inactive";
-
-                if (!statusValues.includes(statusValue)) {
-                    return false;
-                }
+                if (!statusValues.includes(statusValue)) return false;
             }
 
             if (!term) return true;
@@ -406,6 +334,7 @@ export default function UsuariosPage() {
                 user.unit_name,
                 user.attendant?.name,
                 user.preset?.name,
+                user.queue_name,
                 tabsLabel,
                 user.active ? "ativo" : "inativo",
             ]
@@ -416,7 +345,6 @@ export default function UsuariosPage() {
 
     const selectedUser = useMemo(() => {
         if (!selectedUserId) return null;
-
         return users.find((user) => user.id === selectedUserId) ?? null;
     }, [users, selectedUserId]);
 
@@ -426,9 +354,12 @@ export default function UsuariosPage() {
             preset: AccessPresetId;
             allowed_tabs: TabId[];
             attendant_id: string | null;
+            queue_id: string | null;
             active: boolean;
         }>,
     ) {
+        if (!data) return;
+
         const patchHasPreset = patch.preset !== undefined;
         const nextPresetId = patchHasPreset
             ? patch.preset!
@@ -446,6 +377,16 @@ export default function UsuariosPage() {
             patch.attendant_id !== undefined
                 ? patch.attendant_id
                 : user.attendant_id;
+        const selectedAttendant = nextAttendantId
+            ? data.attendants.find((attendant) => attendant.id === nextAttendantId) ?? null
+            : null;
+        const nextQueueId = !nextAttendantId
+            ? null
+            : patch.queue_id !== undefined
+                ? patch.queue_id
+                : patch.attendant_id !== undefined
+                    ? selectedAttendant?.queue_id ?? null
+                    : user.queue_id;
         const nextActive =
             patch.active !== undefined ? patch.active : user.active;
         const nextPermission: UserPermission = {
@@ -458,7 +399,6 @@ export default function UsuariosPage() {
 
         const previousData = data;
 
-        // Optimistic update so the dropdown and table change immediately.
         setData((current) => {
             if (!current) return current;
 
@@ -466,6 +406,7 @@ export default function UsuariosPage() {
                 current,
                 userId: user.id,
                 nextPermission,
+                nextQueueId,
             });
         });
         setSavingUserId(user.id);
@@ -474,14 +415,13 @@ export default function UsuariosPage() {
         try {
             const response = await fetch("/api/usuarios", {
                 method: "PATCH",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     auth_user_id: user.id,
                     preset: nextPermission.preset,
                     allowed_tabs: nextPermission.allowed_tabs,
-                    attendant_id: nextAttendantId ?? "__none__",
+                    attendant_id: nextAttendantId ?? NO_VALUE_ID,
+                    queue_id: nextQueueId ?? NO_VALUE_ID,
                     active: nextPermission.active,
                 }),
             });
@@ -508,28 +448,20 @@ export default function UsuariosPage() {
             ? user.allowed_tabs.filter((item) => item !== tabId)
             : [...user.allowed_tabs, tabId];
 
-        void saveUserPermission(user, {
-            allowed_tabs: nextTabs,
-        });
+        void saveUserPermission(user, { allowed_tabs: nextTabs });
     }
 
     const userColumns: DataTableColumn<UserView>[] = [
         {
             id: "user",
             label: "Usuário",
-            width: "23%",
+            width: "21%",
             render: (user) => (
                 <div className="flex min-w-0 items-center gap-3">
                     <InitialsAvatar name={user.name}/>
-
                     <div className="min-w-0">
-                        <div className="truncate font-medium text-slate-700">
-                            {user.name}
-                        </div>
-
-                        <div className="mt-1 truncate text-xs text-muted">
-                            {user.email ?? "Sem e-mail"}
-                        </div>
+                        <div className="truncate font-medium text-slate-700">{user.name}</div>
+                        <div className="mt-1 truncate text-xs text-muted">{user.email ?? "Sem e-mail"}</div>
                     </div>
                 </div>
             ),
@@ -537,7 +469,7 @@ export default function UsuariosPage() {
         {
             id: "unit",
             label: "Unidade",
-            width: "12%",
+            width: "11%",
             render: (user) => (
                 <div title={user.unit_name} className="ml-1 truncate text-slate-700">
                     {user.unit_name}
@@ -547,26 +479,33 @@ export default function UsuariosPage() {
         {
             id: "attendant",
             label: "Atendente",
+            width: "15%",
+            render: (user) => (
+                <div title={user.attendant?.name ?? EMPTY_VALUE} className="truncate text-slate-700">
+                    {user.attendant?.name ?? EMPTY_VALUE}
+                </div>
+            ),
+        },
+        {
+            id: "queue",
+            label: "Fila",
             width: "17%",
             render: (user) => (
                 <div
-                    title={user.attendant?.name ?? EMPTY_VALUE}
-                    className="truncate text-slate-700"
+                    title={user.attendant ? user.queue_name : "Nenhum"}
+                    className={`truncate ${user.attendant ? "text-slate-700" : "text-slate-400"}`}
                 >
-                    {user.attendant?.name ?? EMPTY_VALUE}
+                    {user.attendant ? user.queue_name : "Nenhum"}
                 </div>
             ),
         },
         {
             id: "preset",
             label: "Preset",
-            width: "13%",
+            width: "11%",
             render: (user) =>
                 user.preset ? (
-                    <PermissionBadge
-                        label={user.preset.name}
-                        color={user.preset.color}
-                    />
+                    <PermissionBadge label={user.preset.name} color={user.preset.color}/>
                 ) : (
                     <span className="text-slate-400">{EMPTY_VALUE}</span>
                 ),
@@ -574,11 +513,10 @@ export default function UsuariosPage() {
         {
             id: "tabs",
             label: "Abas permitidas",
-            width: "22%",
+            width: "16%",
             render: (user) => {
                 const items: HoverBadgeListItem[] = user.tabs.map((tab) => {
                     const colors = getColorClasses(tab.color);
-
                     return {
                         key: tab.id,
                         label: tab.label,
@@ -599,7 +537,7 @@ export default function UsuariosPage() {
         {
             id: "status",
             label: "Status",
-            width: "9%",
+            width: "7%",
             render: (user) => (
                 <span
                     className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-bold ${
@@ -615,7 +553,7 @@ export default function UsuariosPage() {
         {
             id: "action",
             label: "",
-            width: "4%",
+            width: "2%",
             align: "right",
             render: () => (
                 <ChevronRight
@@ -630,7 +568,6 @@ export default function UsuariosPage() {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <UsuariosSkeleton />
                 </section>
@@ -647,9 +584,8 @@ export default function UsuariosPage() {
                     <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                         Usuários
                     </h1>
-
                     <p className="mt-2 text-sm text-slate-500">
-                        Gerencie presets de acesso, abas disponíveis e vínculo com atendentes
+                        Gerencie presets de acesso, abas, atendentes e filas
                     </p>
                 </header>
 
@@ -681,7 +617,7 @@ export default function UsuariosPage() {
                         count={filteredUsers.length}
                         searchValue={search}
                         onSearchChange={setSearch}
-                        searchPlaceholder="Buscar usuário ou atendente..."
+                        searchPlaceholder="Buscar usuário, atendente ou fila..."
                     >
                         <AdvancedFilterButton
                             sections={[
@@ -691,7 +627,7 @@ export default function UsuariosPage() {
                                     values: presetValues,
                                     onChange: setPresetValues,
                                     options: [
-                                        {label: "Nenhum", value: NO_PRESET_ID},
+                                        { label: "Nenhum", value: NO_PRESET_ID },
                                         ...PRESETS.map((preset) => ({
                                             label: preset.name,
                                             value: preset.id,
@@ -704,8 +640,8 @@ export default function UsuariosPage() {
                                     values: statusValues,
                                     onChange: setStatusValues,
                                     options: [
-                                        {label: "Ativo", value: "active"},
-                                        {label: "Inativo", value: "inactive"},
+                                        { label: "Ativo", value: "active" },
+                                        { label: "Inativo", value: "inactive" },
                                     ],
                                 },
                             ]}
@@ -725,6 +661,7 @@ export default function UsuariosPage() {
                 open={Boolean(selectedUser)}
                 user={selectedUser}
                 attendants={data?.attendants ?? []}
+                queues={data?.queues ?? []}
                 saving={selectedUser ? savingUserId === selectedUser.id : false}
                 onClose={() => setSelectedUserId(null)}
                 onSave={saveUserPermission}
@@ -738,10 +675,12 @@ function applyPermissionUpdate({
     current,
     userId,
     nextPermission,
+    nextQueueId,
 }: {
     current: ApiResponse;
     userId: string;
     nextPermission: UserPermission;
+    nextQueueId: string | null;
 }): ApiResponse {
     const existingPermission = current.permissions.some(
         (permission) => permission.auth_user_id === userId,
@@ -749,18 +688,13 @@ function applyPermissionUpdate({
 
     const permissions = existingPermission
         ? current.permissions.map((permission) => {
-            if (permission.auth_user_id === userId) {
-                return nextPermission;
-            }
+            if (permission.auth_user_id === userId) return nextPermission;
 
             if (
                 nextPermission.attendant_id &&
                 permission.attendant_id === nextPermission.attendant_id
             ) {
-                return {
-                    ...permission,
-                    attendant_id: null,
-                };
+                return { ...permission, attendant_id: null };
             }
 
             return permission;
@@ -775,35 +709,47 @@ function applyPermissionUpdate({
             nextPermission,
         ];
 
+    const selectedQueue = nextQueueId
+        ? current.queues.find((queue) => queue.id === nextQueueId) ?? null
+        : null;
+
     const attendants = current.attendants.map((attendant) => {
         if (attendant.id === nextPermission.attendant_id) {
             return {
                 ...attendant,
                 auth_user_id: userId,
+                queue_id: nextQueueId,
+                queue_name: selectedQueue?.name ?? null,
+            };
+        }
+
+        if (
+            !nextPermission.attendant_id &&
+            attendant.auth_user_id === userId
+        ) {
+            return {
+                ...attendant,
+                auth_user_id: null,
+                queue_id: null,
+                queue_name: null,
             };
         }
 
         if (attendant.auth_user_id === userId) {
-            return {
-                ...attendant,
-                auth_user_id: null,
-            };
+            return { ...attendant, auth_user_id: null };
         }
 
         return attendant;
     });
 
-    return {
-        ...current,
-        permissions,
-        attendants,
-    };
+    return { ...current, permissions, attendants };
 }
 
 function UserDetailsPanel({
     open,
     user,
     attendants,
+    queues,
     saving,
     onClose,
     onSave,
@@ -812,6 +758,7 @@ function UserDetailsPanel({
     open: boolean;
     user: UserView | null;
     attendants: Attendant[];
+    queues: Queue[];
     saving: boolean;
     onClose: () => void;
     onSave: (
@@ -820,6 +767,7 @@ function UserDetailsPanel({
             preset: AccessPresetId;
             allowed_tabs: TabId[];
             attendant_id: string | null;
+            queue_id: string | null;
             active: boolean;
         }>,
     ) => Promise<void>;
@@ -834,23 +782,25 @@ function UserDetailsPanel({
         : null;
 
     const presetOptions: DropdownSelectOption[] = [
-        {label: "Nenhum", value: NO_PRESET_ID},
-        ...PRESETS.map((preset) => ({
-            label: preset.name,
-            value: preset.id,
-        })),
+        { label: "Nenhum", value: NO_PRESET_ID },
+        ...PRESETS.map((preset) => ({ label: preset.name, value: preset.id })),
     ];
     const statusOptions: DropdownSelectOption[] = [
-        {label: "Ativo", value: "active"},
-        {label: "Inativo", value: "inactive"},
+        { label: "Ativo", value: "active" },
+        { label: "Inativo", value: "inactive" },
     ];
     const attendantOptions: DropdownSelectOption[] = [
-        {label: "(Não é atendente)", value: "__none__"},
+        { label: "(Não é atendente)", value: NO_VALUE_ID },
         ...attendants.map((attendant) => ({
             label: attendant.name,
             value: attendant.id,
         })),
     ];
+    const queueOptions: DropdownSelectOption[] = [
+        { label: "Nenhum", value: NO_VALUE_ID },
+        ...queues.map((queue) => ({ label: queue.name, value: queue.id })),
+    ];
+    const hasAttendant = Boolean(user.attendant_id);
 
     return (
         <DetailsSidePanel
@@ -860,19 +810,11 @@ function UserDetailsPanel({
             headerContent={(
                 <div className="flex min-w-0 items-center gap-4">
                     <InitialsAvatar name={user.name} />
-
                     <div className="min-w-0">
-                        <div
-                            title={user.name}
-                            className="truncate text-base font-bold text-slate-950"
-                        >
+                        <div title={user.name} className="truncate text-base font-bold text-slate-950">
                             {user.name}
                         </div>
-
-                        <div
-                            title={user.email ?? EMPTY_VALUE}
-                            className="mt-1 truncate text-sm text-slate-500"
-                        >
+                        <div title={user.email ?? EMPTY_VALUE} className="mt-1 truncate text-sm text-slate-500">
                             {user.email ?? EMPTY_VALUE}
                         </div>
                     </div>
@@ -901,9 +843,7 @@ function UserDetailsPanel({
                                 value={user.active ? "active" : "inactive"}
                                 disabled={saving}
                                 onChange={(value) =>
-                                    void onSave(user, {
-                                        active: value === "active",
-                                    })
+                                    void onSave(user, { active: value === "active" })
                                 }
                                 options={statusOptions}
                                 widthClassName="w-[230px]"
@@ -912,15 +852,34 @@ function UserDetailsPanel({
 
                         <PanelControlRow label="Atendente">
                             <DropdownSelect
-                                value={user.attendant_id ?? "__none__"}
+                                value={user.attendant_id ?? NO_VALUE_ID}
                                 disabled={saving}
                                 onChange={(value) => {
+                                    const attendantId = value === NO_VALUE_ID ? null : value;
+                                    const attendant = attendantId
+                                        ? attendants.find((item) => item.id === attendantId) ?? null
+                                        : null;
+
                                     void onSave(user, {
-                                        attendant_id:
-                                            value === "__none__" ? null : value,
+                                        attendant_id: attendantId,
+                                        queue_id: attendant?.queue_id ?? null,
                                     });
                                 }}
                                 options={attendantOptions}
+                                widthClassName="w-[230px]"
+                            />
+                        </PanelControlRow>
+
+                        <PanelControlRow label="Fila">
+                            <DropdownSelect
+                                value={hasAttendant ? user.queue_id ?? NO_VALUE_ID : NO_VALUE_ID}
+                                disabled={saving || !hasAttendant}
+                                onChange={(value) =>
+                                    void onSave(user, {
+                                        queue_id: value === NO_VALUE_ID ? null : value,
+                                    })
+                                }
+                                options={queueOptions}
                                 widthClassName="w-[230px]"
                             />
                         </PanelControlRow>
@@ -965,11 +924,8 @@ function UserDetailsPanel({
                                                 : "border-slate-300 bg-white"
                                         }`}
                                     >
-                                        {selected && (
-                                            <Check size={12} className="text-white" />
-                                        )}
+                                        {selected && <Check size={12} className="text-white" />}
                                     </span>
-
                                     <span className="truncate">{tab.label}</span>
                                 </button>
                             );
@@ -995,47 +951,28 @@ function PanelSection({
             {(title || action) && (
                 <div className="mb-4 flex items-center justify-between gap-4">
                     {title ? (
-                        <h3 className="text-sm font-bold text-slate-950">
-                            {title}
-                        </h3>
+                        <h3 className="text-sm font-bold text-slate-950">{title}</h3>
                     ) : (
                         <span />
                     )}
-
                     {action}
                 </div>
             )}
-
             {children}
         </section>
     );
 }
 
-function PanelControlRow({
-    label,
-    children,
-}: {
-    label: string;
-    children: ReactNode;
-}) {
+function PanelControlRow({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <span className="text-sm font-bold text-slate-700">
-                {label}
-            </span>
-
+            <span className="text-sm font-bold text-slate-700">{label}</span>
             {children}
         </div>
     );
 }
 
-function PresetCard({
-    preset,
-    userCount,
-}: {
-    preset: PermissionPreset;
-    userCount: number;
-}) {
+function PresetCard({ preset, userCount }: { preset: PermissionPreset; userCount: number }) {
     const colors = getColorClasses(preset.color);
     const Icon = presetIcons[preset.icon] ?? ShieldCheck;
     const tabs = tabsFromIds(preset.default_tabs);
@@ -1048,38 +985,21 @@ function PresetCard({
                 >
                     <Icon size={26} />
                 </div>
-
                 <div className="min-w-0">
-                    <h3 className={`truncate text-base font-bold ${colors.text}`}>
-                        {preset.name}
-                    </h3>
-
-                    <p className="mt-1 text-sm text-muted">
-                        {formatUserCount(userCount)}
-                    </p>
+                    <h3 className={`truncate text-base font-bold ${colors.text}`}>{preset.name}</h3>
+                    <p className="mt-1 text-sm text-muted">{formatUserCount(userCount)}</p>
                 </div>
             </div>
-
             <div className="flex flex-wrap gap-2">
                 {tabs.map((tab) => (
-                    <PermissionBadge
-                        key={tab.id}
-                        label={tab.label}
-                        color={tab.color}
-                    />
+                    <PermissionBadge key={tab.id} label={tab.label} color={tab.color} />
                 ))}
             </div>
         </div>
     );
 }
 
-function PermissionBadge({
-    label,
-    color,
-}: {
-    label: string;
-    color: ColorName;
-}) {
+function PermissionBadge({ label, color }: { label: string; color: ColorName }) {
     const colors = getColorClasses(color);
 
     return (
@@ -1092,18 +1012,9 @@ function PermissionBadge({
 }
 
 function getAccessInfo(user: UserView) {
-    if (!user.preset) {
-        return {
-            label: "Nenhum",
-            preset: null,
-        };
-    }
+    if (!user.preset) return { label: "Nenhum", preset: null };
 
-    const customized = !sameTabSet(
-        user.allowed_tabs,
-        user.preset.default_tabs,
-    );
-
+    const customized = !sameTabSet(user.allowed_tabs, user.preset.default_tabs);
     return {
         label: `${user.preset.name}${customized ? " (Customizado)" : ""}`,
         preset: user.preset,
@@ -1112,9 +1023,7 @@ function getAccessInfo(user: UserView) {
 
 function sameTabSet(first: TabId[], second: TabId[]) {
     if (first.length !== second.length) return false;
-
     const firstSet = new Set(first);
-
     return second.every((tab) => firstSet.has(tab));
 }
 
@@ -1124,10 +1033,7 @@ function tabsFromIds(ids: TabId[]) {
         .filter((tab): tab is PermissionTab => Boolean(tab))
         .sort((a, b) => {
             const colorDiff = TAB_COLOR_ORDER[a.color] - TAB_COLOR_ORDER[b.color];
-
-            if (colorDiff !== 0) return colorDiff;
-
-            return a.position - b.position;
+            return colorDiff !== 0 ? colorDiff : a.position - b.position;
         });
 }
 
@@ -1136,11 +1042,7 @@ function normalizeAllowedTabs(
     fallback: TabId[],
 ) {
     const validTabIds = new Set(TABS.map((tab) => tab.id));
-
-    if (!Array.isArray(value)) {
-        return fallback;
-    }
-
+    if (!Array.isArray(value)) return fallback;
     return value.filter((tab): tab is TabId => validTabIds.has(tab));
 }
 
@@ -1159,29 +1061,17 @@ function UsuariosSkeleton() {
                 <Skeleton className="h-9 w-[220px]" />
                 <Skeleton className="mt-3 h-4 w-[430px]" />
             </div>
-
             <section className="mb-6">
-                <Skeleton className="mb-5 h-6 w-[220px]" />
-
                 <div className="grid grid-cols-4 gap-4">
                     {Array.from({ length: 4 }).map((_, index) => (
-                        <Skeleton
-                            key={index}
-                            className="h-[190px] rounded-2xl"
-                        />
+                        <Skeleton key={index} className="h-[190px] rounded-2xl" />
                     ))}
                 </div>
             </section>
-
             <section>
-                <Skeleton className="mb-5 h-6 w-[220px]" />
-
                 <div className="space-y-2">
                     {Array.from({ length: 8 }).map((_, index) => (
-                        <Skeleton
-                            key={index}
-                            className="h-[76px] rounded-xl"
-                        />
+                        <Skeleton key={index} className="h-[76px] rounded-xl" />
                     ))}
                 </div>
             </section>
