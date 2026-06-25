@@ -155,7 +155,7 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
-    { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "purple", position: 65 },
+    { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 65 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
     { id: "funil", label: "Funil", href: "/funil", color: "green", position: 90 },
@@ -191,7 +191,6 @@ const PRESETS: PermissionPreset[] = [
             "jornada",
             "eventos",
             "inbox",
-            "mensagem_ativa",
             "internos",
             "clientes",
             "funil",
@@ -202,7 +201,7 @@ const PRESETS: PermissionPreset[] = [
         name: "Atendente",
         color: "green",
         icon: "headphones",
-        default_tabs: ["inbox", "internos", "clientes", "funil"],
+        default_tabs: ["inbox", "mensagem_ativa", "internos", "clientes", "funil"],
     },
     {
         id: "marketing",
@@ -212,6 +211,32 @@ const PRESETS: PermissionPreset[] = [
         default_tabs: ["dashboard", "jornada", "eventos", "mensagem_ativa", "internos"],
     },
 ];
+
+const ACTIVE_MESSAGE_PRESET_IDS = new Set<PresetId>([
+    "admin",
+    "atendente",
+    "marketing",
+]);
+
+function presetAllowsActiveMessage(
+    presetId: AccessPresetId | null | undefined,
+) {
+    return (
+        presetId !== null &&
+        presetId !== undefined &&
+        presetId !== NO_PRESET_ID &&
+        ACTIVE_MESSAGE_PRESET_IDS.has(presetId)
+    );
+}
+
+function restrictTabsForPreset(
+    presetId: AccessPresetId | null | undefined,
+    tabs: TabId[],
+) {
+    return presetAllowsActiveMessage(presetId)
+        ? tabs
+        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
+}
 
 const colorClasses: Record<
     ColorName,
@@ -322,9 +347,12 @@ export default function UsuariosPage() {
                 permission?.preset === NO_PRESET_ID
                     ? null
                     : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-            const allowedTabs = normalizeAllowedTabs(
-                permission?.allowed_tabs,
-                permission ? [] : preset?.default_tabs ?? [],
+            const allowedTabs = restrictTabsForPreset(
+                permission?.preset ?? preset?.id ?? NO_PRESET_ID,
+                normalizeAllowedTabs(
+                    permission?.allowed_tabs,
+                    permission ? [] : preset?.default_tabs ?? [],
+                ),
             );
             const attendant = permission
                 ? permission.attendant_id
@@ -427,11 +455,13 @@ export default function UsuariosPage() {
         const nextPreset = noPresetSelected
             ? null
             : PRESETS.find((preset) => preset.id === nextPresetId) ?? null;
-        const nextAllowedTabs =
+        const nextAllowedTabs = restrictTabsForPreset(
+            nextPresetId,
             patch.allowed_tabs ??
-            (patchHasPreset
-                ? nextPreset?.default_tabs ?? []
-                : user.allowed_tabs);
+                (patchHasPreset
+                    ? nextPreset?.default_tabs ?? []
+                    : user.allowed_tabs),
+        );
         const nextAttendantId =
             patch.attendant_id !== undefined
                 ? patch.attendant_id
@@ -507,6 +537,13 @@ export default function UsuariosPage() {
     }
 
     function toggleUserTab(user: UserView, tabId: TabId) {
+        if (
+            tabId === "mensagem_ativa" &&
+            !presetAllowsActiveMessage(user.preset?.id ?? NO_PRESET_ID)
+        ) {
+            return;
+        }
+
         const nextTabs = user.allowed_tabs.includes(tabId)
             ? user.allowed_tabs.filter((item) => item !== tabId)
             : [...user.allowed_tabs, tabId];
@@ -869,7 +906,13 @@ function UserDetailsPanel({
 }) {
     if (!user) return null;
 
-    const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
+    const allTabs = tabsFromIds(
+        TABS.filter(
+            (tab) =>
+                tab.id !== "mensagem_ativa" ||
+                presetAllowsActiveMessage(user.preset?.id ?? NO_PRESET_ID),
+        ).map((tab) => tab.id),
+    );
     const accessInfo = getAccessInfo(user);
     const accessColors = accessInfo.preset
         ? getColorClasses(accessInfo.preset.color)

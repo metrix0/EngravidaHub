@@ -45,6 +45,7 @@ type ClientDetail = {
     email: string | null;
     first_seen_at: string;
     last_interaction_at: string;
+    last_active_message_sent_at: string | null;
     created_at: string;
     updated_at: string;
     external_contact_id: string | null;
@@ -335,7 +336,7 @@ function ActiveMessageButton({ client }: { client: ClientDetail }) {
                     <span>Mensagem Ativa</span>
                 </div>
                 <div className="truncate text-xs text-slate-500">
-                    Última mensagem ativa enviada X dias atrás. (or never sent)
+                    {formatLastActiveMessageSent(client.last_active_message_sent_at)}
                 </div>
             </div>
 
@@ -539,6 +540,20 @@ function timeAgo(date: string) {
     if (minutes < 60) return `${Math.max(minutes, 1)} min`;
     if (hours < 24) return `${hours} h`;
     return `${days} dia${days > 1 ? "s" : ""}`;
+}
+
+function formatLastActiveMessageSent(value: string | null) {
+    if (!value) return "Nenhuma mensagem ativa enviada ainda.";
+
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) return "Nenhuma mensagem ativa enviada ainda.";
+
+    const elapsed = Math.max(0, Date.now() - timestamp);
+    const days = Math.floor(elapsed / (24 * 60 * 60 * 1000));
+
+    if (days === 0) return "Última mensagem ativa enviada hoje.";
+    if (days === 1) return "Última mensagem ativa enviada 1 dia atrás.";
+    return `Última mensagem ativa enviada ${days} dias atrás.`;
 }
 
 function formatDate(date: string) {

@@ -359,7 +359,7 @@ async function loadConversationDetail({
             conversation_id: conversation.id,
             status: "closed",
             messages: mappedMessages,
-            notes: mapClientNotes(conversation.clients?.notes),
+            notes: mapClientNotes(conversation.clients[0]?.notes),
             can_reply: canReply,
             reply_window_ends_at: replyState.windowEndsAt,
             has_older_conversations: hasOlder,

@@ -70,6 +70,7 @@ type SidePanelProps = {
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
+const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
 
 const defaultItems: SidePanelEntry[] = [
     { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, tabId: "dashboard" },
@@ -242,7 +243,13 @@ function PersistentSidePanel({
 
     const permission = currentUser?.permission ?? null;
     const hasAuthenticatedUser = Boolean(currentUser?.user);
-    const allowedTabs = permission?.active ? permission.allowed_tabs : [];
+    const allowedTabs = permission?.active
+        ? ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset)
+            ? permission.allowed_tabs
+            : permission.allowed_tabs.filter(
+                  (tabId) => tabId !== "mensagem_ativa",
+              )
+        : [];
 
     const visibleItems = useMemo(
         () =>

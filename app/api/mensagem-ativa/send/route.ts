@@ -47,7 +47,7 @@ type ThreadRow = {
 export async function POST(request: Request) {
     const access = await requireActiveMessageAccess();
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { error: access.error },
             { status: access.status },
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
         value: body.dynamic_values,
     });
 
-    if (!dynamicValuesResult.ok) {
+    if (dynamicValuesResult.ok === false) {
         return NextResponse.json(
             { error: dynamicValuesResult.error },
             { status: 400 },

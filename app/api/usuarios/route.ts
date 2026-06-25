@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
 const NO_PRESET_ID = "__none__";
+const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
 
 const VALID_TAB_IDS = new Set([
     "dashboard",
@@ -154,7 +155,15 @@ export async function GET() {
             );
         }
 
-        const permissions = (permissionsResult.data ?? []) as UserPermissionRow[];
+        const permissions = ((permissionsResult.data ?? []) as UserPermissionRow[]).map(
+            (permission) => ({
+                ...permission,
+                allowed_tabs: restrictTabsForPreset(
+                    permission.preset,
+                    permission.allowed_tabs,
+                ),
+            }),
+        );
 
         const attendants = ((attendantsResult.data ?? []) as AttendantRow[]).map(
             (attendant) => {
@@ -259,7 +268,10 @@ export async function PATCH(request: NextRequest) {
         const authUserId =
             typeof body.auth_user_id === "string" ? body.auth_user_id.trim() : "";
         const preset = normalizePresetValue(body.preset);
-        const allowedTabs = normalizeAllowedTabs(body.allowed_tabs);
+        const allowedTabs = restrictTabsForPreset(
+            preset,
+            normalizeAllowedTabs(body.allowed_tabs),
+        );
         const attendantId = normalizeNullableId(body.attendant_id);
         const requestedQueueId = normalizeNullableId(body.queue_id);
         const queueId = attendantId ? requestedQueueId : null;
@@ -573,6 +585,12 @@ function normalizeAllowedTabs(value: unknown) {
             ),
         ),
     ];
+}
+
+function restrictTabsForPreset(preset: string, tabs: string[]) {
+    return ACTIVE_MESSAGE_PRESET_IDS.has(preset)
+        ? tabs
+        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
 }
 
 function normalizeIdArray(value: unknown) {

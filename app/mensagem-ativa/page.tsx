@@ -362,7 +362,11 @@ export default function MensagemAtivaPage() {
                     <SelectionCheckbox
                         checked={allFilteredSelected}
                         indeterminate={someFilteredSelected}
-                        title="Selecionar todos os clientes filtrados"
+                        title={
+                            selectedInFilterCount > 0
+                                ? "Desmarcar clientes filtrados"
+                                : "Selecionar todos os clientes filtrados"
+                        }
                         onChange={toggleAllFiltered}
                     />
                 ),
@@ -533,7 +537,7 @@ export default function MensagemAtivaPage() {
         setSelectedClientIds((current) => {
             const next = new Set(current);
 
-            if (allFilteredSelected) {
+            if (selectedInFilterCount > 0) {
                 for (const id of selectableFilteredClientIds) next.delete(id);
             } else {
                 for (const id of selectableFilteredClientIds) next.add(id);

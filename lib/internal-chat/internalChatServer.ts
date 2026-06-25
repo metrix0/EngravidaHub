@@ -101,7 +101,7 @@ export async function getInternalChatUsers({
 
   const now = Date.now();
 
-  return authUsersResult.data.users
+  return (authUsersResult.data.users as User[])
     .filter((user) => user.id !== excludeUserId)
     .map((user) => {
       const permission = permissions.get(user.id) ?? null;

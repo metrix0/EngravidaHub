@@ -28,7 +28,7 @@ type ClientApiRow = {
 export async function GET() {
     const access = await requireActiveMessageAccess();
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { error: access.error },
             { status: access.status },

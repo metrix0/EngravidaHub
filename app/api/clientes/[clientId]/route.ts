@@ -28,6 +28,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             email,
             first_seen_at,
             last_interaction_at,
+            last_active_message_sent_at,
             created_at,
             updated_at,
             external_contact_id,
