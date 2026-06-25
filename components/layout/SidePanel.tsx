@@ -14,9 +14,9 @@ import {
     Megaphone,
     MessageCircle,
     MessagesSquare,
+    Send,
     UserCog,
     Users,
-    UsersRound,
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -78,6 +78,7 @@ const defaultItems: SidePanelEntry[] = [
 
     { type: "separator", id: "crm" },
     { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
+    { label: "Mensagem Ativa", href: "/mensagem-ativa", icon: <Send size={18} />, tabId: "mensagem_ativa" },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
     { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
     { label: "Funil", href: "/funil", icon: <Funnel size={18} />, tabId: "funil" },

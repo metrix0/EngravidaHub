@@ -38,6 +38,7 @@ type TabId =
     | "eventos"
     | "usuarios"
     | "inbox"
+    | "mensagem_ativa"
     | "internos"
     | "clientes"
     | "funil";
@@ -154,6 +155,7 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
+    { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "purple", position: 65 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
     { id: "funil", label: "Funil", href: "/funil", color: "green", position: 90 },
@@ -172,6 +174,7 @@ const PRESETS: PermissionPreset[] = [
             "eventos",
             "usuarios",
             "inbox",
+            "mensagem_ativa",
             "internos",
             "clientes",
             "funil",
@@ -188,6 +191,7 @@ const PRESETS: PermissionPreset[] = [
             "jornada",
             "eventos",
             "inbox",
+            "mensagem_ativa",
             "internos",
             "clientes",
             "funil",
@@ -205,7 +209,7 @@ const PRESETS: PermissionPreset[] = [
         name: "Marketing",
         color: "orange",
         icon: "megaphone",
-        default_tabs: ["dashboard", "jornada", "eventos", "internos"],
+        default_tabs: ["dashboard", "jornada", "eventos", "mensagem_ativa", "internos"],
     },
 ];
 
@@ -714,7 +718,6 @@ export default function UsuariosPage() {
                         onRowClick={(user) => setSelectedUserId(user.id)}
                     />
                 </section>
-                <div className={"pt-16"}></div>
             </section>
 
             <UserDetailsPanel
