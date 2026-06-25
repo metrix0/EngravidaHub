@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { requireActiveMessageAccess } from "@/lib/active-messages/access";
 import {
+    getActiveMessageDynamicFields,
     getActiveMessageTemplate,
     getActiveMessageTemplateParameters,
     renderActiveMessageText,
@@ -28,6 +29,7 @@ type SendBody = {
     template_id?: unknown;
     client_ids?: unknown;
     filters?: unknown;
+    dynamic_values?: unknown;
 };
 
 type ClientRow = {
@@ -74,6 +76,20 @@ export async function POST(request: Request) {
             { status: 400 },
         );
     }
+
+    const dynamicValuesResult = resolveDynamicValues({
+        template,
+        value: body.dynamic_values,
+    });
+
+    if (!dynamicValuesResult.ok) {
+        return NextResponse.json(
+            { error: dynamicValuesResult.error },
+            { status: 400 },
+        );
+    }
+
+    const dynamicValues = dynamicValuesResult.values;
 
     if (clientIds.length === 0) {
         return NextResponse.json(
@@ -189,6 +205,7 @@ export async function POST(request: Request) {
                 const renderedText = renderActiveMessageText({
                     template,
                     clientName: client.name,
+                    dynamicValues,
                 });
 
                 if (!client.phone?.trim()) {
@@ -213,14 +230,12 @@ export async function POST(request: Request) {
                           })
                         : await sendBlipTemplateMessage({
                               recipientNumber: client.phone,
-                              templateName: template.blip_template_name,
-                              languageCode: template.language_code,
-                              namespace: template.namespace,
-                              bodyParameters:
-                                  getActiveMessageTemplateParameters({
-                                      template,
-                                      clientName: client.name,
-                                  }),
+                              template,
+                              messageParams: getActiveMessageTemplateParameters({
+                                  template,
+                                  clientName: client.name,
+                                  dynamicValues,
+                              }),
                           });
 
                     const thread = threadByClientId.get(client.id) ?? null;
@@ -379,6 +394,45 @@ export async function POST(request: Request) {
             { status: 500 },
         );
     }
+}
+
+function resolveDynamicValues({
+    template,
+    value,
+}: {
+    template: NonNullable<ReturnType<typeof getActiveMessageTemplate>>;
+    value: unknown;
+}):
+    | { ok: true; values: Record<string, string> }
+    | { ok: false; error: string } {
+    const input = isRecord(value) ? value : {};
+    const values: Record<string, string> = {};
+
+    for (const field of getActiveMessageDynamicFields(template)) {
+        const rawValue = input[field.field_id];
+        const resolvedValue =
+            (typeof rawValue === "string" ? rawValue.trim() : "") ||
+            field.default_value?.trim() ||
+            "";
+
+        if (field.required && !resolvedValue) {
+            return {
+                ok: false,
+                error: `Preencha o campo “${field.label}”.`,
+            };
+        }
+
+        if (resolvedValue.length > 500) {
+            return {
+                ok: false,
+                error: `O campo “${field.label}” deve ter no máximo 500 caracteres.`,
+            };
+        }
+
+        values[field.field_id] = resolvedValue;
+    }
+
+    return { ok: true, values };
 }
 
 function normalizeClientIds(value: unknown) {

@@ -12,6 +12,7 @@ import {
     Mail,
     MapPin,
     Phone,
+    Send,
 } from "lucide-react";
 
 import {
@@ -194,6 +195,8 @@ export default function ClientPanel({
                 <div className="space-y-4">
                     <LiveConversationButton thread={data.live_thread} />
                     <ConversationHistorySection conversations={data.conversations} />
+                    <ActiveMessageButton client={data.client} />
+
                 </div>
             )}
         </DetailsSidePanel>
@@ -300,6 +303,47 @@ function HeaderInfoItem({
                 </div>
             </div>
         </div>
+    );
+}
+
+function ActiveMessageButton({ client }: { client: ClientDetail }) {
+    const phone = client.phone?.trim() ?? "";
+    const disabled = !phone;
+
+    function openActiveMessage() {
+        if (disabled) return;
+
+        const params = new URLSearchParams({
+            phone,
+            client_id: client.id,
+        });
+
+        window.location.assign(`/mensagem-ativa?${params.toString()}`);
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={openActiveMessage}
+            disabled={disabled}
+            title={disabled ? "Cliente sem telefone" : "Abrir Mensagem Ativa"}
+            className="group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-purple/20 bg-purple-soft/60 px-4 py-4 text-left transition hover:bg-purple-soft disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:opacity-60"
+        >
+            <div className="min-w-0">
+                <div className="mb-1 flex items-center gap-2 text-sm font-bold text-purple group-disabled:text-slate-500">
+                    <Send size={16} />
+                    <span>Mensagem Ativa</span>
+                </div>
+                <div className="truncate text-xs text-slate-500">
+                    Última mensagem ativa enviada X dias atrás. (or never sent)
+                </div>
+            </div>
+
+            <ChevronRight
+                size={17}
+                className="justify-self-end text-purple transition group-hover:translate-x-0.5 group-disabled:text-slate-400"
+            />
+        </button>
     );
 }
 
@@ -471,6 +515,7 @@ function ClientPanelHeaderSkeleton() {
 function ClientPanelSkeleton() {
     return (
         <div className="space-y-5">
+            <Skeleton className="h-16 rounded-xl" />
             <Skeleton className="h-16 rounded-xl" />
             <Skeleton className="h-64 rounded-2xl" />
         </div>

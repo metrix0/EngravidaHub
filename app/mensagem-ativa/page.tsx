@@ -1,7 +1,7 @@
 // app/mensagem-ativa/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Check,
     Clock3,
@@ -58,6 +58,9 @@ export default function MensagemAtivaPage() {
     const [loadError, setLoadError] = useState<string | null>(null);
 
     const [templateId, setTemplateId] = useState("");
+    const [dynamicValuesByTemplate, setDynamicValuesByTemplate] = useState<
+        Record<string, Record<string, string>>
+    >({});
     const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(
         () => new Set(),
     );
@@ -71,6 +74,7 @@ export default function MensagemAtivaPage() {
     const [confirmationOpen, setConfirmationOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<SendFeedback | null>(null);
+    const deepLinkAppliedRef = useRef(false);
 
     async function loadPage({ silent = false } = {}) {
         if (!silent) setLoading(true);
@@ -116,6 +120,42 @@ export default function MensagemAtivaPage() {
         void loadPage();
     }, []);
 
+    useEffect(() => {
+        if (!data || deepLinkAppliedRef.current) return;
+
+        const params = new URLSearchParams(window.location.search);
+        const requestedPhone = params.get("phone")?.trim() ?? "";
+        const requestedClientId = params.get("client_id")?.trim() ?? "";
+
+        if (!requestedPhone && !requestedClientId) {
+            deepLinkAppliedRef.current = true;
+            return;
+        }
+
+        const requestedPhoneDigits = normalizePhone(requestedPhone);
+        const requestedClient =
+            data.clients.find((client) => client.id === requestedClientId) ??
+            data.clients.find(
+                (client) =>
+                    requestedPhoneDigits.length > 0 &&
+                    normalizePhone(client.phone) === requestedPhoneDigits,
+            ) ??
+            null;
+
+        const phoneForSearch =
+            requestedPhone || requestedClient?.phone?.trim() || "";
+
+        if (phoneForSearch) {
+            setSearch(phoneForSearch);
+        }
+
+        if (requestedClient?.phone?.trim()) {
+            setSelectedClientIds(new Set([requestedClient.id]));
+        }
+
+        deepLinkAppliedRef.current = true;
+    }, [data]);
+
     const stageById = useMemo(
         () => new Map((data?.stages ?? []).map((stage) => [stage.id, stage])),
         [data?.stages],
@@ -126,6 +166,22 @@ export default function MensagemAtivaPage() {
             data?.templates.find((template) => template.id === templateId) ??
             null,
         [data?.templates, templateId],
+    );
+
+    const dynamicFields = useMemo(
+        () => getTemplateDynamicFields(selectedTemplate),
+        [selectedTemplate],
+    );
+    const dynamicValues = templateId
+        ? dynamicValuesByTemplate[templateId] ?? {}
+        : {};
+    const templateFieldsComplete = dynamicFields.every((field) =>
+        field.required
+            ? Boolean(
+                  dynamicValues[field.field_id]?.trim() ||
+                      field.default_value?.trim(),
+              )
+            : true,
     );
 
     const sourceOptions = useMemo(() => {
@@ -335,9 +391,6 @@ export default function MensagemAtivaPage() {
                             <div className="truncate font-medium text-slate-700">
                                 {client.name ?? "Cliente sem nome"}
                             </div>
-                            <div className="mt-1 truncate text-xs text-slate-400">
-                                {client.email ?? "Sem e-mail"}
-                            </div>
                         </div>
                     </div>
                 ),
@@ -393,7 +446,14 @@ export default function MensagemAtivaPage() {
     ];
 
     async function handleSend() {
-        if (!selectedTemplate || selectedCount === 0 || sending) return;
+        if (
+            !selectedTemplate ||
+            !templateFieldsComplete ||
+            selectedCount === 0 ||
+            sending
+        ) {
+            return;
+        }
 
         setSending(true);
         setFeedback(null);
@@ -413,6 +473,7 @@ export default function MensagemAtivaPage() {
                         whatsapp_window: windowValues,
                         active_send_history: activeSendValues,
                     },
+                    dynamic_values: dynamicValues,
                 }),
             });
             const json = (await response.json()) as
@@ -486,6 +547,18 @@ export default function MensagemAtivaPage() {
         setSelectedClientIds(new Set());
     }
 
+    function updateDynamicValue(fieldId: string, value: string) {
+        if (!templateId) return;
+
+        setDynamicValuesByTemplate((current) => ({
+            ...current,
+            [templateId]: {
+                ...(current[templateId] ?? {}),
+                [fieldId]: value,
+            },
+        }));
+    }
+
     if (loading) return <MensagemAtivaSkeleton />;
 
     return (
@@ -515,7 +588,10 @@ export default function MensagemAtivaPage() {
                     templates={data?.templates ?? []}
                     selectedTemplate={selectedTemplate}
                     value={templateId}
+                    dynamicFields={dynamicFields}
+                    dynamicValues={dynamicValues}
                     onChange={setTemplateId}
+                    onDynamicValueChange={updateDynamicValue}
                 />
 
                 <section className="mt-8">
@@ -584,6 +660,7 @@ export default function MensagemAtivaPage() {
                             onClick={() => setConfirmationOpen(true)}
                             disabled={
                                 !selectedTemplate ||
+                                !templateFieldsComplete ||
                                 selectedCount === 0 ||
                                 selectedCount > MAX_CLIENTS_PER_SEND ||
                                 sending
@@ -636,6 +713,9 @@ export default function MensagemAtivaPage() {
                 </section>
 
                 <HistoryTable history={data?.history ?? []} />
+                <div className={"pt-16"}>
+
+                </div>
             </section>
 
             <SendConfirmationModal
@@ -658,71 +738,87 @@ function TemplateCard({
     templates,
     selectedTemplate,
     value,
+    dynamicFields,
+    dynamicValues,
     onChange,
+    onDynamicValueChange,
 }: {
     templates: ActiveMessageTemplate[];
     selectedTemplate: ActiveMessageTemplate | null;
     value: string;
+    dynamicFields: DynamicTemplateField[];
+    dynamicValues: Record<string, string>;
     onChange: (value: string) => void;
+    onDynamicValueChange: (fieldId: string, value: string) => void;
 }) {
     return (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-6">
-                <div className="max-w-xl">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-soft text-purple">
-                            <FileText size={21} />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-950">
-                                Template da mensagem
-                            </h2>
-                            <p className="mt-1 text-sm text-slate-500">
-                                O mesmo conteúdo é enviado como texto dentro da janela
-                                de 24h e como template aprovado fora dela.
-                            </p>
-                        </div>
+        <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+            <div className="min-w-0">
+                <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-soft text-purple">
+                        <FileText size={21} />
+                    </div>
+                    <div className="min-w-0">
+                        <h2 className="text-lg font-bold text-slate-950">
+                            Template da mensagem
+                        </h2>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                            Selecione e customize o template.
+                        </p>
                     </div>
                 </div>
 
-                <DropdownSelect
-                    value={value}
-                    onChange={onChange}
-                    options={templates.map((template) => ({
-                        label: template.name,
-                        value: template.id,
-                    }))}
-                    placeholder="Selecionar template"
-                    icon={<MessageSquareText size={17} />}
-                    widthClassName="w-full max-w-[360px]"
-                    dropdownWidthClassName="w-full"
-                />
+                <div className="mt-5 space-y-4">
+                    <DropdownSelect
+                        value={value}
+                        onChange={onChange}
+                        options={templates.map((template) => ({
+                            label: template.name,
+                            value: template.id,
+                        }))}
+                        placeholder="Selecionar template"
+                        icon={<MessageSquareText size={17} />}
+                        widthClassName="w-full"
+                        dropdownWidthClassName="w-full"
+                    />
+
+                    {dynamicFields.length > 0 ? (
+                        <div className="space-y-3">
+                            {dynamicFields.map((field) => (
+                                <label key={field.field_id} className="block">
+                                    <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                                        {field.label}
+                                        {field.required ? (
+                                            <span className="ml-1 text-red">*</span>
+                                        ) : null}
+                                    </span>
+                                    <input
+                                        type="text"
+                                        value={
+                                            dynamicValues[field.field_id] ??
+                                            field.default_value ??
+                                            ""
+                                        }
+                                        onChange={(event) =>
+                                            onDynamicValueChange(
+                                                field.field_id,
+                                                event.target.value,
+                                            )
+                                        }
+                                        placeholder={field.placeholder}
+                                        maxLength={500}
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
             {selectedTemplate ? (
-                <div className="mt-6 grid gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-5 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]">
-                    <div>
-                        <div className="text-sm font-bold text-slate-900">
-                            {selectedTemplate.name}
-                        </div>
-                        <div className="mt-1 text-sm text-slate-500">
-                            {selectedTemplate.description}
-                        </div>
-                        <div className="mt-4 rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm">
-                            {selectedTemplate.preview}
-                        </div>
-                    </div>
-
-                    <div className="rounded-xl border border-purple/15 bg-purple-soft/50 p-4 text-sm text-purple">
-                        <div className="font-bold">Identificador na Blip</div>
-                        <div className="mt-2 break-all font-mono text-xs">
-                            {selectedTemplate.blip_template_name}
-                        </div>
-                        <div className="mt-3 text-xs leading-relaxed opacity-80">
-                            Catálogo provisório. Substitua pelo nome exato do template
-                            aprovado quando a sincronização com a Blip for conectada.
-                        </div>
-                    </div>
+                <div className="min-w-0 self-stretch whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50 px-5 py-5 text-sm leading-7 text-slate-700">
+                    {renderTemplatePreview(selectedTemplate, dynamicValues)}
                 </div>
             ) : null}
         </section>
@@ -836,21 +932,21 @@ function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
                 emptyMessage="Nenhuma mensagem ativa foi enviada ainda."
             />
 
-            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 px-6 py-5">
-                <div className="text-sm text-slate-500">
-                    {history.length === 0
-                        ? "Nenhum envio no histórico"
-                        : `Mostrando ${pageStart}–${pageEnd} de ${history.length}`}
-                </div>
+            {history.length > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 px-6 py-5">
+                    <div className="text-sm text-slate-500">
+                        {`Mostrando ${pageStart}–${pageEnd} de ${history.length}`}
+                    </div>
 
-                {totalPages > 1 ? (
-                    <Pagination
-                        totalPages={totalPages}
-                        currentPage={currentPage}
-                        onPageChange={setCurrentPage}
-                    />
-                ) : null}
-            </div>
+                    {totalPages > 1 ? (
+                        <Pagination
+                            totalPages={totalPages}
+                            currentPage={currentPage}
+                            onPageChange={setCurrentPage}
+                        />
+                    ) : null}
+                </div>
+            ) : null}
         </section>
     );
 }
@@ -1089,12 +1185,134 @@ function MensagemAtivaSkeleton() {
     );
 }
 
+type DynamicTemplateField = {
+    key: string;
+    field_id: string;
+    label: string;
+    placeholder?: string;
+    default_value?: string;
+    required?: boolean;
+};
+
+function getTemplateDynamicFields(
+    template: ActiveMessageTemplate | null,
+): DynamicTemplateField[] {
+    if (!template) return [];
+
+    return template.parameters.flatMap((parameter) =>
+        parameter.source.type === "dynamic"
+            ? [
+                  {
+                      key: parameter.key,
+                      ...parameter.source,
+                  },
+              ]
+            : [],
+    );
+}
+
+function renderTemplatePreview(
+    template: ActiveMessageTemplate,
+    dynamicValues: Record<string, string>,
+) {
+    const parameterByKey = new Map(
+        template.parameters.map((parameter) => [parameter.key, parameter]),
+    );
+    const segments = template.preview.split(/(\{\{[^{}]+\}\})/g);
+
+    return segments.map((segment, index) => {
+        const match = segment.match(/^\{\{([^{}]+)\}\}$/);
+
+        if (!match) {
+            return segment;
+        }
+
+        const key = match[1];
+        const parameter = parameterByKey.get(key);
+
+        if (!parameter) {
+            return (
+                <TemplateParameterBadge
+                    key={`${key}-${index}`}
+                    tone="neutral"
+                    value={`Parâmetro ${key}`}
+                />
+            );
+        }
+
+        if (parameter.source.type === "database") {
+            return (
+                <TemplateParameterBadge
+                    key={`${key}-${index}`}
+                    tone="database"
+                    value={getDatabaseParameterLabel(parameter.source.field)}
+                />
+            );
+        }
+
+        if (parameter.source.type === "static") {
+            return (
+                <TemplateParameterBadge
+                    key={`${key}-${index}`}
+                    tone="neutral"
+                    value={parameter.source.value}
+                />
+            );
+        }
+
+        const dynamicValue =
+            dynamicValues[parameter.source.field_id]?.trim() ||
+            parameter.source.default_value?.trim() ||
+            parameter.source.label;
+
+        return (
+            <TemplateParameterBadge
+                key={`${key}-${index}`}
+                tone="neutral"
+                value={dynamicValue}
+            />
+        );
+    });
+}
+
+function TemplateParameterBadge({
+    value,
+    tone,
+}: {
+    value: string;
+    tone: "database" | "neutral";
+}) {
+    return (
+        <span
+            className={`mx-0.5 inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 align-baseline text-xs font-bold leading-5 ${
+                tone === "database"
+                    ? "border-purple/15 bg-purple-soft text-purple"
+                    : "border-slate-200 bg-slate-100 text-slate-600"
+            }`}
+        >
+            {value}
+        </span>
+    );
+}
+
+function getDatabaseParameterLabel(field: string) {
+    if (field === "client_first_name") {
+        return "Primeiro nome";
+    }
+
+    return String(field);
+}
+
 function isWindowOpen(timestamp: string | null) {
     if (!timestamp) return false;
     const time = new Date(timestamp).getTime();
     if (!Number.isFinite(time)) return false;
     const age = Date.now() - time;
     return age >= 0 && age <= WHATSAPP_WINDOW_MS;
+}
+
+function normalizePhone(value: string | null | undefined) {
+    return value?.replace(/\D/g, "") ?? "";
 }
 
 function formatPhone(value: string | null) {

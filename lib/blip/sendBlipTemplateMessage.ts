@@ -1,10 +1,13 @@
 // lib/blip/sendBlipTemplateMessage.ts
-
 import { randomUUID } from "crypto";
 
-import { toBlipWhatsAppIdentity } from "@/lib/blip/sendBlipTextMessage";
+import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 
 const BLIP_REQUEST_TIMEOUT_MS = 20_000;
+const ACTIVE_CAMPAIGN_POSTMASTER = "postmaster@activecampaign.msging.net";
+const ACTIVE_CAMPAIGN_URI = "/campaign/full";
+const ACTIVE_CAMPAIGN_TYPE =
+    "application/vnd.iris.activecampaign.full-campaign+json";
 
 export type SentBlipTemplateMessage = {
     id: string;
@@ -32,56 +35,47 @@ export class BlipTemplateApiError extends Error {
 
 export async function sendBlipTemplateMessage({
     recipientNumber,
-    templateName,
-    languageCode,
-    namespace,
-    bodyParameters,
+    template,
+    messageParams,
 }: {
     recipientNumber: string;
-    templateName: string;
-    languageCode: string;
-    namespace?: string | null;
-    bodyParameters?: string[];
+    template: ActiveMessageTemplate;
+    messageParams: Record<string, string>;
 }): Promise<SentBlipTemplateMessage> {
+    validateMessageParams(template, messageParams);
+
     const contractId = getBlipContractId();
     const authKey = getBlipAuthKey();
     const id = randomUUID();
-    const to = toBlipWhatsAppIdentity(recipientNumber);
-    const endpoint = `https://${contractId}.http.msging.net/messages`;
-    const resolvedNamespace =
-        namespace?.trim() ||
-        process.env.BLIP_WHATSAPP_TEMPLATE_NAMESPACE?.trim() ||
-        null;
-
-    const template = {
-        name: templateName,
-        language: {
-            code: languageCode,
-            policy: "deterministic",
-        },
-        ...(resolvedNamespace ? { namespace: resolvedNamespace } : {}),
-        ...((bodyParameters?.length ?? 0) > 0
-            ? {
-                  components: [
-                      {
-                          type: "body",
-                          parameters: bodyParameters!.map((text) => ({
-                              type: "text",
-                              text,
-                          })),
-                      },
-                  ],
-              }
-            : {}),
-    };
+    const normalizedPhone = normalizeBrazilianPhone(recipientNumber);
+    const endpoint = `https://${contractId}.http.msging.net/commands`;
+    const parameterKeys = template.parameters.map((parameter) => parameter.key);
 
     const body = {
         id,
-        to,
-        type: "application/json",
-        content: {
-            type: "template",
-            template,
+        to: ACTIVE_CAMPAIGN_POSTMASTER,
+        method: "set",
+        uri: ACTIVE_CAMPAIGN_URI,
+        type: ACTIVE_CAMPAIGN_TYPE,
+        resource: {
+            campaign: {
+                name: `engravida-hub-${template.id}-${randomUUID()}`,
+                campaignType: "Individual",
+                flowId: template.active_campaign.flow_id,
+                stateId: template.active_campaign.state_id,
+                masterstate: template.active_campaign.masterstate,
+                channelType: "WhatsApp",
+                sourceApplication: "API",
+            },
+            audience: {
+                recipient: `+${normalizedPhone}`,
+                messageParams,
+            },
+            message: {
+                messageTemplate: template.blip_template_name,
+                messageParams: parameterKeys,
+                channelType: "WhatsApp",
+            },
         },
     };
 
@@ -105,7 +99,7 @@ export async function sendBlipTemplateMessage({
 
         throw new BlipTemplateApiError(
             timedOut
-                ? "A Blip demorou demais para responder ao template."
+                ? "A Blip demorou demais para responder à campanha ativa."
                 : `Não foi possível conectar à API da Blip: ${
                       error instanceof Error ? error.message : String(error)
                   }`,
@@ -116,19 +110,67 @@ export async function sendBlipTemplateMessage({
 
     if (!response.ok) {
         throw new BlipTemplateApiError(
-            `A Blip recusou o template (HTTP ${response.status})${
+            `A Blip recusou a campanha ativa (HTTP ${response.status})${
                 responseBody ? `: ${limitLength(responseBody)}` : ""
             }`,
             response.status,
         );
     }
 
+    const parsedResponse = parseJsonResponse(responseBody);
+
+    if (parsedResponse?.status === "failure") {
+        throw new BlipTemplateApiError(
+            `A Blip recusou a campanha ativa: ${limitLength(
+                JSON.stringify(parsedResponse.reason ?? parsedResponse),
+            )}`,
+            response.status,
+        );
+    }
+
     return {
         id,
-        to,
+        to: `${normalizedPhone}@wa.gw.msging.net`,
         response_status: response.status,
         response_body: responseBody || null,
     };
+}
+
+function validateMessageParams(
+    template: ActiveMessageTemplate,
+    messageParams: Record<string, string>,
+) {
+    for (const parameter of template.parameters) {
+        const value = messageParams[parameter.key]?.trim();
+
+        if (!value) {
+            throw new BlipTemplateConfigurationError(
+                `O parâmetro ${parameter.key} do template ativo está vazio.`,
+            );
+        }
+    }
+}
+
+function normalizeBrazilianPhone(value: string) {
+    let digits = value.replace(/\D/g, "");
+
+    if (
+        (digits.length === 10 || digits.length === 11) &&
+        !digits.startsWith("55")
+    ) {
+        digits = `55${digits}`;
+    }
+
+    if (
+        !digits.startsWith("55") ||
+        (digits.length !== 12 && digits.length !== 13)
+    ) {
+        throw new BlipTemplateConfigurationError(
+            "O telefone do cliente precisa estar no formato brasileiro com DDD.",
+        );
+    }
+
+    return digits;
 }
 
 function getBlipContractId() {
@@ -156,7 +198,8 @@ function getBlipContractId() {
 }
 
 function getBlipAuthKey() {
-    const rawValue = process.env.BLIP_AUTH_KEY?.trim();
+    const rawValue =
+        process.env.BLIP_AUTH_KEY?.trim() || process.env.BLIP_KEY?.trim();
 
     if (!rawValue) {
         throw new BlipTemplateConfigurationError(
@@ -171,6 +214,19 @@ function getBlipAuthKey() {
     }
 
     return authKey;
+}
+
+function parseJsonResponse(value: string) {
+    if (!value.trim()) return null;
+
+    try {
+        return JSON.parse(value) as {
+            status?: string;
+            reason?: unknown;
+        };
+    } catch {
+        return null;
+    }
 }
 
 function limitLength(value: string) {
