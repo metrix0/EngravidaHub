@@ -1,15 +1,19 @@
 // app/usuarios/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
     Briefcase,
     Check,
+    ChevronDown,
     ChevronRight,
     Crown,
     Headphones,
+    LockKeyhole,
     Megaphone,
+    Search,
     ShieldCheck,
+    UsersRound,
 } from "lucide-react";
 
 import {
@@ -87,6 +91,20 @@ type Queue = {
     active: boolean;
 };
 
+type InternalGroup = {
+    id: string;
+    queue_id: string | null;
+    name: string;
+    active: boolean;
+};
+
+type GroupMembership = {
+    group_id: string;
+    auth_user_id: string;
+    automatic: boolean;
+    manual: boolean;
+};
+
 type Attendant = {
     id: string;
     name: string;
@@ -105,6 +123,8 @@ type ApiResponse = {
     permissions: UserPermission[];
     attendants: Attendant[];
     queues: Queue[];
+    groups: InternalGroup[];
+    group_memberships: GroupMembership[];
 };
 
 type UserView = {
@@ -120,6 +140,10 @@ type UserView = {
     unit_name: string;
     queue_id: string | null;
     queue_name: string;
+    group_ids: string[];
+    manual_group_ids: string[];
+    automatic_group_ids: string[];
+    group_names: string[];
     active: boolean;
 };
 
@@ -130,7 +154,7 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
-    { id: "internos", label: "Internos", href: "/internos", color: "purple", position: 70 },
+    { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
     { id: "funil", label: "Funil", href: "/funil", color: "green", position: 90 },
 ];
@@ -271,6 +295,16 @@ export default function UsuariosPage() {
             data.attendants.map((attendant) => [attendant.id, attendant]),
         );
         const attendantsByAuthUserId = new Map<string, Attendant>();
+        const groupsById = new Map(
+            data.groups.map((group) => [group.id, group]),
+        );
+        const membershipsByUserId = new Map<string, GroupMembership[]>();
+
+        for (const membership of data.group_memberships) {
+            const current = membershipsByUserId.get(membership.auth_user_id) ?? [];
+            current.push(membership);
+            membershipsByUserId.set(membership.auth_user_id, current);
+        }
 
         for (const attendant of data.attendants) {
             if (attendant.auth_user_id) {
@@ -293,6 +327,17 @@ export default function UsuariosPage() {
                     ? attendantsById.get(permission.attendant_id) ?? null
                     : null
                 : attendantsByAuthUserId.get(user.id) ?? null;
+            const memberships = membershipsByUserId.get(user.id) ?? [];
+            const groupIds = memberships.map((membership) => membership.group_id);
+            const manualGroupIds = memberships
+                .filter((membership) => membership.manual)
+                .map((membership) => membership.group_id);
+            const automaticGroupIds = memberships
+                .filter((membership) => membership.automatic)
+                .map((membership) => membership.group_id);
+            const groupNames = groupIds
+                .map((groupId) => groupsById.get(groupId)?.name)
+                .filter((name): name is string => Boolean(name));
 
             return {
                 id: user.id,
@@ -309,6 +354,10 @@ export default function UsuariosPage() {
                 unit_name: attendant?.unit_name ?? "Todas",
                 queue_id: attendant?.queue_id ?? null,
                 queue_name: attendant?.queue_name ?? "Nenhum",
+                group_ids: groupIds,
+                manual_group_ids: manualGroupIds,
+                automatic_group_ids: automaticGroupIds,
+                group_names: groupNames,
                 active: permission?.active ?? true,
             };
         });
@@ -339,6 +388,7 @@ export default function UsuariosPage() {
                 user.attendant?.name,
                 user.preset?.name,
                 user.queue_name,
+                user.group_names.join(" "),
                 tabsLabel,
                 user.active ? "ativo" : "inativo",
             ]
@@ -359,6 +409,7 @@ export default function UsuariosPage() {
             allowed_tabs: TabId[];
             attendant_id: string | null;
             queue_id: string | null;
+            manual_group_ids: string[];
             active: boolean;
         }>,
     ) {
@@ -391,6 +442,8 @@ export default function UsuariosPage() {
                 : patch.attendant_id !== undefined
                     ? selectedAttendant?.queue_id ?? null
                     : user.queue_id;
+        const nextManualGroupIds =
+            patch.manual_group_ids ?? user.manual_group_ids;
         const nextActive =
             patch.active !== undefined ? patch.active : user.active;
         const nextPermission: UserPermission = {
@@ -411,6 +464,7 @@ export default function UsuariosPage() {
                 userId: user.id,
                 nextPermission,
                 nextQueueId,
+                nextManualGroupIds,
             });
         });
         setSavingUserId(user.id);
@@ -426,6 +480,7 @@ export default function UsuariosPage() {
                     allowed_tabs: nextPermission.allowed_tabs,
                     attendant_id: nextAttendantId ?? NO_VALUE_ID,
                     queue_id: nextQueueId ?? NO_VALUE_ID,
+                    manual_group_ids: nextManualGroupIds,
                     active: nextPermission.active,
                 }),
             });
@@ -659,6 +714,7 @@ export default function UsuariosPage() {
                         onRowClick={(user) => setSelectedUserId(user.id)}
                     />
                 </section>
+                <div className={"pt-16"}></div>
             </section>
 
             <UserDetailsPanel
@@ -666,6 +722,7 @@ export default function UsuariosPage() {
                 user={selectedUser}
                 attendants={data?.attendants ?? []}
                 queues={data?.queues ?? []}
+                groups={data?.groups ?? []}
                 saving={selectedUser ? savingUserId === selectedUser.id : false}
                 onClose={() => setSelectedUserId(null)}
                 onSave={saveUserPermission}
@@ -680,11 +737,13 @@ function applyPermissionUpdate({
     userId,
     nextPermission,
     nextQueueId,
+    nextManualGroupIds,
 }: {
     current: ApiResponse;
     userId: string;
     nextPermission: UserPermission;
     nextQueueId: string | null;
+    nextManualGroupIds: string[];
 }): ApiResponse {
     const existingPermission = current.permissions.some(
         (permission) => permission.auth_user_id === userId,
@@ -746,7 +805,32 @@ function applyPermissionUpdate({
         return attendant;
     });
 
-    return { ...current, permissions, attendants };
+    const automaticGroupId = nextQueueId
+        ? current.groups.find((group) => group.queue_id === nextQueueId)?.id ?? null
+        : null;
+    const selectedManual = new Set(nextManualGroupIds);
+    const groupMemberships = current.group_memberships
+        .filter((membership) => membership.auth_user_id !== userId)
+        .concat(
+            current.groups
+                .filter(
+                    (group) =>
+                        selectedManual.has(group.id) || group.id === automaticGroupId,
+                )
+                .map((group) => ({
+                    group_id: group.id,
+                    auth_user_id: userId,
+                    automatic: group.id === automaticGroupId,
+                    manual: selectedManual.has(group.id),
+                })),
+        );
+
+    return {
+        ...current,
+        permissions,
+        attendants,
+        group_memberships: groupMemberships,
+    };
 }
 
 function UserDetailsPanel({
@@ -754,6 +838,7 @@ function UserDetailsPanel({
     user,
     attendants,
     queues,
+    groups,
     saving,
     onClose,
     onSave,
@@ -763,6 +848,7 @@ function UserDetailsPanel({
     user: UserView | null;
     attendants: Attendant[];
     queues: Queue[];
+    groups: InternalGroup[];
     saving: boolean;
     onClose: () => void;
     onSave: (
@@ -772,6 +858,7 @@ function UserDetailsPanel({
             allowed_tabs: TabId[];
             attendant_id: string | null;
             queue_id: string | null;
+            manual_group_ids: string[];
             active: boolean;
         }>,
     ) => Promise<void>;
@@ -891,6 +978,26 @@ function UserDetailsPanel({
                 </PanelSection>
 
                 <PanelSection
+                    title="Grupos internos"
+                    action={(
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-soft px-2.5 py-1 text-xs font-bold text-purple">
+                            <UsersRound size={13} />
+                            {user.group_ids.length}
+                        </span>
+                    )}
+                >
+                    <GroupMembershipSelector
+                        groups={groups}
+                        manualGroupIds={user.manual_group_ids}
+                        automaticGroupIds={user.automatic_group_ids}
+                        disabled={saving}
+                        onChange={(manualGroupIds) =>
+                            void onSave(user, { manual_group_ids: manualGroupIds })
+                        }
+                    />
+                </PanelSection>
+
+                <PanelSection
                     title="Abas permitidas"
                     action={(
                         <span
@@ -938,6 +1045,223 @@ function UserDetailsPanel({
                 </PanelSection>
             </div>
         </DetailsSidePanel>
+    );
+}
+
+
+function GroupMembershipSelector({
+    groups,
+    manualGroupIds,
+    automaticGroupIds,
+    disabled,
+    onChange,
+}: {
+    groups: InternalGroup[];
+    manualGroupIds: string[];
+    automaticGroupIds: string[];
+    disabled: boolean;
+    onChange: (manualGroupIds: string[]) => void | Promise<void>;
+}) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const draftRef = useRef<string[]>(manualGroupIds);
+    const persistedRef = useRef<string[]>(manualGroupIds);
+    const onChangeRef = useRef(onChange);
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [draftManualGroupIds, setDraftManualGroupIds] =
+        useState<string[]>(manualGroupIds);
+
+    const manualGroupKey = normalizeIdSet(manualGroupIds).join("|");
+
+    useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
+
+    useEffect(() => {
+        const next = [...manualGroupIds];
+        persistedRef.current = next;
+        draftRef.current = next;
+        setDraftManualGroupIds(next);
+    }, [manualGroupKey]);
+
+    function setDraft(next: string[]) {
+        draftRef.current = next;
+        setDraftManualGroupIds(next);
+    }
+
+    function commitAndClose() {
+        if (!open) return;
+
+        const next = draftRef.current;
+        const persisted = persistedRef.current;
+
+        setOpen(false);
+        setSearch("");
+
+        if (!sameIdSet(next, persisted)) {
+            void onChangeRef.current(next);
+        }
+    }
+
+    useEffect(() => {
+        if (!open) return;
+
+        function handlePointerDown(event: PointerEvent) {
+            if (!rootRef.current?.contains(event.target as Node)) {
+                commitAndClose();
+            }
+        }
+
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                commitAndClose();
+            }
+        }
+
+        document.addEventListener("pointerdown", handlePointerDown);
+        document.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            document.removeEventListener("pointerdown", handlePointerDown);
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [open]);
+
+    const manual = new Set(draftManualGroupIds);
+    const automatic = new Set(automaticGroupIds);
+    const selectedCount = new Set([
+        ...draftManualGroupIds,
+        ...automaticGroupIds,
+    ]).size;
+
+    const visibleGroups = groups.filter((group) =>
+        group.name.toLowerCase().includes(search.trim().toLowerCase()),
+    );
+
+    function toggleGroup(groupId: string) {
+        if (automatic.has(groupId) || disabled) return;
+
+        const next = manual.has(groupId)
+            ? draftManualGroupIds.filter((id) => id !== groupId)
+            : [...draftManualGroupIds, groupId];
+
+        setDraft(next);
+    }
+
+    function handleToggleOpen() {
+        if (open) {
+            commitAndClose();
+            return;
+        }
+
+        const current = [...persistedRef.current];
+        setDraft(current);
+        setOpen(true);
+    }
+
+    return (
+        <div ref={rootRef} className="relative">
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={handleToggleOpen}
+                className="flex h-11 w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+                <span className="truncate">
+                    {selectedCount === 0
+                        ? "Nenhum grupo selecionado"
+                        : `${selectedCount} grupo${selectedCount === 1 ? "" : "s"}`}
+                </span>
+                <ChevronDown
+                    size={16}
+                    className={`shrink-0 text-slate-400 transition-transform ${
+                        open ? "rotate-180" : "rotate-0"
+                    }`}
+                />
+            </button>
+
+            {open ? (
+                <div className="absolute right-0 top-12 z-[90] w-full min-w-[330px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                    <div className="border-b border-slate-100 p-3">
+                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3">
+                            <Search size={15} className="shrink-0 text-slate-400" />
+                            <input
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                                placeholder="Buscar grupo..."
+                                className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="max-h-[300px] overflow-y-auto p-2 [scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]">
+                        {visibleGroups.map((group) => {
+                            const isAutomatic = automatic.has(group.id);
+                            const checked = isAutomatic || manual.has(group.id);
+
+                            return (
+                                <button
+                                    key={group.id}
+                                    type="button"
+                                    disabled={isAutomatic || disabled}
+                                    onClick={() => toggleGroup(group.id)}
+                                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                                        isAutomatic
+                                            ? "cursor-default bg-purple-soft/40"
+                                            : "cursor-pointer hover:bg-slate-50"
+                                    }`}
+                                >
+                                    <span
+                                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                            checked
+                                                ? "border-brand bg-brand"
+                                                : "border-slate-300 bg-white"
+                                        }`}
+                                    >
+                                        {checked ? <Check size={12} className="text-white" /> : null}
+                                    </span>
+
+                                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700">
+                                        {group.name}
+                                    </span>
+
+                                    {isAutomatic ? (
+                                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-purple-soft px-2 py-1 text-[10px] font-bold text-purple">
+                                            <LockKeyhole size={11} />
+                                            Automático
+                                        </span>
+                                    ) : null}
+                                </button>
+                            );
+                        })}
+
+                        {visibleGroups.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-sm text-slate-400">
+                                Nenhum grupo encontrado.
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="border-t border-slate-100 px-4 py-2.5 text-center text-[11px] font-medium text-slate-400">
+                        As alterações são salvas ao fechar.
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function normalizeIdSet(ids: string[]) {
+    return [...new Set(ids)].sort();
+}
+
+function sameIdSet(first: string[], second: string[]) {
+    const normalizedFirst = normalizeIdSet(first);
+    const normalizedSecond = normalizeIdSet(second);
+
+    return (
+        normalizedFirst.length === normalizedSecond.length &&
+        normalizedFirst.every((id, index) => id === normalizedSecond[index])
     );
 }
 

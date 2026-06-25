@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+    BriefcaseBusiness,
     ChevronRight,
     Flag,
     Funnel,
@@ -77,12 +78,12 @@ const defaultItems: SidePanelEntry[] = [
 
     { type: "separator", id: "crm" },
     { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
-    { label: "Internos", href: "/internos", icon: <UsersRound size={18} />, tabId: "internos" },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
     { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
     { label: "Funil", href: "/funil", icon: <Funnel size={18} />, tabId: "funil" },
 
     { type: "separator", id: "usuarios" },
+    { label: "Internos", href: "/internos", icon: <BriefcaseBusiness size={18} />, tabId: "internos" },
     { label: "Usuários", href: "/usuarios", icon: <UserCog size={18} />, tabId: "usuarios" },
 ];
 
@@ -363,7 +364,7 @@ function PersistentSidePanel({
                             <span
                                 className={`h-2.5 w-2.5 rounded-full ${
                                     currentAttendant.is_online
-                                        ? "bg-red"
+                                        ? "bg-slate-400"
                                         : "bg-green"
                                 }`}
                             />
@@ -500,7 +501,7 @@ function PersistentSidePanel({
                                         className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
                                             currentAttendant.is_online
                                                 ? "bg-green"
-                                                : "bg-red"
+                                                : "bg-slate-400"
                                         }`}
                                     />
                                 )}

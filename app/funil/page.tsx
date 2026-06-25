@@ -1003,7 +1003,7 @@ function FunnelClientCard({
                         {client.phone ?? "Sem telefone"}
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between gap-2">
+                    <div className="mt-3 flex items-center justify-between gap-2 truncate">
                         <Badge value={client.utm_source} none={""} />
 
                         <span className="text-[11px] font-medium text-muted">

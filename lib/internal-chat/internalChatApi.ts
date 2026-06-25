@@ -4,6 +4,9 @@ import type {
     InternalConversationDetail,
     InternalConversationSummary,
     InternalMessage,
+    InternalGroupDetail,
+    InternalGroupMessage,
+    InternalGroupSummary,
 } from "@/types/internalChat";
 
 export async function heartbeatInternalPresence() {
@@ -129,6 +132,73 @@ export async function markInternalConversationRead(conversationId: string) {
     if (!response.ok) {
         const json = await safeJson(response);
         throw new Error(json?.error ?? "Failed to mark internal chat as read");
+    }
+}
+
+export async function fetchInternalGroups() {
+    const response = await fetch("/api/internal-chat/groups", {
+        credentials: "include",
+        cache: "no-store",
+    });
+    const json = await safeJson(response);
+
+    if (!response.ok) {
+        throw new Error(json?.error ?? "Failed to load internal groups");
+    }
+
+    return (json?.groups ?? []) as InternalGroupSummary[];
+}
+
+export async function fetchInternalGroupMessages(groupId: string) {
+    const response = await fetch(
+        `/api/internal-chat/groups/${encodeURIComponent(groupId)}/messages`,
+        {
+            credentials: "include",
+            cache: "no-store",
+        },
+    );
+    const json = await safeJson(response);
+
+    if (!response.ok) {
+        throw new Error(json?.error ?? "Failed to load internal group messages");
+    }
+
+    return json as InternalGroupDetail;
+}
+
+export async function sendInternalGroupMessage(groupId: string, text: string) {
+    const response = await fetch(
+        `/api/internal-chat/groups/${encodeURIComponent(groupId)}/messages`,
+        {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+        },
+    );
+    const json = await safeJson(response);
+
+    if (!response.ok) {
+        throw new Error(json?.error ?? "Failed to send internal group message");
+    }
+
+    return json?.message as InternalGroupMessage;
+}
+
+export async function markInternalGroupRead(groupId: string) {
+    const response = await fetch(
+        `/api/internal-chat/groups/${encodeURIComponent(groupId)}/read`,
+        {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+        },
+    );
+
+    if (!response.ok) {
+        const json = await safeJson(response);
+        throw new Error(json?.error ?? "Failed to mark internal group as read");
     }
 }
 

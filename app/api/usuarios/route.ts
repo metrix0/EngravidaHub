@@ -1,5 +1,6 @@
 // app/api/usuarios/route.ts
 import { NextRequest, NextResponse } from "next/server";
+
 import { supabase } from "@/lib";
 
 const NO_PRESET_ID = "__none__";
@@ -61,82 +62,93 @@ type AttendantRow = {
     queues?: QueueRow | QueueRow[] | null;
 };
 
+type InternalGroupRow = {
+    id: string;
+    queue_id: string | null;
+    name: string;
+    active: boolean;
+};
+
+type InternalGroupMemberRow = {
+    group_id: string;
+    auth_user_id: string;
+    automatic: boolean;
+    manual: boolean;
+};
+
 export async function GET() {
     try {
-        const [authUsersResult, permissionsResult, attendantsResult, queuesResult] =
-            await Promise.all([
-                supabase.auth.admin.listUsers({
-                    page: 1,
-                    perPage: 1000,
-                }),
-
-                supabase.from("user_permissions").select("*"),
-
-                supabase
-                    .from("attendants")
-                    .select(`
+        const [
+            authUsersResult,
+            permissionsResult,
+            attendantsResult,
+            queuesResult,
+            groupsResult,
+            groupMembersResult,
+        ] = await Promise.all([
+            supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+            supabase.from("user_permissions").select("*"),
+            supabase
+                .from("attendants")
+                .select(`
+                    id,
+                    name,
+                    email,
+                    active,
+                    is_online,
+                    auth_user_id,
+                    unit_id,
+                    queue_id,
+                    units (
                         id,
-                        name,
-                        email,
-                        active,
-                        is_online,
-                        auth_user_id,
-                        unit_id,
-                        queue_id,
-                        units (
-                            id,
-                            name
-                        ),
-                        queues (
-                            id,
-                            name,
-                            sector,
-                            unit_id,
-                            active
-                        )
-                    `)
-                    .order("name", { ascending: true }),
-
-                supabase
-                    .from("queues")
-                    .select(`
+                        name
+                    ),
+                    queues (
                         id,
                         name,
                         sector,
                         unit_id,
-                        active,
-                        units (
-                            id,
-                            name
-                        )
-                    `)
-                    .eq("active", true),
-            ]);
+                        active
+                    )
+                `)
+                .order("name", { ascending: true }),
+            supabase
+                .from("queues")
+                .select(`
+                    id,
+                    name,
+                    sector,
+                    unit_id,
+                    active,
+                    units (
+                        id,
+                        name
+                    )
+                `)
+                .eq("active", true),
+            supabase
+                .from("internal_groups")
+                .select("id, queue_id, name, active")
+                .eq("active", true)
+                .order("name", { ascending: true }),
+            supabase
+                .from("internal_group_members")
+                .select("group_id, auth_user_id, automatic, manual")
+                .or("automatic.eq.true,manual.eq.true"),
+        ]);
 
-        if (authUsersResult.error) {
-            return NextResponse.json(
-                { error: authUsersResult.error.message },
-                { status: 500 },
-            );
-        }
+        const errors = [
+            authUsersResult.error,
+            permissionsResult.error,
+            attendantsResult.error,
+            queuesResult.error,
+            groupsResult.error,
+            groupMembersResult.error,
+        ].filter(Boolean);
 
-        if (permissionsResult.error) {
+        if (errors.length > 0) {
             return NextResponse.json(
-                { error: permissionsResult.error.message },
-                { status: 500 },
-            );
-        }
-
-        if (attendantsResult.error) {
-            return NextResponse.json(
-                { error: attendantsResult.error.message },
-                { status: 500 },
-            );
-        }
-
-        if (queuesResult.error) {
-            return NextResponse.json(
-                { error: queuesResult.error.message },
+                { error: errors[0]!.message },
                 { status: 500 },
             );
         }
@@ -184,7 +196,6 @@ export async function GET() {
                     second.unit_name ?? "",
                     "pt-BR",
                 );
-
                 if (unitComparison !== 0) return unitComparison;
 
                 return (
@@ -192,6 +203,12 @@ export async function GET() {
                     (QUEUE_SECTOR_ORDER[second.sector] ?? 500)
                 );
             });
+
+        const groups = ((groupsResult.data ?? []) as InternalGroupRow[]).sort(
+            (first, second) => first.name.localeCompare(second.name, "pt-BR"),
+        );
+        const group_memberships =
+            (groupMembersResult.data ?? []) as InternalGroupMemberRow[];
 
         const users = authUsersResult.data.users.map((user) => {
             const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
@@ -216,6 +233,8 @@ export async function GET() {
             permissions,
             attendants,
             queues,
+            groups,
+            group_memberships,
         });
     } catch (error) {
         console.error("[usuarios] GET failed", error);
@@ -243,6 +262,7 @@ export async function PATCH(request: NextRequest) {
         const attendantId = normalizeNullableId(body.attendant_id);
         const requestedQueueId = normalizeNullableId(body.queue_id);
         const queueId = attendantId ? requestedQueueId : null;
+        const manualGroupIds = normalizeIdArray(body.manual_group_ids);
         const active = typeof body.active === "boolean" ? body.active : true;
 
         if (!authUserId) {
@@ -298,6 +318,29 @@ export async function PATCH(request: NextRequest) {
             }
         }
 
+        if (manualGroupIds.length > 0) {
+            const { data: selectedGroups, error: selectedGroupsError } =
+                await supabase
+                    .from("internal_groups")
+                    .select("id")
+                    .in("id", manualGroupIds)
+                    .eq("active", true);
+
+            if (selectedGroupsError) {
+                return NextResponse.json(
+                    { error: selectedGroupsError.message },
+                    { status: 500 },
+                );
+            }
+
+            if ((selectedGroups ?? []).length !== manualGroupIds.length) {
+                return NextResponse.json(
+                    { error: "Um ou mais grupos não existem ou estão inativos" },
+                    { status: 400 },
+                );
+            }
+        }
+
         const { data: permission, error: permissionError } = await supabase
             .from("user_permissions")
             .upsert(
@@ -309,9 +352,7 @@ export async function PATCH(request: NextRequest) {
                     active,
                     updated_at: new Date().toISOString(),
                 },
-                {
-                    onConflict: "auth_user_id",
-                },
+                { onConflict: "auth_user_id" },
             )
             .select()
             .single();
@@ -336,11 +377,24 @@ export async function PATCH(request: NextRequest) {
             );
         }
 
+        const groupSyncError = await syncManualGroupMemberships({
+            authUserId,
+            manualGroupIds,
+        });
+
+        if (groupSyncError) {
+            return NextResponse.json(
+                { error: groupSyncError },
+                { status: 500 },
+            );
+        }
+
         return NextResponse.json({
             ok: true,
             permission,
             attendant_id: attendantId,
             queue_id: queueId,
+            manual_group_ids: manualGroupIds,
         });
     } catch (error) {
         console.error("[usuarios] PATCH failed", error);
@@ -410,6 +464,95 @@ async function syncAttendantLink({
     return linkAttendantError?.message ?? null;
 }
 
+async function syncManualGroupMemberships({
+    authUserId,
+    manualGroupIds,
+}: {
+    authUserId: string;
+    manualGroupIds: string[];
+}) {
+    const { data: existingData, error: existingError } = await supabase
+        .from("internal_group_members")
+        .select("group_id, automatic, manual")
+        .eq("auth_user_id", authUserId);
+
+    if (existingError) return existingError.message;
+
+    const existing = existingData ?? [];
+    const existingByGroup = new Map(
+        existing.map((membership) => [membership.group_id, membership]),
+    );
+    const selected = new Set(manualGroupIds);
+    const now = new Date().toISOString();
+
+    const selectedExistingIds = manualGroupIds.filter((id) =>
+        existingByGroup.has(id),
+    );
+    const selectedNewIds = manualGroupIds.filter(
+        (id) => !existingByGroup.has(id),
+    );
+    const deselectedAutomaticIds = existing
+        .filter(
+            (membership) =>
+                membership.manual &&
+                membership.automatic &&
+                !selected.has(membership.group_id),
+        )
+        .map((membership) => membership.group_id);
+    const deselectedManualOnlyIds = existing
+        .filter(
+            (membership) =>
+                membership.manual &&
+                !membership.automatic &&
+                !selected.has(membership.group_id),
+        )
+        .map((membership) => membership.group_id);
+
+    if (selectedExistingIds.length > 0) {
+        const { error } = await supabase
+            .from("internal_group_members")
+            .update({ manual: true, updated_at: now })
+            .eq("auth_user_id", authUserId)
+            .in("group_id", selectedExistingIds);
+        if (error) return error.message;
+    }
+
+    if (selectedNewIds.length > 0) {
+        const { error } = await supabase
+            .from("internal_group_members")
+            .insert(
+                selectedNewIds.map((groupId) => ({
+                    group_id: groupId,
+                    auth_user_id: authUserId,
+                    automatic: false,
+                    manual: true,
+                    updated_at: now,
+                })),
+            );
+        if (error) return error.message;
+    }
+
+    if (deselectedAutomaticIds.length > 0) {
+        const { error } = await supabase
+            .from("internal_group_members")
+            .update({ manual: false, updated_at: now })
+            .eq("auth_user_id", authUserId)
+            .in("group_id", deselectedAutomaticIds);
+        if (error) return error.message;
+    }
+
+    if (deselectedManualOnlyIds.length > 0) {
+        const { error } = await supabase
+            .from("internal_group_members")
+            .delete()
+            .eq("auth_user_id", authUserId)
+            .in("group_id", deselectedManualOnlyIds);
+        if (error) return error.message;
+    }
+
+    return null;
+}
+
 function normalizePresetValue(value: unknown) {
     if (value === null || value === undefined || value === "") {
         return NO_PRESET_ID;
@@ -427,6 +570,19 @@ function normalizeAllowedTabs(value: unknown) {
                 (item: unknown): item is string =>
                     typeof item === "string" && VALID_TAB_IDS.has(item),
             ),
+        ),
+    ];
+}
+
+function normalizeIdArray(value: unknown) {
+    if (!Array.isArray(value)) return [];
+
+    return [
+        ...new Set(
+            value
+                .filter((item): item is string => typeof item === "string")
+                .map((item) => item.trim())
+                .filter(Boolean),
         ),
     ];
 }
