@@ -44,8 +44,8 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
         ].join("\n"),
         blip_template_name: "contato_pesquisadesatisfacao_1aavaliacao",
         active_campaign: {
-            flow_id: "atendimento638573549519907613",
-            state_id: "onboarding",
+            flow_id: "",
+            state_id: "",
             masterstate: "fluxocampanhaativa@msging.net",
         },
         parameters: [
