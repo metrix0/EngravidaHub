@@ -33,7 +33,7 @@ export function ChatMessageList({
     scrollbarClassName = DEFAULT_SCROLLBAR_CLASS,
     topContent,
     enablePrewrittenMessages = true,
-    autoScrollToBottom = false,
+    autoScrollToBottom = true,
 }: ChatMessageListProps) {
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -45,9 +45,11 @@ export function ChatMessageList({
     });
 
     const groups = groupMessagesByDate(orderedMessages);
+    const lastMessageId =
+        orderedMessages[orderedMessages.length - 1]?.id ?? null;
 
     useEffect(() => {
-        if (!autoScrollToBottom || isLoading) return;
+        if (!autoScrollToBottom || isLoading || !lastMessageId) return;
 
         const frame = window.requestAnimationFrame(() => {
             const root = rootRef.current;
@@ -56,7 +58,7 @@ export function ChatMessageList({
         });
 
         return () => window.cancelAnimationFrame(frame);
-    }, [autoScrollToBottom, isLoading, orderedMessages.length]);
+    }, [autoScrollToBottom, isLoading, lastMessageId]);
 
     return (
         <>

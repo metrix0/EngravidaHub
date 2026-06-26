@@ -9,6 +9,8 @@ import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
 
 import type { AnalyzeConversationInput, Conversation, Message } from "@/types";
 
+const AD_EVENT_SENDING_ENABLED = false;
+
 export async function processPendingConversationsToAnalysisAndAdEvents({
                                                                limit = 1000,
                                                                conversationIds,
@@ -111,7 +113,14 @@ export async function processPendingConversationsToAnalysisAndAdEvents({
             let metaResult = null;
             let googleResult = null;
 
-            if (adEvents.length > 0) {
+            if (!AD_EVENT_SENDING_ENABLED) {
+                console.log("[processPendingConversationsToAnalysisAndAdEvents] ad event sending disabled", {
+                    conversation_id: conversation.id,
+                    derived_count: adEvents.length,
+                    meta_sent: false,
+                    google_sent: false,
+                });
+            } else if (adEvents.length > 0) {
                 const { data: client, error: clientError } = await supabase
                     .from("clients")
                     .select("phone, email, name")

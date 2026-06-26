@@ -3,14 +3,18 @@ import type {
     ClientNote,
     InboxHistoryResponse,
     InboxItemType,
+    InboxMessage,
     InboxNote,
     InboxStatus,
     InboxThreadDetailResponse,
+    InboxThreadListItem,
     InboxThreadsResponse,
 } from "@/types/inbox";
 
 export const INBOX_THREAD_CACHE_CHANGED_EVENT =
     "inbox-thread-cache-changed";
+
+const OPTIMISTIC_CACHE_TTL_MS = 5_000;
 
 type AddClientNoteResponse = {
     ok: boolean;
@@ -22,11 +26,22 @@ type OptimisticAddClientNoteResponse = {
     optimistic: true;
 };
 
+type PersistedInboxMessageRow = {
+    id: string;
+    sender_type?: string | null;
+    sender_name?: string | null;
+    text?: string | null;
+    sent_at?: string | null;
+    sequence_index?: number | null;
+};
+
 type SendInboxMessageResponse = {
     ok: true;
-    message: unknown;
+    message: PersistedInboxMessageRow | null;
     thread_id: string;
     reopened: boolean;
+    persisted?: boolean;
+    blip_message_id?: string;
 };
 
 type FinalizeInboxThreadResponse = {
@@ -34,11 +49,36 @@ type FinalizeInboxThreadResponse = {
     conversation_id: string | null;
 };
 
+type ThreadListCacheEntry = {
+    response: InboxThreadsResponse;
+    freshUntil: number;
+};
+
+type ThreadListOptimisticSnapshot = {
+    cacheKey: string;
+    item: InboxThreadListItem;
+};
+
+type OptimisticMessageContext = {
+    cacheKey: string;
+    optimisticId: string;
+    threadId: string;
+    previousDetail: InboxThreadDetailResponse | null;
+    listSnapshots: ThreadListOptimisticSnapshot[];
+};
+
 const threadDetailCache = new Map<string, InboxThreadDetailResponse>();
+const threadDetailFreshUntil = new Map<string, number>();
+const threadListCache = new Map<string, ThreadListCacheEntry>();
 const pendingNoteIdsByThread = new Map<string, Set<string>>();
+const pendingMessageIdsByThread = new Map<string, Set<string>>();
 
 function getDetailCacheKey(itemId: string, itemType: InboxItemType) {
     return `${itemType}:${itemId}`;
+}
+
+function getThreadListCacheKey(params: URLSearchParams) {
+    return params.toString();
 }
 
 export async function fetchInboxThreads({
@@ -62,6 +102,13 @@ export async function fetchInboxThreads({
         params.set("search", search.trim());
     }
 
+    const cacheKey = getThreadListCacheKey(params);
+    const cached = threadListCache.get(cacheKey);
+
+    if (cached && cached.freshUntil > Date.now()) {
+        return cloneThreadsResponse(cached.response);
+    }
+
     const response = await fetch(`/api/inbox/threads?${params.toString()}`, {
         credentials: "include",
         cache: "no-store",
@@ -72,7 +119,14 @@ export async function fetchInboxThreads({
         throw new Error(json.error ?? "Failed to load inbox items");
     }
 
-    return json as InboxThreadsResponse;
+    const threadsResponse = json as InboxThreadsResponse;
+
+    threadListCache.set(cacheKey, {
+        response: threadsResponse,
+        freshUntil: 0,
+    });
+
+    return cloneThreadsResponse(threadsResponse);
 }
 
 export async function fetchInboxThread(
@@ -81,11 +135,14 @@ export async function fetchInboxThread(
 ) {
     const cacheKey = getDetailCacheKey(itemId, itemType);
     const cachedThread = threadDetailCache.get(cacheKey);
+    const cachedThreadId = cachedThread?.item.thread_id ?? null;
+    const freshUntil = threadDetailFreshUntil.get(cacheKey) ?? 0;
 
     if (
         cachedThread &&
-        cachedThread.item.thread_id &&
-        hasPendingNotes(cachedThread.item.thread_id)
+        ((cachedThreadId && hasPendingNotes(cachedThreadId)) ||
+            (cachedThreadId && hasPendingMessages(cachedThreadId)) ||
+            freshUntil > Date.now())
     ) {
         return cloneThreadResponse(cachedThread);
     }
@@ -107,6 +164,7 @@ export async function fetchInboxThread(
     const threadResponse = json as InboxThreadDetailResponse;
 
     threadDetailCache.set(cacheKey, threadResponse);
+    threadDetailFreshUntil.delete(cacheKey);
 
     return cloneThreadResponse(threadResponse);
 }
@@ -120,25 +178,54 @@ export async function sendInboxMessage({
     itemType: InboxItemType;
     text: string;
 }) {
-    const response = await fetch(`/api/inbox/threads/${itemId}/messages`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            text,
-            item_type: itemType,
-        }),
-    });
+    const normalizedText = text.trim();
 
-    const json = await response.json();
-
-    if (!response.ok) {
-        throw new Error(json.error ?? "Failed to send message");
+    if (!normalizedText) {
+        throw new Error("Failed to send empty message");
     }
 
-    return json as SendInboxMessageResponse;
+    const optimisticContext = addOptimisticMessage({
+        itemId,
+        itemType,
+        text: normalizedText,
+    });
+
+    try {
+        const response = await fetch(`/api/inbox/threads/${itemId}/messages`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                text: normalizedText,
+                item_type: itemType,
+            }),
+        });
+
+        const json = await response.json();
+
+        if (!response.ok) {
+            throw new Error(json.error ?? "Failed to send message");
+        }
+
+        const result = json as SendInboxMessageResponse;
+
+        if (result.reopened) {
+            finishOptimisticMessage(optimisticContext, {
+                invalidate: true,
+            });
+            return result;
+        }
+
+        confirmOptimisticMessage(optimisticContext, result.message);
+        finishOptimisticMessage(optimisticContext);
+
+        return result;
+    } catch (error) {
+        rollbackOptimisticMessage(optimisticContext);
+        throw error;
+    }
 }
 
 export async function finalizeInboxThread(threadId: string) {
@@ -288,6 +375,13 @@ export async function updateInboxThread({
     return json;
 }
 
+export function isInboxOptimisticSendPending(
+    threadId: string | null | undefined,
+) {
+    if (!threadId) return false;
+    return (pendingMessageIdsByThread.get(threadId)?.size ?? 0) > 0;
+}
+
 async function persistClientNote({
     threadId,
     text,
@@ -318,6 +412,251 @@ async function persistClientNote({
     return json as AddClientNoteResponse;
 }
 
+function addOptimisticMessage({
+    itemId,
+    itemType,
+    text,
+}: {
+    itemId: string;
+    itemType: InboxItemType;
+    text: string;
+}): OptimisticMessageContext {
+    const cacheKey = getDetailCacheKey(itemId, itemType);
+    const cachedThread = threadDetailCache.get(cacheKey) ?? null;
+    const previousDetail = cachedThread
+        ? cloneThreadResponse(cachedThread)
+        : null;
+    const optimisticId = createOptimisticMessageId();
+    const sentAt = new Date().toISOString();
+    const threadId = cachedThread?.item.thread_id ?? itemId;
+
+    if (cachedThread) {
+        const lastSequenceIndex = cachedThread.item.messages.reduce(
+            (highest, message) =>
+                Math.max(highest, message.sequence_index ?? -1),
+            -1,
+        );
+
+        const optimisticMessage: InboxMessage = {
+            id: optimisticId,
+            from: "attendant",
+            sender_type: "attendant",
+            sender_name: cachedThread.item.responsible ?? "Atendente",
+            text,
+            time: formatMessageTime(sentAt),
+            sent_at: sentAt,
+            sequence_index: lastSequenceIndex + 1,
+        };
+
+        replaceCachedThread(cacheKey, {
+            ...cachedThread,
+            item: {
+                ...cachedThread.item,
+                preview: text,
+                time: "agora",
+                lastContact: "agora",
+                messages: [...cachedThread.item.messages, optimisticMessage],
+            },
+        });
+
+        threadDetailFreshUntil.set(
+            cacheKey,
+            Date.now() + OPTIMISTIC_CACHE_TTL_MS,
+        );
+    }
+
+    const listSnapshots = updateCachedThreadListsOptimistically(itemId, text);
+
+    markMessagePending(threadId, optimisticId);
+    notifyThreadCacheChanged(threadId);
+
+    return {
+        cacheKey,
+        optimisticId,
+        threadId,
+        previousDetail,
+        listSnapshots,
+    };
+}
+
+function confirmOptimisticMessage(
+    context: OptimisticMessageContext,
+    savedMessage: PersistedInboxMessageRow | null,
+) {
+    const cachedThread = threadDetailCache.get(context.cacheKey);
+    if (!cachedThread) return;
+
+    const messages = cachedThread.item.messages.map((message) => {
+        if (message.id !== context.optimisticId || !savedMessage) {
+            return message;
+        }
+
+        const sentAt = savedMessage.sent_at ?? message.sent_at;
+
+        return {
+            ...message,
+            id: savedMessage.id,
+            sender_name: savedMessage.sender_name ?? message.sender_name,
+            text: savedMessage.text ?? message.text,
+            sent_at: sentAt,
+            time: formatMessageTime(sentAt),
+            sequence_index:
+                savedMessage.sequence_index ?? message.sequence_index ?? null,
+        } satisfies InboxMessage;
+    });
+
+    replaceCachedThread(context.cacheKey, {
+        ...cachedThread,
+        item: {
+            ...cachedThread.item,
+            messages,
+        },
+    });
+
+    threadDetailFreshUntil.set(
+        context.cacheKey,
+        Date.now() + OPTIMISTIC_CACHE_TTL_MS,
+    );
+}
+
+function finishOptimisticMessage(
+    context: OptimisticMessageContext,
+    { invalidate = false }: { invalidate?: boolean } = {},
+) {
+    unmarkMessagePending(context.threadId, context.optimisticId);
+
+    if (invalidate) {
+        threadDetailFreshUntil.delete(context.cacheKey);
+        invalidateThreadListFreshness(context.listSnapshots);
+    } else {
+        threadDetailFreshUntil.set(
+            context.cacheKey,
+            Date.now() + OPTIMISTIC_CACHE_TTL_MS,
+        );
+        extendThreadListFreshness(context.listSnapshots);
+    }
+
+    notifyThreadCacheChanged(context.threadId);
+}
+
+function rollbackOptimisticMessage(context: OptimisticMessageContext) {
+    unmarkMessagePending(context.threadId, context.optimisticId);
+
+    if (context.previousDetail) {
+        replaceCachedThread(context.cacheKey, context.previousDetail);
+        threadDetailFreshUntil.set(
+            context.cacheKey,
+            Date.now() + OPTIMISTIC_CACHE_TTL_MS,
+        );
+    } else {
+        threadDetailCache.delete(context.cacheKey);
+        threadDetailFreshUntil.delete(context.cacheKey);
+    }
+
+    restoreCachedThreadLists(context.listSnapshots);
+    notifyThreadCacheChanged(context.threadId);
+}
+
+function updateCachedThreadListsOptimistically(
+    itemId: string,
+    text: string,
+): ThreadListOptimisticSnapshot[] {
+    const snapshots: ThreadListOptimisticSnapshot[] = [];
+    const freshUntil = Date.now() + OPTIMISTIC_CACHE_TTL_MS;
+
+    for (const [cacheKey, entry] of threadListCache.entries()) {
+        const existingItem = entry.response.items.find(
+            (item) => item.id === itemId,
+        );
+
+        if (!existingItem) continue;
+
+        snapshots.push({
+            cacheKey,
+            item: { ...existingItem },
+        });
+
+        threadListCache.set(cacheKey, {
+            response: {
+                ...entry.response,
+                items: entry.response.items.map((item) =>
+                    item.id === itemId
+                        ? {
+                              ...item,
+                              preview: text,
+                              time: "agora",
+                              lastContact: "agora",
+                          }
+                        : item,
+                ),
+            },
+            freshUntil,
+        });
+    }
+
+    return snapshots;
+}
+
+function restoreCachedThreadLists(
+    snapshots: ThreadListOptimisticSnapshot[],
+) {
+    for (const snapshot of snapshots) {
+        const entry = threadListCache.get(snapshot.cacheKey);
+        if (!entry) continue;
+
+        threadListCache.set(snapshot.cacheKey, {
+            response: {
+                ...entry.response,
+                items: entry.response.items.map((item) =>
+                    item.id === snapshot.item.id
+                        ? { ...snapshot.item }
+                        : item,
+                ),
+            },
+            freshUntil: Date.now() + OPTIMISTIC_CACHE_TTL_MS,
+        });
+    }
+}
+
+function extendThreadListFreshness(
+    snapshots: ThreadListOptimisticSnapshot[],
+) {
+    const freshUntil = Date.now() + OPTIMISTIC_CACHE_TTL_MS;
+
+    for (const snapshot of snapshots) {
+        const entry = threadListCache.get(snapshot.cacheKey);
+        if (!entry) continue;
+
+        threadListCache.set(snapshot.cacheKey, {
+            ...entry,
+            freshUntil,
+        });
+    }
+}
+
+function invalidateThreadListFreshness(
+    snapshots: ThreadListOptimisticSnapshot[],
+) {
+    for (const snapshot of snapshots) {
+        const entry = threadListCache.get(snapshot.cacheKey);
+        if (!entry) continue;
+
+        threadListCache.set(snapshot.cacheKey, {
+            ...entry,
+            freshUntil: 0,
+        });
+    }
+}
+
+function cloneThreadsResponse(
+    response: InboxThreadsResponse,
+): InboxThreadsResponse {
+    return {
+        ...response,
+        items: response.items.map((item) => ({ ...item })),
+    };
+}
+
 function cloneThreadResponse(
     response: InboxThreadDetailResponse,
 ): InboxThreadDetailResponse {
@@ -325,8 +664,8 @@ function cloneThreadResponse(
         ...response,
         item: {
             ...response.item,
-            messages: [...response.item.messages],
-            notes: [...response.item.notes],
+            messages: response.item.messages.map((message) => ({ ...message })),
+            notes: response.item.notes.map((note) => ({ ...note })),
         },
     };
 }
@@ -419,6 +758,30 @@ function hasPendingNotes(threadId: string) {
     return (pendingNoteIdsByThread.get(threadId)?.size ?? 0) > 0;
 }
 
+function markMessagePending(threadId: string, messageId: string) {
+    const pendingIds =
+        pendingMessageIdsByThread.get(threadId) ?? new Set<string>();
+
+    pendingIds.add(messageId);
+    pendingMessageIdsByThread.set(threadId, pendingIds);
+}
+
+function unmarkMessagePending(threadId: string, messageId: string) {
+    const pendingIds = pendingMessageIdsByThread.get(threadId);
+
+    if (!pendingIds) return;
+
+    pendingIds.delete(messageId);
+
+    if (pendingIds.size === 0) {
+        pendingMessageIdsByThread.delete(threadId);
+    }
+}
+
+function hasPendingMessages(threadId: string) {
+    return (pendingMessageIdsByThread.get(threadId)?.size ?? 0) > 0;
+}
+
 function notifyThreadCacheChanged(threadId: string) {
     if (typeof window === "undefined") return;
 
@@ -434,4 +797,18 @@ function createOptimisticNoteId() {
         `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     return `optimistic-note-${randomId}`;
+}
+
+function createOptimisticMessageId() {
+    const randomId = globalThis.crypto?.randomUUID?.() ??
+        `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return `optimistic-message-${randomId}`;
+}
+
+function formatMessageTime(value: string) {
+    return new Intl.DateTimeFormat("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(new Date(value));
 }

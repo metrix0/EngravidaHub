@@ -4,7 +4,10 @@
 import { useEffect } from "react";
 
 import { supabase } from "@/lib/supabase/client";
-import { INBOX_THREAD_CACHE_CHANGED_EVENT } from "@/lib/inbox/inboxApi";
+import {
+    INBOX_THREAD_CACHE_CHANGED_EVENT,
+    isInboxOptimisticSendPending,
+} from "@/lib/inbox/inboxApi";
 import type { InboxItemType } from "@/types/inbox";
 
 type InboxThreadCacheChangedDetail = {
@@ -54,6 +57,10 @@ export function useInboxRealtime({
                     const oldRecord = payload.old as { id?: string } | null;
                     const changedThreadId = newRecord?.id ?? oldRecord?.id ?? null;
 
+                    if (isInboxOptimisticSendPending(changedThreadId)) {
+                        return;
+                    }
+
                     onThreadChange();
 
                     if (
@@ -98,10 +105,12 @@ export function useInboxRealtime({
                     const newRecord = payload.new as {
                         thread_id?: string;
                         conversation_id?: string;
+                        sender_type?: string;
                     } | null;
                     const oldRecord = payload.old as {
                         thread_id?: string;
                         conversation_id?: string;
+                        sender_type?: string;
                     } | null;
 
                     const changedThreadId =
@@ -110,6 +119,15 @@ export function useInboxRealtime({
                         newRecord?.conversation_id ??
                         oldRecord?.conversation_id ??
                         null;
+                    const senderType =
+                        newRecord?.sender_type ?? oldRecord?.sender_type ?? null;
+
+                    if (
+                        senderType === "attendant" &&
+                        isInboxOptimisticSendPending(changedThreadId)
+                    ) {
+                        return;
+                    }
 
                     onThreadChange();
 

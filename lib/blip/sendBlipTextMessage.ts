@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 
 const BLIP_WHATSAPP_SUFFIX = "@wa.gw.msging.net";
 const BLIP_REQUEST_TIMEOUT_MS = 20_000;
+const BLIP_MESSAGES_CONTRACT_ID = "engravida";
 
 export type BlipDeliveryEvent = {
     event: string;
@@ -104,9 +105,8 @@ export async function sendBlipTextMessage({
         throw new Error("Blip message text is required");
     }
 
-    const contractId = getBlipContractId();
-    const authKey = getBlipAuthKey();
-    const endpoint = `https://${contractId}.http.msging.net/messages`;
+    const auth = getBlipAuth();
+    const endpoint = `https://${BLIP_MESSAGES_CONTRACT_ID}.http.msging.net/messages`;
     const to = toBlipWhatsAppIdentity(recipientNumber);
     const id = randomUUID();
     const startedAtMs = Date.now();
@@ -147,8 +147,10 @@ export async function sendBlipTextMessage({
         method: debug.method,
         headers: debug.headers,
         body: debug.body,
+        messages_contract_id: BLIP_MESSAGES_CONTRACT_ID,
+        auth_key_source: auth.source,
         auth_key_configured: true,
-        auth_key_length: authKey.length,
+        auth_key_length: auth.key.length,
         timeout_ms: BLIP_REQUEST_TIMEOUT_MS,
     });
 
@@ -160,7 +162,7 @@ export async function sendBlipTextMessage({
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",
-                Authorization: `Key ${authKey}`,
+                Authorization: `Key ${auth.key}`,
             },
             body: JSON.stringify(messageBody),
             cache: "no-store",
@@ -258,46 +260,42 @@ export function toBlipWhatsAppIdentity(value: string) {
     return `${digits}${BLIP_WHATSAPP_SUFFIX}`;
 }
 
-function getBlipContractId() {
-    const rawValue = process.env.BLIP_CONTRACT_ID?.trim();
+function getBlipAuth(): {
+    key: string;
+    source: "BLIP_KEY" | "BLIP_ROUTER_AUTH_KEY" | "BLIP_AUTH_KEY";
+} {
+    const options = [
+        {
+            source: "BLIP_KEY" as const,
+            value: process.env.BLIP_KEY,
+        },
+        {
+            source: "BLIP_ROUTER_AUTH_KEY" as const,
+            value: process.env.BLIP_ROUTER_AUTH_KEY,
+        },
+        {
+            source: "BLIP_AUTH_KEY" as const,
+            value: process.env.BLIP_AUTH_KEY,
+        },
+    ];
 
-    if (!rawValue) {
-        throw new BlipConfigurationError(
-            "BLIP_CONTRACT_ID não está configurado no servidor.",
-        );
+    for (const option of options) {
+        const rawValue = option.value?.trim();
+        if (!rawValue) continue;
+
+        const key = rawValue.replace(/^Key\s+/i, "").trim();
+
+        if (key) {
+            return {
+                key,
+                source: option.source,
+            };
+        }
     }
 
-    const contractId = rawValue
-        .replace(/^https?:\/\//i, "")
-        .replace(/\.http\.msging\.net(?:\/.*)?$/i, "")
-        .replace(/\/.*$/, "")
-        .trim();
-
-    if (!/^[a-z0-9][a-z0-9.-]*$/i.test(contractId)) {
-        throw new BlipConfigurationError(
-            `BLIP_CONTRACT_ID é inválido: ${maskValue(rawValue)}`,
-        );
-    }
-
-    return contractId;
-}
-
-function getBlipAuthKey() {
-    const rawValue = process.env.BLIP_AUTH_KEY?.trim();
-
-    if (!rawValue) {
-        throw new BlipConfigurationError(
-            "BLIP_AUTH_KEY não está configurado no servidor.",
-        );
-    }
-
-    const authKey = rawValue.replace(/^Key\s+/i, "").trim();
-
-    if (!authKey) {
-        throw new BlipConfigurationError("BLIP_AUTH_KEY é inválido.");
-    }
-
-    return authKey;
+    throw new BlipConfigurationError(
+        "Nenhuma chave da Blip está configurada. Configure BLIP_KEY, BLIP_ROUTER_AUTH_KEY ou BLIP_AUTH_KEY.",
+    );
 }
 
 function finishDebug(debug: BlipHttpDebug, startedAtMs: number) {
@@ -331,9 +329,4 @@ function extractBlipErrorDetails(responseBody: string) {
 
 function limitLength(value: string) {
     return value.length > 1000 ? `${value.slice(0, 997)}...` : value;
-}
-
-function maskValue(value: string) {
-    if (value.length <= 8) return "***";
-    return `${value.slice(0, 3)}***${value.slice(-3)}`;
 }
