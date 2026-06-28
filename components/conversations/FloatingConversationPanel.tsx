@@ -213,7 +213,7 @@ export function FloatingConversationPanel() {
   const currentUserName = currentUser?.user?.name ?? "Você";
 
   const openedSidePanelIds = useRef(new Set<string>());
-  const hydratedRef = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
   const showTimerRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const ticketRequestRef = useRef(0);
@@ -916,17 +916,17 @@ export function FloatingConversationPanel() {
     );
     selectedRef.current = nextSelected;
     setSelected(nextSelected);
-    if (nextSelected) showDockExpanded();
+    if (nextSelected) showDock(true);
 
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     window.localStorage.removeItem(PENDING_TICKET_KEY);
     window.localStorage.removeItem(PENDING_INTERNAL_GROUP_KEY);
     window.localStorage.removeItem(OLD_DOCK_STORAGE_KEY);
-    hydratedRef.current = true;
-  }, [showDockExpanded]);
+    setHydrated(true);
+  }, [showDock]);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!hydrated) return;
 
     const state: PersistedRailState = {
       tickets,
@@ -935,7 +935,7 @@ export function FloatingConversationPanel() {
     };
 
     window.localStorage.setItem(RAIL_STORAGE_KEY, JSON.stringify(state));
-  }, [hiddenInternalConversationIds, selected, tickets]);
+  }, [hiddenInternalConversationIds, hydrated, selected, tickets]);
 
   useEffect(() => {
     function handleOpenTicket(event: Event) {
@@ -1547,6 +1547,8 @@ export function FloatingConversationPanel() {
     visibleRef.current = false;
     setVisible(false);
     closeTimerRef.current = window.setTimeout(() => {
+      selectedRef.current = null;
+      setSelected(null);
       collapsedRef.current = false;
       setCollapsed(false);
       setRailCollapsed(true);
@@ -1995,7 +1997,6 @@ function ChatRail({
           </div>
 
           <div className="my-4 h-px bg-slate-100" />
-
           <RailSectionTitle label="Internos" />
           <div className="space-y-2">
             {internalConversations.map((conversation) => (
@@ -2054,7 +2055,9 @@ function ChatRail({
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
         style={{
-          right: collapsed ? "100%" : "calc(100% + 226px)",
+          right: collapsed
+            ? "calc(100% + 6px)"
+            : "calc(100% + 226px)",
         }}
         title={collapsed ? "Mostrar chats" : "Ocultar chats"}
       >

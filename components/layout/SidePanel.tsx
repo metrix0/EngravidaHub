@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
     BriefcaseBusiness,
+    CalendarDays,
     ChevronRight,
     Flag,
     Funnel,
@@ -79,6 +80,7 @@ const defaultItems: SidePanelEntry[] = [
 
     { type: "separator", id: "crm" },
     { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
+    { label: "Agendamentos", href: "/agendamentos", icon: <CalendarDays size={18} />, tabId: "inbox" },
     { label: "Mensagem Ativa", href: "/mensagem-ativa", icon: <Send size={18} />, tabId: "mensagem_ativa" },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
     { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
@@ -157,7 +159,9 @@ function PersistentSidePanel({
     const currentUserId = currentUser?.user?.id ?? null;
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
 
-    const isInbox = pathname.startsWith("/inbox");
+    const isInbox =
+        pathname.startsWith("/inbox") ||
+        pathname.startsWith("/agendamentos");
     const resolvedAffectLayout = affectLayout ?? !isInbox;
 
     const [isExpanded, setIsExpanded] = useState(

@@ -3,35 +3,49 @@ import { NextResponse } from "next/server";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
-import { loadSchedulingContext } from "@/lib/inbox/schedulingData";
+import {
+    loadSchedulingClientContext,
+    loadSchedulingContext,
+} from "@/lib/inbox/schedulingData";
 
 export async function GET(request: Request) {
     try {
-        const { attendant } =
-            await getCurrentAttendantFromRequest();
+        const { user, attendant } = await getCurrentAttendantFromRequest();
 
-        if (!attendant || !attendant.is_online) {
+        if (!user) {
             return NextResponse.json(
-                { ok: false, error: "Not allowed" },
-                { status: 403 },
+                { ok: false, error: "Not authenticated" },
+                { status: 401 },
             );
         }
 
         const { searchParams } = new URL(request.url);
         const threadId = searchParams.get("thread_id");
+        const clientId = searchParams.get("client_id");
 
-        if (!threadId) {
+        if (!threadId && !clientId) {
             return NextResponse.json(
-                { ok: false, error: "thread_id is required" },
+                { ok: false, error: "thread_id or client_id is required" },
                 { status: 400 },
             );
         }
 
-        const context = await loadSchedulingContext(
-            supabase,
-            threadId,
-            attendant.id,
-        );
+        const context = threadId
+            ? attendant?.is_online
+                ? await loadSchedulingContext(
+                      supabase,
+                      threadId,
+                      attendant.id,
+                  )
+                : null
+            : await loadSchedulingClientContext(supabase, clientId!);
+
+        if (threadId && (!attendant || !attendant.is_online)) {
+            return NextResponse.json(
+                { ok: false, error: "Not allowed" },
+                { status: 403 },
+            );
+        }
 
         if (!context) {
             return NextResponse.json(
@@ -43,6 +57,8 @@ export async function GET(request: Request) {
         return NextResponse.json({
             client: context.client,
             spouse: context.spouse,
+            units: context.units,
+            doctors: context.doctors,
             suggestedFormat: context.suggestedFormat,
             form: context.form,
         });

@@ -62,6 +62,14 @@ export function normalizeAllowedTabs(value: unknown): AppTabId[] {
 export function getTabIdForPathname(pathname: string): AppTabId | null {
     if (pathname === "/") return "dashboard";
 
+    // Agendamentos is part of the Inbox workflow and uses the same permission.
+    if (
+        pathname === "/agendamentos" ||
+        pathname.startsWith("/agendamentos/")
+    ) {
+        return "inbox";
+    }
+
     for (const tabId of APP_TAB_ROUTE_ORDER) {
         if (tabId === "dashboard") continue;
 

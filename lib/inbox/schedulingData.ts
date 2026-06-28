@@ -4,8 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
     SchedulingClientProfile,
     SchedulingDataResponse,
+    SchedulingDoctorOption,
     SchedulingForm,
     SchedulingPersonFields,
+    SchedulingUnitOption,
 } from "@/types/scheduling";
 
 const CLIENT_SELECT = `
@@ -20,7 +22,20 @@ const CLIENT_SELECT = `
     cep,
     cpf,
     birth_date,
-    spouse_client_id
+    spouse_client_id,
+    unit_id
+`;
+
+const UNIT_SELECT = `
+    id,
+    name,
+    city,
+    state,
+    street,
+    number,
+    cep,
+    latitude,
+    longitude
 `;
 
 type SchedulingThread = {
@@ -41,30 +56,45 @@ export async function loadSchedulingContext(
         .eq("assigned_attendant_id", attendantId)
         .maybeSingle();
 
-    if (threadError) {
-        throw threadError;
-    }
+    if (threadError) throw threadError;
+    if (!thread) return null;
 
-    if (!thread) {
-        return null;
-    }
+    const context = await loadSchedulingClientContext(
+        supabase,
+        thread.client_id,
+    );
 
-    const client = await fetchClientProfile(supabase, thread.client_id);
+    return context
+        ? {
+              ...context,
+              thread: thread as SchedulingThread,
+          }
+        : null;
+}
 
-    if (!client) {
-        return null;
-    }
+export async function loadSchedulingClientContext(
+    supabase: SupabaseClient,
+    clientId: string,
+): Promise<SchedulingDataResponse | null> {
+    const [client, units, doctors] = await Promise.all([
+        fetchClientProfile(supabase, clientId),
+        fetchUnits(supabase),
+        fetchDoctors(supabase),
+    ]);
+
+    if (!client) return null;
 
     const spouse = client.spouse_client_id
         ? await fetchClientProfile(supabase, client.spouse_client_id)
         : null;
 
     return {
-        thread: thread as SchedulingThread,
         client,
         spouse,
+        units,
+        doctors,
         suggestedFormat: spouse ? "casal" : "congelamento",
-        form: buildSchedulingForm(client, spouse),
+        form: buildSchedulingForm(client, spouse, units, doctors),
     };
 }
 
@@ -78,26 +108,133 @@ async function fetchClientProfile(
         .eq("id", clientId)
         .maybeSingle();
 
-    if (error) {
-        throw error;
-    }
-
+    if (error) throw error;
     return (data as SchedulingClientProfile | null) ?? null;
+}
+
+async function fetchUnits(supabase: SupabaseClient) {
+    const { data, error } = await supabase
+        .from("units")
+        .select(UNIT_SELECT)
+        .eq("active", true)
+        .order("name", { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []) as SchedulingUnitOption[];
+}
+
+async function fetchDoctors(supabase: SupabaseClient) {
+    const { data, error } = await supabase
+        .from("doctor_units")
+        .select(`
+            unit_id,
+            doctor:doctors!inner (
+                id,
+                name,
+                specialty,
+                crm,
+                color,
+                email,
+                phone,
+                active
+            )
+        `)
+        .eq("active", true)
+        .eq("doctor.active", true);
+
+    if (error) throw error;
+
+    return (data ?? [])
+        .flatMap((row) => {
+            const doctor = Array.isArray(row.doctor)
+                ? row.doctor[0]
+                : row.doctor;
+
+            if (!doctor) return [];
+
+            return [{
+                unit_id: row.unit_id,
+                id: doctor.id,
+                name: doctor.name,
+                specialty: doctor.specialty,
+                crm: doctor.crm,
+                color: doctor.color,
+                email: doctor.email,
+                phone: doctor.phone,
+            } satisfies SchedulingDoctorOption];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
 function buildSchedulingForm(
     client: SchedulingClientProfile,
     spouse: SchedulingClientProfile | null,
+    units: SchedulingUnitOption[],
+    doctors: SchedulingDoctorOption[],
 ): SchedulingForm {
+    const unitId = chooseInitialUnit(client, units);
+    const unitDoctors = doctors.filter((doctor) => doctor.unit_id === unitId);
+
     return {
+        unitId,
+        doctorId: unitDoctors.length === 1 ? unitDoctors[0].id : "",
         schedulingDate: "",
+        schedulingTime: "",
+        durationMinutes: 45,
+        procedureName: "Consulta",
         primary: mapClientToPerson(client),
         spouse: spouse ? mapClientToPerson(spouse) : emptyPerson(),
         address: buildAddress(client),
+        notes: "",
     };
 }
 
-function mapClientToPerson(client: SchedulingClientProfile): SchedulingPersonFields {
+function chooseInitialUnit(
+    client: SchedulingClientProfile,
+    units: SchedulingUnitOption[],
+) {
+    if (client.unit_id && units.some((unit) => unit.id === client.unit_id)) {
+        return client.unit_id;
+    }
+
+    const address = normalizeText(
+        [
+            client.street,
+            client.number,
+            client.state,
+            client.country,
+            client.cep,
+        ]
+            .filter(Boolean)
+            .join(" "),
+    );
+
+    if (!address) return "";
+
+    let bestMatch = "";
+    let bestScore = 0;
+
+    for (const unit of units) {
+        const candidates = [unit.name, unit.city, unit.state, unit.cep]
+            .filter(Boolean)
+            .map((value) => normalizeText(String(value)));
+        const score = candidates.reduce(
+            (total, value) => total + (value && address.includes(value) ? 1 : 0),
+            0,
+        );
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestMatch = unit.id;
+        }
+    }
+
+    return bestMatch;
+}
+
+function mapClientToPerson(
+    client: SchedulingClientProfile,
+): SchedulingPersonFields {
     return {
         fullName: client.name?.trim() ?? "",
         cpf: formatCpf(client.cpf ?? ""),
@@ -108,15 +245,15 @@ function mapClientToPerson(client: SchedulingClientProfile): SchedulingPersonFie
 }
 
 function buildAddress(client: SchedulingClientProfile) {
-    const parts = [
+    return [
         client.street?.trim(),
         client.number?.trim(),
         client.state?.trim(),
         client.country?.trim(),
         client.cep ? `CEP ${formatCep(client.cep)}` : null,
-    ].filter(Boolean);
-
-    return parts.join(", ");
+    ]
+        .filter(Boolean)
+        .join(", ");
 }
 
 function emptyPerson(): SchedulingPersonFields {
@@ -131,16 +268,12 @@ function emptyPerson(): SchedulingPersonFields {
 
 function formatStoredDate(value: string | null) {
     if (!value) return "";
-
     const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-    if (!isoMatch) return value;
-
-    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    return isoMatch ? `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}` : value;
 }
 
 function formatCpf(value: string) {
     const digits = onlyDigits(value).slice(0, 11);
-
     return digits
         .replace(/^(\d{3})(\d)/, "$1.$2")
         .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
@@ -149,27 +282,28 @@ function formatCpf(value: string) {
 
 function formatPhone(value: string) {
     let digits = onlyDigits(value);
-
     if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
         digits = digits.slice(2);
     }
-
     digits = digits.slice(0, 11);
 
-    if (digits.length <= 10) {
-        return digits
-            .replace(/^(\d{2})(\d)/, "($1) $2")
-            .replace(/(\d{4})(\d)/, "$1-$2");
-    }
-
-    return digits
-        .replace(/^(\d{2})(\d)/, "($1) $2")
-        .replace(/(\d{5})(\d)/, "$1-$2");
+    return digits.length <= 10
+        ? digits.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2")
+        : digits.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function formatCep(value: string) {
-    const digits = onlyDigits(value).slice(0, 8);
-    return digits.replace(/^(\d{5})(\d)/, "$1-$2");
+    return onlyDigits(value).slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2");
+}
+
+function normalizeText(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function onlyDigits(value: string) {

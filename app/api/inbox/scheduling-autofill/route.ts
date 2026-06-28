@@ -19,17 +19,22 @@ const requestSchema = z.object({
     threadId: z.string().uuid(),
     format: z.enum(["congelamento", "casal"]),
     form: z.object({
+        unitId: z.string().max(80),
+        doctorId: z.string().max(80),
         schedulingDate: z.string().max(80),
+        schedulingTime: z.string().max(20),
+        durationMinutes: z.number().int().min(15).max(480),
+        procedureName: z.string().max(180),
         primary: personSchema,
         spouse: personSchema,
         address: z.string().max(500),
+        notes: z.string().max(1000),
     }),
 });
 
 export async function POST(request: Request) {
     try {
-        const { attendant } =
-            await getCurrentAttendantFromRequest();
+        const { attendant } = await getCurrentAttendantFromRequest();
 
         if (!attendant || !attendant.is_online) {
             return NextResponse.json(
@@ -72,11 +77,9 @@ export async function POST(request: Request) {
             .eq("thread_id", parsed.data.threadId)
             .order("sent_at", { ascending: false })
             .order("sequence_index", { ascending: false })
-            .limit(10);
+            .limit(100);
 
-        if (messagesError) {
-            throw messagesError;
-        }
+        if (messagesError) throw messagesError;
 
         const orderedMessages = [...(messages ?? [])].reverse();
 
@@ -85,6 +88,8 @@ export async function POST(request: Request) {
             currentForm: parsed.data.form,
             client: context.client,
             spouse: context.spouse,
+            units: context.units,
+            doctors: context.doctors,
             messages: orderedMessages,
         });
 
