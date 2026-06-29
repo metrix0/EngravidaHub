@@ -38,6 +38,7 @@ type TabId =
     | "eventos"
     | "usuarios"
     | "inbox"
+    | "agendamentos"
     | "mensagem_ativa"
     | "internos"
     | "clientes"
@@ -155,7 +156,8 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
-    { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 65 },
+    { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
+    { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
     { id: "funil", label: "Funil", href: "/funil", color: "green", position: 90 },
@@ -174,6 +176,7 @@ const PRESETS: PermissionPreset[] = [
             "eventos",
             "usuarios",
             "inbox",
+            "agendamentos",
             "mensagem_ativa",
             "internos",
             "clientes",
@@ -190,7 +193,6 @@ const PRESETS: PermissionPreset[] = [
             "conversas",
             "jornada",
             "eventos",
-            "inbox",
             "internos",
             "clientes",
             "funil",
@@ -201,14 +203,27 @@ const PRESETS: PermissionPreset[] = [
         name: "Atendente",
         color: "green",
         icon: "headphones",
-        default_tabs: ["inbox", "mensagem_ativa", "internos", "clientes", "funil"],
+        default_tabs: [
+            "inbox",
+            "agendamentos",
+            "mensagem_ativa",
+            "internos",
+            "clientes",
+            "funil",
+        ],
     },
     {
         id: "marketing",
         name: "Marketing",
         color: "orange",
         icon: "megaphone",
-        default_tabs: ["dashboard", "jornada", "eventos", "mensagem_ativa", "internos"],
+        default_tabs: [
+            "dashboard",
+            "jornada",
+            "eventos",
+            "mensagem_ativa",
+            "internos",
+        ],
     },
 ];
 
@@ -523,6 +538,25 @@ export default function UsuariosPage() {
             if (!response.ok) {
                 throw new Error(json.error ?? "Erro ao salvar permissões");
             }
+
+            if (patchHasPreset || patch.allowed_tabs !== undefined) {
+                const tabsResponse = await fetch("/api/usuarios/allowed-tabs", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        auth_user_id: user.id,
+                        preset: nextPermission.preset,
+                        allowed_tabs: nextPermission.allowed_tabs,
+                    }),
+                });
+                const tabsJson = await tabsResponse.json();
+
+                if (!tabsResponse.ok) {
+                    throw new Error(
+                        tabsJson.error ?? "Erro ao salvar abas permitidas",
+                    );
+                }
+            }
         } catch (saveError) {
             console.error("[usuarios] failed to save", saveError);
             setData(previousData);
@@ -755,6 +789,7 @@ export default function UsuariosPage() {
                         onRowClick={(user) => setSelectedUserId(user.id)}
                     />
                 </section>
+                <div className={"pt-16"}></div>
             </section>
 
             <UserDetailsPanel

@@ -17,7 +17,12 @@ import { FaFacebookF, FaInstagram, FaWhatsapp } from "react-icons/fa6";
 
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import InfoTooltip from "@/components/ui/InfoTooltip";
+import {
+    getSchedulingProcedureOptions,
+    SCHEDULING_DURATION_OPTIONS,
+} from "@/lib/scheduling/options";
 import type { InboxChannel } from "@/types/inbox";
 import type {
     SchedulingDataResponse,
@@ -618,11 +623,6 @@ export default function SchedulingPanel({
                     </div>
                     )}
 
-                    {autofillError && <ErrorMessage message={autofillError} />}
-                    {autofillSuccess && (
-                        <SuccessMessage message="Dados preenchidos com base no cadastro e na conversa." />
-                    )}
-
                     <SelectField
                         label="Unidade"
                         value={form.unitId}
@@ -656,6 +656,27 @@ export default function SchedulingPanel({
                         onChange={(value) => updateField("doctorId", value)}
                         error={errors.doctorId}
                     />
+
+                    <div className="grid grid-cols-[0.75fr_1.25fr] gap-3">
+                        <SelectField
+                            label="Duração"
+                            value={String(form.durationMinutes)}
+                            disabled={disabled}
+                            options={SCHEDULING_DURATION_OPTIONS}
+                            onChange={(value) =>
+                                updateField("durationMinutes", Number(value))
+                            }
+                        />
+                        <SelectField
+                            label="Procedimento"
+                            value={form.procedureName}
+                            disabled={disabled}
+                            options={getSchedulingProcedureOptions(form.procedureName)}
+                            onChange={(value) => updateField("procedureName", value)}
+                            error={errors.procedureName}
+                            placeholder="Selecione o procedimento"
+                        />
+                    </div>
 
                     <section className="py-2">
                         <div className="mb-3 text-sm font-bold text-slate-950">
@@ -699,29 +720,6 @@ export default function SchedulingPanel({
                             error={errors.schedulingTime}
                             placeholder="HH:MM"
                             inputMode="numeric"
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-[0.75fr_1.25fr] gap-3">
-                        <SelectField
-                            label="Duração"
-                            value={String(form.durationMinutes)}
-                            disabled={disabled}
-                            options={[30, 45, 60, 90, 120].map((minutes) => ({
-                                value: String(minutes),
-                                label: `${minutes} min`,
-                            }))}
-                            onChange={(value) =>
-                                updateField("durationMinutes", Number(value))
-                            }
-                        />
-                        <FormField
-                            label="Procedimento"
-                            value={form.procedureName}
-                            disabled={disabled}
-                            onChange={(value) => updateField("procedureName", value)}
-                            error={errors.procedureName}
-                            placeholder="Consulta"
                         />
                     </div>
 
@@ -811,85 +809,37 @@ function ClientSearchField({
     onSelect: (option: SchedulingClientOption) => void;
     error?: string;
 }) {
-    const [open, setOpen] = useState(false);
-
     return (
-        <div className="relative">
-            <label className="block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Cliente
-                </span>
-
-                <div className="relative">
-                    <Search
-                        size={16}
-                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                    <input
-                        value={query}
-                        disabled={disabled}
-                        autoComplete="off"
-                        placeholder={
-                            loading
-                                ? "Carregando clientes..."
-                                : "Digite nome ou telefone"
-                        }
-                        onFocus={() => setOpen(true)}
-                        onBlur={() => {
-                            window.setTimeout(() => setOpen(false), 100);
-                        }}
-                        onChange={(event) => {
-                            onQueryChange(event.target.value);
-                            setOpen(true);
-                        }}
-                        className={`h-11 w-full rounded-xl border bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:ring-0 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
-                            error ? "border-red" : "border-slate-200 focus:border-brand"
-                        }`}
-                    />
-                </div>
-            </label>
-
-            {open && !disabled && (
-                <div className="absolute z-40 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                    {loading ? (
-                        <div className="flex items-center gap-2 px-3 py-3 text-sm text-slate-500">
-                            <LoaderCircle size={15} className="animate-spin" />
-                            Carregando clientes...
-                        </div>
-                    ) : options.length === 0 ? (
-                        <div className="px-3 py-3 text-sm text-slate-400">
-                            Nenhum cliente encontrado.
-                        </div>
-                    ) : (
-                        options.map((option) => (
-                            <button
-                                key={option.id}
-                                type="button"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => {
-                                    onSelect(option);
-                                    setOpen(false);
-                                }}
-                                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-selection ${
-                                    selectedClientId === option.id
-                                        ? "bg-brand-soft"
-                                        : "bg-white"
-                                }`}
-                            >
-                                <span className="min-w-0">
-                                    <span className="block truncate text-sm font-bold text-slate-800">
-                                        {option.name?.trim() || "Cliente sem nome"}
-                                    </span>
-                                    <span className="mt-0.5 block truncate text-xs text-slate-500">
-                                        {formatClientPhone(option.phone)}
-                                    </span>
-                                </span>
-                            </button>
-                        ))
-                    )}
-                </div>
-            )}
-
+        <div>
+            <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Cliente
+            </span>
+            <DropdownSelect
+                value={selectedClientId}
+                onChange={(value) => {
+                    const option = options.find((item) => item.id === value);
+                    if (option) onSelect(option);
+                }}
+                options={options.map((option) => ({
+                    value: option.id,
+                    label: option.name?.trim() || "Cliente sem nome",
+                    description: formatClientPhone(option.phone),
+                }))}
+                searchable
+                searchValue={query}
+                onSearchChange={onQueryChange}
+                searchPlaceholder={
+                    loading ? "Carregando clientes..." : "Digite nome ou telefone"
+                }
+                icon={<Search size={16} className="shrink-0 text-slate-400" />}
+                disabled={disabled}
+                loading={loading}
+                loadingLabel="Carregando clientes..."
+                emptyLabel="Nenhum cliente encontrado."
+                invalid={Boolean(error)}
+                widthClassName="w-full"
+                dropdownWidthClassName="w-full"
+            />
             {error && (
                 <span className="mt-1.5 block text-xs font-medium text-red">
                     {error}
@@ -1066,31 +1016,26 @@ function SelectField({
     error?: string;
 }) {
     return (
-        <label className="block">
+        <div>
             <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                 {label}
             </span>
-            <select
+            <DropdownSelect
                 value={value}
+                onChange={onChange}
+                options={options}
+                placeholder={placeholder}
                 disabled={disabled}
-                onChange={(event) => onChange(event.target.value)}
-                className={`h-11 w-full rounded-xl border bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:ring-0 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
-                    error ? "border-red" : "border-slate-200 focus:border-brand"
-                }`}
-            >
-                <option value="">{placeholder}</option>
-                {options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                        {option.label}
-                    </option>
-                ))}
-            </select>
+                invalid={Boolean(error)}
+                widthClassName="w-full"
+                dropdownWidthClassName="w-full"
+            />
             {error && (
                 <span className="mt-1.5 block text-xs font-medium text-red">
                     {error}
                 </span>
             )}
-        </label>
+        </div>
     );
 }
 

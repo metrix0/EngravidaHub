@@ -4,8 +4,8 @@ import { uiRegistry } from "./uiRegistry.generated";
 
 export default function DevUiPage() {
     return (
-        <main className="min-h-screen bg-slate-50 px-8 py-10 text-slate-900">
-            <div className="mx-auto max-w-5xl">
+        <main className="h-screen overflow-y-auto bg-slate-50 px-8 py-10 text-slate-900">
+            <div className="mx-auto max-w-5xl pb-10">
                 <div className="mb-10">
                     <h1 className="text-3xl font-bold">UI Components</h1>
                     <p className="mt-2 text-sm text-slate-500">

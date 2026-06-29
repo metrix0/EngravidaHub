@@ -80,11 +80,11 @@ const defaultItems: SidePanelEntry[] = [
 
     { type: "separator", id: "crm" },
     { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
-    { label: "Agendamentos", href: "/agendamentos", icon: <CalendarDays size={18} />, tabId: "inbox" },
-    { label: "Mensagem Ativa", href: "/mensagem-ativa", icon: <Send size={18} />, tabId: "mensagem_ativa" },
+    { label: "Agendamentos", href: "/agendamentos", icon: <CalendarDays size={18} />, tabId: "agendamentos" },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
     { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
     { label: "Funil", href: "/funil", icon: <Funnel size={18} />, tabId: "funil" },
+    { label: "Mensagem Ativa", href: "/mensagem-ativa", icon: <Send size={18} />, tabId: "mensagem_ativa" },
 
     { type: "separator", id: "usuarios" },
     { label: "Internos", href: "/internos", icon: <BriefcaseBusiness size={18} />, tabId: "internos" },

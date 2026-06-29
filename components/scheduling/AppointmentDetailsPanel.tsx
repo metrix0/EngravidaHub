@@ -15,6 +15,11 @@ import {
 
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import {
+    getSchedulingProcedureOptions,
+    SCHEDULING_DURATION_OPTIONS,
+} from "@/lib/scheduling/options";
 import type {
     AppointmentStatus,
     CalendarAppointment,
@@ -265,59 +270,53 @@ export default function AppointmentDetailsPanel({
 
                     <div className="grid grid-cols-2 gap-3">
                         <Field label="Duração">
-                            <select
-                                value={form.durationMinutes}
-                                onChange={(event) =>
+                            <DropdownSelect
+                                value={String(form.durationMinutes)}
+                                onChange={(value) =>
                                     setForm((current) =>
                                         current
                                             ? {
                                                   ...current,
-                                                  durationMinutes: Number(
-                                                      event.target.value,
-                                                  ),
+                                                  durationMinutes: Number(value),
                                               }
                                             : current,
                                     )
                                 }
-                                className={controlClass}
-                            >
-                                {[30, 45, 60, 90, 120].map((minutes) => (
-                                    <option key={minutes} value={minutes}>
-                                        {minutes} min
-                                    </option>
-                                ))}
-                            </select>
+                                options={SCHEDULING_DURATION_OPTIONS}
+                                widthClassName="w-full"
+                                dropdownWidthClassName="w-full"
+                            />
                         </Field>
                         <Field label="Status">
-                            <select
+                            <DropdownSelect
                                 value={form.status}
-                                onChange={(event) =>
+                                onChange={(value) =>
                                     setForm((current) =>
                                         current
                                             ? {
                                                   ...current,
-                                                  status: event.target
-                                                      .value as AppointmentStatus,
+                                                  status: value as AppointmentStatus,
                                               }
                                             : current,
                                     )
                                 }
-                                className={controlClass}
-                            >
-                                <option value="scheduled">Agendado</option>
-                                <option value="confirmed">Confirmado</option>
-                                <option value="completed">Concluído</option>
-                                <option value="cancelled">Cancelado</option>
-                                <option value="no_show">Não compareceu</option>
-                            </select>
+                                options={[
+                                    { value: "scheduled", label: "Agendado" },
+                                    { value: "confirmed", label: "Confirmado" },
+                                    { value: "completed", label: "Concluído" },
+                                    { value: "cancelled", label: "Cancelado" },
+                                    { value: "no_show", label: "Não compareceu" },
+                                ]}
+                                widthClassName="w-full"
+                                dropdownWidthClassName="w-full"
+                            />
                         </Field>
                     </div>
 
                     <Field label="Unidade">
-                        <select
+                        <DropdownSelect
                             value={form.unitId}
-                            onChange={(event) => {
-                                const unitId = event.target.value;
+                            onChange={(unitId) => {
                                 setForm((current) =>
                                     current
                                         ? {
@@ -334,55 +333,47 @@ export default function AppointmentDetailsPanel({
                                         : current,
                                 );
                             }}
-                            className={controlClass}
-                        >
-                            <option value="">Selecione</option>
-                            {units.map((unit) => (
-                                <option key={unit.id} value={unit.id}>
-                                    {unit.name}
-                                </option>
-                            ))}
-                        </select>
+                            options={units.map((unit) => ({
+                                value: unit.id,
+                                label: unit.name,
+                            }))}
+                            placeholder="Selecione"
+                            widthClassName="w-full"
+                            dropdownWidthClassName="w-full"
+                        />
                     </Field>
 
                     <Field label="Médico">
-                        <select
+                        <DropdownSelect
                             value={form.doctorId}
-                            onChange={(event) =>
+                            onChange={(doctorId) =>
                                 setForm((current) =>
-                                    current
-                                        ? {
-                                              ...current,
-                                              doctorId: event.target.value,
-                                          }
-                                        : current,
+                                    current ? { ...current, doctorId } : current,
                                 )
                             }
-                            className={controlClass}
-                        >
-                            <option value="">Selecione</option>
-                            {availableDoctors.map((doctor) => (
-                                <option key={doctor.id} value={doctor.id}>
-                                    {doctor.name}
-                                </option>
-                            ))}
-                        </select>
+                            options={availableDoctors.map((doctor) => ({
+                                value: doctor.id,
+                                label: doctor.name,
+                            }))}
+                            placeholder="Selecione"
+                            disabled={!form.unitId || availableDoctors.length === 0}
+                            widthClassName="w-full"
+                            dropdownWidthClassName="w-full"
+                        />
                     </Field>
 
                     <Field label="Procedimento">
-                        <input
+                        <DropdownSelect
                             value={form.procedureName}
-                            onChange={(event) =>
+                            onChange={(procedureName) =>
                                 setForm((current) =>
-                                    current
-                                        ? {
-                                              ...current,
-                                              procedureName: event.target.value,
-                                          }
-                                        : current,
+                                    current ? { ...current, procedureName } : current,
                                 )
                             }
-                            className={controlClass}
+                            options={getSchedulingProcedureOptions(form.procedureName)}
+                            placeholder="Selecione o procedimento"
+                            widthClassName="w-full"
+                            dropdownWidthClassName="w-full"
                         />
                     </Field>
 

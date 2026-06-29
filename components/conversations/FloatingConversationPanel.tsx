@@ -1606,7 +1606,7 @@ export function FloatingConversationPanel() {
 
   return (
     <div
-      className="fixed bottom-6 z-[35] h-[480px] w-[365px] will-change-transform"
+      className="fixed bottom-6 z-[45] h-[480px] w-[365px] will-change-transform"
       style={{
         right: rightOffset,
         opacity: dockOpacity,
