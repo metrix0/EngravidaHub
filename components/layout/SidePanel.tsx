@@ -52,20 +52,8 @@ type SidePanelEntry = SidePanelItem | SidePanelSeparator;
 
 type SidePanelProps = {
     items?: SidePanelEntry[];
-
-    /**
-     * true  = expanded sidebar changes page layout width
-     * false = expanded sidebar floats over page
-     */
     affectLayout?: boolean;
-
-    /** Initial open state. */
     defaultExpanded?: boolean;
-
-    /**
-     * Only the root layout instance remains mounted between page changes.
-     * Existing page-level instances render nothing.
-     */
     persistent?: boolean;
 };
 
@@ -74,21 +62,74 @@ const EXPANDED_WIDTH = 250;
 const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
 
 const defaultItems: SidePanelEntry[] = [
-    { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, tabId: "dashboard" },
-    { label: "Jornada", href: "/jornada", icon: <Flag size={18} />, tabId: "jornada" },
-    { label: "Eventos", href: "/eventos", icon: <Megaphone size={18} />, tabId: "eventos" },
-
+    {
+        label: "Dashboard",
+        href: "/",
+        icon: <LayoutDashboard size={18} />,
+        tabId: "dashboard",
+    },
+    {
+        label: "Jornada",
+        href: "/jornada",
+        icon: <Flag size={18} />,
+        tabId: "jornada",
+    },
+    {
+        label: "Eventos",
+        href: "/eventos",
+        icon: <Megaphone size={18} />,
+        tabId: "eventos",
+    },
     { type: "separator", id: "crm" },
-    { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} />, tabId: "inbox" },
-    { label: "Agendamentos", href: "/agendamentos", icon: <CalendarDays size={18} />, tabId: "agendamentos" },
-    { label: "Clientes", href: "/clientes", icon: <Users size={18} />, tabId: "clientes" },
-    { label: "Conversas", href: "/conversas", icon: <MessageCircle size={18} />, tabId: "conversas" },
-    { label: "Funil", href: "/funil", icon: <Funnel size={18} />, tabId: "funil" },
-    { label: "Mensagem Ativa", href: "/mensagem-ativa", icon: <Send size={18} />, tabId: "mensagem_ativa" },
-
+    {
+        label: "Inbox",
+        href: "/inbox",
+        icon: <MessagesSquare size={18} />,
+        tabId: "inbox",
+    },
+    {
+        label: "Agendamentos",
+        href: "/agendamentos",
+        icon: <CalendarDays size={18} />,
+        tabId: "agendamentos",
+    },
+    {
+        label: "Clientes",
+        href: "/clientes",
+        icon: <Users size={18} />,
+        tabId: "clientes",
+    },
+    {
+        label: "Conversas",
+        href: "/conversas",
+        icon: <MessageCircle size={18} />,
+        tabId: "conversas",
+    },
+    {
+        label: "Funil",
+        href: "/funil",
+        icon: <Funnel size={18} />,
+        tabId: "funil",
+    },
+    {
+        label: "Mensagem Ativa",
+        href: "/mensagem-ativa",
+        icon: <Send size={18} />,
+        tabId: "mensagem_ativa",
+    },
     { type: "separator", id: "usuarios" },
-    { label: "Internos", href: "/internos", icon: <BriefcaseBusiness size={18} />, tabId: "internos" },
-    { label: "Usuários", href: "/usuarios", icon: <UserCog size={18} />, tabId: "usuarios" },
+    {
+        label: "Internos",
+        href: "/internos",
+        icon: <BriefcaseBusiness size={18} />,
+        tabId: "internos",
+    },
+    {
+        label: "Usuários",
+        href: "/usuarios",
+        icon: <UserCog size={18} />,
+        tabId: "usuarios",
+    },
 ];
 
 function isSeparator(item: SidePanelEntry): item is SidePanelSeparator {
@@ -100,27 +141,22 @@ function filterEntriesByPermission(
     allowedTabs: readonly AppTabId[],
 ) {
     const allowed = new Set(allowedTabs);
-
     const filtered = entries.filter((entry) => {
         if (isSeparator(entry)) return true;
-
         const tabId = entry.tabId ?? getTabIdForPathname(entry.href);
-
         return tabId ? allowed.has(tabId) : true;
     });
 
     const compacted: SidePanelEntry[] = [];
 
     for (const entry of filtered) {
-        if (isSeparator(entry)) {
-            if (
-                compacted.length === 0 ||
-                isSeparator(compacted[compacted.length - 1])
-            ) {
-                continue;
-            }
+        if (
+            isSeparator(entry) &&
+            (compacted.length === 0 ||
+                isSeparator(compacted[compacted.length - 1]))
+        ) {
+            continue;
         }
-
         compacted.push(entry);
     }
 
@@ -136,15 +172,9 @@ function filterEntriesByPermission(
 
 export default function SidePanel(props: SidePanelProps) {
     const pathname = usePathname();
+    const shouldHide = pathname === "/login" || pathname.startsWith("/dev");
 
-    const shouldHideSidePanel =
-        pathname === "/login" ||
-        pathname.startsWith("/dev");
-
-    if (!props.persistent || shouldHideSidePanel) {
-        return null;
-    }
-
+    if (!props.persistent || shouldHide) return null;
     return <PersistentSidePanel {...props} />;
 }
 
@@ -153,55 +183,47 @@ function PersistentSidePanel({
     affectLayout,
     defaultExpanded,
 }: SidePanelProps) {
-    const router = useRouter();
     const pathname = usePathname();
+    const router = useRouter();
     const { currentUser } = useCurrentUser();
     const currentUserId = currentUser?.user?.id ?? null;
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
 
-    const isInbox =
-        pathname.startsWith("/inbox") ||
-        pathname.startsWith("/agendamentos");
-    const resolvedAffectLayout = affectLayout ?? !isInbox;
-
+    const isCompactPage =
+        pathname.startsWith("/inbox") || pathname.startsWith("/agendamentos");
+    const resolvedAffectLayout = affectLayout ?? !isCompactPage;
     const [isExpanded, setIsExpanded] = useState(
-        () => defaultExpanded ?? !isInbox,
+        () => defaultExpanded ?? !isCompactPage,
     );
-
-    useEffect(() => {
-        if (isInbox) {
-            setIsExpanded(false);
-        }
-    }, [isInbox]);
     const [currentAttendant, setCurrentAttendant] =
-        useState<CurrentAttendant | null>(() => cachedAttendant?.attendant ?? null);
+        useState<CurrentAttendant | null>(
+            () => cachedAttendant?.attendant ?? null,
+        );
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
     useEffect(() => {
-        let isMounted = true;
+        if (isCompactPage) setIsExpanded(false);
+    }, [isCompactPage]);
+
+    useEffect(() => {
+        let mounted = true;
 
         async function loadCurrentAttendant(force = false) {
             if (!currentUserId) {
-                if (isMounted) setCurrentAttendant(null);
+                if (mounted) setCurrentAttendant(null);
                 return;
             }
 
             const cached = getCachedCurrentAttendant(currentUserId);
-
-            if (cached && isMounted) {
-                setCurrentAttendant(cached.attendant);
-            }
+            if (cached && mounted) setCurrentAttendant(cached.attendant);
 
             try {
                 const response = await fetchCurrentAttendant({
                     force,
                     userId: currentUserId,
                 });
-
-                if (!isMounted) return;
-
-                setCurrentAttendant(response.attendant);
+                if (mounted) setCurrentAttendant(response.attendant);
             } catch (error) {
                 console.error(
                     "[SidePanel] failed to load current attendant",
@@ -210,43 +232,31 @@ function PersistentSidePanel({
             }
         }
 
-        function handleAttendantStatusChanged() {
+        function refreshAttendant() {
             void loadCurrentAttendant(true);
         }
 
-        function handleCurrentUserPermissionsChanged() {
-            void loadCurrentAttendant(true);
-        }
-
-        // Same behavior as CurrentUserProvider:
-        // show the cached value immediately, but always revalidate once
-        // when the protected app/sidebar mounts for this authenticated user.
         void loadCurrentAttendant(true);
-
-        window.addEventListener(
-            "attendant-status-changed",
-            handleAttendantStatusChanged,
-        );
+        window.addEventListener("attendant-status-changed", refreshAttendant);
         window.addEventListener(
             "current-user-permissions-changed",
-            handleCurrentUserPermissionsChanged,
+            refreshAttendant,
         );
 
         return () => {
-            isMounted = false;
+            mounted = false;
             window.removeEventListener(
                 "attendant-status-changed",
-                handleAttendantStatusChanged,
+                refreshAttendant,
             );
             window.removeEventListener(
                 "current-user-permissions-changed",
-                handleCurrentUserPermissionsChanged,
+                refreshAttendant,
             );
         };
     }, [currentUserId]);
 
     const permission = currentUser?.permission ?? null;
-    const hasAuthenticatedUser = Boolean(currentUser?.user);
     const allowedTabs = permission?.active
         ? ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset)
             ? permission.allowed_tabs
@@ -257,59 +267,49 @@ function PersistentSidePanel({
 
     const visibleItems = useMemo(
         () =>
-            hasAuthenticatedUser
+            currentUser?.user
                 ? filterEntriesByPermission(items, allowedTabs)
                 : [],
-        [items, allowedTabs, hasAuthenticatedUser],
+        [allowedTabs, currentUser?.user, items],
     );
 
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
     const layoutWidth = resolvedAffectLayout ? sidebarWidth : COLLAPSED_WIDTH;
-
     const profileName =
         currentAttendant?.name ??
         currentUser?.user?.name ??
         currentUser?.user?.email ??
         "Usuário";
-
     const profileSubtitle = currentAttendant
         ? currentAttendant.is_online
             ? "Online"
             : "Offline"
         : "";
-
     const homeHref = getFirstAllowedHref(allowedTabs) ?? pathname;
 
     async function handleToggleAttendantStatus() {
         if (!currentAttendant || isStatusUpdating) return;
 
         setIsStatusUpdating(true);
-
         try {
             const response = currentAttendant.is_online
                 ? await setCurrentAttendantOffline()
                 : await setCurrentAttendantOnline();
 
-            window.dispatchEvent(new Event("attendant-status-changed"));
-
             setCurrentAttendant((current) => {
                 if (response.attendant) return response.attendant;
-                if (!current) return null;
-
-                return {
-                    ...current,
-                    is_online: !current.is_online,
-                };
+                return current
+                    ? { ...current, is_online: !current.is_online }
+                    : null;
             });
-
             setIsStatusMenuOpen(false);
+            window.dispatchEvent(new Event("attendant-status-changed"));
 
             if (pathname.startsWith("/inbox")) {
                 window.location.reload();
-                return;
+            } else {
+                router.refresh();
             }
-
-            router.refresh();
         } catch (error) {
             console.error(
                 "[SidePanel] failed to update attendant status",
@@ -322,7 +322,7 @@ function PersistentSidePanel({
 
     return (
         <div
-            className="relative z-50 h-screen shrink-0 transition-[width] duration-400 ease-out"
+            className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
             style={{ width: layoutWidth }}
         >
             <aside
@@ -338,11 +338,11 @@ function PersistentSidePanel({
                 <button
                     type="button"
                     onClick={() => setIsExpanded((value) => !value)}
-                    className={`absolute top-[46px] z-[60] flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-all duration-200 hover:bg-selection hover:text-text ${
+                    className={`absolute top-[46px] z-[60] flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-[right,opacity,background-color,color] duration-200 hover:bg-selection hover:text-text ${
                         isExpanded
-                            ? "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                            : "pointer-events-auto opacity-100"
-                    } ${!isExpanded ? "right-5" : "-right-5"}`}
+                            ? "pointer-events-none -right-5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                            : "pointer-events-auto right-5 opacity-100"
+                    }`}
                     title={isExpanded ? "Recolher menu" : "Expandir menu"}
                 >
                     <ChevronRight
@@ -355,13 +355,13 @@ function PersistentSidePanel({
 
                 {isStatusMenuOpen && currentAttendant && (
                     <div
-                        className={`fixed bottom-7 z-[90] w-44 rounded-xl border border-border bg-white p-2 shadow-lg duration-200 ${
+                        className={`fixed bottom-7 z-[90] w-44 rounded-xl border border-border bg-white p-2 shadow-lg transition-[left] duration-200 ${
                             isExpanded ? "left-[258px]" : "left-[84px]"
                         }`}
                     >
                         <button
                             type="button"
-                            onClick={handleToggleAttendantStatus}
+                            onClick={() => void handleToggleAttendantStatus()}
                             disabled={isStatusUpdating}
                             className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -369,10 +369,9 @@ function PersistentSidePanel({
                                 {isStatusUpdating
                                     ? "Atualizando..."
                                     : currentAttendant.is_online
-                                        ? "Ficar offline"
-                                        : "Ficar online"}
+                                      ? "Ficar offline"
+                                      : "Ficar online"}
                             </span>
-
                             <span
                                 className={`h-2.5 w-2.5 rounded-full ${
                                     currentAttendant.is_online
@@ -388,17 +387,15 @@ function PersistentSidePanel({
                     <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
                             href={homeHref}
-                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition ${
-                                isExpanded ? "w-full" : "w-9"
-                            }`}
+                            className="flex h-10 w-full min-w-0 cursor-pointer items-center overflow-hidden rounded-xl"
                         >
-                            {isExpanded && (
-                                <img
-                                    src="/logo.png"
-                                    className="block max-h-9 w-full object-contain"
-                                    alt="Engravida"
-                                />
-                            )}
+                            <img
+                                src="/logo.png"
+                                className={`block max-h-9 w-[190px] shrink-0 object-contain transition-opacity duration-150 ${
+                                    isExpanded ? "opacity-100" : "opacity-0"
+                                }`}
+                                alt="Engravida"
+                            />
                         </Link>
                     </div>
 
@@ -416,15 +413,13 @@ function PersistentSidePanel({
                                         return (
                                             <div
                                                 key={item.id}
-                                                className={`my-3 flex ${
-                                                    isExpanded
-                                                        ? "justify-start px-4"
-                                                        : "justify-center"
-                                                }`}
+                                                className="my-3 flex h-px items-center px-3"
                                             >
                                                 <div
-                                                    className={`h-px bg-border ${
-                                                        isExpanded ? "w-full" : "w-8"
+                                                    className={`h-px bg-border transition-[width] duration-200 ${
+                                                        isExpanded
+                                                            ? "w-full"
+                                                            : "w-5"
                                                     }`}
                                                 />
                                             </div>
@@ -441,28 +436,28 @@ function PersistentSidePanel({
                                             key={item.href}
                                             href={item.href}
                                             title={item.label}
-                                            className={`flex h-11 cursor-pointer items-center gap-4 rounded-xl px-4 py-3 text-sm leading-none transition-colors duration-150 ${
+                                            className={`flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-xl px-3 py-3 text-sm leading-none transition-colors duration-150 ${
                                                 isActive
                                                     ? "bg-brand-soft font-semibold text-brand"
                                                     : "font-medium text-muted hover:bg-selection"
-                                            } ${
-                                                isExpanded
-                                                    ? "justify-start"
-                                                    : "justify-center"
                                             }`}
                                         >
-                                            <span className="shrink-0">{item.icon}</span>
-
-                                            {isExpanded && (
-                                                <span className="min-w-0 truncate leading-none">
-                                                    {item.label}
-                                                </span>
-                                            )}
+                                            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                                {item.icon}
+                                            </span>
+                                            <span
+                                                className={`min-w-0 whitespace-nowrap leading-none transition-[width,margin,opacity,transform] duration-150 ${
+                                                    isExpanded
+                                                        ? "ml-4 w-[160px] translate-x-0 opacity-100"
+                                                        : "ml-0 w-0 -translate-x-1 opacity-0"
+                                                }`}
+                                            >
+                                                {item.label}
+                                            </span>
                                         </Link>
                                     );
                                 })}
                             </nav>
-
                             <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white to-transparent" />
                         </div>
                     </div>
@@ -471,18 +466,22 @@ function PersistentSidePanel({
                         <button
                             type="button"
                             title="Precisa de ajuda?"
-                            className={`flex w-full cursor-pointer truncate items-center rounded-xl border p-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded
-                                    ? "gap-3 border-border"
-                                    : "justify-center border-transparent"
+                            className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                isExpanded ? "border-border" : "border-transparent"
                             }`}
                         >
-                            <HelpCircle
-                                className="shrink-0 text-brand"
-                                size={22}
-                            />
-
-                            {isExpanded && <div>Precisa de ajuda?</div>}
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
+                                <HelpCircle size={22} />
+                            </span>
+                            <span
+                                className={`whitespace-nowrap transition-[width,margin,opacity] duration-150 ${
+                                    isExpanded
+                                        ? "ml-3 w-[150px] opacity-100"
+                                        : "ml-0 w-0 opacity-0"
+                                }`}
+                            >
+                                Precisa de ajuda?
+                            </span>
                         </button>
                     </div>
 
@@ -491,23 +490,21 @@ function PersistentSidePanel({
                             type="button"
                             onClick={
                                 currentAttendant
-                                    ? () => setIsStatusMenuOpen((value) => !value)
+                                    ? () =>
+                                          setIsStatusMenuOpen((value) => !value)
                                     : undefined
                             }
                             title={profileName}
-                            className={`flex w-full min-w-0 items-center rounded-xl border bg-white p-3 text-left transition-colors duration-150 ${
+                            className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white px-2 text-left transition-colors duration-150 ${
                                 currentAttendant
                                     ? "cursor-pointer hover:bg-slate-50"
                                     : "cursor-default"
                             } ${
-                                isExpanded
-                                    ? "gap-3 border-border"
-                                    : "justify-center border-transparent"
+                                isExpanded ? "border-border" : "border-transparent"
                             }`}
                         >
                             <div className="relative shrink-0">
                                 <InitialsAvatar name={profileName} />
-
                                 {currentAttendant && (
                                     <span
                                         className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
@@ -518,26 +515,22 @@ function PersistentSidePanel({
                                     />
                                 )}
                             </div>
-
-                            {isExpanded && (
-                                <div className="min-w-0 flex-1">
-                                    <div
-                                        title={profileName}
-                                        className="truncate text-sm font-bold text-slate-950"
-                                    >
-                                        {profileName}
-                                    </div>
-
-                                    {profileSubtitle && (
-                                        <div
-                                            title={profileSubtitle}
-                                            className="mt-0.5 truncate text-xs text-slate-500"
-                                        >
-                                            {profileSubtitle}
-                                        </div>
-                                    )}
+                            <div
+                                className={`min-w-0 transition-[width,margin,opacity] duration-150 ${
+                                    isExpanded
+                                        ? "ml-3 w-[150px] opacity-100"
+                                        : "ml-0 w-0 opacity-0"
+                                }`}
+                            >
+                                <div className="truncate text-sm font-bold text-slate-950">
+                                    {profileName}
                                 </div>
-                            )}
+                                {profileSubtitle && (
+                                    <div className="mt-0.5 truncate text-xs text-slate-500">
+                                        {profileSubtitle}
+                                    </div>
+                                )}
+                            </div>
                         </button>
                     </div>
                 </div>

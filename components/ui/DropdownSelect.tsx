@@ -8,6 +8,8 @@ export type DropdownSelectOption = {
     label: string;
     value: string;
     description?: string;
+    disabled?: boolean;
+    strikethrough?: boolean;
 };
 
 type DropdownSelectProps = {
@@ -56,23 +58,16 @@ export function DropdownSelect({
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (!wrapperRef.current) return;
-
-            if (!wrapperRef.current.contains(event.target as Node)) {
-                setOpen(false);
-            }
+            if (!wrapperRef.current.contains(event.target as Node)) setOpen(false);
         }
 
-        if (open) {
-            document.addEventListener("mousedown", handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
+        if (open) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [open]);
 
-    function selectValue(nextValue: string) {
-        onChange(nextValue);
+    function selectValue(option: DropdownSelectOption) {
+        if (option.disabled) return;
+        onChange(option.value);
         setOpen(false);
     }
 
@@ -100,12 +95,7 @@ export function DropdownSelect({
                         className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed"
                         aria-label={open ? "Fechar opções" : "Abrir opções"}
                     >
-                        <ChevronDown
-                            size={16}
-                            className={`transition-transform duration-150 ${
-                                open ? "rotate-180" : "rotate-0"
-                            }`}
-                        />
+                        <ChevronDown size={16} className={`transition-transform duration-150 ${open ? "rotate-180" : "rotate-0"}`} />
                     </button>
                 </div>
             ) : (
@@ -113,29 +103,17 @@ export function DropdownSelect({
                     type="button"
                     disabled={disabled}
                     onClick={() => setOpen((current) => !current)}
-                    className={`flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm outline-none transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60 ${invalid ? "border-red" : "border-border"}`}
+                    className={`group flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm outline-none transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60 ${invalid ? "border-red" : "border-border"}`}
                 >
                     <span className="flex min-w-0 items-center gap-2">
                         {icon}
                         <span className="truncate">{displayLabel}</span>
                     </span>
-
-                    <ChevronDown
-                        size={16}
-                        className={`shrink-0 transition-transform duration-150 ${
-                            open ? "rotate-180" : "rotate-0"
-                        }`}
-                    />
+                    <ChevronDown size={16} className={`shrink-0 cursor-pointer text-slate-400 transition-all group-hover:text-slate-700 ${open ? "rotate-180" : "rotate-0"}`} />
                 </button>
             )}
 
-            <div
-                className={`absolute right-0 z-50 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${
-                    open
-                        ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
-                        : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"
-                }`}
-            >
+            <div className={`absolute right-0 z-[80] mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
                 <div className="max-h-72 overflow-y-auto py-1">
                     {loading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-muted">
@@ -143,28 +121,28 @@ export function DropdownSelect({
                             {loadingLabel}
                         </div>
                     ) : options.length === 0 ? (
-                        <div className="px-4 py-3 text-sm font-medium text-slate-400">
-                            {emptyLabel}
-                        </div>
+                        <div className="px-4 py-3 text-sm font-medium text-slate-400">{emptyLabel}</div>
                     ) : (
                         options.map((option) => {
                             const selected = option.value === value;
-
                             return (
                                 <button
                                     key={option.value}
                                     type="button"
+                                    disabled={option.disabled}
                                     onMouseDown={(event) => event.preventDefault()}
-                                    onClick={() => selectValue(option.value)}
-                                    className={`flex w-full cursor-pointer flex-col items-start px-4 py-2.5 text-left transition hover:bg-slate-50 ${
-                                        selected ? "text-brand" : "text-muted"
+                                    onClick={() => selectValue(option)}
+                                    className={`flex w-full flex-col items-start px-4 py-2.5 text-left transition ${
+                                        option.disabled
+                                            ? "cursor-not-allowed bg-slate-50/70 text-slate-300"
+                                            : `cursor-pointer hover:bg-slate-50 ${selected ? "text-brand" : "text-muted"}`
                                     }`}
                                 >
-                                    <span className="w-full truncate text-sm font-medium">
+                                    <span className={`w-full truncate text-sm font-medium ${option.strikethrough ? "line-through decoration-1" : ""}`}>
                                         {option.label}
                                     </span>
                                     {option.description ? (
-                                        <span className="mt-0.5 w-full truncate text-xs font-normal text-slate-400">
+                                        <span className={`mt-0.5 w-full truncate text-xs font-normal ${option.disabled ? "text-slate-300" : "text-slate-400"}`}>
                                             {option.description}
                                         </span>
                                     ) : null}
@@ -177,28 +155,3 @@ export function DropdownSelect({
         </div>
     );
 }
-
-function DropdownSelectDemo() {
-    const [value, setValue] = useState("gestor");
-
-    return (
-        <DropdownSelect
-            value={value}
-            onChange={setValue}
-            options={[
-                { label: "Admin", value: "admin" },
-                { label: "Gestor", value: "gestor" },
-                { label: "Atendente", value: "atendente" },
-            ]}
-        />
-    );
-}
-
-export const __uiDemo = {
-    element: <DropdownSelectDemo />,
-    code: `<DropdownSelect
-  value={value}
-  onChange={setValue}
-  options={options}
-/>`,
-};

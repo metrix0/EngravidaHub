@@ -15,22 +15,17 @@ type ModalProps = {
     open: boolean;
     onClose: () => void;
     children: ReactNode;
-
     onExitComplete?: () => void;
-
     width?: number | string;
     maxWidth?: number | string;
     height?: number | string;
     maxHeight?: number | string;
-
     closeOnOverlayClick?: boolean;
     closeOnEscape?: boolean;
     showCloseButton?: boolean;
-
     overlayClassName?: string;
     panelClassName?: string;
     zIndexClassName?: string;
-
     ariaLabelledBy?: string;
     ariaDescribedBy?: string;
 };
@@ -38,29 +33,30 @@ type ModalProps = {
 const MODAL_EXIT_MS = 180;
 
 export function Modal({
-                          open,
-                          onClose,
-                          children,
-                          onExitComplete,
-
-                          width = 920,
-                          maxWidth = "calc(100vw - 48px)",
-                          height = "82vh",
-                          maxHeight = "82vh",
-
-                          closeOnOverlayClick = true,
-                          closeOnEscape = true,
-                          showCloseButton = true,
-
-                          overlayClassName = "",
-                          panelClassName = "",
-                          zIndexClassName = "z-50",
-
-                          ariaLabelledBy,
-                          ariaDescribedBy,
-                      }: ModalProps) {
+    open,
+    onClose,
+    children,
+    onExitComplete,
+    width = 920,
+    maxWidth = "calc(100vw - 48px)",
+    height = "82vh",
+    maxHeight = "82vh",
+    closeOnOverlayClick = true,
+    closeOnEscape = true,
+    showCloseButton = true,
+    overlayClassName = "",
+    panelClassName = "",
+    zIndexClassName = "z-50",
+    ariaLabelledBy,
+    ariaDescribedBy,
+}: ModalProps) {
     const [mounted, setMounted] = useState(open);
     const [isClosing, setIsClosing] = useState(false);
+    const [renderedChildren, setRenderedChildren] = useState<ReactNode>(children);
+
+    useEffect(() => {
+        if (open) setRenderedChildren(children);
+    }, [children, open]);
 
     useEffect(() => {
         if (open) {
@@ -70,7 +66,6 @@ export function Modal({
         }
 
         if (!mounted) return;
-
         setIsClosing(true);
 
         const timeout = window.setTimeout(() => {
@@ -86,36 +81,24 @@ export function Modal({
         if (!mounted || !closeOnEscape) return;
 
         function handleKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape") {
-                onClose();
-            }
+            if (event.key === "Escape") onClose();
         }
 
         window.addEventListener("keydown", handleKeyDown);
-
-        return () => {
-            window.removeEventListener("keydown", handleKeyDown);
-        };
+        return () => window.removeEventListener("keydown", handleKeyDown);
     }, [mounted, closeOnEscape, onClose]);
 
     const handleOverlayClick = useCallback(
         (event: MouseEvent<HTMLDivElement>) => {
-            if (!closeOnOverlayClick) return;
-            if (event.target !== event.currentTarget) return;
-
+            if (!closeOnOverlayClick || event.target !== event.currentTarget) return;
             onClose();
         },
-        [closeOnOverlayClick, onClose]
+        [closeOnOverlayClick, onClose],
     );
 
     if (!mounted) return null;
 
-    const panelStyle: CSSProperties = {
-        width,
-        maxWidth,
-        height,
-        maxHeight,
-    };
+    const panelStyle: CSSProperties = { width, maxWidth, height, maxHeight };
 
     return (
         <div
@@ -139,17 +122,17 @@ export function Modal({
                 ].join(" ")}
                 style={panelStyle}
             >
-                {showCloseButton && (
+                {showCloseButton ? (
                     <button
                         type="button"
                         onClick={onClose}
                         className="absolute right-6 top-5 z-10 flex h-9 w-9 cursor-pointer shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-slate-100 hover:text-text"
+                        aria-label="Fechar modal"
                     >
                         <X size={18} />
                     </button>
-                )}
-
-                {children}
+                ) : null}
+                {renderedChildren}
             </div>
         </div>
     );
