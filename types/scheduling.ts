@@ -10,6 +10,17 @@ export type SchedulingPersonFields = {
     phone: string;
 };
 
+export type SchedulingAddressFields = {
+    street: string;
+    number: string;
+    complement: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    cep: string;
+    country: string;
+};
+
 export type SchedulingForm = {
     unitId: string;
     doctorId: string;
@@ -19,7 +30,7 @@ export type SchedulingForm = {
     procedureName: string;
     primary: SchedulingPersonFields;
     spouse: SchedulingPersonFields;
-    address: string;
+    address: SchedulingAddressFields;
     notes: string;
 };
 
@@ -30,13 +41,17 @@ export type SchedulingClientProfile = {
     email: string | null;
     country: string | null;
     state: string | null;
+    city: string | null;
+    neighborhood: string | null;
     street: string | null;
     number: string | null;
+    complement: string | null;
     cep: string | null;
     cpf: string | null;
     birth_date: string | null;
     spouse_client_id: string | null;
     unit_id: string | null;
+    unit_name: string | null;
 };
 
 export type SchedulingUnitOption = {
@@ -99,7 +114,7 @@ export type CalendarAppointment = {
     spouse_email: string | null;
     spouse_cpf: string | null;
     spouse_birth_date: string | null;
-    address: string | null;
+    address: SchedulingAddressFields | null;
     notes: string | null;
     created_at: string;
     updated_at: string;

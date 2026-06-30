@@ -24,7 +24,15 @@ export const APPOINTMENT_SELECT = `
     spouse_email,
     spouse_cpf,
     spouse_birth_date,
-    address,
+    address_street,
+    address_number,
+    address_complement,
+    address_neighborhood,
+    address_city,
+    address_state,
+    address_cep,
+    address_country,
+    address_legacy,
     notes,
     created_at,
     updated_at,
@@ -117,7 +125,7 @@ export function mapAppointment(row: any): CalendarAppointment {
         spouse_email: row.spouse_email ?? null,
         spouse_cpf: row.spouse_cpf ?? null,
         spouse_birth_date: row.spouse_birth_date ?? null,
-        address: row.address ?? null,
+        address: mapAddress(row),
         notes: row.notes ?? null,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -145,6 +153,30 @@ export function parseBrazilDate(value: string) {
     }
 
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAddress(row: any) {
+    const address = {
+        street: row.address_street ?? "",
+        number: row.address_number ?? "",
+        complement: row.address_complement ?? "",
+        neighborhood: row.address_neighborhood ?? "",
+        city: row.address_city ?? "",
+        state: row.address_state ?? "",
+        cep: formatCep(row.address_cep ?? ""),
+        country: row.address_country ?? "",
+    };
+
+    if (Object.values(address).some(Boolean)) return address;
+
+    const legacyAddress = String(row.address_legacy ?? "").trim();
+    return legacyAddress ? { ...address, street: legacyAddress } : null;
+}
+
+function formatCep(value: string) {
+    return value.replace(/\D/g, "").slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

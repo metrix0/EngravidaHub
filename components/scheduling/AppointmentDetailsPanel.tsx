@@ -23,6 +23,7 @@ import {
 import type {
     AppointmentStatus,
     CalendarAppointment,
+    SchedulingAddressFields,
     SchedulingDoctorOption,
     SchedulingUnitOption,
 } from "@/types/scheduling";
@@ -202,7 +203,7 @@ export default function AppointmentDetailsPanel({
                     />
                     <InfoLine
                         label="Endereço"
-                        value={appointment.address}
+                        value={formatAddress(appointment.address)}
                         icon={<MapPin size={14} />}
                     />
                 </InfoBlock>
@@ -540,4 +541,19 @@ function formatStoredDate(value: string | null | undefined) {
     if (!value) return null;
     const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
     return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function formatAddress(address: SchedulingAddressFields | null) {
+    if (!address) return null;
+
+    return [
+        [address.street, address.number].filter(Boolean).join(", "),
+        address.complement,
+        address.neighborhood,
+        [address.city, address.state].filter(Boolean).join(" - "),
+        address.cep ? `CEP ${address.cep}` : "",
+        address.country,
+    ]
+        .filter(Boolean)
+        .join(", ");
 }

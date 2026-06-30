@@ -2,6 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
+    SchedulingAddressFields,
     SchedulingClientProfile,
     SchedulingDataResponse,
     SchedulingDoctorOption,
@@ -17,13 +18,19 @@ const CLIENT_SELECT = `
     email,
     country,
     state,
+    city,
+    neighborhood,
     street,
     number,
+    complement,
     cep,
     cpf,
     birth_date,
     spouse_client_id,
-    unit_id
+    unit_id,
+    units (
+        name
+    )
 `;
 
 const UNIT_SELECT = `
@@ -109,7 +116,14 @@ async function fetchClientProfile(
         .maybeSingle();
 
     if (error) throw error;
-    return (data as SchedulingClientProfile | null) ?? null;
+    if (!data) return null;
+
+    const unit = Array.isArray(data.units) ? data.units[0] : data.units;
+
+    return {
+        ...data,
+        unit_name: unit?.name ?? null,
+    } as SchedulingClientProfile;
 }
 
 async function fetchUnits(supabase: SupabaseClient) {
@@ -173,6 +187,7 @@ function buildSchedulingForm(
     doctors: SchedulingDoctorOption[],
 ): SchedulingForm {
     const unitId = chooseInitialUnit(client, units);
+    const selectedUnit = units.find((unit) => unit.id === unitId) ?? null;
     const unitDoctors = doctors.filter((doctor) => doctor.unit_id === unitId);
 
     return {
@@ -184,7 +199,7 @@ function buildSchedulingForm(
         procedureName: "Consulta",
         primary: mapClientToPerson(client),
         spouse: spouse ? mapClientToPerson(spouse) : emptyPerson(),
-        address: buildAddress(client),
+        address: buildAddress(client, selectedUnit),
         notes: "",
     };
 }
@@ -244,16 +259,23 @@ function mapClientToPerson(
     };
 }
 
-function buildAddress(client: SchedulingClientProfile) {
-    return [
-        client.street?.trim(),
-        client.number?.trim(),
-        client.state?.trim(),
-        client.country?.trim(),
-        client.cep ? `CEP ${formatCep(client.cep)}` : null,
-    ]
-        .filter(Boolean)
-        .join(", ");
+function buildAddress(
+    client: SchedulingClientProfile,
+    selectedUnit: SchedulingUnitOption | null,
+): SchedulingAddressFields {
+    return {
+        street: client.street?.trim() ?? "",
+        number: client.number?.trim() ?? "",
+        complement: client.complement?.trim() ?? "",
+        neighborhood: client.neighborhood?.trim() ?? "",
+        city: client.city?.trim() ?? "",
+        state:
+            client.state?.trim() ||
+            selectedUnit?.state?.trim() ||
+            "",
+        cep: formatCep(client.cep ?? ""),
+        country: client.country?.trim() || "Brasil",
+    };
 }
 
 function emptyPerson(): SchedulingPersonFields {

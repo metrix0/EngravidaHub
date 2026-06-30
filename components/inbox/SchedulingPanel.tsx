@@ -6,6 +6,7 @@ import {
     AlertCircle,
     CalendarCheck,
     CheckCircle2,
+    Clock,
     ChevronRight,
     Info,
     LoaderCircle,
@@ -18,13 +19,16 @@ import { FaFacebookF, FaInstagram, FaWhatsapp } from "react-icons/fa6";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import {
     getSchedulingProcedureOptions,
     SCHEDULING_DURATION_OPTIONS,
+    SCHEDULING_TIME_OPTIONS,
 } from "@/lib/scheduling/options";
 import type { InboxChannel } from "@/types/inbox";
 import type {
+    SchedulingAddressFields,
     SchedulingDataResponse,
     SchedulingForm,
     SchedulingFormat,
@@ -68,6 +72,17 @@ const emptyPerson: SchedulingPersonFields = {
     phone: "",
 };
 
+const emptyAddress: SchedulingAddressFields = {
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+    cep: "",
+    country: "",
+};
+
 const initialForm: SchedulingForm = {
     unitId: "",
     doctorId: "",
@@ -77,7 +92,7 @@ const initialForm: SchedulingForm = {
     procedureName: "Consulta",
     primary: { ...emptyPerson },
     spouse: { ...emptyPerson },
-    address: "",
+    address: { ...emptyAddress },
     notes: "",
 };
 
@@ -218,7 +233,7 @@ export default function SchedulingPanel({
 
     const clientName = data?.client?.name ?? client?.name ?? "Cliente sem nome";
     const clientPhone = data?.client?.phone ?? client?.phone ?? "Sem telefone";
-    const clientCity = data?.client?.state ?? client?.city ?? "Sem cidade";
+    const clientUnitName = data?.client?.unit_name ?? "Sem unidade";
     const profileClientId = data?.client?.id ?? clientId;
     const disabled = loadingData || autofilling || submitting;
 
@@ -367,6 +382,22 @@ export default function SchedulingPanel({
         clearSuccessStates();
     }
 
+    function updateAddress(
+        field: keyof SchedulingAddressFields,
+        value: string,
+    ) {
+        const formattedValue = field === "cep" ? formatCep(value) : value;
+        setForm((current) => ({
+            ...current,
+            address: {
+                ...current.address,
+                [field]: formattedValue,
+            },
+        }));
+        clearError(`address.${field}`);
+        clearSuccessStates();
+    }
+
     function updateField<K extends keyof SchedulingForm>(
         field: K,
         value: SchedulingForm[K],
@@ -405,10 +436,23 @@ export default function SchedulingPanel({
                     doctor.unit_id === unitId,
             );
 
+            const selectedUnit = (data?.units ?? []).find(
+                (unit) => unit.id === unitId,
+            );
+
             return {
                 ...current,
                 unitId,
                 doctorId: doctorStillAvailable ? current.doctorId : "",
+                address: {
+                    ...current.address,
+                    state:
+                        current.address.state.trim() ||
+                        selectedUnit?.state?.trim() ||
+                        "",
+                    country:
+                        current.address.country.trim() || "Brasil",
+                },
             };
         });
         clearError("unitId");
@@ -510,8 +554,14 @@ export default function SchedulingPanel({
             const json = await response.json();
 
             if (!response.ok) {
+                const firstIssue = Array.isArray(json?.issues)
+                    ? json.issues[0]?.message
+                    : null;
+
                 throw new Error(
-                    json?.error ?? "Não foi possível criar o agendamento.",
+                    firstIssue ??
+                        json?.error ??
+                        "Não foi possível criar o agendamento.",
                 );
             }
 
@@ -559,7 +609,7 @@ export default function SchedulingPanel({
                             <div className="mt-1 flex min-w-0 items-center gap-3">
                                 <div className="flex min-w-0 items-center gap-1.5 text-sm text-slate-500">
                                     <MapPin size={13} className="shrink-0" />
-                                    <span className="truncate">{clientCity}</span>
+                                    <span className="truncate">{clientUnitName}</span>
                                 </div>
                                 {client?.channel && (
                                     <SchedulingChannelBadge channel={client.channel} />
@@ -699,27 +749,34 @@ export default function SchedulingPanel({
                     </section>
 
                     <div className="grid grid-cols-[1.2fr_0.8fr] gap-3">
-                        <FormField
+                        <CalendarField
                             label="Data"
-                            value={form.schedulingDate}
+                            value={toDateInputValue(form.schedulingDate)}
                             disabled={disabled}
                             onChange={(value) =>
-                                updateField("schedulingDate", formatDate(value))
+                                updateField(
+                                    "schedulingDate",
+                                    fromDateInputValue(value),
+                                )
                             }
                             error={errors.schedulingDate}
-                            placeholder="DD/MM/AAAA"
-                            inputMode="numeric"
                         />
-                        <FormField
+                        <SelectField
                             label="Horário"
                             value={form.schedulingTime}
                             disabled={disabled}
+                            placeholder="Selecione"
+                            options={SCHEDULING_TIME_OPTIONS}
                             onChange={(value) =>
-                                updateField("schedulingTime", formatTime(value))
+                                updateField("schedulingTime", value)
                             }
                             error={errors.schedulingTime}
-                            placeholder="HH:MM"
-                            inputMode="numeric"
+                            icon={
+                                <Clock
+                                    size={16}
+                                    className="shrink-0 cursor-pointer text-slate-400 transition-colors hover:text-slate-700"
+                                />
+                            }
                         />
                     </div>
 
@@ -742,14 +799,11 @@ export default function SchedulingPanel({
                         />
                     )}
 
-                    <FormField
-                        label="Endereço completo com CEP"
-                        value={form.address}
+                    <AddressSection
+                        values={form.address}
+                        errors={errors}
                         disabled={disabled}
-                        onChange={(value) => updateField("address", value)}
-                        error={errors.address}
-                        placeholder="Rua, número, cidade, estado e CEP"
-                        multiline
+                        onChange={updateAddress}
                     />
 
                     <FormField
@@ -998,6 +1052,91 @@ function PersonSection({
     );
 }
 
+function AddressSection({
+    values,
+    errors,
+    disabled,
+    onChange,
+}: {
+    values: SchedulingAddressFields;
+    errors: ErrorMap;
+    disabled: boolean;
+    onChange: (field: keyof SchedulingAddressFields, value: string) => void;
+}) {
+    return (
+        <section className="space-y-4">
+            <h3 className="text-sm font-bold text-slate-950">
+                Endereço completo com CEP
+            </h3>
+            <div className="grid grid-cols-[0.8fr_1.2fr] gap-3">
+                <FormField
+                    label="CEP"
+                    value={values.cep}
+                    disabled={disabled}
+                    onChange={(value) => onChange("cep", value)}
+                    error={errors["address.cep"]}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                />
+                <FormField
+                    label="Rua"
+                    value={values.street}
+                    disabled={disabled}
+                    onChange={(value) => onChange("street", value)}
+                    error={errors["address.street"]}
+                />
+            </div>
+            <div className="grid grid-cols-[0.7fr_1.3fr] gap-3">
+                <FormField
+                    label="Número"
+                    value={values.number}
+                    disabled={disabled}
+                    onChange={(value) => onChange("number", value)}
+                    error={errors["address.number"]}
+                />
+                <FormField
+                    label="Complemento"
+                    optional
+                    value={values.complement}
+                    disabled={disabled}
+                    onChange={(value) => onChange("complement", value)}
+                />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                <FormField
+                    label="Bairro"
+                    optional
+                    value={values.neighborhood}
+                    disabled={disabled}
+                    onChange={(value) => onChange("neighborhood", value)}
+                />
+                <FormField
+                    label="Cidade"
+                    value={values.city}
+                    disabled={disabled}
+                    onChange={(value) => onChange("city", value)}
+                    error={errors["address.city"]}
+                />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                <FormField
+                    label="Estado"
+                    value={values.state}
+                    disabled={disabled}
+                    onChange={(value) => onChange("state", value)}
+                    error={errors["address.state"]}
+                />
+                <FormField
+                    label="País"
+                    value={values.country}
+                    disabled={disabled}
+                    onChange={(value) => onChange("country", value)}
+                />
+            </div>
+        </section>
+    );
+}
+
 function SelectField({
     label,
     value,
@@ -1006,6 +1145,7 @@ function SelectField({
     placeholder = "Selecione",
     disabled = false,
     error,
+    icon,
 }: {
     label: string;
     value: string;
@@ -1014,6 +1154,7 @@ function SelectField({
     placeholder?: string;
     disabled?: boolean;
     error?: string;
+    icon?: ReactNode;
 }) {
     return (
         <div>
@@ -1025,10 +1166,44 @@ function SelectField({
                 onChange={onChange}
                 options={options}
                 placeholder={placeholder}
+                icon={icon}
                 disabled={disabled}
                 invalid={Boolean(error)}
                 widthClassName="w-full"
                 dropdownWidthClassName="w-full"
+            />
+            {error && (
+                <span className="mt-1.5 block text-xs font-medium text-red">
+                    {error}
+                </span>
+            )}
+        </div>
+    );
+}
+
+function CalendarField({
+    label,
+    value,
+    onChange,
+    error,
+    disabled = false,
+}: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    error?: string;
+    disabled?: boolean;
+}) {
+    return (
+        <div>
+            <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                {label}
+            </span>
+            <CalendarDatePicker
+                value={value}
+                onChange={onChange}
+                disabled={disabled}
+                invalid={Boolean(error)}
             />
             {error && (
                 <span className="mt-1.5 block text-xs font-medium text-red">
@@ -1049,6 +1224,7 @@ function FormField({
     type = "text",
     multiline = false,
     disabled = false,
+    optional = false,
 }: {
     label: string;
     value: string;
@@ -1059,6 +1235,7 @@ function FormField({
     type?: string;
     multiline?: boolean;
     disabled?: boolean;
+    optional?: boolean;
 }) {
     const controlClass = `w-full appearance-none rounded-xl border bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:ring-0 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
         error ? "border-red" : "border-slate-200 focus:border-brand"
@@ -1068,6 +1245,11 @@ function FormField({
         <label className="block">
             <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                 {label}
+                {optional ? (
+                    <span className="ml-1 font-medium normal-case tracking-normal text-slate-400">
+                        (opcional)
+                    </span>
+                ) : null}
             </span>
             {multiline ? (
                 <textarea
@@ -1122,7 +1304,7 @@ function validateForm(form: SchedulingForm, format: SchedulingFormat): ErrorMap 
         errors.schedulingDate = "Use uma data válida no formato DD/MM/AAAA.";
     }
     if (!isValidTime(form.schedulingTime)) {
-        errors.schedulingTime = "Use um horário válido no formato HH:MM.";
+        errors.schedulingTime = "Selecione um horário em intervalos de 15 minutos.";
     }
     if (!form.procedureName.trim()) {
         errors.procedureName = "Informe o procedimento.";
@@ -1131,10 +1313,20 @@ function validateForm(form: SchedulingForm, format: SchedulingFormat): ErrorMap 
     validatePerson(form.primary, "primary", errors);
     if (format === "casal") validatePerson(form.spouse, "spouse", errors);
 
-    if (!form.address.trim()) {
-        errors.address = "Informe o endereço completo com CEP.";
-    } else if (!hasCep(form.address)) {
-        errors.address = "Inclua um CEP válido no endereço.";
+    if (!form.address.street.trim()) {
+        errors["address.street"] = "Informe a rua.";
+    }
+    if (!form.address.number.trim()) {
+        errors["address.number"] = "Informe o número.";
+    }
+    if (!form.address.city.trim()) {
+        errors["address.city"] = "Informe a cidade.";
+    }
+    if (!form.address.state.trim()) {
+        errors["address.state"] = "Informe o estado.";
+    }
+    if (!hasCep(form.address.cep)) {
+        errors["address.cep"] = "Informe um CEP válido.";
     }
 
     return errors;
@@ -1193,6 +1385,20 @@ function formatPhone(value: string) {
         : digits.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
+function formatCep(value: string) {
+    return onlyDigits(value).slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2");
+}
+
+function toDateInputValue(value: string) {
+    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+    return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+}
+
+function fromDateInputValue(value: string) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+}
+
 function formatDate(value: string) {
     const digits = onlyDigits(value).slice(0, 8);
     return digits
@@ -1200,10 +1406,6 @@ function formatDate(value: string) {
         .replace(/^(\d{2})\/(\d{2})(\d)/, "$1/$2/$3");
 }
 
-function formatTime(value: string) {
-    const digits = onlyDigits(value).slice(0, 4);
-    return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
 
 function isValidCpf(value: string) {
     const cpf = onlyDigits(value);
@@ -1247,7 +1449,10 @@ function isValidDate(value: string) {
 function isValidTime(value: string) {
     const match = /^(\d{2}):(\d{2})$/.exec(value);
     if (!match) return false;
-    return Number(match[1]) <= 23 && Number(match[2]) <= 59;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    return hours <= 23 && minutes <= 59 && minutes % 15 === 0;
 }
 
 function toBrazilIso(dateValue: string, timeValue: string) {

@@ -15,6 +15,17 @@ const personSchema = z.object({
     phone: z.string().max(40),
 });
 
+const addressSchema = z.object({
+    street: z.string().max(180),
+    number: z.string().max(40),
+    complement: z.string().max(120),
+    neighborhood: z.string().max(120),
+    city: z.string().max(120),
+    state: z.string().max(80),
+    cep: z.string().max(20),
+    country: z.string().max(80),
+});
+
 const requestSchema = z.object({
     threadId: z.string().uuid(),
     format: z.enum(["congelamento", "casal"]),
@@ -27,7 +38,7 @@ const requestSchema = z.object({
         procedureName: z.string().max(180),
         primary: personSchema,
         spouse: personSchema,
-        address: z.string().max(500),
+        address: addressSchema,
         notes: z.string().max(1000),
     }),
 });

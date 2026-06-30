@@ -5,6 +5,7 @@ import {
     type SchedulingAutofillAiResult,
 } from "@/lib/ai/schedulingAutofillSchema";
 import type {
+    SchedulingAddressFields,
     SchedulingClientProfile,
     SchedulingDoctorOption,
     SchedulingForm,
@@ -75,10 +76,11 @@ Regras absolutas:
 - Preserve um valor já preenchido quando não houver alternativa claramente melhor.
 - CPF deve estar no formato 000.000.000-00.
 - Datas devem estar no formato DD/MM/AAAA.
-- Horário deve estar no formato HH:MM.
+- Horário deve estar no formato HH:MM e em intervalos de 15 minutos (00, 15, 30 ou 45).
 - durationMinutes deve ficar entre 15 e 480.
 - Telefone deve estar em formato brasileiro.
-- O endereço deve ser completo e incluir CEP quando essa informação existir.
+- Separe o endereço entre rua, número, complemento, bairro, cidade, estado, CEP e país.
+- O CEP deve estar no formato 00000-000 quando essa informação existir.
 - Para formato "congelamento", spouse continua presente no JSON, mas pode ficar vazio.
 - Para formato "casal", separe corretamente os dados da pessoa principal e do cônjuge.
 - Não confunda data de nascimento com data do agendamento.
@@ -105,7 +107,16 @@ Formato obrigatório:
     "email": "",
     "phone": ""
   },
-  "address": "",
+  "address": {
+    "street": "",
+    "number": "",
+    "complement": "",
+    "neighborhood": "",
+    "city": "",
+    "state": "",
+    "cep": "",
+    "country": ""
+  },
   "notes": ""
 }
 `.trim();
@@ -184,13 +195,13 @@ function normalizeResult(
 function chooseUnitId(
     currentId: string,
     candidateId: string,
-    address: string,
+    address: SchedulingAddressFields,
     units: SchedulingUnitOption[],
 ) {
     if (units.some((unit) => unit.id === candidateId)) return candidateId;
     if (units.some((unit) => unit.id === currentId)) return currentId;
 
-    const normalizedAddress = normalizeText(address);
+    const normalizedAddress = normalizeText(addressToSearchText(address));
     if (!normalizedAddress) return "";
 
     let bestId = "";
@@ -302,22 +313,45 @@ function chooseDuration(current: number, candidate: number) {
     return current;
 }
 
-function chooseAddress(current: string, candidate: string) {
-    const cleanCurrent = current.trim().replace(/\s+/g, " ");
-    const cleanCandidate = candidate.trim().replace(/\s+/g, " ");
+function chooseAddress(
+    current: SchedulingAddressFields,
+    candidate: SchedulingAddressFields,
+): SchedulingAddressFields {
+    return {
+        street: chooseText(current.street, candidate.street, 180),
+        number: chooseText(current.number, candidate.number, 40),
+        complement: chooseText(current.complement, candidate.complement, 120),
+        neighborhood: chooseText(current.neighborhood, candidate.neighborhood, 120),
+        city: chooseText(current.city, candidate.city, 120),
+        state: chooseText(current.state, candidate.state, 80),
+        cep: chooseCep(current.cep, candidate.cep),
+        country: chooseText(current.country, candidate.country, 80),
+    };
+}
 
-    if (!cleanCandidate) return cleanCurrent;
-    if (!cleanCurrent) return cleanCandidate;
+function chooseCep(current: string, candidate: string) {
+    const formattedCandidate = formatCep(candidate);
+    if (hasCep(formattedCandidate)) return formattedCandidate;
+    return formatCep(current);
+}
 
-    const currentHasCep = hasCep(cleanCurrent);
-    const candidateHasCep = hasCep(cleanCandidate);
+function addressToSearchText(address: SchedulingAddressFields) {
+    return [
+        address.street,
+        address.number,
+        address.complement,
+        address.neighborhood,
+        address.city,
+        address.state,
+        address.cep,
+        address.country,
+    ]
+        .filter(Boolean)
+        .join(" ");
+}
 
-    if (candidateHasCep && !currentHasCep) return cleanCandidate;
-    if (currentHasCep && !candidateHasCep) return cleanCurrent;
-
-    return cleanCandidate.length >= cleanCurrent.length
-        ? cleanCandidate
-        : cleanCurrent;
+function formatCep(value: string) {
+    return onlyDigits(value).slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
 function formatCpf(value: string) {
@@ -348,8 +382,21 @@ function formatDate(value: string) {
 }
 
 function normalizeTime(value: string) {
-    const digits = onlyDigits(value).slice(0, 4);
-    return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    const match = /^(\d{1,2}):?(\d{2})$/.exec(value.trim());
+    if (!match) return "";
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) return "";
+
+    const roundedMinutes = Math.min(
+        23 * 60 + 45,
+        Math.round((hours * 60 + minutes) / 15) * 15,
+    );
+    const normalizedHours = String(Math.floor(roundedMinutes / 60)).padStart(2, "0");
+    const normalizedMinutePart = String(roundedMinutes % 60).padStart(2, "0");
+
+    return `${normalizedHours}:${normalizedMinutePart}`;
 }
 
 function isValidCpf(value: string) {
@@ -390,7 +437,10 @@ function isValidDate(value: string) {
 function isValidTime(value: string) {
     const match = /^(\d{2}):(\d{2})$/.exec(value);
     if (!match) return false;
-    return Number(match[1]) <= 23 && Number(match[2]) <= 59;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    return hours <= 23 && minutes <= 59 && minutes % 15 === 0;
 }
 
 function isValidEmail(value: string) {

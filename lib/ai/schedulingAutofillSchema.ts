@@ -28,6 +28,19 @@ const personSchema = z
     })
     .strict();
 
+const addressSchema = z
+    .object({
+        street: aiString(180),
+        number: aiString(40),
+        complement: aiString(120),
+        neighborhood: aiString(120),
+        city: aiString(120),
+        state: aiString(80),
+        cep: aiString(20),
+        country: aiString(80),
+    })
+    .strict();
+
 export const schedulingAutofillSchema = z
     .object({
         unitId: aiString(80),
@@ -38,7 +51,7 @@ export const schedulingAutofillSchema = z
         procedureName: aiString(180),
         primary: personSchema,
         spouse: personSchema,
-        address: aiString(500),
+        address: addressSchema,
         notes: aiString(1000),
     })
     .strict();
