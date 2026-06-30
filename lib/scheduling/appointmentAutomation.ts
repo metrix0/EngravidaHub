@@ -1,56 +1,104 @@
 // lib/scheduling/appointmentAutomation.ts
 import { supabase } from "@/lib/supabase/client";
+import type { CalendarAppointment } from "@/types/scheduling";
 
 const DEFAULT_INTEGRATION_URL =
     "https://example.com/api/engravida/appointments";
 
 export type AppointmentIntegrationEvent =
     | "appointment.created"
-    | "appointment.updated";
+    | "appointment.updated"
+    | "appointment.deleted";
 
-type IntegrationPayload = {
+export type AppointmentIntegrationPerson = {
+    name: string;
+    cpf: string | null;
+    birthDate: string | null;
+    phone: string | null;
+    email: string | null;
+};
+
+export type AppointmentIntegrationAddress = {
+    street: string | null;
+    number: string | null;
+    complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    cep: string | null;
+    country: string | null;
+};
+
+export type AppointmentIntegrationPayload = {
     event: AppointmentIntegrationEvent;
     appointment: {
         id: string;
-        clientId: string | null;
-        threadId?: string | null;
-        unitId: string;
-        doctorId: string;
         startsAt: string;
         endsAt: string;
         status: string;
         format: string;
         procedureName: string;
-        patient: {
-            name: string;
-            phone: string | null;
-            email: string | null;
-        };
-        spouse?: {
-            name: string | null;
-            phone: string | null;
-            email: string | null;
-        } | null;
-        address: {
-            street: string | null;
-            number: string | null;
-            complement: string | null;
-            neighborhood: string | null;
-            city: string | null;
-            state: string | null;
-            cep: string | null;
-            country: string | null;
-        };
+        unitName: string | null;
+        doctorName: string | null;
+        patient: AppointmentIntegrationPerson;
+        spouse: AppointmentIntegrationPerson | null;
+        address: AppointmentIntegrationAddress;
         notes: string | null;
     };
 };
+
+export function buildAppointmentIntegrationPayload(
+    event: AppointmentIntegrationEvent,
+    appointment: CalendarAppointment,
+): AppointmentIntegrationPayload {
+    return {
+        event,
+        appointment: {
+            id: appointment.id,
+            startsAt: appointment.starts_at,
+            endsAt: appointment.ends_at,
+            status: appointment.status,
+            format: appointment.format,
+            procedureName: appointment.procedure_name,
+            unitName: appointment.unit?.name ?? null,
+            doctorName: appointment.doctor?.name ?? null,
+            patient: {
+                name: appointment.patient_name,
+                cpf: appointment.patient_cpf,
+                birthDate: appointment.patient_birth_date,
+                phone: appointment.patient_phone,
+                email: appointment.patient_email,
+            },
+            spouse: appointment.spouse_name
+                ? {
+                      name: appointment.spouse_name,
+                      cpf: appointment.spouse_cpf,
+                      birthDate: appointment.spouse_birth_date,
+                      phone: appointment.spouse_phone,
+                      email: appointment.spouse_email,
+                  }
+                : null,
+            address: {
+                street: appointment.address?.street || null,
+                number: appointment.address?.number || null,
+                complement: appointment.address?.complement || null,
+                neighborhood: appointment.address?.neighborhood || null,
+                city: appointment.address?.city || null,
+                state: appointment.address?.state || null,
+                cep: appointment.address?.cep || null,
+                country: appointment.address?.country || null,
+            },
+            notes: appointment.notes,
+        },
+    };
+}
 
 export function isInitialConsultation(procedureName: string | null | undefined) {
     return normalize(procedureName ?? "") === "consulta inicial";
 }
 
 export async function sendAppointmentIntegration(
-    payload: IntegrationPayload,
+    payload: AppointmentIntegrationPayload,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
     const url =
         process.env.SCHEDULING_INTEGRATION_URL?.trim() ||
@@ -65,11 +113,7 @@ export async function sendAppointmentIntegration(
                 "Content-Type": "application/json",
                 "X-Engravida-Event": payload.event,
             },
-            body: JSON.stringify({
-                version: 1,
-                sentAt: new Date().toISOString(),
-                ...payload,
-            }),
+            body: JSON.stringify(payload),
             signal: controller.signal,
             cache: "no-store",
         });
@@ -130,9 +174,7 @@ export async function moveClientToFivFirstStage({
         .maybeSingle();
 
     if (funnelError) throw funnelError;
-    if (!funnel) {
-        throw new Error("O Funil FIV não foi encontrado.");
-    }
+    if (!funnel) throw new Error("O Funil FIV não foi encontrado.");
 
     const { data: firstStage, error: stageError } = await supabase
         .from("funnel_stages")

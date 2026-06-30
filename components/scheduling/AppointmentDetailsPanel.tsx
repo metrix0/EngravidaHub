@@ -74,6 +74,14 @@ const EMPTY_PERSON: SchedulingPersonFields = {
     phone: "",
 };
 
+const STATUS_OPTIONS = [
+    { value: "scheduled", label: "Agendado" },
+    { value: "confirmed", label: "Confirmado" },
+    { value: "completed", label: "Concluído" },
+    { value: "cancelled", label: "Cancelado" },
+    { value: "no_show", label: "Não compareceu" },
+];
+
 const EMPTY_ADDRESS: SchedulingAddressFields = {
     street: "",
     number: "",
@@ -95,6 +103,7 @@ export default function AppointmentDetailsPanel({
 }: AppointmentDetailsPanelProps) {
     const [form, setForm] = useState<SchedulingForm | null>(null);
     const [format, setFormat] = useState<SchedulingFormat>("congelamento");
+    const [status, setStatus] = useState<AppointmentStatus>("scheduled");
     const [errors, setErrors] = useState<ErrorMap>({});
     const [saveState, setSaveState] = useState<SaveState>("idle");
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -126,12 +135,14 @@ export default function AppointmentDetailsPanel({
             setSaveError(null);
             setConfirmOpen(false);
             setAddToFivFunnel(true);
+            setStatus("scheduled");
             return;
         }
 
         const nextForm = appointmentToForm(appointment);
         setForm(nextForm);
         setFormat(appointment.format);
+        setStatus(appointment.status);
         setErrors({});
         setSaveState("idle");
         setSaveError(null);
@@ -140,7 +151,7 @@ export default function AppointmentDetailsPanel({
         lastSavedSnapshotRef.current = `${serializeForm(
             nextForm,
             appointment.format,
-        )}::true`;
+        )}::${appointment.status}::true`;
     }, [appointment?.id]);
 
     const availableDoctors = useMemo(
@@ -218,9 +229,9 @@ export default function AppointmentDetailsPanel({
     const snapshot = useMemo(
         () =>
             form
-                ? `${serializeForm(form, format)}::${String(addToFivFunnel)}`
+                ? `${serializeForm(form, format)}::${status}::${String(addToFivFunnel)}`
                 : "",
-        [addToFivFunnel, form, format],
+        [addToFivFunnel, form, format, status],
     );
 
     useEffect(() => {
@@ -262,7 +273,7 @@ export default function AppointmentDetailsPanel({
                 endsAt,
                 unitId: form.unitId,
                 doctorId: form.doctorId,
-                status: appointmentForSave.status,
+                status,
                 procedureName: form.procedureName.trim(),
                 notes: form.notes.trim(),
                 format,
@@ -294,7 +305,7 @@ export default function AppointmentDetailsPanel({
         }, 650);
 
         return () => window.clearTimeout(timer);
-    }, [appointment?.id, deleting, form, format, snapshot]);
+    }, [appointment?.id, deleting, form, format, snapshot, status]);
 
     if (!appointment || !form) {
         return (
@@ -481,6 +492,13 @@ export default function AppointmentDetailsPanel({
                             placeholder="Selecione o procedimento"
                         />
                     </div>
+
+                    <SelectField
+                        label="Status"
+                        value={status}
+                        onChange={(value) => setStatus(value as AppointmentStatus)}
+                        options={STATUS_OPTIONS}
+                    />
 
                     <section className="py-2">
                         <div className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">

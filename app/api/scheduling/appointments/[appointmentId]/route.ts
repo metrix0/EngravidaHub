@@ -10,6 +10,7 @@ import {
     validateDoctorForUnit,
 } from "@/lib/scheduling/appointmentServer";
 import {
+    buildAppointmentIntegrationPayload,
     moveClientToFivFirstStage,
     sendAppointmentIntegration,
 } from "@/lib/scheduling/appointmentAutomation";
@@ -274,45 +275,9 @@ export async function PATCH(
             };
         }
 
-        const integration = await sendAppointmentIntegration({
-            event: "appointment.updated",
-            appointment: {
-                id: appointment.id,
-                clientId: appointment.client_id,
-                threadId: appointment.thread_id,
-                unitId: appointment.unit_id,
-                doctorId: appointment.doctor_id,
-                startsAt: appointment.starts_at,
-                endsAt: appointment.ends_at,
-                status: appointment.status,
-                format: appointment.format,
-                procedureName: appointment.procedure_name,
-                patient: {
-                    name: appointment.patient_name,
-                    phone: appointment.patient_phone,
-                    email: appointment.patient_email,
-                },
-                spouse:
-                    appointment.format === "casal"
-                        ? {
-                              name: appointment.spouse_name,
-                              phone: appointment.spouse_phone,
-                              email: appointment.spouse_email,
-                          }
-                        : null,
-                address: {
-                    street: appointment.address?.street ?? null,
-                    number: appointment.address?.number ?? null,
-                    complement: appointment.address?.complement ?? null,
-                    neighborhood: appointment.address?.neighborhood ?? null,
-                    city: appointment.address?.city ?? null,
-                    state: appointment.address?.state ?? null,
-                    cep: appointment.address?.cep ?? null,
-                    country: appointment.address?.country ?? null,
-                },
-                notes: appointment.notes,
-            },
-        });
+        const integration = await sendAppointmentIntegration(
+            buildAppointmentIntegrationPayload("appointment.updated", appointment),
+        );
 
         return NextResponse.json({
             ok: true,
@@ -343,13 +308,26 @@ export async function DELETE(
             );
         }
 
+        const appointment = await fetchAppointmentById(supabase, appointmentId);
+        if (!appointment) {
+            return NextResponse.json(
+                { ok: false, error: "Appointment not found" },
+                { status: 404 },
+            );
+        }
+
         const { error } = await supabase
             .from("appointments")
             .delete()
             .eq("id", appointmentId);
 
         if (error) throw error;
-        return NextResponse.json({ ok: true });
+
+        const integration = await sendAppointmentIntegration(
+            buildAppointmentIntegrationPayload("appointment.deleted", appointment),
+        );
+
+        return NextResponse.json({ ok: true, integration });
     } catch (error) {
         console.error("[appointments:delete] failed", error);
         return errorResponse(error);
