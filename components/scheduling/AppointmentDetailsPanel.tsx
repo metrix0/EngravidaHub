@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import ClientPanel from "@/components/clientes/ClientPanel";
+import FivAutomationBox from "@/components/scheduling/FivAutomationBox";
 import SchedulingClientSummary from "@/components/scheduling/SchedulingClientSummary";
 import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
@@ -102,6 +103,7 @@ export default function AppointmentDetailsPanel({
     const [profileClientId, setProfileClientId] = useState<string | null>(null);
     const [busyAppointments, setBusyAppointments] = useState<CalendarAppointment[]>([]);
     const [loadingBusy, setLoadingBusy] = useState(false);
+    const [addToFivFunnel, setAddToFivFunnel] = useState(true);
 
     const lastSavedSnapshotRef = useRef("");
     const saveRequestRef = useRef(0);
@@ -123,6 +125,7 @@ export default function AppointmentDetailsPanel({
             setSaveState("idle");
             setSaveError(null);
             setConfirmOpen(false);
+            setAddToFivFunnel(true);
             return;
         }
 
@@ -133,7 +136,11 @@ export default function AppointmentDetailsPanel({
         setSaveState("idle");
         setSaveError(null);
         setConfirmOpen(false);
-        lastSavedSnapshotRef.current = serializeForm(nextForm, appointment.format);
+        setAddToFivFunnel(true);
+        lastSavedSnapshotRef.current = `${serializeForm(
+            nextForm,
+            appointment.format,
+        )}::true`;
     }, [appointment?.id]);
 
     const availableDoctors = useMemo(
@@ -209,8 +216,11 @@ export default function AppointmentDetailsPanel({
     }, [busyAppointments, form]);
 
     const snapshot = useMemo(
-        () => (form ? serializeForm(form, format) : ""),
-        [form, format],
+        () =>
+            form
+                ? `${serializeForm(form, format)}::${String(addToFivFunnel)}`
+                : "",
+        [addToFivFunnel, form, format],
     );
 
     useEffect(() => {
@@ -259,6 +269,7 @@ export default function AppointmentDetailsPanel({
                 primary: form.primary,
                 spouse: form.spouse,
                 address: form.address,
+                addToFivFunnel,
             };
 
             void onSaveRef.current(
@@ -555,6 +566,14 @@ export default function AppointmentDetailsPanel({
                         multiline
                     />
 
+                    {isInitialProcedure(form.procedureName) && (
+                        <FivAutomationBox
+                            checked={addToFivFunnel}
+                            onChange={setAddToFivFunnel}
+                            disabled={deleting || saveState === "saving"}
+                        />
+                    )}
+
                     <SaveIndicator state={saveState} error={saveError} />
 
                     <button
@@ -622,6 +641,17 @@ export default function AppointmentDetailsPanel({
                 onClose={() => setProfileClientId(null)}
             />
         </>
+    );
+}
+
+function isInitialProcedure(value: string) {
+    return (
+        value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim()
+            .toLocaleLowerCase("pt-BR")
+            .replace(/\s+/g, " ") === "consulta inicial"
     );
 }
 

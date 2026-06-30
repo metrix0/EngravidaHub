@@ -11,6 +11,10 @@ import {
     parseBrazilDate,
     validateDoctorForUnit,
 } from "@/lib/scheduling/appointmentServer";
+import {
+    moveClientToFivFirstStage,
+    sendAppointmentIntegration,
+} from "@/lib/scheduling/appointmentAutomation";
 
 const personSchema = z.object({
     fullName: z.string().max(180), cpf: z.string().max(32), birthDate: z.string().max(32),
@@ -29,6 +33,7 @@ const createSchema = z.object({
     status: z.enum(["scheduled", "confirmed", "completed", "cancelled", "no_show"]).default("scheduled"),
     format: z.enum(["congelamento", "casal"]), procedureName: z.string().trim().min(1).max(180),
     primary: personSchema, spouse: personSchema, address: addressSchema, notes: z.string().max(2000),
+    addToFivFunnel: z.boolean().optional().default(true),
 }).superRefine((value, context) => {
     if (!value.primary.fullName.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["primary", "fullName"], message: "Informe o nome da pessoa principal." });
     if (value.format === "casal" && !value.spouse.fullName.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["spouse", "fullName"], message: "Informe o nome do cônjuge." });
@@ -115,7 +120,77 @@ export async function POST(request: Request) {
         }
         const appointment = await fetchAppointmentById(supabase, inserted.id);
         if (!appointment) throw new Error("Appointment was created but could not be reloaded");
-        return NextResponse.json({ ok: true, appointment }, { status: 201 });
+
+        let fivAutomation: Awaited<ReturnType<typeof moveClientToFivFirstStage>>;
+        try {
+            fivAutomation = await moveClientToFivFirstStage({
+                clientId,
+                enabled: body.addToFivFunnel,
+                procedureName: body.procedureName,
+                movedByAttendantId: attendant?.id ?? null,
+            });
+        } catch (automationError) {
+            console.warn("[appointments:post] FIV automation failed", automationError);
+            fivAutomation = {
+                applied: false,
+                reason:
+                    automationError instanceof Error
+                        ? automationError.message
+                        : "fiv_automation_failed",
+            };
+        }
+
+        const integration = await sendAppointmentIntegration({
+            event: "appointment.created",
+            appointment: {
+                id: appointment.id,
+                clientId: appointment.client_id,
+                threadId: appointment.thread_id,
+                unitId: appointment.unit_id,
+                doctorId: appointment.doctor_id,
+                startsAt: appointment.starts_at,
+                endsAt: appointment.ends_at,
+                status: appointment.status,
+                format: appointment.format,
+                procedureName: appointment.procedure_name,
+                patient: {
+                    name: appointment.patient_name,
+                    phone: appointment.patient_phone,
+                    email: appointment.patient_email,
+                },
+                spouse:
+                    appointment.format === "casal"
+                        ? {
+                              name: appointment.spouse_name,
+                              phone: appointment.spouse_phone,
+                              email: appointment.spouse_email,
+                          }
+                        : null,
+                address: {
+                    street: appointment.address?.street ?? null,
+                    number: appointment.address?.number ?? null,
+                    complement: appointment.address?.complement ?? null,
+                    neighborhood: appointment.address?.neighborhood ?? null,
+                    city: appointment.address?.city ?? null,
+                    state: appointment.address?.state ?? null,
+                    cep: appointment.address?.cep ?? null,
+                    country: appointment.address?.country ?? null,
+                },
+                notes: appointment.notes,
+            },
+        });
+
+        return NextResponse.json(
+            {
+                ok: true,
+                appointment,
+                automation: {
+                    fiv: fivAutomation,
+                    integration,
+                },
+            },
+            { status: 201 },
+        );
     } catch (error) { console.error("[appointments:post] failed", error); return errorResponse(error); }
 }
 function onlyDigits(value: string) { return value.replace(/\D/g, ""); }

@@ -9,6 +9,10 @@ import {
     parseBrazilDate,
     validateDoctorForUnit,
 } from "@/lib/scheduling/appointmentServer";
+import {
+    moveClientToFivFirstStage,
+    sendAppointmentIntegration,
+} from "@/lib/scheduling/appointmentAutomation";
 
 const personSchema = z.object({
     fullName: z.string().max(180),
@@ -44,6 +48,7 @@ const updateSchema = z
         spouse: personSchema.optional(),
         address: addressSchema.optional(),
         notes: z.string().max(2000).nullable().optional(),
+        addToFivFunnel: z.boolean().optional().default(false),
     })
     .strict();
 
@@ -53,7 +58,7 @@ export async function PATCH(
 ) {
     try {
         const { appointmentId } = await params;
-        const { user } = await getCurrentAttendantFromRequest();
+        const { user, attendant } = await getCurrentAttendantFromRequest();
 
         if (!user) {
             return NextResponse.json(
@@ -250,7 +255,73 @@ export async function PATCH(
             throw new Error("Appointment was updated but could not be reloaded");
         }
 
-        return NextResponse.json({ ok: true, appointment });
+        let fivAutomation: Awaited<ReturnType<typeof moveClientToFivFirstStage>>;
+        try {
+            fivAutomation = await moveClientToFivFirstStage({
+                clientId: appointment.client_id,
+                enabled: body.addToFivFunnel,
+                procedureName: appointment.procedure_name,
+                movedByAttendantId: attendant?.id ?? null,
+            });
+        } catch (automationError) {
+            console.warn("[appointments:patch] FIV automation failed", automationError);
+            fivAutomation = {
+                applied: false,
+                reason:
+                    automationError instanceof Error
+                        ? automationError.message
+                        : "fiv_automation_failed",
+            };
+        }
+
+        const integration = await sendAppointmentIntegration({
+            event: "appointment.updated",
+            appointment: {
+                id: appointment.id,
+                clientId: appointment.client_id,
+                threadId: appointment.thread_id,
+                unitId: appointment.unit_id,
+                doctorId: appointment.doctor_id,
+                startsAt: appointment.starts_at,
+                endsAt: appointment.ends_at,
+                status: appointment.status,
+                format: appointment.format,
+                procedureName: appointment.procedure_name,
+                patient: {
+                    name: appointment.patient_name,
+                    phone: appointment.patient_phone,
+                    email: appointment.patient_email,
+                },
+                spouse:
+                    appointment.format === "casal"
+                        ? {
+                              name: appointment.spouse_name,
+                              phone: appointment.spouse_phone,
+                              email: appointment.spouse_email,
+                          }
+                        : null,
+                address: {
+                    street: appointment.address?.street ?? null,
+                    number: appointment.address?.number ?? null,
+                    complement: appointment.address?.complement ?? null,
+                    neighborhood: appointment.address?.neighborhood ?? null,
+                    city: appointment.address?.city ?? null,
+                    state: appointment.address?.state ?? null,
+                    cep: appointment.address?.cep ?? null,
+                    country: appointment.address?.country ?? null,
+                },
+                notes: appointment.notes,
+            },
+        });
+
+        return NextResponse.json({
+            ok: true,
+            appointment,
+            automation: {
+                fiv: fivAutomation,
+                integration,
+            },
+        });
     } catch (error) {
         console.error("[appointments:patch] failed", error);
         return errorResponse(error);
@@ -263,7 +334,7 @@ export async function DELETE(
 ) {
     try {
         const { appointmentId } = await params;
-        const { user } = await getCurrentAttendantFromRequest();
+        const { user, attendant } = await getCurrentAttendantFromRequest();
 
         if (!user) {
             return NextResponse.json(
