@@ -1,6 +1,11 @@
 // app/api/clientes/[clientId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib";
+import { fetchAppointmentById } from "@/lib/scheduling/appointmentServer";
+import {
+    buildAppointmentIntegrationPayload,
+    sendAppointmentIntegration,
+} from "@/lib/scheduling/appointmentAutomation";
 
 type RouteContext = {
     params: Promise<{
@@ -63,13 +68,15 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
-    const [unit, units, stage, liveThread, conversations] = await Promise.all([
-        fetchUnit(client.unit_id),
-        fetchUnits(),
-        fetchStageWithFunnel(client.funnel_stage_id),
-        fetchLiveThread(clientId),
-        fetchClientConversations(clientId),
-    ]);
+    const [unit, units, stage, liveThread, conversations, upcomingAppointments] =
+        await Promise.all([
+            fetchUnit(client.unit_id),
+            fetchUnits(),
+            fetchStageWithFunnel(client.funnel_stage_id),
+            fetchLiveThread(clientId),
+            fetchClientConversations(clientId),
+            fetchCurrentOrFutureAppointments(clientId),
+        ]);
 
     const liveConversationId = liveThread?.latest_conversation_id ?? null;
 
@@ -95,6 +102,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             funnel: stage?.funnel ?? null,
         },
         units,
+        upcoming_appointment_count: upcomingAppointments.length,
         live_thread: liveThread,
         conversations: historicalConversations.map((conversation) => {
             const analysis = conversation.conversation_analysis_id
@@ -146,6 +154,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     }
 
     const address = isRecord(body.address) ? body.address : {};
+    const updateUpcomingAppointments = body.updateUpcomingAppointments === true;
     const birthDate = cleanText(body.birthDate);
     if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
         return NextResponse.json({ error: "Invalid birth date" }, { status: 400 });
@@ -200,8 +209,65 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
+    let updatedAppointmentCount = 0;
+
+    if (updateUpcomingAppointments) {
+        const upcomingAppointments = await fetchCurrentOrFutureAppointments(clientId);
+        const appointmentIds = upcomingAppointments.map((appointment) => appointment.id);
+
+        if (appointmentIds.length > 0) {
+            const { error: appointmentUpdateError } = await supabase
+                .from("appointments")
+                .update({
+                    patient_name: updatedClient.name,
+                    patient_phone: updatedClient.phone,
+                    patient_email: updatedClient.email,
+                    patient_cpf: updatedClient.cpf,
+                    patient_birth_date: updatedClient.birth_date,
+                    address_street: updatedClient.street,
+                    address_number: updatedClient.number,
+                    address_complement: updatedClient.complement,
+                    address_neighborhood: updatedClient.neighborhood,
+                    address_city: updatedClient.city,
+                    address_state: updatedClient.state,
+                    address_country: updatedClient.country,
+                    address_cep: updatedClient.cep,
+                    updated_at: new Date().toISOString(),
+                })
+                .in("id", appointmentIds);
+
+            if (appointmentUpdateError) {
+                return NextResponse.json(
+                    { error: appointmentUpdateError.message },
+                    { status: 500 },
+                );
+            }
+
+            updatedAppointmentCount = appointmentIds.length;
+
+            for (const appointmentId of appointmentIds) {
+                const appointment = await fetchAppointmentById(
+                    supabase,
+                    appointmentId,
+                );
+
+                if (!appointment) continue;
+
+                await sendAppointmentIntegration(
+                    buildAppointmentIntegrationPayload(
+                        "appointment.updated",
+                        appointment,
+                    ),
+                );
+            }
+        }
+    }
+
     const unit = await fetchUnit(updatedClient.unit_id);
-    return NextResponse.json({ client: { ...updatedClient, unit } });
+    return NextResponse.json({
+        client: { ...updatedClient, unit },
+        updated_appointment_count: updatedAppointmentCount,
+    });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -219,6 +285,19 @@ function digitsOrNull(value: unknown) {
     if (!normalized) return null;
     const digits = normalized.replace(/\D/g, "");
     return digits || null;
+}
+
+async function fetchCurrentOrFutureAppointments(clientId: string) {
+    const { data, error } = await supabase
+        .from("appointments")
+        .select("id, starts_at, ends_at")
+        .eq("client_id", clientId)
+        .in("status", ["scheduled", "confirmed"])
+        .gte("ends_at", new Date().toISOString())
+        .order("starts_at", { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
 }
 
 async function fetchUnits() {

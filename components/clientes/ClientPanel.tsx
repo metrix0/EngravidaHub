@@ -116,6 +116,7 @@ type ClientConversationSummary = {
 type ClientDetailResponse = {
     client: ClientDetail;
     units: Array<{ id: string; name: string }>;
+    upcoming_appointment_count: number;
     live_thread: ClientLiveThread | null;
     conversations: ClientConversationSummary[];
 };
@@ -208,6 +209,9 @@ export default function ClientPanel({
                     <ClientInformationCard
                         client={data.client}
                         units={data.units}
+                        upcomingAppointmentCount={
+                            data.upcoming_appointment_count ?? 0
+                        }
                         onSaved={(savedClient) =>
                             setData((current) =>
                                 current
@@ -508,7 +512,6 @@ function ClientPanelHeaderSkeleton() {
                     <div className="min-w-0 flex-1">
                         <Skeleton className="h-4 w-36" />
                         <Skeleton className="mt-3 h-3 w-28" />
-                        <Skeleton className="mt-3 h-3 w-40" />
                     </div>
                 </div>
 
@@ -532,10 +535,70 @@ function ClientPanelHeaderSkeleton() {
 
 function ClientPanelSkeleton() {
     return (
-        <div className="space-y-5">
-            <Skeleton className="h-16 rounded-xl" />
-            <Skeleton className="h-16 rounded-xl" />
-            <Skeleton className="h-64 rounded-2xl" />
+        <div className="space-y-4">
+            <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                    <div>
+                        <Skeleton className="h-5 w-40" />
+                        <Skeleton className="mt-2 h-3 w-48" />
+                    </div>
+                    <Skeleton className="h-9 w-24 rounded-xl" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-5 gap-y-5">
+                    <div className="col-span-2">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="mt-2 h-4 w-48" />
+                    </div>
+                    {Array.from({ length: 5 }).map((_, index) => (
+                        <div key={index}>
+                            <Skeleton className="h-3 w-20" />
+                            <Skeleton className="mt-2 h-4 w-32" />
+                        </div>
+                    ))}
+                    <div className="col-span-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="mt-2 h-4 w-full max-w-[360px]" />
+                    </div>
+                </div>
+            </section>
+
+            <Skeleton className="h-[92px] rounded-xl" />
+
+            <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                    <div>
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="mt-2 h-3 w-48" />
+                    </div>
+                    <Skeleton className="h-6 w-8 rounded-md" />
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-slate-100">
+                    <div className="grid grid-cols-[1.15fr_1.2fr_1fr_48px_28px] gap-3 bg-slate-50 px-3 py-3">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                            <Skeleton key={index} className="h-3 w-full" />
+                        ))}
+                    </div>
+                    {Array.from({ length: 3 }).map((_, index) => (
+                        <div
+                            key={index}
+                            className="grid grid-cols-[1.15fr_1.2fr_1fr_48px_28px] items-center gap-3 border-t border-slate-100 px-3 py-3"
+                        >
+                            <div>
+                                <Skeleton className="h-4 w-full" />
+                                <Skeleton className="mt-2 h-3 w-20" />
+                            </div>
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-6 w-16 rounded-md" />
+                            <Skeleton className="h-4 w-6" />
+                            <Skeleton className="h-4 w-4" />
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <Skeleton className="h-[76px] rounded-xl" />
         </div>
     );
 }

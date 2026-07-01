@@ -4,6 +4,8 @@
 import { useEffect, useState } from "react";
 import { Check, LoaderCircle, Pencil, X } from "lucide-react";
 
+import { Modal } from "@/components/ui/Modal";
+
 export type ClientUnitOption = {
     id: string;
     name: string;
@@ -48,14 +50,17 @@ type FormState = {
 export default function ClientInformationCard({
     client,
     units,
+    upcomingAppointmentCount,
     onSaved,
 }: {
     client: EditableClientDetail;
     units: ClientUnitOption[];
+    upcomingAppointmentCount: number;
     onSaved: (client: EditableClientDetail) => void;
 }) {
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [form, setForm] = useState<FormState>(() => toForm(client));
 
@@ -71,17 +76,30 @@ export default function ClientInformationCard({
     function cancel() {
         setForm(toForm(client));
         setError(null);
+        setConfirmOpen(false);
         setEditing(false);
     }
 
-    async function save() {
+    function save() {
         if (saving) return;
         if (!form.name.trim()) {
             setError("Informe o nome do cliente.");
             return;
         }
 
+        if (upcomingAppointmentCount > 0) {
+            setConfirmOpen(true);
+            return;
+        }
+
+        void persist(false);
+    }
+
+    async function persist(updateUpcomingAppointments: boolean) {
+        if (saving) return;
+
         setSaving(true);
+        setConfirmOpen(false);
         setError(null);
 
         try {
@@ -95,6 +113,7 @@ export default function ClientInformationCard({
                     email: form.email,
                     phone: form.phone,
                     unitId: form.unitId,
+                    updateUpcomingAppointments,
                     address: {
                         cep: form.cep,
                         street: form.street,
@@ -127,7 +146,8 @@ export default function ClientInformationCard({
     }
 
     return (
-        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+        <>
+            <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <h3 className="text-lg font-bold text-text">Informações do cliente</h3>
@@ -220,12 +240,55 @@ export default function ClientInformationCard({
                 </div>
             )}
 
-            {error && (
-                <div className="mt-4 rounded-xl border border-red/20 bg-red-soft px-3 py-2 text-sm font-semibold text-red">
-                    {error}
+                {error && (
+                    <div className="mt-4 rounded-xl border border-red/20 bg-red-soft px-3 py-2 text-sm font-semibold text-red">
+                        {error}
+                    </div>
+                )}
+            </section>
+
+            <Modal
+                open={confirmOpen}
+                onClose={() => !saving && setConfirmOpen(false)}
+                width={470}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                closeOnOverlayClick={!saving}
+                closeOnEscape={!saving}
+                showCloseButton={!saving}
+                panelClassName="p-6"
+                zIndexClassName="z-[70]"
+            >
+                <div className="pr-10">
+                    <div className="text-lg font-bold text-slate-950">
+                        Atualizar dados do agendamento?
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                        Este cliente possui {upcomingAppointmentCount === 1 ? "um agendamento atual ou futuro" : `${upcomingAppointmentCount} agendamentos atuais ou futuros`}. Deseja atualizar também os dados pessoais, de contato e endereço {upcomingAppointmentCount === 1 ? "desse agendamento" : "desses agendamentos"}?
+                    </p>
                 </div>
-            )}
-        </section>
+
+                <div className="mt-6 flex justify-end gap-3">
+                    <button
+                        type="button"
+                        onClick={() => void persist(false)}
+                        disabled={saving}
+                        className="h-10 cursor-pointer rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Somente cliente
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void persist(true)}
+                        disabled={saving}
+                        className="flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {saving && <LoaderCircle size={15} className="animate-spin" />}
+                        Cliente e {upcomingAppointmentCount === 1 ? "agendamento" : "agendamentos"}
+                    </button>
+                </div>
+            </Modal>
+        </>
     );
 }
 
