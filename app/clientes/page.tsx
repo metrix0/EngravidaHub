@@ -109,6 +109,7 @@ const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
     },
 ];
 
+
 const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
         id: "client",
@@ -389,17 +390,58 @@ export default function ClientesPage() {
                 <SidePanel />
 
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <div className="mb-8">
-                        <Skeleton className="h-10 w-48" />
-                        <Skeleton className="mt-3 h-5 w-96" />
+                    <div className="mb-8 flex items-start justify-between">
+                        <div>
+                            <Skeleton className="h-10 w-48" />
+                            <Skeleton className="mt-3 h-5 w-96" />
+                        </div>
+                        <Skeleton className="h-12 w-[310px] rounded-xl" />
                     </div>
 
-                    <div className="grid grid-cols-4 gap-5">
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
+                    <div className="mb-8 flex justify-end gap-3">
+                        {Array.from({length: 3}).map((_, index) => (
+                            <Skeleton key={index} className="h-12 w-[230px] rounded-xl" />
+                        ))}
                     </div>
+
+                    <section className="mb-8 grid grid-cols-1 gap-5">
+                        <HorizontalScroller scrollAmount={400}>
+                            {Array.from({length: 4}).map((_, index) => (
+                                <Skeleton key={index} className="h-32 min-w-[310px] rounded-2xl" />
+                            ))}
+                        </HorizontalScroller>
+                    </section>
+
+                    <section className="overflow-hidden rounded-2xl border border-slate-100">
+                        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+                            <Skeleton className="h-6 w-[150px]" />
+                            <div className="flex items-center gap-3">
+                                <Skeleton className="h-11 w-[310px] rounded-xl" />
+                                <Skeleton className="h-11 w-[120px] rounded-xl" />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-[1.8fr_1fr_1.1fr_0.9fr_1.2fr_1.3fr_48px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3">
+                            {Array.from({length: 7}).map((_, index) => (
+                                <Skeleton key={index} className="h-3 w-[70%]" />
+                            ))}
+                        </div>
+
+                        {Array.from({length: 7}).map((_, rowIndex) => (
+                            <div key={rowIndex} className="grid grid-cols-[1.8fr_1fr_1.1fr_0.9fr_1.2fr_1.3fr_48px] items-center gap-4 border-b border-slate-100 px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                    <Skeleton className="h-9 w-9 rounded-full" />
+                                    <Skeleton className="h-4 w-[110px]" />
+                                </div>
+                                <Skeleton className="h-4 w-[90px]" />
+                                <Skeleton className="h-6 w-[88px] rounded-lg" />
+                                <Skeleton className="h-6 w-[72px] rounded-lg" />
+                                <Skeleton className="h-4 w-[90px]" />
+                                <Skeleton className="h-4 w-[105px]" />
+                                <Skeleton className="ml-auto h-5 w-5 rounded-full" />
+                            </div>
+                        ))}
+                    </section>
                 </section>
             </main>
         );
@@ -561,6 +603,8 @@ export default function ClientesPage() {
                 conversationId={selectedConversationId}
                 onClose={() => setSelectedConversationId(null)}
             />
+
+
         </main>
     );
 }

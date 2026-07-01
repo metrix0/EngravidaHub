@@ -1092,10 +1092,10 @@ function ChatPanel({
                         <Pin size={18} className={"rotate-45 "}/>
                     </button>
 
-                    {canFinalize && (
+                    {itemType === "thread" && (
                         <button
                             type="button"
-                            disabled={!itemId || isFinalizingConversation}
+                            disabled={!canFinalize || !itemId || isFinalizingConversation}
                             title="Finalizar conversa"
                             onClick={() => void onFinalizeConversation()}
                             className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-red/30 hover:bg-red-soft hover:text-red disabled:cursor-not-allowed disabled:opacity-50"
@@ -1485,9 +1485,14 @@ function InboxAccessState({
 function ConversationListSkeleton() {
     return (
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="mb-5 shrink-0">
+            <div className="mb-4 shrink-0">
                 <Skeleton className="h-9 w-28 rounded-lg" />
                 <Skeleton className="mt-3 h-4 w-56 rounded-lg" />
+            </div>
+
+            <div className="mb-4 flex h-10 shrink-0 items-center gap-3 px-1">
+                <Skeleton className="h-10 w-[140px] rounded-xl" />
+                <Skeleton className="h-4 w-16 rounded-lg" />
             </div>
 
             <Skeleton className="mb-4 h-10 w-full shrink-0 rounded-xl" />
@@ -1537,13 +1542,13 @@ function ChatPanelSkeleton() {
 
                     <div className="min-w-0">
                         <Skeleton className="h-6 w-40 rounded-lg" />
-                        <Skeleton className="mt-2 h-4 w-52 rounded-lg" />
                     </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-3">
                     <Skeleton className="h-9 w-28 rounded-xl" />
                     <Skeleton className="h-9 w-16 rounded-xl" />
+                    <Skeleton className="h-11 w-11 rounded-xl" />
                     <Skeleton className="h-11 w-11 rounded-xl" />
                 </div>
             </div>

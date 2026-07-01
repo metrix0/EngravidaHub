@@ -498,9 +498,9 @@ function DashboardSkeleton() {
             </div>
 
             <div className="mb-8 flex justify-end gap-3">
-                <Skeleton className="h-12 w-[220px]"/>
-                <Skeleton className="h-12 w-[220px]"/>
-                <Skeleton className="h-12 w-[220px]"/>
+                {Array.from({length: 4}).map((_, index) => (
+                    <Skeleton key={index} className="h-12 w-[220px]"/>
+                ))}
             </div>
 
             <DashboardBodySkeleton/>
@@ -509,75 +509,89 @@ function DashboardSkeleton() {
 }
 
 function DashboardBodySkeleton() {
-    return (<>
-            <section className="mb-6 grid grid-cols-5 gap-5">
-                {Array.from({length: 5}).map((_, index) => (
-                    <Card key={index}>
-                        <div className="flex items-center gap-5 overflow-hidden">
-                            <Skeleton className="h-14 w-14 shrink-0 rounded-full"/>
+    return (
+        <>
+            <section className="mb-6 grid grid-cols-1 gap-5">
+                <HorizontalScroller scrollAmount={400}>
+                    {Array.from({length: 5}).map((_, index) => (
+                        <div key={index} className="min-w-[260px]">
+                            <Card>
+                                <div className="flex items-center gap-5 overflow-hidden">
+                                    <Skeleton className="h-14 w-14 shrink-0 rounded-full"/>
 
-                            <div className="min-w-0 flex-1">
-                                <Skeleton className="h-3 w-[55%]"/>
-                                <Skeleton className="mt-3 h-8 w-[40%]"/>
-                                <Skeleton className="mt-3 h-3 w-[75%]"/>
-                            </div>
+                                    <div className="min-w-0 flex-1">
+                                        <Skeleton className="h-3 w-[55%]"/>
+                                        <Skeleton className="mt-3 h-8 w-[40%]"/>
+                                        <Skeleton className="mt-3 h-3 w-[75%]"/>
+                                    </div>
+                                </div>
+                            </Card>
                         </div>
-                    </Card>
-                ))}
+                    ))}
+                </HorizontalScroller>
             </section>
 
             <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
                 <Card>
-                    <div className="mb-5 flex items-center justify-between gap-6">
-                        <div className="min-w-0 flex-1">
-                            <Skeleton className="h-6 w-[30%]"/>
-                            <Skeleton className="mt-3 h-4 w-[55%]"/>
-                        </div>
-
-                        <Skeleton className="h-10 w-[18%] min-w-[110px] max-w-[150px]"/>
+                    <div className="mb-5">
+                        <Skeleton className="h-6 w-[30%]"/>
+                        <Skeleton className="mt-3 h-4 w-[55%]"/>
                     </div>
-
                     <Skeleton className="h-[290px] w-full"/>
                 </Card>
 
                 <Card>
-                    <Skeleton className="mb-6 h-6 w-[45%]"/>
+                    <Skeleton className="h-6 w-[55%]"/>
+                    <Skeleton className="mt-3 h-4 w-[72%]"/>
 
-                    <div className="grid grid-cols-[38%_1fr] gap-4">
-                        <Skeleton className="aspect-square w-full rounded-full"/>
-
-                        <div className="min-w-0 space-y-4">
-                            <Skeleton className="h-4 w-full"/>
-                            <Skeleton className="h-4 w-[80%]"/>
-                            <Skeleton className="h-4 w-[90%]"/>
-
-                            <div className="pt-4">
-                                <Skeleton className="h-11 w-full"/>
+                    <div className="mt-7 space-y-6">
+                        {Array.from({length: 4}).map((_, index) => (
+                            <div key={index} className="grid grid-cols-[32px_minmax(0,1fr)_48px] items-center gap-3">
+                                <Skeleton className="h-8 w-8 rounded-full"/>
+                                <div>
+                                    <Skeleton className="h-4 w-[72%]"/>
+                                    <Skeleton className="mt-2 h-2 w-full rounded-full"/>
+                                </div>
+                                <Skeleton className="h-4 w-10"/>
                             </div>
-
-                            <Skeleton className="h-11 w-full"/>
-                            <Skeleton className="h-11 w-full"/>
-                        </div>
+                        ))}
                     </div>
                 </Card>
             </section>
 
-            <section className="grid grid-cols-3 gap-5">
-                {Array.from({length: 3}).map((_, index) => (
-                    <Card key={index}>
-                        <Skeleton className="mb-5 h-6 w-[45%]"/>
-
+            <section className="grid grid-cols-2 gap-5">
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[45%]"/>
+                    <div className="grid grid-cols-[180px_1fr] items-center gap-6">
+                        <Skeleton className="h-[170px] w-[170px] rounded-full"/>
                         <div className="space-y-4">
-                            <Skeleton className="h-8 w-full"/>
-                            <Skeleton className="h-8 w-[92%]"/>
-                            <Skeleton className="h-8 w-[84%]"/>
-                            <Skeleton className="h-8 w-full"/>
+                            {Array.from({length: 4}).map((_, index) => (
+                                <Skeleton key={index} className="h-4 w-full"/>
+                            ))}
                         </div>
-                    </Card>
-                ))}
+                    </div>
+                </Card>
+
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[35%]"/>
+                    <div className="overflow-hidden rounded-xl border border-slate-100">
+                        <div className="grid grid-cols-4 gap-4 bg-slate-50 px-2 py-3">
+                            {Array.from({length: 4}).map((_, index) => (
+                                <Skeleton key={index} className="h-3 w-[70%]"/>
+                            ))}
+                        </div>
+                        {Array.from({length: 4}).map((_, rowIndex) => (
+                            <div key={rowIndex} className="grid grid-cols-4 gap-4 border-t border-slate-100 px-2 py-3">
+                                {Array.from({length: 4}).map((_, columnIndex) => (
+                                    <Skeleton key={columnIndex} className="h-4 w-[72%]"/>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </Card>
             </section>
         </>
-    )
+    );
 }
 
 function DailyEvolutionTooltip({

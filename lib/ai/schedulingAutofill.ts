@@ -315,17 +315,25 @@ function chooseDuration(current: number, candidate: number) {
 
 function chooseAddress(
     current: SchedulingAddressFields,
-    candidate: SchedulingAddressFields,
+    candidate: Partial<SchedulingAddressFields>,
 ): SchedulingAddressFields {
     return {
-        street: chooseText(current.street, candidate.street, 180),
-        number: chooseText(current.number, candidate.number, 40),
-        complement: chooseText(current.complement, candidate.complement, 120),
-        neighborhood: chooseText(current.neighborhood, candidate.neighborhood, 120),
-        city: chooseText(current.city, candidate.city, 120),
-        state: chooseText(current.state, candidate.state, 80),
-        cep: chooseCep(current.cep, candidate.cep),
-        country: chooseText(current.country, candidate.country, 80),
+        street: chooseText(current.street, candidate.street ?? "", 180),
+        number: chooseText(current.number, candidate.number ?? "", 40),
+        complement: chooseText(
+            current.complement,
+            candidate.complement ?? "",
+            120,
+        ),
+        neighborhood: chooseText(
+            current.neighborhood,
+            candidate.neighborhood ?? "",
+            120,
+        ),
+        city: chooseText(current.city, candidate.city ?? "", 120),
+        state: chooseText(current.state, candidate.state ?? "", 80),
+        cep: chooseCep(current.cep, candidate.cep ?? ""),
+        country: chooseText(current.country, candidate.country ?? "", 80),
     };
 }
 

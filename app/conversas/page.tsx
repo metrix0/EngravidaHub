@@ -64,11 +64,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         render: (conversation) => (
             <div className="flex min-w-0 items-center gap-3">
                 <InitialsAvatar name={conversation.attendant_name}/>
-
-                <span
-                    title={conversation.attendant_name}
-                    className="truncate font-medium text-slate-700"
-                >
+                <span title={conversation.attendant_name} className="truncate font-medium text-slate-700">
                     {conversation.attendant_name}
                 </span>
             </div>
@@ -79,10 +75,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         label: "Telefone",
         width: "11%",
         render: (conversation) => (
-            <div
-                title={formatPhone(conversation.phone)}
-                className="truncate text-slate-600"
-            >
+            <div title={formatPhone(conversation.phone)} className="truncate text-slate-600">
                 {formatPhone(conversation.phone)}
             </div>
         ),
@@ -92,10 +85,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         label: "Data",
         width: "21%",
         render: (conversation) => (
-            <DateRangeCell
-                start={conversation.started_at}
-                end={conversation.ended_at}
-            />
+            <DateRangeCell start={conversation.started_at} end={conversation.ended_at}/>
         ),
     },
     {
@@ -103,10 +93,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         label: "Cliente",
         width: "15%",
         render: (conversation) => (
-            <div
-                title={conversation.client_name}
-                className="truncate text-slate-700"
-            >
+            <div title={conversation.client_name} className="truncate text-slate-700">
                 {conversation.client_name}
             </div>
         ),
@@ -116,10 +103,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         label: "Objetivo",
         width: "15%",
         render: (conversation) => (
-            <div
-                title={conversation.objective}
-                className="truncate text-slate-700"
-            >
+            <div title={conversation.objective} className="truncate text-slate-700">
                 {conversation.objective}
             </div>
         ),
@@ -143,15 +127,11 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         align: "right",
         render: () => (
             <div className="flex justify-end">
-                <ChevronRight
-                    size={16}
-                    className="text-slate-400 transition-colors group-hover:text-slate-700"
-                />
+                <ChevronRight size={16} className="text-slate-400 transition-colors group-hover:text-slate-700"/>
             </div>
         ),
     },
 ];
-
 
 export default function MessagesPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
@@ -511,6 +491,7 @@ function MessagesSkeleton() {
                 <Skeleton className="h-12 w-[220px]"/>
                 <Skeleton className="h-12 w-[220px]"/>
                 <Skeleton className="h-12 w-[220px]"/>
+                <Skeleton className="h-12 w-[220px]"/>
             </div>
 
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
@@ -568,3 +549,5 @@ function MessagesTableSkeleton() {
         </div>
     );
 }
+
+

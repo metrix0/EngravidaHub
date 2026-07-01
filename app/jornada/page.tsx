@@ -519,6 +519,7 @@ function JourneySkeleton() {
                 <Skeleton className="h-12 w-[220px]"/>
                 <Skeleton className="h-12 w-[220px]"/>
                 <Skeleton className="h-12 w-[220px]"/>
+                <Skeleton className="h-12 w-[220px]"/>
             </div>
 
             <JourneyBodySkeleton/>

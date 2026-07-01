@@ -20,8 +20,8 @@ import {
     KpiCard,
     MainFilters,
     Pagination,
-    SearchFilter,
     Skeleton,
+    SearchFilter,
 } from "@/components";
 
 import SidePanel from "@/components/layout/SidePanel";
@@ -157,6 +157,7 @@ export default function FunnelPage() {
         null;
 
     const selectedFunnelId = funnelIds[0] ?? defaultFunnelId;
+
 
     useEffect(() => {
         async function loadFilters() {
@@ -684,17 +685,69 @@ export default function FunnelPage() {
                 <SidePanel />
 
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <div className="mb-8">
-                        <Skeleton className="h-10 w-48" />
-                        <Skeleton className="mt-3 h-5 w-96" />
+                    <div className="mb-8 flex items-start justify-between">
+                        <div>
+                            <Skeleton className="h-10 w-48" />
+                            <Skeleton className="mt-3 h-5 w-96" />
+                        </div>
+                        <Skeleton className="h-12 w-[310px] rounded-xl" />
                     </div>
 
-                    <div className="grid grid-cols-4 gap-5">
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
+                    <div className="mb-8 flex justify-end">
+                        <Skeleton className="h-12 w-[230px] rounded-xl" />
                     </div>
+
+                    <section className="mb-8 grid grid-cols-1 gap-5">
+                        <HorizontalScroller scrollAmount={400}>
+                            {Array.from({length: 4}).map((_, index) => (
+                                <Skeleton key={index} className="h-32 min-w-[310px] rounded-2xl" />
+                            ))}
+                        </HorizontalScroller>
+                    </section>
+
+                    <section>
+                        <div className="mb-5 flex items-center justify-between gap-6">
+                            <div>
+                                <Skeleton className="h-7 w-[180px]" />
+                                <Skeleton className="mt-2 h-4 w-[250px]" />
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <Skeleton className="h-11 w-[360px] rounded-xl" />
+                                <Skeleton className="h-11 w-[120px] rounded-xl" />
+                                <Skeleton className="h-11 w-[105px] rounded-xl" />
+                            </div>
+                        </div>
+
+                        <div className="overflow-hidden pb-16">
+                            <HorizontalScroller scrollAmount={520}>
+                                {Array.from({length: 4}).map((_, columnIndex) => (
+                                    <div key={columnIndex} className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
+                                        <div className="mb-4 flex items-center justify-between">
+                                            <Skeleton className="h-4 w-[120px]" />
+                                            <Skeleton className="h-6 w-8 rounded-md" />
+                                        </div>
+                                        <div className="space-y-3">
+                                            {Array.from({length: 4}).map((_, cardIndex) => (
+                                                <div key={cardIndex} className="rounded-xl border border-slate-100 bg-white p-3">
+                                                    <div className="flex gap-3">
+                                                        <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+                                                        <div className="min-w-0 flex-1">
+                                                            <Skeleton className="h-4 w-[75%]" />
+                                                            <Skeleton className="mt-2 h-3 w-[58%]" />
+                                                            <div className="mt-3 flex justify-between">
+                                                                <Skeleton className="h-6 w-16 rounded-md" />
+                                                                <Skeleton className="h-3 w-12" />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </HorizontalScroller>
+                        </div>
+                    </section>
                 </section>
             </main>
         );
@@ -1016,7 +1069,6 @@ function FunnelClientCard({
     );
 }
 
-
 function timeAgo(date: string) {
     const diff = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
@@ -1170,7 +1222,7 @@ function AddClientToFunnelModal({
                                     key={client.id}
                                     client={client}
                                     currentStageName={
-                                        currentStage?.name ?? "Sem funnel"
+                                        currentStage?.name ?? "Sem funil"
                                     }
                                     checked={selectedIdsSet.has(client.id)}
                                     alreadyInCurrentFunnel={

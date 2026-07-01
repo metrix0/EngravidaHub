@@ -388,15 +388,17 @@ function PersistentSidePanel({
                     <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
                             href={homeHref}
-                            className="flex h-10 w-full min-w-0 cursor-pointer items-center overflow-hidden rounded-xl"
+                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition ${
+                                isExpanded ? "w-full" : "w-9"
+                            }`}
                         >
-                            <img
-                                src="/logo.png"
-                                className={`block max-h-9 w-[190px] shrink-0 object-contain transition-opacity duration-150 ${
-                                    isExpanded ? "opacity-100" : "opacity-0"
-                                }`}
-                                alt="Engravida"
-                            />
+                            {isExpanded && (
+                                <img
+                                    src="/logo.png"
+                                    className="block max-h-9 w-full object-contain"
+                                    alt="Engravida"
+                                />
+                            )}
                         </Link>
                     </div>
 
