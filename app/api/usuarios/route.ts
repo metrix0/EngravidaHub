@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
 
 const NO_PRESET_ID = "__none__";
 const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
@@ -222,17 +223,18 @@ export async function GET() {
 
         const users = authUsersResult.data.users.map((user) => {
             const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
+            const rawName =
+                getMetadataString(metadata, "name") ??
+                getMetadataString(metadata, "full_name") ??
+                getMetadataString(metadata, "display_name") ??
+                getMetadataString(metadata, "user_name") ??
+                user.email?.split("@")[0] ??
+                "Usuário";
 
             return {
                 id: user.id,
                 email: user.email ?? null,
-                name:
-                    getMetadataString(metadata, "name") ??
-                    getMetadataString(metadata, "full_name") ??
-                    getMetadataString(metadata, "display_name") ??
-                    getMetadataString(metadata, "user_name") ??
-                    user.email?.split("@")[0] ??
-                    "Usuário",
+                name: formatSystemUserName(rawName),
                 created_at: user.created_at,
                 last_sign_in_at: user.last_sign_in_at ?? null,
             };

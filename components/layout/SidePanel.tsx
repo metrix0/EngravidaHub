@@ -34,6 +34,7 @@ import {
     getTabIdForPathname,
     type AppTabId,
 } from "@/lib/auth/userAccess";
+import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
 
 type SidePanelItem = {
     type?: "item";
@@ -277,9 +278,9 @@ function PersistentSidePanel({
     const layoutWidth = resolvedAffectLayout ? sidebarWidth : COLLAPSED_WIDTH;
     const profileName =
         currentAttendant?.name ??
-        currentUser?.user?.name ??
-        currentUser?.user?.email ??
-        "Usuário";
+        formatSystemUserName(
+            currentUser?.user?.name ?? currentUser?.user?.email,
+        );
     const profileSubtitle = currentAttendant
         ? currentAttendant.is_online
             ? "Online"

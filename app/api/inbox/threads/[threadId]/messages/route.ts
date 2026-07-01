@@ -17,12 +17,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
-const TEST_RECIPIENT_NUMBER = "19988760900";
-
-// Test mode is intentionally locked to your number. In production, turn this off
-// and restore the real customer phone line below.
-const TEST_MODE = true;
-const BYPASS_LOCAL_WINDOW_IN_TEST_MODE = true;
+const TEST_MODE = false;
+const BYPASS_LOCAL_WINDOW_IN_TEST_MODE = false;
 
 type DebugStep = {
     at: string;
@@ -87,7 +83,7 @@ export async function POST(
         app_endpoint: appEndpoint,
         item_id: itemId,
         item_type: itemType,
-        recipient_input: TEST_RECIPIENT_NUMBER,
+        recipient_input: "",
         recipient_identity: null,
         local_window: null,
         blip: null,
@@ -172,6 +168,26 @@ export async function POST(
         last_client_message_at: thread.last_client_message_at,
     });
 
+    const { data: customer, error: customerError } = await supabase
+        .from("clients")
+        .select("phone")
+        .eq("id", thread.client_id)
+        .maybeSingle();
+
+    if (customerError) {
+        log("Failed to resolve customer phone", customerError);
+        return errorResponse(500, customerError.message, debug, startedAt);
+    }
+
+    const recipientNumber = customer?.phone?.trim() ?? "";
+    if (!recipientNumber) {
+        log("Rejected: customer has no phone number");
+        return errorResponse(422, "O cliente não possui telefone cadastrado.", debug, startedAt);
+    }
+
+    debug.recipient_input = recipientNumber;
+    log("Customer phone resolved", { raw_number: recipientNumber });
+
     const lastClientMessageAt = thread.last_client_message_at
         ? new Date(thread.last_client_message_at).getTime()
         : 0;
@@ -198,12 +214,6 @@ export async function POST(
             "The 24-hour response window has expired",
             debug,
             startedAt,
-        );
-    }
-
-    if (bypassed) {
-        log(
-            "WARNING: local window check was bypassed because this build is hardcoded test mode. Blip/WhatsApp will still enforce the real channel window.",
         );
     }
 
@@ -242,15 +252,6 @@ export async function POST(
         reopened = true;
         log("Thread reopened", { thread_id: thread.id });
     }
-
-    // const recipientNumber = customer.phone;
-    const recipientNumber = TEST_RECIPIENT_NUMBER;
-
-    log("Recipient locked for test mode", {
-        raw_number: recipientNumber,
-        expected_blip_identity: "5519988760900@wa.gw.msging.net",
-        customer_number_line_enabled: false,
-    });
 
     let blipMessage: SentBlipTextMessage;
 

@@ -26,6 +26,14 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             name,
             phone,
             email,
+            cpf,
+            birth_date,
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            cep,
             first_seen_at,
             last_interaction_at,
             last_active_message_sent_at,
@@ -55,8 +63,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
-    const [unit, stage, liveThread, conversations] = await Promise.all([
+    const [unit, units, stage, liveThread, conversations] = await Promise.all([
         fetchUnit(client.unit_id),
+        fetchUnits(),
         fetchStageWithFunnel(client.funnel_stage_id),
         fetchLiveThread(clientId),
         fetchClientConversations(clientId),
@@ -85,6 +94,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             stage: stage?.stage ?? null,
             funnel: stage?.funnel ?? null,
         },
+        units,
         live_thread: liveThread,
         conversations: historicalConversations.map((conversation) => {
             const analysis = conversation.conversation_analysis_id
@@ -114,6 +124,112 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             };
         }),
     });
+}
+
+export async function PATCH(request: NextRequest, { params }: RouteContext) {
+    const { clientId } = await params;
+
+    if (!clientId) {
+        return NextResponse.json({ error: "clientId is required" }, { status: 400 });
+    }
+
+    let body: Record<string, unknown>;
+    try {
+        body = (await request.json()) as Record<string, unknown>;
+    } catch {
+        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const name = cleanText(body.name);
+    if (!name) {
+        return NextResponse.json({ error: "Client name is required" }, { status: 400 });
+    }
+
+    const address = isRecord(body.address) ? body.address : {};
+    const birthDate = cleanText(body.birthDate);
+    if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
+        return NextResponse.json({ error: "Invalid birth date" }, { status: 400 });
+    }
+
+    const update = {
+        name,
+        phone: digitsOrNull(body.phone),
+        email: cleanText(body.email)?.toLowerCase() ?? null,
+        cpf: digitsOrNull(body.cpf),
+        birth_date: birthDate,
+        unit_id: cleanText(body.unitId),
+        street: cleanText(address.street),
+        number: cleanText(address.number),
+        complement: cleanText(address.complement),
+        neighborhood: cleanText(address.neighborhood),
+        city: cleanText(address.city),
+        state: cleanText(address.state),
+        country: cleanText(address.country),
+        cep: digitsOrNull(address.cep),
+        updated_at: new Date().toISOString(),
+    };
+
+    const { data: updatedClient, error } = await supabase
+        .from("clients")
+        .update(update)
+        .eq("id", clientId)
+        .select(`
+            id,
+            name,
+            phone,
+            email,
+            cpf,
+            birth_date,
+            unit_id,
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            country,
+            cep
+        `)
+        .maybeSingle();
+
+    if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!updatedClient) {
+        return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    const unit = await fetchUnit(updatedClient.unit_id);
+    return NextResponse.json({ client: { ...updatedClient, unit } });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cleanText(value: unknown) {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim();
+    return normalized || null;
+}
+
+function digitsOrNull(value: unknown) {
+    const normalized = cleanText(value);
+    if (!normalized) return null;
+    const digits = normalized.replace(/\D/g, "");
+    return digits || null;
+}
+
+async function fetchUnits() {
+    const { data, error } = await supabase
+        .from("units")
+        .select("id, name")
+        .eq("active", true)
+        .order("name", { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
 }
 
 async function fetchUnit(unitId: string | null) {

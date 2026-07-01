@@ -24,6 +24,7 @@ import {
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import ClientInformationCard from "@/components/clientes/ClientInformationCard";
 
 type FunnelStage = {
     id: string;
@@ -43,6 +44,15 @@ type ClientDetail = {
     name: string | null;
     phone: string | null;
     email: string | null;
+    cpf: string | null;
+    birth_date: string | null;
+    unit_id: string | null;
+    street: string | null;
+    number: string | null;
+    complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    cep: string | null;
     first_seen_at: string;
     last_interaction_at: string;
     last_active_message_sent_at: string | null;
@@ -105,6 +115,7 @@ type ClientConversationSummary = {
 
 type ClientDetailResponse = {
     client: ClientDetail;
+    units: Array<{ id: string; name: string }>;
     live_thread: ClientLiveThread | null;
     conversations: ClientConversationSummary[];
 };
@@ -194,10 +205,23 @@ export default function ClientPanel({
                 <EmptyPanelMessage message="Não foi possível carregar este cliente." />
             ) : (
                 <div className="space-y-4">
+                    <ClientInformationCard
+                        client={data.client}
+                        units={data.units}
+                        onSaved={(savedClient) =>
+                            setData((current) =>
+                                current
+                                    ? {
+                                          ...current,
+                                          client: { ...current.client, ...savedClient },
+                                      }
+                                    : current,
+                            )
+                        }
+                    />
                     <LiveConversationButton thread={data.live_thread} />
                     <ConversationHistorySection conversations={data.conversations} />
                     <ActiveMessageButton client={data.client} />
-
                 </div>
             )}
         </DetailsSidePanel>
@@ -227,21 +251,20 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
                             <span>{formatPhone(client.phone)}</span>
                         </div>
 
-                        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                            <Calendar size={15} />
-                            <span>Cliente desde {formatDate(client.first_seen_at)}</span>
-                        </div>
+
                     </div>
                 </div>
-
-                <Badge value={client.utm_source} none={""} />
+                {client.utm_campaign && (
+                        <Badge value={client.utm_campaign} none={""} />
+                )}
             </div>
 
             <div className="grid grid-cols-3 gap-4 text-xs">
+
                 <HeaderInfoItem
-                    icon={<Mail size={18} />}
-                    label="Email"
-                    value={client.email ?? "—"}
+                    icon={<Calendar size={18} />}
+                    label="Desde"
+                    value={formatDate(client.first_seen_at) ?? "—"}
                 />
 
                 <HeaderInfoItem
@@ -274,12 +297,6 @@ function ClientPanelHeader({ client }: { client: ClientDetail }) {
                     value={source}
                 />
             </div>
-
-            {client.utm_campaign && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                    <Badge value={client.utm_campaign} />
-                </div>
-            )}
         </>
     );
 }
