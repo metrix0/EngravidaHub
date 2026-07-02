@@ -49,16 +49,21 @@ button,
 a,
 input,
 select,
-textarea {
+textarea,
+[role="button"],
+[tabindex] {
     outline: none;
 }
 
 button:focus-visible,
 a:focus-visible,
+input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
-    outline: 2px solid var(--color-brand);
-    outline-offset: 3px;
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 @keyframes skeleton-shimmer {
@@ -226,4 +231,9 @@ body::-webkit-scrollbar-corner,
     width: 0 !important;
     height: 0 !important;
     display: none !important;
+}
+
+/* Keep the floating chat menu separated from its expanded chat rail. */
+button[title="Ocultar chats"] {
+    right: calc(100% + 234px) !important;
 }

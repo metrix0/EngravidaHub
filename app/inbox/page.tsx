@@ -118,10 +118,20 @@ const COMMON_EMOJIS = [
     "✅", "❌", "📅", "⏰", "📍", "📎", "📞", "💬",
 ];
 
+type PersistedSentMessage = {
+    id: string;
+    sender_type?: string | null;
+    sender_name?: string | null;
+    text?: string | null;
+    sent_at?: string | null;
+    sequence_index?: number | null;
+};
+
 type InboxSendResult = {
     ok: true;
     thread_id: string;
     reopened: boolean;
+    message?: PersistedSentMessage | null;
 };
 
 type PreparedAttachment = {
@@ -188,8 +198,14 @@ export default function InboxPage() {
         !!currentAttendant &&
         currentAttendant.is_online;
 
-    const loadThreads = useCallback(async () => {
-        setIsLoadingThreads(true);
+    const loadThreads = useCallback(async ({
+        showLoading = true,
+    }: {
+        showLoading?: boolean;
+    } = {}) => {
+        if (showLoading) {
+            setIsLoadingThreads(true);
+        }
 
         try {
             const response = await fetchInboxThreads({
@@ -232,10 +248,15 @@ export default function InboxPage() {
             });
         } catch (error) {
             console.error("[inbox] failed to load threads", error);
-            setThreads([]);
-            setTotalThreads(0);
+
+            if (showLoading) {
+                setThreads([]);
+                setTotalThreads(0);
+            }
         } finally {
-            setIsLoadingThreads(false);
+            if (showLoading) {
+                setIsLoadingThreads(false);
+            }
         }
     }, [status, search, currentPage]);
 
@@ -344,7 +365,10 @@ export default function InboxPage() {
     }, [canShowInbox, loadSelectedThread]);
 
     const handleRealtimeThreadChange = useCallback(() => {
-        void Promise.all([loadThreads(), loadQueueCount()]);
+        void Promise.all([
+            loadThreads({ showLoading: false }),
+            loadQueueCount(),
+        ]);
     }, [loadQueueCount, loadThreads]);
 
     useInboxRealtime({
@@ -582,7 +606,47 @@ export default function InboxPage() {
             return;
         }
 
-        await Promise.all([loadThreads(), loadSelectedThread()]);
+        const sentMessage = mapPersistedSentMessage(result.message);
+
+        if (!sentMessage) {
+            await loadSelectedThread();
+            return;
+        }
+
+        const preview = getMessagePreview(sentMessage.text);
+
+        setSelectedThread((currentThread) => {
+            if (
+                !currentThread ||
+                currentThread.thread_id !== result.thread_id ||
+                currentThread.messages.some((message) => message.id === sentMessage.id)
+            ) {
+                return currentThread;
+            }
+
+            return {
+                ...currentThread,
+                preview,
+                time: "agora",
+                lastContact: "agora",
+                messages: [...currentThread.messages, sentMessage],
+            };
+        });
+
+        setThreads((currentThreads) =>
+            currentThreads.map((thread) =>
+                thread.id === result.thread_id ||
+                thread.thread_id === result.thread_id
+                    ? {
+                        ...thread,
+                        preview,
+                        time: "agora",
+                        lastContact: "agora",
+                        unread: 0,
+                    }
+                    : thread,
+            ),
+        );
     }
 
     async function handleSendMessage(text: string) {
@@ -1191,7 +1255,6 @@ function ChatPanel({
             messageText.slice(selectionEnd);
 
         setMessageText(nextText);
-        setEmojiPickerOpen(false);
         setSendError(null);
 
         window.requestAnimationFrame(() => {
@@ -1215,7 +1278,6 @@ function ChatPanel({
 
         setSelectedAttachment(file);
         setSendError(null);
-        setEmojiPickerOpen(false);
     }
 
     async function handleSubmit() {
@@ -1418,17 +1480,33 @@ function ChatPanel({
                             </button>
 
                             {emojiPickerOpen ? (
-                                <div className="absolute bottom-11 right-0 z-30 grid w-[272px] grid-cols-8 gap-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
-                                    {COMMON_EMOJIS.map((emoji) => (
+                                <div className="absolute bottom-11 right-0 z-30 w-[272px] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                                    <div className="mb-2 flex items-center justify-between px-1">
+                                        <span className="text-xs font-bold text-slate-500">
+                                            Emojis
+                                        </span>
                                         <button
-                                            key={emoji}
                                             type="button"
-                                            onClick={() => insertEmoji(emoji)}
-                                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-lg transition hover:bg-slate-100"
+                                            title="Fechar emojis"
+                                            onClick={() => setEmojiPickerOpen(false)}
+                                            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                                         >
-                                            {emoji}
+                                            <X size={15}/>
                                         </button>
-                                    ))}
+                                    </div>
+
+                                    <div className="grid grid-cols-8 gap-1">
+                                        {COMMON_EMOJIS.map((emoji) => (
+                                            <button
+                                                key={emoji}
+                                                type="button"
+                                                onClick={() => insertEmoji(emoji)}
+                                                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-lg transition hover:bg-slate-100"
+                                            >
+                                                {emoji}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             ) : null}
                         </div>
@@ -1456,7 +1534,6 @@ function ChatPanel({
                             title="Anexo"
                             disabled={!conversation || !conversation.can_reply || isSending}
                             onClick={() => {
-                                setEmojiPickerOpen(false);
                                 fileInputRef.current?.click();
                             }}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2093,6 +2170,45 @@ function CrmDataRow({
             </div>
         </div>
     );
+}
+
+function mapPersistedSentMessage(
+    message: PersistedSentMessage | null | undefined,
+): InboxMessage | null {
+    if (!message?.id) return null;
+
+    const sentAt = message.sent_at ?? new Date().toISOString();
+    const senderType =
+        message.sender_type === "client" ||
+        message.sender_type === "bot" ||
+        message.sender_type === "system"
+            ? message.sender_type
+            : "attendant";
+
+    return {
+        id: message.id,
+        from: senderType === "client" ? "client" : "attendant",
+        sender_type: senderType,
+        sender_name: message.sender_name ?? null,
+        text: message.text ?? "",
+        time: new Intl.DateTimeFormat("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+        }).format(new Date(sentAt)),
+        sent_at: sentAt,
+        sequence_index: message.sequence_index ?? null,
+    };
+}
+
+function getMessagePreview(text: string) {
+    const legacyAttachmentMarker = "\n::engravida-attachment::";
+    const markerIndex = text.indexOf(legacyAttachmentMarker);
+    const withoutLegacyMetadata =
+        markerIndex >= 0 ? text.slice(0, markerIndex) : text;
+
+    return withoutLegacyMetadata
+        .replace(/[\u{E0020}-\u{E007F}]/gu, "")
+        .trim();
 }
 
 function getInitials(name: string) {

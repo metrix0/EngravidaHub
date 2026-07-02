@@ -682,10 +682,33 @@ function sanitizeFileName(value: string) {
 }
 
 function attachmentHistoryText(attachment: AttachmentInput) {
-    if (attachment.mimeType.startsWith("image/")) return `📷 ${attachment.name}`;
-    if (attachment.mimeType.startsWith("video/")) return `🎥 ${attachment.name}`;
-    if (attachment.mimeType.startsWith("audio/")) return `🎵 ${attachment.name}`;
-    return `📎 ${attachment.name}`;
+    const label = attachment.mimeType.startsWith("image/")
+        ? `📷 ${attachment.name}`
+        : attachment.mimeType.startsWith("video/")
+            ? `🎥 ${attachment.name}`
+            : attachment.mimeType.startsWith("audio/")
+                ? `🎵 ${attachment.name}`
+                : `📎 ${attachment.name}`;
+
+    const metadata = new URLSearchParams({
+        path: attachment.path,
+        name: attachment.name,
+        mime_type: attachment.mimeType,
+        size: String(attachment.size),
+    });
+
+    return `${label}${encodeInvisibleAttachmentMetadata(metadata.toString())}`;
+}
+
+function encodeInvisibleAttachmentMetadata(value: string) {
+    const payload = `engravida-attachment:${value}`;
+    const tagCharacters = [...payload]
+        .map((character) =>
+            String.fromCodePoint(0xe0000 + character.charCodeAt(0)),
+        )
+        .join("");
+
+    return `${tagCharacters}${String.fromCodePoint(0xe007f)}`;
 }
 
 async function resolveThread({
