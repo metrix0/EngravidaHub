@@ -171,7 +171,7 @@ const PENDING_INTERNAL_GROUP_KEY =
 const ANIMATION_MS = 360;
 const COLLAPSED_VISIBLE_HEIGHT_PX = 42;
 const PRESENCE_INTERVAL_MS = 30_000;
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 60_000;
 const SCROLLBAR_CLASS =
   "[scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]";
 
@@ -1073,12 +1073,33 @@ export function FloatingConversationPanel() {
   useEffect(() => {
     if (!currentUserId) return;
 
-    void Promise.all([loadInternalConversations(), loadInternalGroups()]);
-    const interval = window.setInterval(() => {
+    function refreshInternalLists() {
+      if (document.visibilityState !== "visible") return;
       void Promise.all([loadInternalConversations(), loadInternalGroups()]);
-    }, REFRESH_INTERVAL_MS);
+    }
 
-    return () => window.clearInterval(interval);
+    refreshInternalLists();
+    const interval = window.setInterval(
+      refreshInternalLists,
+      REFRESH_INTERVAL_MS,
+    );
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") refreshInternalLists();
+    }
+
+    function handleOnline() {
+      refreshInternalLists();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+    };
   }, [currentUserId, loadInternalConversations, loadInternalGroups]);
 
   useEffect(() => {

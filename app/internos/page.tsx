@@ -28,7 +28,7 @@ import type {
   InternalGroupSummary,
 } from "@/types/internalChat";
 
-const REFRESH_INTERVAL_MS = 15_000;
+const REFRESH_INTERVAL_MS = 30_000;
 
 type RoleId = "admin" | "gestor" | "atendente" | "marketing";
 
@@ -91,19 +91,26 @@ export default function InternosPage() {
   useEffect(() => {
     void loadData();
 
+    function refreshVisibleData() {
+      if (document.visibilityState !== "visible") return;
+      void loadData({ silent: true });
+    }
+
     const interval = window.setInterval(
-      () => void loadData({ silent: true }),
+      refreshVisibleData,
       REFRESH_INTERVAL_MS,
     );
 
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        void loadData({ silent: true });
-      }
+      if (document.visibilityState === "visible") refreshVisibleData();
     }
 
     function handleAttendantStatusChanged() {
-      void loadData({ silent: true });
+      refreshVisibleData();
+    }
+
+    function handleOnline() {
+      refreshVisibleData();
     }
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -111,6 +118,7 @@ export default function InternosPage() {
       "attendant-status-changed",
       handleAttendantStatusChanged,
     );
+    window.addEventListener("online", handleOnline);
 
     return () => {
       window.clearInterval(interval);
@@ -119,6 +127,7 @@ export default function InternosPage() {
         "attendant-status-changed",
         handleAttendantStatusChanged,
       );
+      window.removeEventListener("online", handleOnline);
     };
   }, [loadData]);
 
