@@ -30,6 +30,27 @@ export type BlipDeliveryStatus = {
     command_reason: unknown;
 };
 
+type BlipTextMessageBody = {
+    id: string;
+    to: string;
+    type: "text/plain";
+    content: string;
+};
+
+type BlipMediaMessageBody = {
+    id: string;
+    to: string;
+    type: "application/vnd.lime.media-link+json";
+    content: {
+        title: string;
+        uri: string;
+        type: string;
+        size: number;
+    };
+};
+
+type BlipMessageBody = BlipTextMessageBody | BlipMediaMessageBody;
+
 export type BlipHttpDebug = {
     request_id: string;
     started_at: string;
@@ -42,12 +63,7 @@ export type BlipHttpDebug = {
         Accept: "application/json";
         Authorization: "Key ***";
     };
-    body: {
-        id: string;
-        to: string;
-        type: "text/plain";
-        content: string;
-    };
+    body: BlipMessageBody;
     response: {
         status: number | null;
         status_text: string | null;
@@ -82,13 +98,16 @@ export class BlipApiError extends Error {
     }
 }
 
-export type SentBlipTextMessage = {
+export type SentBlipMessage = {
     id: string;
     from: string | null;
     to: string;
     delivery: BlipDeliveryStatus;
     debug: BlipHttpDebug;
 };
+
+export type SentBlipTextMessage = SentBlipMessage;
+export type SentBlipMediaMessage = SentBlipMessage;
 
 export async function sendBlipTextMessage({
     recipientNumber,
@@ -105,24 +124,75 @@ export async function sendBlipTextMessage({
         throw new Error("Blip message text is required");
     }
 
-    const auth = getBlipAuth();
-    const endpoint = `https://${BLIP_MESSAGES_CONTRACT_ID}.http.msging.net/messages`;
     const to = toBlipWhatsAppIdentity(recipientNumber);
     const id = randomUUID();
+
+    return sendBlipEnvelope({
+        requestId: requestId ?? id,
+        body: {
+            id,
+            to,
+            type: "text/plain",
+            content: normalizedText,
+        },
+    });
+}
+
+export async function sendBlipMediaMessage({
+    recipientNumber,
+    title,
+    uri,
+    mimeType,
+    size,
+    requestId,
+}: {
+    recipientNumber: string;
+    title: string;
+    uri: string;
+    mimeType: string;
+    size: number;
+    requestId?: string;
+}): Promise<SentBlipMediaMessage> {
+    const normalizedTitle = title.trim();
+    const normalizedUri = uri.trim();
+    const normalizedMimeType = mimeType.trim();
+
+    if (!normalizedTitle || !normalizedUri || !normalizedMimeType || size <= 0) {
+        throw new Error("Blip media data is incomplete");
+    }
+
+    const to = toBlipWhatsAppIdentity(recipientNumber);
+    const id = randomUUID();
+
+    return sendBlipEnvelope({
+        requestId: requestId ?? id,
+        body: {
+            id,
+            to,
+            type: "application/vnd.lime.media-link+json",
+            content: {
+                title: normalizedTitle,
+                uri: normalizedUri,
+                type: normalizedMimeType,
+                size,
+            },
+        },
+    });
+}
+
+async function sendBlipEnvelope({
+    requestId,
+    body,
+}: {
+    requestId: string;
+    body: BlipMessageBody;
+}): Promise<SentBlipMessage> {
+    const auth = getBlipAuth();
+    const endpoint = `https://${BLIP_MESSAGES_CONTRACT_ID}.http.msging.net/messages`;
     const startedAtMs = Date.now();
 
-    // IMPORTANT:
-    // Do not include `from` here. The authenticated Blip contract determines
-    // the sender identity automatically.
-    const messageBody = {
-        id,
-        to,
-        type: "text/plain" as const,
-        content: normalizedText,
-    };
-
     const debug: BlipHttpDebug = {
-        request_id: requestId ?? id,
+        request_id: requestId,
         started_at: new Date(startedAtMs).toISOString(),
         finished_at: null,
         duration_ms: null,
@@ -133,7 +203,7 @@ export async function sendBlipTextMessage({
             Accept: "application/json",
             Authorization: "Key ***",
         },
-        body: messageBody,
+        body,
         response: {
             status: null,
             status_text: null,
@@ -164,7 +234,7 @@ export async function sendBlipTextMessage({
                 Accept: "application/json",
                 Authorization: `Key ${auth.key}`,
             },
-            body: JSON.stringify(messageBody),
+            body: JSON.stringify(body),
             cache: "no-store",
             signal: AbortSignal.timeout(BLIP_REQUEST_TIMEOUT_MS),
         });
@@ -214,9 +284,6 @@ export async function sendBlipTextMessage({
         );
     }
 
-    // A 202 response means Blip accepted the envelope. Do not query
-    // /notifications?id=... here: that endpoint is unavailable in this setup
-    // and previously added several seconds to every send.
     const delivery: BlipDeliveryStatus = {
         state: "pending",
         final_event: null,
@@ -230,9 +297,9 @@ export async function sendBlipTextMessage({
     debug.delivery = delivery;
 
     return {
-        id,
+        id: body.id,
         from: null,
-        to,
+        to: body.to,
         delivery,
         debug,
     };
@@ -265,18 +332,12 @@ function getBlipAuth(): {
     source: "BLIP_KEY" | "BLIP_ROUTER_AUTH_KEY" | "BLIP_AUTH_KEY";
 } {
     const options = [
-        {
-            source: "BLIP_KEY" as const,
-            value: process.env.BLIP_KEY,
-        },
+        { source: "BLIP_KEY" as const, value: process.env.BLIP_KEY },
         {
             source: "BLIP_ROUTER_AUTH_KEY" as const,
             value: process.env.BLIP_ROUTER_AUTH_KEY,
         },
-        {
-            source: "BLIP_AUTH_KEY" as const,
-            value: process.env.BLIP_AUTH_KEY,
-        },
+        { source: "BLIP_AUTH_KEY" as const, value: process.env.BLIP_AUTH_KEY },
     ];
 
     for (const option of options) {
@@ -286,10 +347,7 @@ function getBlipAuth(): {
         const key = rawValue.replace(/^Key\s+/i, "").trim();
 
         if (key) {
-            return {
-                key,
-                source: option.source,
-            };
+            return { key, source: option.source };
         }
     }
 
@@ -306,16 +364,12 @@ function finishDebug(debug: BlipHttpDebug, startedAtMs: number) {
 
 function extractBlipErrorDetails(responseBody: string) {
     const trimmedBody = responseBody.trim();
-
     if (!trimmedBody) return null;
 
     try {
         const parsed = JSON.parse(trimmedBody) as Record<string, unknown>;
         const candidate =
-            parsed.description ??
-            parsed.message ??
-            parsed.error ??
-            parsed.reason;
+            parsed.description ?? parsed.message ?? parsed.error ?? parsed.reason;
 
         if (typeof candidate === "string" && candidate.trim()) {
             return limitLength(candidate.trim());

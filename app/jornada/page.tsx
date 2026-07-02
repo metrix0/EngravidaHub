@@ -565,13 +565,19 @@ function JourneyBodySkeleton() {
     );
 }
 
+type ChartTooltipPayloadItem = {
+    dataKey: string;
+    value: string | number;
+    color?: string;
+};
+
 function IntentPathsTooltip({
                                 active,
                                 payload,
                                 label,
                             }: {
     active?: boolean;
-    payload?: any[];
+    payload?: ChartTooltipPayloadItem[];
     label?: string;
 }) {
     if (!active || !payload?.length) return null;

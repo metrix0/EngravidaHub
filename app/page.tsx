@@ -594,13 +594,19 @@ function DashboardBodySkeleton() {
     );
 }
 
+type ChartTooltipPayloadItem = {
+    dataKey: string;
+    value: string | number;
+    color?: string;
+};
+
 function DailyEvolutionTooltip({
                                    active,
                                    payload,
                                    label,
                                }: {
     active?: boolean;
-    payload?: any[];
+    payload?: ChartTooltipPayloadItem[];
     label?: string;
 }) {
     if (!active || !payload?.length) return null;

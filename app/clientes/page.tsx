@@ -202,6 +202,7 @@ export default function ClientesPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingFilters, setLoadingFilters] = useState(true);
+    const [interactionReferenceTime, setInteractionReferenceTime] = useState(0);
 
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -240,10 +241,12 @@ export default function ClientesPage() {
 
             setClients(data?.clients ?? []);
             setStages(data?.stages ?? []);
+            setInteractionReferenceTime(Date.now());
         } catch (error) {
             console.error("[clientes] unexpected load error", error);
             setClients([]);
             setStages([]);
+            setInteractionReferenceTime(Date.now());
         } finally {
             setLoading(false);
         }
@@ -380,7 +383,9 @@ export default function ClientesPage() {
     }).length;
 
     const withoutInteraction = filteredClients.filter((client) => {
-        const diff = Date.now() - new Date(client.last_interaction_at).getTime();
+        const diff =
+            interactionReferenceTime -
+            new Date(client.last_interaction_at).getTime();
         return diff > 24 * 60 * 60 * 1000;
     }).length;
 

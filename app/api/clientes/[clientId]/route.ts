@@ -412,8 +412,19 @@ async function fetchClientConversations(clientId: string) {
     return data ?? [];
 }
 
+type ConversationAnalysisSummaryRow = {
+    id: string;
+    conversation_goal: string | null;
+    resolution_result: string | null;
+    customer_final_state: string | null;
+    satisfaction_score: number | null;
+    dropoff_happened: boolean | null;
+    dropoff_moment: string | null;
+    notable: boolean | null;
+};
+
 async function fetchAnalysesById(ids: string[]) {
-    const map = new Map<string, any>();
+    const map = new Map<string, ConversationAnalysisSummaryRow>();
 
     if (ids.length === 0) return map;
 
@@ -436,7 +447,7 @@ async function fetchAnalysesById(ids: string[]) {
 
         if (error) throw error;
 
-        for (const analysis of data ?? []) {
+        for (const analysis of (data ?? []) as ConversationAnalysisSummaryRow[]) {
             map.set(analysis.id, analysis);
         }
     }

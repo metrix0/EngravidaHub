@@ -34,7 +34,6 @@ import {
     getTabIdForPathname,
     type AppTabId,
 } from "@/lib/auth/userAccess";
-import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
 
 type SidePanelItem = {
     type?: "item";
@@ -258,13 +257,17 @@ function PersistentSidePanel({
     }, [currentUserId]);
 
     const permission = currentUser?.permission ?? null;
-    const allowedTabs = permission?.active
-        ? ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset)
-            ? permission.allowed_tabs
-            : permission.allowed_tabs.filter(
-                  (tabId) => tabId !== "mensagem_ativa",
-              )
-        : [];
+    const allowedTabs = useMemo(
+        () =>
+            permission?.active
+                ? ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset)
+                    ? permission.allowed_tabs
+                    : permission.allowed_tabs.filter(
+                          (tabId) => tabId !== "mensagem_ativa",
+                      )
+                : [],
+        [permission],
+    );
 
     const visibleItems = useMemo(
         () =>
@@ -278,9 +281,9 @@ function PersistentSidePanel({
     const layoutWidth = resolvedAffectLayout ? sidebarWidth : COLLAPSED_WIDTH;
     const profileName =
         currentAttendant?.name ??
-        formatSystemUserName(
-            currentUser?.user?.name ?? currentUser?.user?.email,
-        );
+        currentUser?.user?.name ??
+        currentUser?.user?.email ??
+        "Usuário";
     const profileSubtitle = currentAttendant
         ? currentAttendant.is_online
             ? "Online"
@@ -388,17 +391,15 @@ function PersistentSidePanel({
                     <div className="relative mb-6 flex h-10 shrink-0 items-center px-5">
                         <Link
                             href={homeHref}
-                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition ${
-                                isExpanded ? "w-full" : "w-9"
-                            }`}
+                            className="flex h-10 w-full min-w-0 cursor-pointer items-center overflow-hidden rounded-xl"
                         >
-                            {isExpanded && (
-                                <img
-                                    src="/logo.png"
-                                    className="block max-h-9 w-full object-contain"
-                                    alt="Engravida"
-                                />
-                            )}
+                            <img
+                                src="/logo.png"
+                                className={`block max-h-9 w-[190px] shrink-0 object-contain transition-opacity duration-150 ${
+                                    isExpanded ? "opacity-100" : "opacity-0"
+                                }`}
+                                alt="Engravida"
+                            />
                         </Link>
                     </div>
 

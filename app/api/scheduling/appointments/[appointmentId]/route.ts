@@ -299,7 +299,7 @@ export async function DELETE(
 ) {
     try {
         const { appointmentId } = await params;
-        const { user, attendant } = await getCurrentAttendantFromRequest();
+        const { user } = await getCurrentAttendantFromRequest();
 
         if (!user) {
             return NextResponse.json(

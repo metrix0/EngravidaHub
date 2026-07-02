@@ -9,7 +9,6 @@ import {
     CircleAlert,
     Clock,
     Filter,
-    Mail,
     MapPin,
     Phone,
     Send,

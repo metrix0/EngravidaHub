@@ -15,7 +15,6 @@ import {
     Badge,
     Card,
     DashboardHeader,
-    FilterButton,
     HorizontalScroller,
     KpiCard,
     MainFilters,
@@ -120,7 +119,6 @@ const EMPTY_FUNNEL_KPIS: FunnelKpis = {
 export default function FunnelPage() {
     const [funnels, setFunnels] = useState<Funnel[]>([]);
     const [stages, setStages] = useState<FunnelStage[]>([]);
-    const [units, setUnits] = useState<Unit[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [kpis, setKpis] = useState<FunnelKpis>(EMPTY_FUNNEL_KPIS);
@@ -213,7 +211,6 @@ export default function FunnelPage() {
 
             setFunnels(data.funnels ?? []);
             setStages(data.stages ?? []);
-            setUnits(data.units ?? []);
             setClients(data.clients ?? []);
             setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
             setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);

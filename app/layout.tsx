@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-    title: "Engravida Insights",
+    title: "Engravida Hub",
     description: "Dashboard de análise de atendimento",
     icons: {
         icon: "/favicon.ico",
@@ -38,7 +38,7 @@ export default function RootLayout({
                 </h1>
 
                 <p className="mt-3 text-sm leading-6 text-slate-500">
-                    O Engravida Insights foi feito para telas maiores.
+                    O Engravida Hub foi feito para telas maiores.
                     Abra em um notebook ou computador para visualizar o dashboard.
                 </p>
             </div>

@@ -21,6 +21,7 @@ import {
     SlidersHorizontal,
     Smile, SquareArrowOutUpRight,
     UserRound,
+    X,
 } from "lucide-react";
 import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
@@ -31,6 +32,7 @@ import { ChatMessageList } from "@/components/conversations/ChatMessageList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import SidePanel from "@/components/layout/SidePanel";
+import { supabase } from "@/lib/supabase/client";
 
 import {
     addClientNote,
@@ -64,6 +66,71 @@ import type {
 type Conversation = InboxThreadDetail;
 
 const PAGE_SIZE = 10;
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+const SUPPORTED_ATTACHMENT_MIME_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/3gpp",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+]);
+const ATTACHMENT_ACCEPT = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/3gpp",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".txt",
+    ".csv",
+].join(",");
+const COMMON_EMOJIS = [
+    "😀", "😂", "😊", "😍", "🥰", "😘", "😉", "🙂",
+    "😅", "😢", "😭", "😔", "🤔", "🙌", "👏", "🙏",
+    "👍", "👎", "❤️", "💙", "💚", "💛", "✨", "🎉",
+    "✅", "❌", "📅", "⏰", "📍", "📎", "📞", "💬",
+];
+
+type InboxSendResult = {
+    ok: true;
+    thread_id: string;
+    reopened: boolean;
+};
+
+type PreparedAttachment = {
+    ok: true;
+    bucket: string;
+    path: string;
+    token: string;
+    thread_id: string;
+};
 
 const scrollbarClass =
     "[scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]";
@@ -484,15 +551,7 @@ export default function InboxPage() {
         }
     }
 
-    async function handleSendMessage(text: string) {
-        if (!selectedId || !text.trim()) return;
-
-        const result = await sendInboxMessage({
-            itemId: selectedId,
-            itemType: selectedItemType,
-            text,
-        });
-
+    async function applySendResult(result: InboxSendResult) {
         if (result.reopened) {
             forcedSelectionRef.current = {
                 id: result.thread_id,
@@ -524,6 +583,89 @@ export default function InboxPage() {
         }
 
         await Promise.all([loadThreads(), loadSelectedThread()]);
+    }
+
+    async function handleSendMessage(text: string) {
+        const itemId = selectedId;
+        const itemType = selectedItemType;
+        if (!itemId || !text.trim()) return;
+
+        const result = await sendInboxMessage({
+            itemId,
+            itemType,
+            text,
+        });
+
+        await applySendResult(result);
+    }
+
+    async function handleSendAttachment(file: File) {
+        const itemId = selectedId;
+        const itemType = selectedItemType;
+        if (!itemId) return;
+
+        const mimeType = getAttachmentMimeType(file);
+        const validationError = validateAttachmentFile(file, mimeType);
+        if (validationError) throw new Error(validationError);
+
+        const prepareResponse = await fetch(
+            `/api/inbox/threads/${encodeURIComponent(itemId)}/messages`,
+            {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "prepare_attachment",
+                    item_type: itemType,
+                    file_name: file.name,
+                    mime_type: mimeType,
+                    size: file.size,
+                }),
+            },
+        );
+        const prepareJson = await prepareResponse.json();
+
+        if (!prepareResponse.ok) {
+            throw new Error(prepareJson.error ?? "Não foi possível preparar o anexo.");
+        }
+
+        const prepared = prepareJson as PreparedAttachment;
+        const { error: uploadError } = await supabase.storage
+            .from(prepared.bucket)
+            .uploadToSignedUrl(prepared.path, prepared.token, file, {
+                contentType: mimeType,
+                upsert: false,
+            });
+
+        if (uploadError) {
+            throw new Error(`Não foi possível enviar o arquivo: ${uploadError.message}`);
+        }
+
+        const sendResponse = await fetch(
+            `/api/inbox/threads/${encodeURIComponent(itemId)}/messages`,
+            {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "send_attachment",
+                    item_type: itemType,
+                    attachment: {
+                        path: prepared.path,
+                        name: file.name,
+                        mime_type: mimeType,
+                        size: file.size,
+                    },
+                }),
+            },
+        );
+        const sendJson = await sendResponse.json();
+
+        if (!sendResponse.ok) {
+            throw new Error(sendJson.error ?? "Não foi possível enviar o anexo.");
+        }
+
+        await applySendResult(sendJson as InboxSendResult);
     }
 
     async function handleLoadPreviousConversation() {
@@ -694,6 +836,7 @@ export default function InboxPage() {
                                     itemType={selectedItemType}
                                     displayMessages={displayedMessages}
                                     onSendMessage={handleSendMessage}
+                                    onSendAttachment={handleSendAttachment}
                                     onFinalizeConversation={handleFinalizeConversation}
                                     canFinalize={
                                         selectedItemType === "thread" &&
@@ -996,6 +1139,7 @@ function ChatPanel({
                        itemType,
                        displayMessages,
                        onSendMessage,
+                       onSendAttachment,
                        onFinalizeConversation,
                        canFinalize,
                        isFinalizingConversation,
@@ -1010,6 +1154,7 @@ function ChatPanel({
     itemType: InboxItemType;
     displayMessages: InboxMessage[];
     onSendMessage: (text: string) => Promise<void>;
+    onSendAttachment: (file: File) => Promise<void>;
     onFinalizeConversation: () => Promise<void>;
     canFinalize: boolean;
     isFinalizingConversation: boolean;
@@ -1019,25 +1164,92 @@ function ChatPanel({
     isLoading: boolean;
 }) {
     const [messageText, setMessageText] = useState("");
+    const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+    const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+    const [sendError, setSendError] = useState<string | null>(null);
     const [isSending, setIsSending] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const headerName = headerConversation?.name ?? "Carregando conversa";
     const headerChannel = headerConversation?.channel ?? "-";
 
     useEffect(() => {
         setMessageText("");
+        setSelectedAttachment(null);
+        setEmojiPickerOpen(false);
+        setSendError(null);
     }, [itemId, itemType]);
+
+    function insertEmoji(emoji: string) {
+        const textarea = textareaRef.current;
+        const selectionStart = textarea?.selectionStart ?? messageText.length;
+        const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+        const nextText =
+            messageText.slice(0, selectionStart) +
+            emoji +
+            messageText.slice(selectionEnd);
+
+        setMessageText(nextText);
+        setEmojiPickerOpen(false);
+        setSendError(null);
+
+        window.requestAnimationFrame(() => {
+            const nextPosition = selectionStart + emoji.length;
+            textarea?.focus();
+            textarea?.setSelectionRange(nextPosition, nextPosition);
+        });
+    }
+
+    function selectAttachment(file: File | null) {
+        if (!file) return;
+
+        const mimeType = getAttachmentMimeType(file);
+        const validationError = validateAttachmentFile(file, mimeType);
+
+        if (validationError) {
+            setSelectedAttachment(null);
+            setSendError(validationError);
+            return;
+        }
+
+        setSelectedAttachment(file);
+        setSendError(null);
+        setEmojiPickerOpen(false);
+    }
 
     async function handleSubmit() {
         const text = messageText.trim();
+        const attachment = selectedAttachment;
 
-        if (!conversation || !conversation.can_reply || !text || isSending) return;
+        if (
+            !conversation ||
+            !conversation.can_reply ||
+            (!text && !attachment) ||
+            isSending
+        ) {
+            return;
+        }
 
         setIsSending(true);
+        setSendError(null);
 
         try {
-            setMessageText("");
-            await onSendMessage(text);
+            if (text) {
+                await onSendMessage(text);
+                setMessageText("");
+            }
+
+            if (attachment) {
+                await onSendAttachment(attachment);
+                setSelectedAttachment(null);
+            }
+        } catch (error) {
+            setSendError(
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível enviar a mensagem.",
+            );
         } finally {
             setIsSending(false);
         }
@@ -1135,16 +1347,49 @@ function ChatPanel({
             />
 
             <div className="shrink-0 border-t border-slate-100 p-1 px-2 pb-0">
+                {sendError ? (
+                    <div className="mb-2 rounded-xl bg-red-soft px-3 py-2 text-xs font-semibold text-red">
+                        {sendError}
+                    </div>
+                ) : null}
+
+                {selectedAttachment ? (
+                    <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <Paperclip size={16} className="shrink-0 text-slate-500" />
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-slate-700">
+                                {selectedAttachment.name}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                                {formatAttachmentSize(selectedAttachment.size)}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            title="Remover anexo"
+                            disabled={isSending}
+                            onClick={() => setSelectedAttachment(null)}
+                            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                ) : null}
+
                 <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                     <textarea
+                        ref={textareaRef}
                         rows={1}
                         value={messageText}
-                        disabled={!conversation || !conversation.can_reply}
-                        onChange={(event) => setMessageText(event.target.value)}
+                        disabled={!conversation || !conversation.can_reply || isSending}
+                        onChange={(event) => {
+                            setMessageText(event.target.value);
+                            setSendError(null);
+                        }}
                         onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
                                 event.preventDefault();
-                                handleSubmit();
+                                void handleSubmit();
                             }
                         }}
                         placeholder={
@@ -1155,20 +1400,38 @@ function ChatPanel({
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
                         onInput={(event) => {
                             const target = event.currentTarget;
-
                             target.style.height = "auto";
                             target.style.height = `${target.scrollHeight}px`;
                         }}
                     />
 
                     <div className="flex shrink-0 items-center gap-1 pb-1">
-                        <button
-                            type="button"
-                            title="Emoji"
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
-                        >
-                            <Smile size={18}/>
-                        </button>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                title="Emoji"
+                                disabled={!conversation || !conversation.can_reply || isSending}
+                                onClick={() => setEmojiPickerOpen((current) => !current)}
+                                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <Smile size={18}/>
+                            </button>
+
+                            {emojiPickerOpen ? (
+                                <div className="absolute bottom-11 right-0 z-30 grid w-[272px] grid-cols-8 gap-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                                    {COMMON_EMOJIS.map((emoji) => (
+                                        <button
+                                            key={emoji}
+                                            type="button"
+                                            onClick={() => insertEmoji(emoji)}
+                                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-lg transition hover:bg-slate-100"
+                                        >
+                                            {emoji}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </div>
 
                         <button
                             type="button"
@@ -1178,10 +1441,25 @@ function ChatPanel({
                             <FileText size={18}/>
                         </button>
 
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={ATTACHMENT_ACCEPT}
+                            className="hidden"
+                            onChange={(event) => {
+                                selectAttachment(event.target.files?.[0] ?? null);
+                                event.currentTarget.value = "";
+                            }}
+                        />
                         <button
                             type="button"
                             title="Anexo"
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                            disabled={!conversation || !conversation.can_reply || isSending}
+                            onClick={() => {
+                                setEmojiPickerOpen(false);
+                                fileInputRef.current?.click();
+                            }}
+                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             <Paperclip size={18}/>
                         </button>
@@ -1191,14 +1469,18 @@ function ChatPanel({
                             title="Enviar"
                             disabled={
                                 isSending ||
-                                !messageText.trim() ||
+                                (!messageText.trim() && !selectedAttachment) ||
                                 !conversation ||
                                 !conversation.can_reply
                             }
-                            onClick={handleSubmit}
+                            onClick={() => void handleSubmit()}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            <Send size={17}/>
+                            {isSending ? (
+                                <LoaderCircle size={17} className="animate-spin" />
+                            ) : (
+                                <Send size={17}/>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -1531,6 +1813,56 @@ function ConversationItemsSkeleton() {
             ))}
         </div>
     );
+}
+
+function getAttachmentMimeType(file: File) {
+    if (file.type) return file.type.toLowerCase();
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const mimeByExtension: Record<string, string> = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        webp: "image/webp",
+        gif: "image/gif",
+        mp4: "video/mp4",
+        "3gp": "video/3gpp",
+        aac: "audio/aac",
+        amr: "audio/amr",
+        mp3: "audio/mpeg",
+        m4a: "audio/mp4",
+        ogg: "audio/ogg",
+        pdf: "application/pdf",
+        doc: "application/msword",
+        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        xls: "application/vnd.ms-excel",
+        xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ppt: "application/vnd.ms-powerpoint",
+        pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        txt: "text/plain",
+        csv: "text/csv",
+    };
+
+    return extension ? mimeByExtension[extension] ?? "" : "";
+}
+
+function validateAttachmentFile(file: File, mimeType: string) {
+    if (!mimeType || !SUPPORTED_ATTACHMENT_MIME_TYPES.has(mimeType)) {
+        return "Este tipo de arquivo não é compatível com o WhatsApp.";
+    }
+
+    if (file.size <= 0) return "O anexo está vazio.";
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+        return "O anexo deve ter no máximo 16 MB.";
+    }
+
+    return null;
+}
+
+function formatAttachmentSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function ChatPanelSkeleton() {

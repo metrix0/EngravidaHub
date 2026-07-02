@@ -6,9 +6,10 @@ import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAtten
 import {
     BlipApiError,
     BlipConfigurationError,
+    sendBlipMediaMessage,
     sendBlipTextMessage,
     type BlipHttpDebug,
-    type SentBlipTextMessage,
+    type SentBlipMessage,
 } from "@/lib/blip/sendBlipTextMessage";
 import { supabase } from "@/lib/supabase/client";
 import type { InboxItemType } from "@/types/inbox";
@@ -17,8 +18,43 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ATTACHMENT_BUCKET = "inbox-attachments";
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+const ATTACHMENT_URL_TTL_SECONDS = 24 * 60 * 60;
 const TEST_MODE = false;
 const BYPASS_LOCAL_WINDOW_IN_TEST_MODE = false;
+
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/3gpp",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+]);
+
+type SendAction = "send_text" | "prepare_attachment" | "send_attachment";
+
+type AttachmentInput = {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+};
 
 type DebugStep = {
     at: string;
@@ -43,6 +79,8 @@ type SendDebug = {
     blip: BlipHttpDebug | null;
     steps: DebugStep[];
 };
+
+let attachmentBucketReady: Promise<void> | null = null;
 
 export async function POST(
     request: Request,
@@ -74,8 +112,10 @@ export async function POST(
     }
 
     const body = (rawBody ?? {}) as Record<string, unknown>;
+    const action = normalizeAction(body.action);
     const text = String(body.text ?? "").trim();
     const itemType = normalizeItemType(body.item_type);
+    const attachment = parseAttachment(body.attachment);
 
     const debug: SendDebug = {
         request_id: requestId,
@@ -106,13 +146,36 @@ export async function POST(
         app_endpoint: appEndpoint,
         item_id: itemId,
         item_type: itemType,
+        action,
         text_length: text.length,
         text,
+        attachment_name: attachment?.name ?? null,
     });
 
-    if (!text) {
+    if (action === "send_text" && !text) {
         log("Rejected: empty message text");
         return errorResponse(400, "Message text is required", debug, startedAt);
+    }
+
+    if (action === "prepare_attachment") {
+        const validationError = validateAttachmentMetadata(parsePendingAttachment(body));
+        if (validationError) {
+            log("Rejected: invalid attachment metadata", validationError);
+            return errorResponse(400, validationError, debug, startedAt);
+        }
+    }
+
+    if (action === "send_attachment") {
+        const validationError = validateAttachmentMetadata(attachment);
+        if (validationError || !attachment) {
+            log("Rejected: invalid attachment metadata", validationError);
+            return errorResponse(
+                400,
+                validationError ?? "Os dados do anexo são inválidos.",
+                debug,
+                startedAt,
+            );
+        }
     }
 
     log("Resolving current attendant");
@@ -217,6 +280,48 @@ export async function POST(
         );
     }
 
+    if (action === "prepare_attachment") {
+        const pendingAttachment = parsePendingAttachment(body)!;
+
+        try {
+            log("Preparing signed attachment upload");
+            await ensureAttachmentBucket();
+
+            const safeName = sanitizeFileName(pendingAttachment.name);
+            const path = `${thread.id}/${Date.now()}-${randomUUID()}-${safeName}`;
+            const { data, error } = await supabase.storage
+                .from(ATTACHMENT_BUCKET)
+                .createSignedUploadUrl(path);
+
+            if (error || !data?.token) {
+                throw error ?? new Error("Não foi possível preparar o upload do anexo.");
+            }
+
+            log("Signed attachment upload prepared", { path });
+            return NextResponse.json({
+                ok: true,
+                action,
+                bucket: ATTACHMENT_BUCKET,
+                path,
+                token: data.token,
+                thread_id: thread.id,
+            });
+        } catch (error) {
+            console.error(
+                `[inbox-send:${requestId}] Attachment prepare failed`,
+                error,
+            );
+            return errorResponse(
+                500,
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível preparar o anexo.",
+                debug,
+                startedAt,
+            );
+        }
+    }
+
     let reopened = false;
 
     if (thread.status === "closed") {
@@ -253,15 +358,41 @@ export async function POST(
         log("Thread reopened", { thread_id: thread.id });
     }
 
-    let blipMessage: SentBlipTextMessage;
+    let blipMessage: SentBlipMessage;
+    let persistedText = text;
 
     try {
-        log("Calling Blip HTTP Messages API");
-        blipMessage = await sendBlipTextMessage({
-            recipientNumber,
-            text,
-            requestId,
-        });
+        log("Calling Blip HTTP Messages API", { action });
+
+        if (action === "send_attachment" && attachment) {
+            if (!attachment.path.startsWith(`${thread.id}/`)) {
+                throw new Error("O anexo não pertence a esta conversa.");
+            }
+
+            const { data: signedData, error: signedError } = await supabase.storage
+                .from(ATTACHMENT_BUCKET)
+                .createSignedUrl(attachment.path, ATTACHMENT_URL_TTL_SECONDS);
+
+            if (signedError || !signedData?.signedUrl) {
+                throw signedError ?? new Error("Não foi possível acessar o anexo.");
+            }
+
+            blipMessage = await sendBlipMediaMessage({
+                recipientNumber,
+                title: attachment.name,
+                uri: signedData.signedUrl,
+                mimeType: attachment.mimeType,
+                size: attachment.size,
+                requestId,
+            });
+            persistedText = attachmentHistoryText(attachment);
+        } else {
+            blipMessage = await sendBlipTextMessage({
+                recipientNumber,
+                text,
+                requestId,
+            });
+        }
         debug.blip = blipMessage.debug;
         debug.recipient_identity = blipMessage.to;
 
@@ -291,6 +422,10 @@ export async function POST(
             await rollbackReopenedThread(thread.id, attendant.id, requestId);
         }
 
+        if (action === "send_attachment" && attachment) {
+            await supabase.storage.from(ATTACHMENT_BUCKET).remove([attachment.path]);
+        }
+
         console.error(`[inbox-send:${requestId}] Blip send failed`, error);
 
         const status = error instanceof BlipConfigurationError ? 500 : 502;
@@ -314,7 +449,7 @@ export async function POST(
     const persistenceResult = await persistSentMessage({
         thread,
         attendantName: attendant.name,
-        text,
+        text: persistedText,
         blipMessage,
     });
 
@@ -378,7 +513,7 @@ async function persistSentMessage({
     };
     attendantName: string;
     text: string;
-    blipMessage: SentBlipTextMessage;
+    blipMessage: SentBlipMessage;
 }) {
     const { data: lastMessage, error: lastMessageError } = await supabase
         .from("messages")
@@ -454,6 +589,103 @@ async function rollbackReopenedThread(
             error,
         );
     }
+}
+
+async function ensureAttachmentBucket() {
+    if (!attachmentBucketReady) {
+        attachmentBucketReady = (async () => {
+            const { data: existing, error: getError } =
+                await supabase.storage.getBucket(ATTACHMENT_BUCKET);
+
+            if (existing) return;
+
+            if (getError && !/not found/i.test(getError.message)) {
+                throw getError;
+            }
+
+            const { error: createError } = await supabase.storage.createBucket(
+                ATTACHMENT_BUCKET,
+                {
+                    public: false,
+                    fileSizeLimit: MAX_ATTACHMENT_BYTES,
+                    allowedMimeTypes: [...ALLOWED_ATTACHMENT_MIME_TYPES],
+                },
+            );
+
+            if (createError && !/already exists/i.test(createError.message)) {
+                throw createError;
+            }
+        })().catch((error) => {
+            attachmentBucketReady = null;
+            throw error;
+        });
+    }
+
+    return attachmentBucketReady;
+}
+
+function normalizeAction(value: unknown): SendAction {
+    if (value === "prepare_attachment" || value === "send_attachment") {
+        return value;
+    }
+
+    return "send_text";
+}
+
+function parsePendingAttachment(body: Record<string, unknown>): AttachmentInput | null {
+    const name = String(body.file_name ?? "").trim();
+    const mimeType = String(body.mime_type ?? "").trim().toLowerCase();
+    const size = Number(body.size ?? 0);
+
+    if (!name && !mimeType && !size) return null;
+    return { path: "", name, mimeType, size };
+}
+
+function parseAttachment(value: unknown): AttachmentInput | null {
+    if (!value || typeof value !== "object") return null;
+
+    const record = value as Record<string, unknown>;
+    return {
+        path: String(record.path ?? "").trim(),
+        name: String(record.name ?? "").trim(),
+        mimeType: String(record.mime_type ?? record.mimeType ?? "")
+            .trim()
+            .toLowerCase(),
+        size: Number(record.size ?? 0),
+    };
+}
+
+function validateAttachmentMetadata(attachment: AttachmentInput | null) {
+    if (!attachment) return "Os dados do anexo são obrigatórios.";
+    if (!attachment.name) return "O anexo precisa ter um nome.";
+    if (!attachment.mimeType || !ALLOWED_ATTACHMENT_MIME_TYPES.has(attachment.mimeType)) {
+        return "Este tipo de arquivo não é compatível com o WhatsApp.";
+    }
+    if (!Number.isFinite(attachment.size) || attachment.size <= 0) {
+        return "O anexo está vazio.";
+    }
+    if (attachment.size > MAX_ATTACHMENT_BYTES) {
+        return "O anexo deve ter no máximo 16 MB.";
+    }
+    return null;
+}
+
+function sanitizeFileName(value: string) {
+    const normalized = value
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+
+    return normalized.slice(0, 120) || "anexo";
+}
+
+function attachmentHistoryText(attachment: AttachmentInput) {
+    if (attachment.mimeType.startsWith("image/")) return `📷 ${attachment.name}`;
+    if (attachment.mimeType.startsWith("video/")) return `🎥 ${attachment.name}`;
+    if (attachment.mimeType.startsWith("audio/")) return `🎵 ${attachment.name}`;
+    return `📎 ${attachment.name}`;
 }
 
 async function resolveThread({
