@@ -867,9 +867,6 @@ export default function InboxPage() {
                             search={search}
                             onSearchChange={(value) => {
                                 forcedSelectionRef.current = null;
-                                selectedThreadRequestRef.current += 1;
-                                setSelectedId(null);
-                                setSelectedThread(null);
                                 setSearch(value);
                                 setCurrentPage(1);
                             }}

@@ -42,7 +42,7 @@ type BlipMediaMessageBody = {
     to: string;
     type: "application/vnd.lime.media-link+json";
     content: {
-        title: string;
+        title?: string;
         uri: string;
         type: string;
         size: number;
@@ -147,17 +147,17 @@ export async function sendBlipMediaMessage({
     requestId,
 }: {
     recipientNumber: string;
-    title: string;
+    title?: string;
     uri: string;
     mimeType: string;
     size: number;
     requestId?: string;
 }): Promise<SentBlipMediaMessage> {
-    const normalizedTitle = title.trim();
+    const normalizedTitle = title?.trim() ?? "";
     const normalizedUri = uri.trim();
     const normalizedMimeType = mimeType.trim();
 
-    if (!normalizedTitle || !normalizedUri || !normalizedMimeType || size <= 0) {
+    if (!normalizedUri || !normalizedMimeType || size <= 0) {
         throw new Error("Blip media data is incomplete");
     }
 
@@ -171,7 +171,7 @@ export async function sendBlipMediaMessage({
             to,
             type: "application/vnd.lime.media-link+json",
             content: {
-                title: normalizedTitle,
+                ...(normalizedTitle ? { title: normalizedTitle } : {}),
                 uri: normalizedUri,
                 type: normalizedMimeType,
                 size,

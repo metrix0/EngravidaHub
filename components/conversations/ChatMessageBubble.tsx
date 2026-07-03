@@ -150,21 +150,6 @@ function AttachmentContent({
                 </a>
             )}
 
-            {isImage && !imageFailed ? (
-                <a
-                    href={attachmentUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`mt-2 flex min-w-0 items-center gap-2 text-xs font-semibold ${
-                        isAttendant
-                            ? "text-white/85 hover:text-white"
-                            : "text-slate-500 hover:text-slate-800"
-                    }`}
-                >
-                    <span className="truncate">{attachment.name}</span>
-                    <Download size={14} className="shrink-0"/>
-                </a>
-            ) : null}
         </div>
     );
 }

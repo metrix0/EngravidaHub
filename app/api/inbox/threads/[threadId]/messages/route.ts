@@ -379,7 +379,9 @@ export async function POST(
 
             blipMessage = await sendBlipMediaMessage({
                 recipientNumber,
-                title: attachment.name,
+                title: isCaptionlessMedia(attachment.mimeType)
+                    ? undefined
+                    : attachment.name,
                 uri: signedData.signedUrl,
                 mimeType: attachment.mimeType,
                 size: attachment.size,
@@ -683,11 +685,11 @@ function sanitizeFileName(value: string) {
 
 function attachmentHistoryText(attachment: AttachmentInput) {
     const label = attachment.mimeType.startsWith("image/")
-        ? `📷 ${attachment.name}`
+        ? "📷 Imagem"
         : attachment.mimeType.startsWith("video/")
-            ? `🎥 ${attachment.name}`
+            ? "🎥 Vídeo"
             : attachment.mimeType.startsWith("audio/")
-                ? `🎵 ${attachment.name}`
+                ? "🎵 Áudio"
                 : `📎 ${attachment.name}`;
 
     const metadata = new URLSearchParams({
@@ -709,6 +711,14 @@ function encodeInvisibleAttachmentMetadata(value: string) {
         .join("");
 
     return `${tagCharacters}${String.fromCodePoint(0xe007f)}`;
+}
+
+function isCaptionlessMedia(mimeType: string) {
+    return (
+        mimeType.startsWith("image/") ||
+        mimeType.startsWith("video/") ||
+        mimeType.startsWith("audio/")
+    );
 }
 
 async function resolveThread({
