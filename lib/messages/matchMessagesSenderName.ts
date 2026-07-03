@@ -35,8 +35,8 @@ type AttendantRow = {
 const QUERY_BATCH_SIZE = 100;
 
 export async function matchMessagesSenderName({
-                                                  limit,
-                                              }: MatchMessagesSenderNameInput) {
+                                                   limit,
+                                               }: MatchMessagesSenderNameInput) {
     const { data: conversations, error: conversationsError } = await supabase
         .from("conversations")
         .select("id")
@@ -265,7 +265,7 @@ function getSenderNameForMessage({
             clientsById.get(message.client_id) ??
             clientsByExternalContactId.get(message.external_contact_id);
 
-        return client?.name ?? null;
+        return client?.name?.trim() || "Cliente";
     }
 
     if (message.sender_type === "attendant") {

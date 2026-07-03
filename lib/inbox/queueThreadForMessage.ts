@@ -111,6 +111,7 @@ async function updateExistingThread({
     receivedAt: string;
 }) {
     const isClientMessage = senderType === "client";
+    const shouldRequeue = isClientMessage && thread.status === "closed";
 
     const updates: Record<string, unknown> = {
         source,
@@ -124,9 +125,24 @@ async function updateExistingThread({
         updates.last_client_message_at = receivedAt;
     }
 
+    // A returning client must start a new queue cycle. Finalized threads keep
+    // their previous attendant for history, so clear that ownership here and
+    // place the thread back in the unassigned queue before saving the message.
+    if (shouldRequeue) {
+        updates.status = "open";
+        updates.assigned_attendant_id = null;
+        updates.queued_at = receivedAt;
+        updates.claimed_at = null;
+        updates.closed_at = null;
+        updates.unread_count = 0;
+    }
+
     console.info("[inbox-queue] Updating existing thread", {
         thread_id: thread.id,
         sender_type: senderType,
+        should_requeue: shouldRequeue,
+        previous_status: thread.status,
+        previous_assigned_attendant_id: thread.assigned_attendant_id,
         updates,
     });
 
@@ -155,6 +171,7 @@ async function updateExistingThread({
     console.info("[inbox-queue] Existing thread updated", {
         thread_id: data.id,
         status: data.status,
+        assigned_attendant_id: data.assigned_attendant_id ?? null,
         last_client_message_at: data.last_client_message_at ?? null,
     });
 
