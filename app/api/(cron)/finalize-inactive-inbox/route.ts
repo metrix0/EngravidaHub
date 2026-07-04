@@ -1,4 +1,4 @@
-// app/api/cron/finalize-inactive-inbox/route.ts
+// app/api/(cron)/finalize-inactive-inbox/route.ts
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
