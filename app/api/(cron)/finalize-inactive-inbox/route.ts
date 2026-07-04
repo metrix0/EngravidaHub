@@ -244,26 +244,117 @@ async function loadInactiveThreads({
     inactiveBefore: Date;
     limit: number;
 }) {
-    const { data, error } = await supabase
-        .from("thread")
-        .select("id, assigned_attendant_id, last_message_at")
-        .eq("status", "open")
-        .not("assigned_attendant_id", "is", null)
-        .not("last_message_at", "is", null)
-        .lte("last_message_at", inactiveBefore.toISOString())
-        .order("last_message_at", {
-            ascending: true,
-            nullsFirst: false,
-        })
-        .limit(limit);
+    const candidatePageSize = 50;
+    const maxCandidatePages = 20;
+    const eligibleThreads: InactiveThreadRow[] = [];
 
-    if (error) {
-        throw new Error(
-            `Failed to load inactive inbox threads: ${error.message}`,
+    for (
+        let page = 0;
+        page < maxCandidatePages &&
+        eligibleThreads.length < limit;
+        page += 1
+    ) {
+        const from = page * candidatePageSize;
+        const to = from + candidatePageSize - 1;
+
+        const { data: candidates, error } = await supabase
+            .from("thread")
+            .select("id, assigned_attendant_id, last_message_at")
+            .eq("status", "open")
+            .not("assigned_attendant_id", "is", null)
+            .not("last_message_at", "is", null)
+            .lte("last_message_at", inactiveBefore.toISOString())
+            .order("last_message_at", {
+                ascending: false,
+                nullsFirst: false,
+            })
+            .range(from, to);
+
+        if (error) {
+            throw new Error(
+                `Failed to load inactive inbox thread candidates: ${error.message}`,
+            );
+        }
+
+        const typedCandidates =
+            (candidates ?? []) as InactiveThreadRow[];
+
+        if (typedCandidates.length === 0) {
+            break;
+        }
+
+        const candidateChecks = await mapWithConcurrency(
+            typedCandidates,
+            10,
+            async (thread) => {
+                const { data: pendingMessage, error: pendingError } =
+                    await supabase
+                        .from("messages")
+                        .select("id")
+                        .eq("thread_id", thread.id)
+                        .is("conversation_id", null)
+                        .limit(1)
+                        .maybeSingle();
+
+                if (pendingError) {
+                    throw new Error(
+                        `Failed to verify pending messages for thread ${thread.id}: ${pendingError.message}`,
+                    );
+                }
+
+                return pendingMessage ? thread : null;
+            },
         );
+
+        for (const thread of candidateChecks) {
+            if (!thread) continue;
+
+            eligibleThreads.push(thread);
+
+            if (eligibleThreads.length >= limit) {
+                break;
+            }
+        }
+
+        if (typedCandidates.length < candidatePageSize) {
+            break;
+        }
     }
 
-    return (data ?? []) as InactiveThreadRow[];
+    return eligibleThreads;
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+
+    async function worker() {
+        while (true) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            if (currentIndex >= items.length) {
+                return;
+            }
+
+            results[currentIndex] = await mapper(
+                items[currentIndex],
+            );
+        }
+    }
+
+    await Promise.all(
+        Array.from(
+            { length: Math.min(concurrency, items.length) },
+            () => worker(),
+        ),
+    );
+
+    return results;
 }
 
 async function loadPendingInboxConversationIds(limit: number) {
