@@ -407,8 +407,6 @@ export default function InboxPage() {
     function handleStatusChange(nextStatus: InboxStatus) {
         if (nextStatus === status) return;
 
-        // The tab controls only the list at the left.
-        // Keep the current middle and customer panels untouched.
         forcedSelectionRef.current = null;
         setStatus(nextStatus);
         setCurrentPage(1);

@@ -13,7 +13,12 @@ import {
 } from "@/lib/auth/userAccess";
 
 function isPublicPath(pathname: string) {
-    return pathname === "/login" || pathname.startsWith("/login/");
+    return (
+        pathname === "/login" ||
+        pathname.startsWith("/login/") ||
+        pathname === "/api" ||
+        pathname.startsWith("/api/")
+    );
 }
 
 export function PermissionGuard({ children }: { children: ReactNode }) {
@@ -67,9 +72,6 @@ export function PermissionGuard({ children }: { children: ReactNode }) {
         return <AccessLoading />;
     }
 
-    // Never expose the protected application when authentication could not be
-    // verified. A temporary API failure shows an explicit error instead of
-    // failing open and rendering every page.
     if (currentUserError && !authenticated) {
         return (
             <AccessMessage
@@ -83,8 +85,6 @@ export function PermissionGuard({ children }: { children: ReactNode }) {
         return <AccessLoading />;
     }
 
-    // No permission row means no tabs. Access must be explicitly granted in
-    // Usuários instead of falling back to full access.
     if (!permission) {
         return (
             <AccessMessage
@@ -128,9 +128,9 @@ function AccessLoading() {
 }
 
 function AccessMessage({
-    title,
-    description,
-}: {
+                           title,
+                           description,
+                       }: {
     title: string;
     description: string;
 }) {
