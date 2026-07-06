@@ -4,25 +4,49 @@ import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
 import { analyzeConversationsByIds } from "@/lib/conversations/analyzeConversationsByIds";
-import { finalizeInboxThreadAndAnalyze } from "@/lib/inbox/finalizeInboxThreadAndAnalyze";
+import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const DEFAULT_INACTIVITY_HOURS = 16;
-const DEFAULT_FINALIZE_LIMIT = 25;
-const DEFAULT_ANALYSIS_RETRY_LIMIT = 25;
-const MAX_LIMIT = 100;
+const DEFAULT_FINALIZE_LIMIT = 100;
+const DEFAULT_ANALYSIS_RETRY_LIMIT = 100;
+const DEFAULT_LEGACY_MESSAGE_LIMIT = 1000;
+const MAX_LIMIT = 250;
+const FINALIZE_CONCURRENCY = 8;
 
 type InactiveThreadRow = {
     id: string;
-    assigned_attendant_id: string;
-    last_message_at: string;
+    assigned_attendant_id: string | null;
+    status: string;
+    last_message_at: string | null;
+    updated_at: string;
 };
+
+type FinalizeResult =
+    | {
+          ok: true;
+          skipped: false;
+          thread_id: string;
+          conversation_id: string;
+      }
+    | {
+          ok: true;
+          skipped: true;
+          thread_id: string;
+          conversation_id: null;
+          reason: "became_active_or_already_finalized";
+      }
+    | {
+          ok: false;
+          thread_id: string;
+          conversation_id: null;
+          error: string;
+      };
 
 export async function GET(request: Request) {
     const requestId = randomUUID();
-
     const { searchParams } = new URL(request.url);
 
     const inactivityHours = parsePositiveNumber(
@@ -32,7 +56,6 @@ export async function GET(request: Request) {
                 DEFAULT_INACTIVITY_HOURS,
         ),
     );
-
     const finalizeLimit = parseLimit(
         searchParams.get("limit"),
         Number(
@@ -40,7 +63,6 @@ export async function GET(request: Request) {
                 DEFAULT_FINALIZE_LIMIT,
         ),
     );
-
     const analysisRetryLimit = parseLimit(
         searchParams.get("analysis_retry_limit"),
         Number(
@@ -48,20 +70,24 @@ export async function GET(request: Request) {
                 DEFAULT_ANALYSIS_RETRY_LIMIT,
         ),
     );
-
+    const legacyMessageLimit = parseLimit(
+        searchParams.get("legacy_limit"),
+        Number(
+            process.env.LEGACY_ANALYSIS_MESSAGE_LIMIT ??
+                DEFAULT_LEGACY_MESSAGE_LIMIT,
+        ),
+    );
     const inactiveBefore = new Date(
         Date.now() - inactivityHours * 60 * 60 * 1000,
     );
 
-    console.info(
-        `[inbox-auto-finalize:${requestId}] Starting`,
-        {
-            inactivityHours,
-            inactiveBefore: inactiveBefore.toISOString(),
-            finalizeLimit,
-            analysisRetryLimit,
-        },
-    );
+    console.info(`[inbox-auto-finalize:${requestId}] Starting`, {
+        inactivityHours,
+        inactiveBefore: inactiveBefore.toISOString(),
+        finalizeLimit,
+        analysisRetryLimit,
+        legacyMessageLimit,
+    });
 
     try {
         const inactiveThreads = await loadInactiveThreads({
@@ -79,81 +105,94 @@ export async function GET(request: Request) {
             },
         );
 
-        const finalizeResults = [];
+        const finalizeResults = await mapWithConcurrency(
+            inactiveThreads,
+            FINALIZE_CONCURRENCY,
+            async (thread): Promise<FinalizeResult> => {
+                try {
+                    const { data, error } = await supabase.rpc(
+                        "finalize_inactive_inbox_thread",
+                        {
+                            p_thread_id: thread.id,
+                            p_inactive_before:
+                                inactiveBefore.toISOString(),
+                        },
+                    );
 
-        for (const thread of inactiveThreads) {
-            const threadRequestId = `${requestId}:${thread.id}`;
+                    if (error) {
+                        throw new Error(error.message);
+                    }
 
-            try {
-                finalizeResults.push(
-                    await finalizeInboxThreadAndAnalyze({
-                        threadId: thread.id,
-                        attendantId:
-                            thread.assigned_attendant_id,
-                        requestId: threadRequestId,
-                        mode: "automatic",
-                        inactiveBefore,
-                        analyze: false,
-                    }),
-                );
-            } catch (error) {
-                console.error(
-                    `[inbox-auto-finalize:${requestId}] Thread failed`,
-                    {
-                        threadId: thread.id,
-                        attendantId:
-                            thread.assigned_attendant_id,
-                        error,
-                    },
-                );
+                    const conversationId =
+                        typeof data === "string" ? data : null;
 
-                finalizeResults.push({
-                    ok: false as const,
-                    thread_id: thread.id,
-                    conversation_id: null,
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : "Failed to finalize inactive thread",
-                });
-            }
-        }
+                    if (!conversationId) {
+                        return {
+                            ok: true,
+                            skipped: true,
+                            thread_id: thread.id,
+                            conversation_id: null,
+                            reason: "became_active_or_already_finalized",
+                        };
+                    }
 
-        const newlyFinalizedConversationIds = finalizeResults
-            .filter(
-                (
-                    item,
-                ): item is typeof item & {
-                    conversation_id: string;
-                } =>
-                    item.ok &&
-                    typeof item.conversation_id === "string",
-            )
-            .map((item) => item.conversation_id);
+                    return {
+                        ok: true,
+                        skipped: false,
+                        thread_id: thread.id,
+                        conversation_id: conversationId,
+                    };
+                } catch (error) {
+                    console.error(
+                        `[inbox-auto-finalize:${requestId}] Thread failed`,
+                        {
+                            threadId: thread.id,
+                            status: thread.status,
+                            attendantId: thread.assigned_attendant_id,
+                            error,
+                        },
+                    );
 
-        const retryConversationIds =
-            await loadPendingInboxConversationIds(
-                analysisRetryLimit,
-            );
-
-        const conversationIdsToAnalyze = Array.from(
-            new Set([
-                ...newlyFinalizedConversationIds,
-                ...retryConversationIds,
-            ]),
-        );
-
-        console.info(
-            `[inbox-auto-finalize:${requestId}] Starting analysis batch`,
-            {
-                newly_finalized_conversations:
-                    newlyFinalizedConversationIds.length,
-                retry_conversations:
-                    retryConversationIds.length,
-                unique_conversations:
-                    conversationIdsToAnalyze.length,
+                    return {
+                        ok: false,
+                        thread_id: thread.id,
+                        conversation_id: null,
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : "Failed to finalize inactive thread",
+                    };
+                }
             },
         );
+
+        let legacyConversationIds: string[] = [];
+        let legacyError: string | null = null;
+
+        try {
+            const legacyConversations = await messageToConversations({
+                inactivityHours,
+                limit: legacyMessageLimit,
+            });
+            legacyConversationIds = legacyConversations.map(
+                (conversation) => conversation.conversation_id,
+            );
+        } catch (error) {
+            legacyError =
+                error instanceof Error
+                    ? error.message
+                    : "Failed to convert legacy messages";
+            console.error(
+                `[inbox-auto-finalize:${requestId}] Legacy conversion failed`,
+                error,
+            );
+        }
+
+        // This intentionally includes both Inbox and legacy conversations.
+        // The oldest pending conversations are processed first, so a backlog
+        // cannot be permanently starved by newly finalized threads.
+        const conversationIdsToAnalyze =
+            await loadPendingConversationIds(analysisRetryLimit);
 
         let analysis = null;
         let analysisError: string | null = null;
@@ -163,19 +202,27 @@ export async function GET(request: Request) {
                 analysis = await analyzeConversationsByIds(
                     conversationIdsToAnalyze,
                 );
+
+                const skippedPreparationIds = analysis.sender_preparation
+                    .filter((item) => !item.ok)
+                    .map((item) => item.conversation_id);
+
+                await deferConversationRetries(skippedPreparationIds);
             } catch (error) {
                 analysisError =
                     error instanceof Error
                         ? error.message
                         : "Failed to analyze finalized conversations";
-
                 console.error(
                     `[inbox-auto-finalize:${requestId}] Analysis batch failed`,
                     {
-                        conversationIds:
-                            conversationIdsToAnalyze,
+                        conversationIds: conversationIdsToAnalyze,
                         error,
                     },
+                );
+
+                await deferConversationRetries(
+                    conversationIdsToAnalyze,
                 );
             }
         }
@@ -192,11 +239,12 @@ export async function GET(request: Request) {
             skipped_threads: finalizeResults.filter(
                 (item) => item.ok && item.skipped,
             ).length,
-            failed_threads: finalizeResults.filter(
-                (item) => !item.ok,
-            ).length,
-            conversation_ids_to_analyze:
-                conversationIdsToAnalyze,
+            failed_threads: finalizeResults.filter((item) => !item.ok)
+                .length,
+            legacy_conversations_created: legacyConversationIds.length,
+            legacy_conversation_ids: legacyConversationIds,
+            legacy_error: legacyError,
+            conversation_ids_to_analyze: conversationIdsToAnalyze,
             analysis_error: analysisError,
             finalize_results: finalizeResults,
             analysis,
@@ -206,10 +254,11 @@ export async function GET(request: Request) {
             `[inbox-auto-finalize:${requestId}] Finished`,
             {
                 eligible_threads: response.eligible_threads,
-                finalized_threads:
-                    response.finalized_threads,
+                finalized_threads: response.finalized_threads,
                 skipped_threads: response.skipped_threads,
                 failed_threads: response.failed_threads,
+                legacy_conversations_created:
+                    response.legacy_conversations_created,
                 conversations_to_analyze:
                     conversationIdsToAnalyze.length,
                 analysis_error: analysisError,
@@ -244,90 +293,74 @@ async function loadInactiveThreads({
     inactiveBefore: Date;
     limit: number;
 }) {
-    const candidatePageSize = 50;
-    const maxCandidatePages = 20;
-    const eligibleThreads: InactiveThreadRow[] = [];
+    const { data, error } = await supabase.rpc(
+        "get_inactive_inbox_threads",
+        {
+            p_inactive_before: inactiveBefore.toISOString(),
+            p_limit: limit,
+        },
+    );
 
-    for (
-        let page = 0;
-        page < maxCandidatePages &&
-        eligibleThreads.length < limit;
-        page += 1
-    ) {
-        const from = page * candidatePageSize;
-        const to = from + candidatePageSize - 1;
-
-        const { data: candidates, error } = await supabase
-            .from("thread")
-            .select("id, assigned_attendant_id, last_message_at")
-            .eq("status", "open")
-            .not("assigned_attendant_id", "is", null)
-            .not("last_message_at", "is", null)
-            .lte("last_message_at", inactiveBefore.toISOString())
-            .order("last_message_at", {
-                ascending: false,
-                nullsFirst: false,
-            })
-            .range(from, to);
-
-        if (error) {
-            throw new Error(
-                `Failed to load inactive inbox thread candidates: ${error.message}`,
-            );
-        }
-
-        const typedCandidates =
-            (candidates ?? []) as InactiveThreadRow[];
-
-        if (typedCandidates.length === 0) {
-            break;
-        }
-
-        const candidateChecks = await mapWithConcurrency(
-            typedCandidates,
-            10,
-            async (thread) => {
-                const { data: pendingMessage, error: pendingError } =
-                    await supabase
-                        .from("messages")
-                        .select("id")
-                        .eq("thread_id", thread.id)
-                        .is("conversation_id", null)
-                        .limit(1)
-                        .maybeSingle();
-
-                if (pendingError) {
-                    throw new Error(
-                        `Failed to verify pending messages for thread ${thread.id}: ${pendingError.message}`,
-                    );
-                }
-
-                return pendingMessage ? thread : null;
-            },
+    if (error) {
+        throw new Error(
+            `Failed to load inactive inbox threads: ${error.message}`,
         );
-
-        for (const thread of candidateChecks) {
-            if (!thread) continue;
-
-            eligibleThreads.push(thread);
-
-            if (eligibleThreads.length >= limit) {
-                break;
-            }
-        }
-
-        if (typedCandidates.length < candidatePageSize) {
-            break;
-        }
     }
 
-    return eligibleThreads;
+    return (data ?? []) as InactiveThreadRow[];
+}
+
+async function loadPendingConversationIds(limit: number) {
+    const { data, error } = await supabase
+        .from("conversations")
+        .select("id")
+        .is("conversation_analysis_id", null)
+        .not("ended_at", "is", null)
+        .order("updated_at", {
+            ascending: true,
+            nullsFirst: false,
+        })
+        .order("ended_at", {
+            ascending: true,
+            nullsFirst: false,
+        })
+        .limit(limit);
+
+    if (error) {
+        throw new Error(
+            `Failed to load pending conversations: ${error.message}`,
+        );
+    }
+
+    return (data ?? [])
+        .map((conversation) => conversation.id)
+        .filter((value): value is string => Boolean(value));
+}
+
+async function deferConversationRetries(conversationIds: string[]) {
+    if (conversationIds.length === 0) return;
+
+    const { error } = await supabase
+        .from("conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .in("id", conversationIds)
+        .is("conversation_analysis_id", null);
+
+    if (error) {
+        console.warn(
+            "[inbox-auto-finalize] Failed to defer conversation retries",
+            {
+                conversations: conversationIds.length,
+                error: error.message,
+            },
+        );
+    }
 }
 
 async function mapWithConcurrency<T, R>(
     items: T[],
     concurrency: number,
-    mapper: (item: T) => Promise<R>,
+    mapper: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
     const results = new Array<R>(items.length);
     let nextIndex = 0;
@@ -337,12 +370,10 @@ async function mapWithConcurrency<T, R>(
             const currentIndex = nextIndex;
             nextIndex += 1;
 
-            if (currentIndex >= items.length) {
-                return;
-            }
-
+            if (currentIndex >= items.length) return;
             results[currentIndex] = await mapper(
                 items[currentIndex],
+                currentIndex,
             );
         }
     }
@@ -355,30 +386,6 @@ async function mapWithConcurrency<T, R>(
     );
 
     return results;
-}
-
-async function loadPendingInboxConversationIds(limit: number) {
-    const { data, error } = await supabase
-        .from("conversations")
-        .select("id")
-        .is("conversation_analysis_id", null)
-        .not("ended_at", "is", null)
-        .not("thread_id", "is", null)
-        .order("ended_at", {
-            ascending: true,
-            nullsFirst: false,
-        })
-        .limit(limit);
-
-    if (error) {
-        throw new Error(
-            `Failed to load pending inbox conversations: ${error.message}`,
-        );
-    }
-
-    return (data ?? [])
-        .map((conversation) => conversation.id)
-        .filter((value): value is string => Boolean(value));
 }
 
 function parsePositiveNumber(
