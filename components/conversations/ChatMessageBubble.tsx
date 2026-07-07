@@ -92,7 +92,7 @@ function AttachmentContent({
     const isImage = attachment.mimeType.startsWith("image/");
     const isAudio = attachment.mimeType.startsWith("audio/");
 
-    if (isAudio && !audioFailed) {
+    if (isAudio) {
         return (
             <div className="min-w-0">
                 <div
@@ -102,33 +102,22 @@ function AttachmentContent({
                             : "border-slate-200 bg-slate-50"
                     }`}
                 >
-                    <audio
-                        controls
-                        preload="metadata"
-                        src={attachmentUrl}
-                        onError={() => setAudioFailed(true)}
-                        className="block h-10 w-[320px] max-w-full"
-                    >
-                        Seu navegador não oferece suporte à reprodução de áudio.
-                    </audio>
-
-                    <a
-                        href={attachmentUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                    >
-                        <FileAudio size={15} className="shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">
-                            {attachment.name}
-                        </span>
-                        {attachment.size ? (
-                            <span className="shrink-0 text-slate-400">
-                                {formatAttachmentSize(attachment.size)}
-                            </span>
-                        ) : null}
-                        <Download size={14} className="shrink-0" />
-                    </a>
+                    {audioFailed ? (
+                        <div className="flex min-h-10 items-center gap-2 px-2 text-xs font-semibold text-slate-500">
+                            <FileAudio size={15} className="shrink-0" />
+                            <span>Não foi possível reproduzir este áudio.</span>
+                        </div>
+                    ) : (
+                        <audio
+                            controls
+                            preload="metadata"
+                            src={attachmentUrl}
+                            onError={() => setAudioFailed(true)}
+                            className="block h-10 w-[320px] max-w-full"
+                        >
+                            Seu navegador não oferece suporte à reprodução de áudio.
+                        </audio>
+                    )}
                 </div>
             </div>
         );
