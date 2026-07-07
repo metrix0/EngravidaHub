@@ -10,6 +10,7 @@ export type ActiveMessageClient = {
     funnel_stage_id: string | null;
     last_interaction_at: string;
     utm_source: string | null;
+    last_closing_tag: string | null;
     last_client_message_at: string | null;
     last_active_message_sent_at: string | null;
 };
@@ -32,6 +33,8 @@ export type ActiveMessageSendHistory = {
     failed_count: number;
     normal_message_count: number;
     template_message_count: number;
+    schedule_count: number;
+    response_count: number;
     status: "processing" | "completed" | "partial" | "failed";
     created_by_name: string | null;
     created_at: string;

@@ -6,6 +6,7 @@ import {
     Check,
     Clock3,
     FileText,
+    Info,
     LoaderCircle,
     MessageSquareText,
     Minus,
@@ -17,14 +18,17 @@ import {
 import {
     AdvancedFilterButton,
     Badge,
+    CalendarButton,
     DataTable,
     DropdownSelect,
+    InfoTooltip,
     Modal,
     Pagination,
+    SearchFilter,
     SidePanel,
     Skeleton,
-    TableHeaderPreset,
     type DataTableColumn,
+    type DateRange,
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
@@ -52,6 +56,15 @@ type SendFeedback = {
     description: string;
 };
 
+type DynamicTemplateField = {
+    key: string;
+    field_id: string;
+    label: string;
+    placeholder?: string;
+    default_value?: string;
+    required?: boolean;
+};
+
 export default function MensagemAtivaPage() {
     const [data, setData] = useState<ActiveMessagesPageResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -64,9 +77,16 @@ export default function MensagemAtivaPage() {
     const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(
         () => new Set(),
     );
+
     const [search, setSearch] = useState("");
     const [stageValues, setStageValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
+    const [closingTagValues, setClosingTagValues] = useState<string[]>([]);
+    const [lastClientMessageRange, setLastClientMessageRange] =
+        useState<DateRange>({
+            start: null,
+            end: null,
+        });
     const [windowValues, setWindowValues] = useState<string[]>([]);
     const [activeSendValues, setActiveSendValues] = useState<string[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
@@ -77,10 +97,13 @@ export default function MensagemAtivaPage() {
     const deepLinkAppliedRef = useRef(false);
 
     async function loadPage({ silent = false } = {}) {
-        if (!silent) setLoading(true);
+        if (!silent) {
+            setLoading(true);
+        }
 
         try {
             setLoadError(null);
+
             const response = await fetch("/api/mensagem-ativa", {
                 credentials: "include",
                 cache: "no-store",
@@ -98,9 +121,11 @@ export default function MensagemAtivaPage() {
             }
 
             const nextData = json as ActiveMessagesPageResponse;
+
             setData(nextData);
             setTemplateId((current) =>
-                current && nextData.templates.some((item) => item.id === current)
+                current &&
+                nextData.templates.some((item) => item.id === current)
                     ? current
                     : nextData.templates[0]?.id ?? "",
             );
@@ -112,7 +137,9 @@ export default function MensagemAtivaPage() {
                     : "Não foi possível carregar a Mensagem Ativa",
             );
         } finally {
-            if (!silent) setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
         }
     }
 
@@ -121,7 +148,9 @@ export default function MensagemAtivaPage() {
     }, []);
 
     useEffect(() => {
-        if (!data || deepLinkAppliedRef.current) return;
+        if (!data || deepLinkAppliedRef.current) {
+            return;
+        }
 
         const params = new URLSearchParams(window.location.search);
         const requestedPhone = params.get("phone")?.trim() ?? "";
@@ -157,14 +186,18 @@ export default function MensagemAtivaPage() {
     }, [data]);
 
     const stageById = useMemo(
-        () => new Map((data?.stages ?? []).map((stage) => [stage.id, stage])),
+        () =>
+            new Map(
+                (data?.stages ?? []).map((stage) => [stage.id, stage]),
+            ),
         [data?.stages],
     );
 
     const selectedTemplate = useMemo(
         () =>
-            data?.templates.find((template) => template.id === templateId) ??
-            null,
+            data?.templates.find(
+                (template) => template.id === templateId,
+            ) ?? null,
         [data?.templates, templateId],
     );
 
@@ -172,9 +205,11 @@ export default function MensagemAtivaPage() {
         () => getTemplateDynamicFields(selectedTemplate),
         [selectedTemplate],
     );
+
     const dynamicValues = templateId
         ? dynamicValuesByTemplate[templateId] ?? {}
         : {};
+
     const templateFieldsComplete = dynamicFields.every((field) =>
         field.required
             ? Boolean(
@@ -192,9 +227,32 @@ export default function MensagemAtivaPage() {
         }
 
         return [...values]
-            .sort((first, second) => first.localeCompare(second, "pt-BR"))
+            .sort((first, second) =>
+                first.localeCompare(second, "pt-BR"),
+            )
             .map((value) => ({
                 label: value === "direct" ? "Direto" : value,
+                value,
+            }));
+    }, [data?.clients]);
+
+    const closingTagOptions = useMemo(() => {
+        const values = new Set<string>();
+
+        for (const client of data?.clients ?? []) {
+            const closingTag = client.last_closing_tag?.trim();
+
+            if (closingTag) {
+                values.add(closingTag);
+            }
+        }
+
+        return [...values]
+            .sort((first, second) =>
+                first.localeCompare(second, "pt-BR"),
+            )
+            .map((value) => ({
+                label: value,
                 value,
             }));
     }, [data?.clients]);
@@ -223,15 +281,22 @@ export default function MensagemAtivaPage() {
 
         return [...groups.values()]
             .sort((first, second) =>
-                first.funnelName.localeCompare(second.funnelName, "pt-BR"),
+                first.funnelName.localeCompare(
+                    second.funnelName,
+                    "pt-BR",
+                ),
             )
             .map((group) => {
-                const stageIds = new Set(group.stages.map((stage) => stage.id));
+                const stageIds = new Set(
+                    group.stages.map((stage) => stage.id),
+                );
 
                 return {
                     id: `funnel-${group.funnelId}`,
                     title: `${group.funnelName} — Estágios`,
-                    values: stageValues.filter((stageId) => stageIds.has(stageId)),
+                    values: stageValues.filter((stageId) =>
+                        stageIds.has(stageId),
+                    ),
                     onChange: (nextValues: string[]) => {
                         setStageValues((currentValues) => [
                             ...currentValues.filter(
@@ -241,7 +306,10 @@ export default function MensagemAtivaPage() {
                         ]);
                     },
                     options: [...group.stages]
-                        .sort((first, second) => first.position - second.position)
+                        .sort(
+                            (first, second) =>
+                                first.position - second.position,
+                        )
                         .map((stage) => ({
                             label: stage.name,
                             value: stage.id,
@@ -264,34 +332,68 @@ export default function MensagemAtivaPage() {
 
             if (
                 sourceValues.length > 0 &&
-                !sourceValues.includes(client.utm_source?.trim() || "direct")
+                !sourceValues.includes(
+                    client.utm_source?.trim() || "direct",
+                )
+            ) {
+                return false;
+            }
+
+            if (
+                closingTagValues.length > 0 &&
+                !closingTagValues.includes(
+                    client.last_closing_tag?.trim() || "",
+                )
+            ) {
+                return false;
+            }
+
+            if (
+                !isTimestampInsideDateRange(
+                    client.last_client_message_at,
+                    lastClientMessageRange,
+                )
             ) {
                 return false;
             }
 
             if (windowValues.length > 0) {
-                const windowStatus = isWindowOpen(client.last_client_message_at)
+                const windowStatus = isWindowOpen(
+                    client.last_client_message_at,
+                )
                     ? "open"
                     : "expired";
-                if (!windowValues.includes(windowStatus)) return false;
+
+                if (!windowValues.includes(windowStatus)) {
+                    return false;
+                }
             }
 
             if (activeSendValues.length > 0) {
                 const sentStatus = client.last_active_message_sent_at
                     ? "sent"
                     : "never";
-                if (!activeSendValues.includes(sentStatus)) return false;
+
+                if (!activeSendValues.includes(sentStatus)) {
+                    return false;
+                }
             }
 
-            if (!term) return true;
+            if (!term) {
+                return true;
+            }
 
             return [client.name, client.phone, client.email]
                 .filter(Boolean)
-                .some((value) => normalize(String(value)).includes(term));
+                .some((value) =>
+                    normalize(String(value)).includes(term),
+                );
         });
     }, [
         activeSendValues,
+        closingTagValues,
         data?.clients,
+        lastClientMessageRange,
         search,
         sourceValues,
         stageValues,
@@ -300,7 +402,15 @@ export default function MensagemAtivaPage() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [search, stageValues, sourceValues, windowValues, activeSendValues]);
+    }, [
+        search,
+        stageValues,
+        sourceValues,
+        closingTagValues,
+        lastClientMessageRange,
+        windowValues,
+        activeSendValues,
+    ]);
 
     const totalPages = Math.max(
         1,
@@ -308,12 +418,18 @@ export default function MensagemAtivaPage() {
     );
 
     useEffect(() => {
-        if (currentPage > totalPages) setCurrentPage(totalPages);
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
     }, [currentPage, totalPages]);
 
     const pageClients = useMemo(() => {
         const start = (currentPage - 1) * CLIENTS_PER_PAGE;
-        return filteredClients.slice(start, start + CLIENTS_PER_PAGE);
+
+        return filteredClients.slice(
+            start,
+            start + CLIENTS_PER_PAGE,
+        );
     }, [currentPage, filteredClients]);
 
     const pageRows = useMemo<ClientRow[]>(
@@ -336,117 +452,134 @@ export default function MensagemAtivaPage() {
     );
 
     const selectedCount = selectedClientIds.size;
-    const selectedInFilterCount = selectableFilteredClientIds.filter((id) =>
-        selectedClientIds.has(id),
-    ).length;
+    const selectedInFilterCount =
+        selectableFilteredClientIds.filter((id) =>
+            selectedClientIds.has(id),
+        ).length;
     const allFilteredSelected =
         selectableFilteredClientIds.length > 0 &&
-        selectedInFilterCount === selectableFilteredClientIds.length;
+        selectedInFilterCount ===
+            selectableFilteredClientIds.length;
     const someFilteredSelected =
         selectedInFilterCount > 0 && !allFilteredSelected;
 
     const openWindowCount = useMemo(
         () =>
             [...selectedClientIds].filter((clientId) => {
-                const client = data?.clients.find((item) => item.id === clientId);
-                return Boolean(client && isWindowOpen(client.last_client_message_at));
+                const client = data?.clients.find(
+                    (item) => item.id === clientId,
+                );
+
+                return Boolean(
+                    client &&
+                        isWindowOpen(client.last_client_message_at),
+                );
             }).length,
         [data?.clients, selectedClientIds],
     );
+
     const templateWindowCount = selectedCount - openWindowCount;
 
     const columns: DataTableColumn<ClientRow>[] = [
-            {
-                id: "selection",
-                label: (
-                    <SelectionCheckbox
-                        checked={allFilteredSelected}
-                        indeterminate={someFilteredSelected}
-                        title={
-                            selectedInFilterCount > 0
-                                ? "Desmarcar clientes filtrados"
-                                : "Selecionar todos os clientes filtrados"
-                        }
-                        onChange={toggleAllFiltered}
+        {
+            id: "selection",
+            label: (
+                <SelectionCheckbox
+                    checked={allFilteredSelected}
+                    indeterminate={someFilteredSelected}
+                    title={
+                        selectedInFilterCount > 0
+                            ? "Desmarcar clientes filtrados"
+                            : "Selecionar todos os clientes filtrados"
+                    }
+                    onChange={toggleAllFiltered}
+                />
+            ),
+            width: "5%",
+            render: ({ client }) => (
+                <SelectionCheckbox
+                    checked={selectedClientIds.has(client.id)}
+                    disabled={!client.phone?.trim()}
+                    title={
+                        client.phone?.trim()
+                            ? `Selecionar ${client.name ?? "cliente"}`
+                            : "Cliente sem telefone"
+                    }
+                    onChange={() => toggleClient(client.id)}
+                />
+            ),
+        },
+        {
+            id: "client",
+            label: "Cliente",
+            width: "20%",
+            render: ({ client }) => (
+                <div className="flex min-w-0 items-center gap-3">
+                    <InitialsAvatar
+                        name={client.name ?? "Cliente"}
                     />
-                ),
-                width: "5%",
-                render: ({ client }) => (
-                    <SelectionCheckbox
-                        checked={selectedClientIds.has(client.id)}
-                        disabled={!client.phone?.trim()}
-                        title={
-                            client.phone?.trim()
-                                ? `Selecionar ${client.name ?? "cliente"}`
-                                : "Cliente sem telefone"
-                        }
-                        onChange={() => toggleClient(client.id)}
-                    />
-                ),
-            },
-            {
-                id: "client",
-                label: "Cliente",
-                width: "20%",
-                render: ({ client }) => (
-                    <div className="flex min-w-0 items-center gap-3">
-                        <InitialsAvatar name={client.name ?? "Cliente"} />
-                        <div className="min-w-0">
-                            <div className="truncate font-medium text-slate-700">
-                                {client.name ?? "Cliente sem nome"}
-                            </div>
+                    <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-700">
+                            {client.name ?? "Cliente sem nome"}
                         </div>
                     </div>
-                ),
-            },
-            {
-                id: "phone",
-                label: "Telefone",
-                width: "13%",
-                render: ({ client }) => (
-                    <span
-                        className={
-                            client.phone
-                                ? "truncate text-slate-700"
-                                : "text-slate-400"
-                        }
-                    >
-                        {formatPhone(client.phone)}
-                    </span>
-                ),
-            },
-            {
-                id: "funnel",
-                label: "Funil",
-                width: "13%",
-                render: ({ stage }) => (
-                    <Badge value={stage?.funnel_name ?? null} />
-                ),
-            },
-            {
-                id: "stage",
-                label: "Estágio",
-                width: "15%",
-                render: ({ stage }) => <Badge value={stage?.name ?? null} />,
-            },
-            {
-                id: "window",
-                label: "Última mensagem do cliente",
-                width: "17%",
-                render: ({ client }) => (
-                    <WindowStatus timestamp={client.last_client_message_at} />
-                ),
-            },
-            {
-                id: "last_active_send",
-                label: "Última mensagem ativa enviada em",
-                width: "17%",
-                render: ({ client }) => (
-                    <span className="truncate text-slate-700">
-                        {formatDateTime(client.last_active_message_sent_at)}
-                    </span>
-                ),
-            },
+                </div>
+            ),
+        },
+        {
+            id: "phone",
+            label: "Telefone",
+            width: "13%",
+            render: ({ client }) => (
+                <span
+                    className={
+                        client.phone
+                            ? "truncate text-slate-700"
+                            : "text-slate-400"
+                    }
+                >
+                    {formatPhone(client.phone)}
+                </span>
+            ),
+        },
+        {
+            id: "funnel",
+            label: "Funil",
+            width: "13%",
+            render: ({ stage }) => (
+                <Badge value={stage?.funnel_name ?? null} />
+            ),
+        },
+        {
+            id: "stage",
+            label: "Estágio",
+            width: "15%",
+            render: ({ stage }) => (
+                <Badge value={stage?.name ?? null} />
+            ),
+        },
+        {
+            id: "window",
+            label: "Última mensagem do cliente",
+            width: "17%",
+            render: ({ client }) => (
+                <WindowStatus
+                    timestamp={client.last_client_message_at}
+                />
+            ),
+        },
+        {
+            id: "last_active_send",
+            label: "Última mensagem ativa enviada em",
+            width: "17%",
+            render: ({ client }) => (
+                <span className="truncate text-slate-700">
+                    {formatDateTime(
+                        client.last_active_message_sent_at,
+                    )}
+                </span>
+            ),
+        },
     ];
 
     async function handleSend() {
@@ -463,23 +596,31 @@ export default function MensagemAtivaPage() {
         setFeedback(null);
 
         try {
-            const response = await fetch("/api/mensagem-ativa/send", {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    template_id: selectedTemplate.id,
-                    client_ids: [...selectedClientIds],
-                    filters: {
-                        search: search.trim() || null,
-                        funnel_stage_ids: stageValues,
-                        origins: sourceValues,
-                        whatsapp_window: windowValues,
-                        active_send_history: activeSendValues,
+            const response = await fetch(
+                "/api/mensagem-ativa/send",
+                {
+                    method: "POST",
+                    credentials: "include",
+                    headers: {
+                        "Content-Type": "application/json",
                     },
-                    dynamic_values: dynamicValues,
-                }),
-            });
+                    body: JSON.stringify({
+                        template_id: selectedTemplate.id,
+                        client_ids: [...selectedClientIds],
+                        filters: {
+                            search: search.trim() || null,
+                            funnel_stage_ids: stageValues,
+                            origins: sourceValues,
+                            closing_tags: closingTagValues,
+                            last_client_message_date_range:
+                                lastClientMessageRange,
+                            whatsapp_window: windowValues,
+                            active_send_history: activeSendValues,
+                        },
+                        dynamic_values: dynamicValues,
+                    }),
+                },
+            );
             const json = (await response.json()) as
                 | ActiveMessageSendResponse
                 | { error?: string };
@@ -493,8 +634,12 @@ export default function MensagemAtivaPage() {
             }
 
             const result = json as ActiveMessageSendResponse;
+
             setFeedback({
-                tone: result.failed_count === 0 ? "success" : "warning",
+                tone:
+                    result.failed_count === 0
+                        ? "success"
+                        : "warning",
                 title:
                     result.failed_count === 0
                         ? "Envio concluído"
@@ -527,8 +672,13 @@ export default function MensagemAtivaPage() {
     function toggleClient(clientId: string) {
         setSelectedClientIds((current) => {
             const next = new Set(current);
-            if (next.has(clientId)) next.delete(clientId);
-            else next.add(clientId);
+
+            if (next.has(clientId)) {
+                next.delete(clientId);
+            } else {
+                next.add(clientId);
+            }
+
             return next;
         });
     }
@@ -538,9 +688,13 @@ export default function MensagemAtivaPage() {
             const next = new Set(current);
 
             if (selectedInFilterCount > 0) {
-                for (const id of selectableFilteredClientIds) next.delete(id);
+                for (const id of selectableFilteredClientIds) {
+                    next.delete(id);
+                }
             } else {
-                for (const id of selectableFilteredClientIds) next.add(id);
+                for (const id of selectableFilteredClientIds) {
+                    next.add(id);
+                }
             }
 
             return next;
@@ -551,8 +705,13 @@ export default function MensagemAtivaPage() {
         setSelectedClientIds(new Set());
     }
 
-    function updateDynamicValue(fieldId: string, value: string) {
-        if (!templateId) return;
+    function updateDynamicValue(
+        fieldId: string,
+        value: string,
+    ) {
+        if (!templateId) {
+            return;
+        }
 
         setDynamicValuesByTemplate((current) => ({
             ...current,
@@ -563,7 +722,9 @@ export default function MensagemAtivaPage() {
         }));
     }
 
-    if (loading) return <MensagemAtivaSkeleton />;
+    if (loading) {
+        return <MensagemAtivaSkeleton />;
+    }
 
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
@@ -575,8 +736,8 @@ export default function MensagemAtivaPage() {
                         Mensagem Ativa
                     </h1>
                     <p className="mt-2 text-sm text-slate-500">
-                        Envie mensagens proativas pelo WhatsApp com seleção e
-                        segmentação de clientes.
+                        Envie mensagens proativas pelo WhatsApp com
+                        seleção e segmentação de clientes.
                     </p>
                 </header>
 
@@ -586,7 +747,9 @@ export default function MensagemAtivaPage() {
                     </div>
                 ) : null}
 
-                {feedback ? <FeedbackBanner feedback={feedback} /> : null}
+                {feedback ? (
+                    <FeedbackBanner feedback={feedback} />
+                ) : null}
 
                 <TemplateCard
                     templates={data?.templates ?? []}
@@ -599,98 +762,135 @@ export default function MensagemAtivaPage() {
                 />
 
                 <section className="mt-8">
-                    <TableHeaderPreset
-                        title="Destinatários"
-                        count={filteredClients.length}
-                        searchValue={search}
-                        onSearchChange={setSearch}
-                        searchPlaceholder="Buscar por nome, telefone ou e-mail..."
-                    >
-                        <AdvancedFilterButton
-                            label="Filtros"
-                            widthClassName="w-[120px]"
-                            dropdownWidthClassName="w-[360px]"
-                            sections={[
-                                ...stageFilterSections,
-                                {
-                                    id: "source",
-                                    title: "Origem",
-                                    values: sourceValues,
-                                    onChange: setSourceValues,
-                                    options: sourceOptions,
-                                },
-                                {
-                                    id: "window",
-                                    title: "Janela do WhatsApp",
-                                    values: windowValues,
-                                    onChange: setWindowValues,
-                                    options: [
-                                        {
-                                            label: "Dentro das últimas 24h",
-                                            value: "open",
-                                        },
-                                        {
-                                            label: "Fora da janela de 24h",
-                                            value: "expired",
-                                        },
-                                    ],
-                                },
-                                {
-                                    id: "active-send",
-                                    title: "Mensagem ativa",
-                                    values: activeSendValues,
-                                    onChange: setActiveSendValues,
-                                    options: [
-                                        {
-                                            label: "Já recebeu mensagem ativa",
-                                            value: "sent",
-                                        },
-                                        {
-                                            label: "Nunca recebeu mensagem ativa",
-                                            value: "never",
-                                        },
-                                    ],
-                                },
-                            ]}
-                        />
+                    <div className="border-b border-slate-100">
+                        <div className="flex flex-wrap items-center justify-between gap-3 px-6 pt-5 pb-2">
+                            <h2 className="text-lg font-bold text-text">
+                                Destinatários{" "}
+                                <span className="text-slate-500">
+                                    ({filteredClients.length})
+                                </span>
+                            </h2>
 
-                        <SelectionSummary
-                            count={selectedCount}
-                            onClear={clearSelection}
-                        />
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                                <SearchFilter
+                                    value={search}
+                                    onChange={setSearch}
+                                    placeholder="Buscar por nome, telefone ou e-mail..."
+                                    widthClassName="w-full sm:w-[360px]"
+                                />
 
-                        <button
-                            type="button"
-                            onClick={() => setConfirmationOpen(true)}
-                            disabled={
-                                !selectedTemplate ||
-                                !templateFieldsComplete ||
-                                selectedCount === 0 ||
-                                selectedCount > MAX_CLIENTS_PER_SEND ||
-                                sending
-                            }
-                            className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                        >
-                            {sending ? (
-                                <LoaderCircle size={17} className="animate-spin" />
-                            ) : (
-                                <Send size={17} />
-                            )}
-                            {sending ? "Enviando..." : "Enviar"}
-                        </button>
-                    </TableHeaderPreset>
+                                <AdvancedFilterButton
+                                    label="Filtros"
+                                    widthClassName="w-[120px]"
+                                    dropdownWidthClassName="w-[360px]"
+                                    sections={[
+                                        ...stageFilterSections,
+                                        {
+                                            id: "source",
+                                            title: "Origem",
+                                            values: sourceValues,
+                                            onChange: setSourceValues,
+                                            options: sourceOptions,
+                                        },
+                                        {
+                                            id: "closing-tag",
+                                            title: "Tag de fechamento",
+                                            values: closingTagValues,
+                                            onChange: setClosingTagValues,
+                                            options: closingTagOptions,
+                                        },
+                                        {
+                                            id: "window",
+                                            title: "Janela do WhatsApp",
+                                            values: windowValues,
+                                            onChange: setWindowValues,
+                                            options: [
+                                                {
+                                                    label: "Dentro das últimas 24h",
+                                                    value: "open",
+                                                },
+                                                {
+                                                    label: "Fora da janela de 24h",
+                                                    value: "expired",
+                                                },
+                                            ],
+                                        },
+                                        {
+                                            id: "active-send",
+                                            title: "Mensagem ativa",
+                                            values: activeSendValues,
+                                            onChange: setActiveSendValues,
+                                            options: [
+                                                {
+                                                    label: "Já recebeu mensagem ativa",
+                                                    value: "sent",
+                                                },
+                                                {
+                                                    label: "Nunca recebeu mensagem ativa",
+                                                    value: "never",
+                                                },
+                                            ],
+                                        },
+                                    ]}
+                                />
+
+                                <CalendarButton
+                                    value={lastClientMessageRange}
+                                    onChange={setLastClientMessageRange}
+                                    className="shrink-0"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2 px-6 pt-1 pb-4">
+                            <SelectionSummary
+                                count={selectedCount}
+                                onClear={clearSelection}
+                            />
+
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setConfirmationOpen(true)
+                                }
+                                disabled={
+                                    !selectedTemplate ||
+                                    !templateFieldsComplete ||
+                                    selectedCount === 0 ||
+                                    selectedCount >
+                                        MAX_CLIENTS_PER_SEND ||
+                                    sending
+                                }
+                                className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                            >
+                                {sending ? (
+                                    <LoaderCircle
+                                        size={17}
+                                        className="animate-spin"
+                                    />
+                                ) : (
+                                    <Send size={17} />
+                                )}
+                                {sending ? "Enviando..." : "Enviar"}
+                            </button>
+                        </div>
+                    </div>
 
                     {selectedCount > MAX_CLIENTS_PER_SEND ? (
                         <div className="border-b border-red/15 bg-red-soft px-6 py-3 text-sm font-bold text-red">
-                            O limite é de {MAX_CLIENTS_PER_SEND} clientes por envio.
-                            Refine a seleção ou desmarque alguns clientes.
+                            O limite é de{" "}
+                            {MAX_CLIENTS_PER_SEND} clientes por
+                            envio. Refine a seleção ou desmarque
+                            alguns clientes.
                         </div>
                     ) : null}
 
                     <DataTable
                         columns={columns}
                         rows={pageRows}
-                        getRowKey={(row: ClientRow) => row.client.id}
+                        getRowKey={(row: ClientRow) =>
+                            row.client.id
+                        }
                         emptyMessage="Nenhum cliente encontrado."
                     />
 
@@ -699,11 +899,16 @@ export default function MensagemAtivaPage() {
                             {filteredClients.length === 0
                                 ? "Nenhum resultado"
                                 : `Mostrando ${
-                                      (currentPage - 1) * CLIENTS_PER_PAGE + 1
+                                      (currentPage - 1) *
+                                          CLIENTS_PER_PAGE +
+                                      1
                                   }–${Math.min(
-                                      currentPage * CLIENTS_PER_PAGE,
+                                      currentPage *
+                                          CLIENTS_PER_PAGE,
                                       filteredClients.length,
-                                  )} de ${filteredClients.length}`}
+                                  )} de ${
+                                      filteredClients.length
+                                  }`}
                         </div>
 
                         {totalPages > 1 ? (
@@ -717,9 +922,7 @@ export default function MensagemAtivaPage() {
                 </section>
 
                 <HistoryTable history={data?.history ?? []} />
-                <div className={"pt-16"}>
-
-                </div>
+                <div className="pt-16" />
             </section>
 
             <SendConfirmationModal
@@ -730,7 +933,9 @@ export default function MensagemAtivaPage() {
                 normalCount={openWindowCount}
                 templateCount={templateWindowCount}
                 onClose={() => {
-                    if (!sending) setConfirmationOpen(false);
+                    if (!sending) {
+                        setConfirmationOpen(false);
+                    }
                 }}
                 onConfirm={() => void handleSend()}
             />
@@ -753,7 +958,10 @@ function TemplateCard({
     dynamicFields: DynamicTemplateField[];
     dynamicValues: Record<string, string>;
     onChange: (value: string) => void;
-    onDynamicValueChange: (fieldId: string, value: string) => void;
+    onDynamicValueChange: (
+        fieldId: string,
+        value: string,
+    ) => void;
 }) {
     return (
         <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
@@ -781,7 +989,9 @@ function TemplateCard({
                             value: template.id,
                         }))}
                         placeholder="Selecionar template"
-                        icon={<MessageSquareText size={17} />}
+                        icon={
+                            <MessageSquareText size={17} />
+                        }
                         widthClassName="w-full"
                         dropdownWidthClassName="w-full"
                     />
@@ -789,17 +999,24 @@ function TemplateCard({
                     {dynamicFields.length > 0 ? (
                         <div className="space-y-3">
                             {dynamicFields.map((field) => (
-                                <label key={field.field_id} className="block">
+                                <label
+                                    key={field.field_id}
+                                    className="block"
+                                >
                                     <span className="mb-1.5 block text-xs font-bold text-slate-600">
                                         {field.label}
                                         {field.required ? (
-                                            <span className="ml-1 text-red">*</span>
+                                            <span className="ml-1 text-red">
+                                                *
+                                            </span>
                                         ) : null}
                                     </span>
                                     <input
                                         type="text"
                                         value={
-                                            dynamicValues[field.field_id] ??
+                                            dynamicValues[
+                                                field.field_id
+                                            ] ??
                                             field.default_value ??
                                             ""
                                         }
@@ -809,7 +1026,9 @@ function TemplateCard({
                                                 event.target.value,
                                             )
                                         }
-                                        placeholder={field.placeholder}
+                                        placeholder={
+                                            field.placeholder
+                                        }
                                         maxLength={500}
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
                                     />
@@ -822,17 +1041,27 @@ function TemplateCard({
 
             {selectedTemplate ? (
                 <div className="min-w-0 self-stretch whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50 px-5 py-5 text-sm leading-7 text-slate-700">
-                    {renderTemplatePreview(selectedTemplate, dynamicValues)}
+                    {renderTemplatePreview(
+                        selectedTemplate,
+                        dynamicValues,
+                    )}
                 </div>
             ) : null}
         </section>
     );
 }
 
-function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
+function HistoryTable({
+    history,
+}: {
+    history: ActiveMessageSendHistory[];
+}) {
     const [currentPage, setCurrentPage] = useState(1);
 
-    const totalPages = Math.max(1, Math.ceil(history.length / HISTORY_PER_PAGE));
+    const totalPages = Math.max(
+        1,
+        Math.ceil(history.length / HISTORY_PER_PAGE),
+    );
 
     useEffect(() => {
         if (currentPage > totalPages) {
@@ -850,21 +1079,29 @@ function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
     }, [currentPage, history]);
 
     const pageStart =
-        history.length === 0 ? 0 : (currentPage - 1) * HISTORY_PER_PAGE + 1;
-    const pageEnd = Math.min(currentPage * HISTORY_PER_PAGE, history.length);
+        history.length === 0
+            ? 0
+            : (currentPage - 1) * HISTORY_PER_PAGE + 1;
+    const pageEnd = Math.min(
+        currentPage * HISTORY_PER_PAGE,
+        history.length,
+    );
 
-    const columns = useMemo<DataTableColumn<ActiveMessageSendHistory>[]>(
+    const columns = useMemo<
+        DataTableColumn<ActiveMessageSendHistory>[]
+    >(
         () => [
             {
                 id: "created_at",
                 label: "Enviado em",
-                width: "18%",
-                render: (item) => formatDateTime(item.created_at),
+                width: "15%",
+                render: (item) =>
+                    formatDateTime(item.created_at),
             },
             {
                 id: "template",
                 label: "Template",
-                width: "24%",
+                width: "20%",
                 render: (item) => (
                     <div className="min-w-0">
                         <div className="truncate font-medium text-slate-700">
@@ -879,37 +1116,70 @@ function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
             {
                 id: "clients",
                 label: "Clientes",
-                width: "12%",
+                width: "9%",
                 align: "center",
                 render: (item) => item.requested_count,
             },
             {
                 id: "routing",
                 label: "Roteamento",
-                width: "20%",
+                width: "15%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
-                        <div>{item.normal_message_count} normais</div>
-                        <div className="mt-1">{item.template_message_count} templates</div>
+                        <div>
+                            {item.normal_message_count} normais
+                        </div>
+                        <div className="mt-1">
+                            {item.template_message_count} templates
+                        </div>
                     </div>
                 ),
             },
             {
                 id: "result",
                 label: "Resultado",
-                width: "14%",
+                width: "13%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
                         <div>{item.sent_count} enviados</div>
-                        <div className="mt-1">{item.failed_count} falhas</div>
+                        <div className="mt-1">
+                            {item.failed_count} falhas
+                        </div>
+                    </div>
+                ),
+            },
+            {
+                id: "metrics",
+                label: (
+                    <span className="inline-flex items-center gap-1.5">
+                        Métricas
+                        <InfoTooltip text="Agendamentos: registros do Clinisys criados para clientes que receberam o envio, na data do disparo ou depois. Respostas: clientes que enviaram ao menos uma mensagem nas 24 horas após o disparo.">
+                            <Info
+                                size={14}
+                                className="text-slate-400"
+                            />
+                        </InfoTooltip>
+                    </span>
+                ),
+                width: "18%",
+                render: (item) => (
+                    <div className="text-xs text-slate-600">
+                        <div>
+                            {item.schedule_count} agendamentos
+                        </div>
+                        <div className="mt-1">
+                            {item.response_count} respostas em 24h
+                        </div>
                     </div>
                 ),
             },
             {
                 id: "status",
                 label: "Status",
-                width: "12%",
-                render: (item) => <HistoryStatus status={item.status} />,
+                width: "10%",
+                render: (item) => (
+                    <HistoryStatus status={item.status} />
+                ),
             },
         ],
         [],
@@ -922,7 +1192,9 @@ function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
                     <Clock3 size={19} />
                 </div>
                 <div>
-                    <h2 className="font-bold text-slate-950">Histórico de envios</h2>
+                    <h2 className="font-bold text-slate-950">
+                        Histórico de envios
+                    </h2>
                     <p className="mt-1 text-sm text-slate-500">
                         Últimos disparos realizados pela equipe.
                     </p>
@@ -932,7 +1204,9 @@ function HistoryTable({ history }: { history: ActiveMessageSendHistory[] }) {
             <DataTable
                 columns={columns}
                 rows={pageHistory}
-                getRowKey={(item: ActiveMessageSendHistory) => item.id}
+                getRowKey={(
+                    item: ActiveMessageSendHistory,
+                ) => item.id}
                 emptyMessage="Nenhuma mensagem ativa foi enviada ainda."
             />
 
@@ -997,13 +1271,19 @@ function SendConfirmationModal({
                     Confirmar envio
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                    Você enviará <strong>{template?.name ?? "o template"}</strong>{" "}
-                    para {selectedCount} cliente{selectedCount === 1 ? "" : "s"}.
+                    Você enviará{" "}
+                    <strong>
+                        {template?.name ?? "o template"}
+                    </strong>{" "}
+                    para {selectedCount} cliente
+                    {selectedCount === 1 ? "" : "s"}.
                 </p>
 
                 <div className="mt-5 grid grid-cols-2 gap-3">
                     <div className="rounded-xl border border-green/15 bg-green-soft p-4">
-                        <div className="text-2xl font-bold text-green">{normalCount}</div>
+                        <div className="text-2xl font-bold text-green">
+                            {normalCount}
+                        </div>
                         <div className="mt-1 text-xs font-semibold text-green">
                             Mensagem normal
                         </div>
@@ -1019,8 +1299,8 @@ function SendConfirmationModal({
                 </div>
 
                 <p className="mt-4 text-xs leading-relaxed text-slate-400">
-                    O sistema recalcula a janela de 24 horas para cada cliente no
-                    momento do envio.
+                    O sistema recalcula a janela de 24 horas para
+                    cada cliente no momento do envio.
                 </p>
 
                 <div className="mt-7 flex justify-end gap-3">
@@ -1039,11 +1319,16 @@ function SendConfirmationModal({
                         className="flex h-11 min-w-[150px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                         {sending ? (
-                            <LoaderCircle size={17} className="animate-spin" />
+                            <LoaderCircle
+                                size={17}
+                                className="animate-spin"
+                            />
                         ) : (
                             <Send size={17} />
                         )}
-                        {sending ? "Enviando..." : "Confirmar envio"}
+                        {sending
+                            ? "Enviando..."
+                            : "Confirmar envio"}
                     </button>
                 </div>
             </div>
@@ -1074,11 +1359,15 @@ function SelectionCheckbox({
                 disabled
                     ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-300"
                     : checked || indeterminate
-                        ? "cursor-pointer border-brand bg-brand text-white"
-                        : "cursor-pointer border-slate-300 bg-white text-transparent hover:border-brand"
+                      ? "cursor-pointer border-brand bg-brand text-white"
+                      : "cursor-pointer border-slate-300 bg-white text-transparent hover:border-brand"
             }`}
         >
-            {indeterminate ? <Minus size={13} /> : <Check size={13} />}
+            {indeterminate ? (
+                <Minus size={13} />
+            ) : (
+                <Check size={13} />
+            )}
         </button>
     );
 }
@@ -1091,7 +1380,11 @@ function SelectionSummary({
     onClear: () => void;
 }) {
     return (
-        <div className={`inline-flex h-10 items-center gap-2 rounded-xl bg-brand-soft text-sm font-bold  text-brand ${count > 0 ? "pl-3 pr-1" : "px-3"}`}>
+        <div
+            className={`inline-flex h-10 items-center gap-2 rounded-xl bg-brand-soft text-sm font-bold text-brand ${
+                count > 0 ? "pl-3 pr-1" : "px-3"
+            }`}
+        >
             <Users size={16} />
             <span>
                 {count} selecionado{count === 1 ? "" : "s"}
@@ -1103,7 +1396,7 @@ function SelectionSummary({
                     title="Desmarcar tudo"
                     aria-label="Desmarcar todos os clientes"
                     onClick={onClear}
-                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-brand transition hover:text-red-700 duration-200"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-brand transition duration-200 hover:text-red-700"
                 >
                     <X size={15} />
                 </button>
@@ -1112,12 +1405,18 @@ function SelectionSummary({
     );
 }
 
-function WindowStatus({ timestamp }: { timestamp: string | null }) {
+function WindowStatus({
+    timestamp,
+}: {
+    timestamp: string | null;
+}) {
     const open = isWindowOpen(timestamp);
 
     return (
         <div className="min-w-0">
-            <div className="truncate text-slate-700">{formatDateTime(timestamp)}</div>
+            <div className="truncate text-slate-700">
+                {formatDateTime(timestamp)}
+            </div>
             <div
                 className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold ${
                     open ? "text-green" : "text-orange"
@@ -1145,6 +1444,7 @@ function HistoryStatus({
         partial: "bg-orange-soft text-orange",
         failed: "bg-red-soft text-red",
     }[status];
+
     const label = {
         processing: "Enviando",
         completed: "Concluído",
@@ -1153,13 +1453,19 @@ function HistoryStatus({
     }[status];
 
     return (
-        <span className={`inline-flex rounded-xl px-2.5 py-1 text-xs font-bold ${styles}`}>
+        <span
+            className={`inline-flex rounded-xl px-2.5 py-1 text-xs font-bold ${styles}`}
+        >
             {label}
         </span>
     );
 }
 
-function FeedbackBanner({ feedback }: { feedback: SendFeedback }) {
+function FeedbackBanner({
+    feedback,
+}: {
+    feedback: SendFeedback;
+}) {
     const classes = {
         success: "border-green/20 bg-green-soft text-green",
         warning: "border-orange/20 bg-orange-soft text-orange",
@@ -1167,9 +1473,13 @@ function FeedbackBanner({ feedback }: { feedback: SendFeedback }) {
     }[feedback.tone];
 
     return (
-        <div className={`mb-6 rounded-2xl border px-5 py-4 ${classes}`}>
+        <div
+            className={`mb-6 rounded-2xl border px-5 py-4 ${classes}`}
+        >
             <div className="font-bold">{feedback.title}</div>
-            <div className="mt-1 text-sm leading-relaxed">{feedback.description}</div>
+            <div className="mt-1 text-sm leading-relaxed">
+                {feedback.description}
+            </div>
         </div>
     );
 }
@@ -1189,19 +1499,12 @@ function MensagemAtivaSkeleton() {
     );
 }
 
-type DynamicTemplateField = {
-    key: string;
-    field_id: string;
-    label: string;
-    placeholder?: string;
-    default_value?: string;
-    required?: boolean;
-};
-
 function getTemplateDynamicFields(
     template: ActiveMessageTemplate | null,
 ): DynamicTemplateField[] {
-    if (!template) return [];
+    if (!template) {
+        return [];
+    }
 
     return template.parameters.flatMap((parameter) =>
         parameter.source.type === "dynamic"
@@ -1220,9 +1523,14 @@ function renderTemplatePreview(
     dynamicValues: Record<string, string>,
 ) {
     const parameterByKey = new Map(
-        template.parameters.map((parameter) => [parameter.key, parameter]),
+        template.parameters.map((parameter) => [
+            parameter.key,
+            parameter,
+        ]),
     );
-    const segments = template.preview.split(/(\{\{[^{}]+\}\})/g);
+    const segments = template.preview.split(
+        /(\{\{[^{}]+\}\})/g,
+    );
 
     return segments.map((segment, index) => {
         const match = segment.match(/^\{\{([^{}]+)\}\}$/);
@@ -1249,7 +1557,9 @@ function renderTemplatePreview(
                 <TemplateParameterBadge
                     key={`${key}-${index}`}
                     tone="database"
-                    value={getDatabaseParameterLabel(parameter.source.field)}
+                    value={getDatabaseParameterLabel(
+                        parameter.source.field,
+                    )}
                 />
             );
         }
@@ -1265,7 +1575,9 @@ function renderTemplatePreview(
         }
 
         const dynamicValue =
-            dynamicValues[parameter.source.field_id]?.trim() ||
+            dynamicValues[
+                parameter.source.field_id
+            ]?.trim() ||
             parameter.source.default_value?.trim() ||
             parameter.source.label;
 
@@ -1307,10 +1619,46 @@ function getDatabaseParameterLabel(field: string) {
     return String(field);
 }
 
+function isTimestampInsideDateRange(
+    timestamp: string | null,
+    range: DateRange,
+) {
+    if (!range.start) {
+        return true;
+    }
+
+    if (!timestamp) {
+        return false;
+    }
+
+    const date = new Date(timestamp);
+
+    if (!Number.isFinite(date.getTime())) {
+        return false;
+    }
+
+    const dateKey = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(date);
+    const end = range.end ?? range.start;
+
+    return dateKey >= range.start && dateKey <= end;
+}
+
 function isWindowOpen(timestamp: string | null) {
-    if (!timestamp) return false;
+    if (!timestamp) {
+        return false;
+    }
+
     const time = new Date(timestamp).getTime();
-    if (!Number.isFinite(time)) return false;
+
+    if (!Number.isFinite(time)) {
+        return false;
+    }
+
     const age = Date.now() - time;
     return age >= 0 && age <= WHATSAPP_WINDOW_MS;
 }
@@ -1320,23 +1668,42 @@ function normalizePhone(value: string | null | undefined) {
 }
 
 function formatPhone(value: string | null) {
-    if (!value) return "—";
+    if (!value) {
+        return "—";
+    }
+
     const digits = value.replace(/\D/g, "");
-    const local = digits.startsWith("55") ? digits.slice(2) : digits;
+    const local = digits.startsWith("55")
+        ? digits.slice(2)
+        : digits;
 
     if (local.length === 11) {
-        return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+        return `(${local.slice(0, 2)}) ${local.slice(
+            2,
+            7,
+        )}-${local.slice(7)}`;
     }
+
     if (local.length === 10) {
-        return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+        return `(${local.slice(0, 2)}) ${local.slice(
+            2,
+            6,
+        )}-${local.slice(6)}`;
     }
+
     return value;
 }
 
 function formatDateTime(value: string | null) {
-    if (!value) return "—";
+    if (!value) {
+        return "—";
+    }
+
     const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return "—";
+
+    if (!Number.isFinite(date.getTime())) {
+        return "—";
+    }
 
     return new Intl.DateTimeFormat("pt-BR", {
         dateStyle: "short",
