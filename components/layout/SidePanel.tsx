@@ -395,7 +395,7 @@ function PersistentSidePanel({
                         >
                             <img
                                 src="/logo.png"
-                                className={`block max-h-9 w-[190px] shrink-0 object-contain transition-opacity duration-150 ${
+                                className={`block max-h-9 w-full shrink-0 object-contain transition-opacity duration-150 ${
                                     isExpanded ? "opacity-100" : "opacity-0"
                                 }`}
                                 alt="Engravida"

@@ -128,6 +128,11 @@ const BADGE_DEFINITIONS: readonly BadgeDefinition[] = [
         useValueAsLabel: true,
         className: "bg-slate-100 text-slate-500",
     },
+    {
+        values: ["—"],
+        useValueAsLabel: true,
+        className: "bg-transparent text-slate-500",
+    }
 ];
 
 export function Badge({
@@ -175,7 +180,7 @@ function getBadgeConfig(
     if (!normalizedValue) {
         return {
             label: explicitLabel ?? "—",
-            className: "bg-slate-100 text-slate-500",
+            className: "bg-transparent text-slate-500",
             none: true,
         };
     }
