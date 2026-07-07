@@ -12,7 +12,8 @@
     "analysis:save": "node --env-file=.env.local --import tsx scripts/test-save-analysis.ts",
     "analysis:ads": "node --env-file=.env.local --import tsx scripts/test-derive-ad-events.ts",
     "messages": "node --env-file=.env.local scripts/add-messages.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "merge": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.3.1",

@@ -119,11 +119,13 @@ export async function analyzeConversationsByIds(
         ).length,
         skipped_missing_attendant_name: senderPreparation.filter(
             (item) =>
-                !item.ok && item.reason === "missing_attendant_name",
+                "reason" in item &&
+                item.reason === "missing_attendant_name",
         ).length,
         missing_conversations: senderPreparation.filter(
             (item) =>
-                !item.ok && item.reason === "conversation_not_found",
+                "reason" in item &&
+                item.reason === "conversation_not_found",
         ).length,
     });
 
