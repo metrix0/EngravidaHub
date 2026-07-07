@@ -373,7 +373,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "zxc-71",
         command: "/zxc",
-        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:",
+        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:\n👉 Laqueadura;\n👉 Síndrome dos ovários policísticos (SOP);\n👉 Endometriose/adenomiose;\n👉 Miomas/cistos;\n👉 Menopausa/menopausa precoce\n👉 Congelamento de óvulos, sêmen e embriões;\n👉 Ovodoação/Embriodoação;\n👉 Fatores masculinos;\n👉 Casais homoafetivos;\n👉 Produção independente (Homem ou Mulher).",
     },
     {
         id: "sdf-72",
@@ -443,7 +443,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "fivasec-85",
         command: "/Fivasec",
-        text: "O valor da FIV é de R$ 12.000,00.\nNesse valor estão incluídas as consultas de controle de ovulação, a coleta de óvulos com anestesia, a fertilização do óvulo com o sêmen para formação dos embriões e o congelamento dos embriões.\nAs medicações são cobradas separadamente por dia de uso, no valor de R$ 360,00 por dia (dose de 225ui). Em média, são utilizados cerca de 10 dias.\nO valor da punção para a coleta dos espermatozoides é de R$ 4.300,00.\nQuando ocorre, a transferência do embrião tem o valor de R$ 3.000,00.\nSomando todas as etapas, o tratamento fica em torno de R$ 23.000,00.\nOs valores informados são para pagamento à vista, podendo ser parcelados em até 12x, com juros de 2% ao mês.\nNo boleto ou PIX, é possível parcelar em até 12x sem juros, porém o tratamento é iniciado após o pagamento de algumas parcelas, normalmente a partir da oitava. Também é possível dar uma entrada ou pagar parte no cartão para iniciar antes. Nossa equipe de orçamento busca sempre se ajustar à necessidade.\nCONGELAMENTO DE ÓVULOS",
+        text: "O valor da FIV é de R$ 12.000,00.\nNesse valor estão incluídas as consultas de controle de ovulação, a coleta de óvulos com anestesia, a fertilização do óvulo com o sêmen para formação dos embriões e o congelamento dos embriões.\nAs medicações são cobradas separadamente por dia de uso, no valor de R$ 360,00 por dia (dose de 225ui). Em média, são utilizados cerca de 10 dias.\nO valor da punção para a coleta dos espermatozoides é de R$ 4.300,00.\nQuando ocorre, a transferência do embrião tem o valor de R$ 3.000,00.\nSomando todas as etapas, o tratamento fica em torno de R$ 23.000,00.\nOs valores informados são para pagamento à vista, podendo ser parcelados em até 12x, com juros de 2% ao mês.\nNo boleto ou PIX, é possível parcelar em até 12x sem juros, porém o tratamento é iniciado após o pagamento de algumas parcelas, normalmente a partir da oitava. Também é possível dar uma entrada ou pagar parte no cartão para iniciar antes. Nossa equipe de orçamento busca sempre se ajustar à necessidade.",
     },
     {
         id: "congg-86",
