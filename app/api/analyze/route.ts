@@ -4,7 +4,12 @@ import { NextResponse } from "next/server";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 import { processPendingConversationsToAnalysisAndAdEvents } from "@/lib/conversations/processPendingConversationsToAnalysisAndAdEvents";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
-import { matchConversationsSheetAttribution } from "@/lib/conversations/matchConversationsSheetAttribution";
+import {
+    matchConversationsSheetAttribution,
+    runClosingTagBackfillOnce,
+} from "@/lib/conversations/matchConversationsSheetAttribution";
+
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
     try {
@@ -17,6 +22,23 @@ export async function GET(request: Request) {
             inactivity_hours: inactivityHours,
             limit,
         });
+
+        let closingTagBackfill = null;
+
+        try {
+            closingTagBackfill = await runClosingTagBackfillOnce({
+                rowLimit: 10_000,
+            });
+            console.log(
+                "[/api/analyze] one-time closing tag backfill",
+                closingTagBackfill,
+            );
+        } catch (error) {
+            console.error(
+                "[/api/analyze] one-time closing tag backfill failed; normal analysis will continue",
+                error,
+            );
+        }
 
         console.log("[/api/analyze] converting pending messages into conversations");
 
@@ -67,13 +89,14 @@ export async function GET(request: Request) {
             succeeded: results.filter((item) => item.ok).length,
             failed: results.filter((item) => !item.ok).length,
             skipped_missing_sender_name:
-            senderNameMatch.skipped_conversation_ids.length,
+                senderNameMatch.skipped_conversation_ids.length,
             sheet_attribution_updated:
-            sheetAttributionMatch.updated_conversations,
+                sheetAttributionMatch.updated_conversations,
         });
 
         return NextResponse.json({
             ok: true,
+            closing_tag_backfill: closingTagBackfill,
             sender_name_match: senderNameMatch,
             sheet_attribution_match: sheetAttributionMatch,
             results,
@@ -89,7 +112,7 @@ export async function GET(request: Request) {
                         ? error.message
                         : "Failed to process analyze pipeline",
             },
-            { status: 500 }
+            { status: 500 },
         );
     }
 }

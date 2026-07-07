@@ -8,29 +8,13 @@ type MatchInput = {
     conversationIds?: string[];
 };
 
-type SheetRow = Record<string, string>;
-
-type SheetCandidate = {
-    row: SheetRow;
-    phone: string;
-    date: Date;
-    tunnel: string | null;
-    origin: string | null;
-};
-
-type ClosingTagCandidate = {
-    phone: string;
-    date: Date;
-    closingTag: string | null;
-};
-
 type ConversationToMatch = {
     id: string;
+    client_id: string;
     started_at: string | null;
     ended_at: string | null;
     tunnel: string | null;
     origin: string | null;
-    conversations?: never;
     clients:
         | {
               phone: string | null;
@@ -41,11 +25,44 @@ type ConversationToMatch = {
         | null;
 };
 
-type ClientClosingTagRow = {
-    id: string;
-    phone: string | null;
-    last_closing_tag: string | null;
-    last_closing_tag_at: string | null;
+type SheetColumns = {
+    phone: number;
+    date: number;
+    closingTag: number;
+    tunnel: number | null;
+    origin: number | null;
+    firstRequired: number;
+    lastRequired: number;
+};
+
+type SheetIndex = {
+    columns: SheetColumns;
+    phoneRows: string[][];
+};
+
+type SheetCandidate = {
+    rowNumber: number;
+    phone: string;
+    date: Date;
+    tunnel: string | null;
+    origin: string | null;
+    closingTag: string | null;
+};
+
+type ClientTarget = {
+    clientId: string;
+    phone: string;
+};
+
+type GoogleValuesResponse = {
+    values?: string[][];
+};
+
+type GoogleBatchValuesResponse = {
+    valueRanges?: Array<{
+        range?: string;
+        values?: string[][];
+    }>;
 };
 
 const SPREADSHEET_ID =
@@ -55,44 +72,243 @@ const SHEET_NAME = process.env.SHEET_NAME ?? "Página1";
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
+const HEADER_ROW_NUMBER = 2;
+const DATA_START_ROW_NUMBER = 3;
+const MAX_ROWS_PER_PHONE = 250;
+const MAX_MATCHED_ROWS_PER_RUN = 5000;
+const BATCH_GET_RANGES_PER_REQUEST = 100;
+const SHEET_INDEX_CACHE_MS = 30_000;
+const CLOSING_TAG_BACKFILL_KEY = "closing_tags_recent_10000_v1";
+const BACKFILL_RUNNING_STALE_MS = 30 * 60 * 1000;
+
+let sheetIndexCache:
+    | {
+          expiresAt: number;
+          value: SheetIndex;
+      }
+    | null = null;
+let sheetIndexPromise: Promise<SheetIndex> | null = null;
+
+
+export async function runClosingTagBackfillOnce({
+    rowLimit = 10_000,
+}: {
+    rowLimit?: number;
+} = {}) {
+    validateEnv();
+
+    const normalizedLimit = Math.max(1, Math.min(50_000, Math.floor(rowLimit)));
+    const { data: existingState, error: stateError } = await supabase
+        .from("integration_sync_state")
+        .select("key, status, started_at, completed_at, details, updated_at")
+        .eq("key", CLOSING_TAG_BACKFILL_KEY)
+        .maybeSingle();
+
+    if (stateError) {
+        throw new Error(
+            `Failed to read closing tag backfill state: ${stateError.message}`,
+        );
+    }
+
+    if (existingState?.status === "completed") {
+        return {
+            status: "completed" as const,
+            skipped: true,
+            reason: "already_completed" as const,
+            details: existingState.details ?? {},
+        };
+    }
+
+    const startedAt = existingState?.started_at
+        ? new Date(existingState.started_at).getTime()
+        : 0;
+    const runningIsFresh =
+        existingState?.status === "running" &&
+        Number.isFinite(startedAt) &&
+        Date.now() - startedAt < BACKFILL_RUNNING_STALE_MS;
+
+    if (runningIsFresh) {
+        return {
+            status: "running" as const,
+            skipped: true,
+            reason: "already_running" as const,
+            details: existingState.details ?? {},
+        };
+    }
+
+    const now = new Date().toISOString();
+    let claimed = false;
+
+    if (!existingState) {
+        const { error: insertError } = await supabase
+            .from("integration_sync_state")
+            .insert({
+                key: CLOSING_TAG_BACKFILL_KEY,
+                status: "running",
+                started_at: now,
+                completed_at: null,
+                details: {
+                    row_limit: normalizedLimit,
+                },
+                updated_at: now,
+            });
+
+        if (!insertError) {
+            claimed = true;
+        } else if (insertError.code !== "23505") {
+            throw new Error(
+                `Failed to claim closing tag backfill: ${insertError.message}`,
+            );
+        }
+    } else {
+        const { data: claimedRows, error: updateError } = await supabase
+            .from("integration_sync_state")
+            .update({
+                status: "running",
+                started_at: now,
+                completed_at: null,
+                details: {
+                    row_limit: normalizedLimit,
+                },
+                updated_at: now,
+            })
+            .eq("key", CLOSING_TAG_BACKFILL_KEY)
+            .eq("updated_at", existingState.updated_at)
+            .select("key");
+
+        if (updateError) {
+            throw new Error(
+                `Failed to claim closing tag backfill: ${updateError.message}`,
+            );
+        }
+
+        claimed = (claimedRows ?? []).length === 1;
+    }
+
+    if (!claimed) {
+        return {
+            status: "running" as const,
+            skipped: true,
+            reason: "claimed_by_another_process" as const,
+            details: existingState?.details ?? {},
+        };
+    }
+
+    try {
+        const result = await backfillClientClosingTagsFromRecentRows(
+            normalizedLimit,
+        );
+        const completedAt = new Date().toISOString();
+        const { error: completeError } = await supabase
+            .from("integration_sync_state")
+            .update({
+                status: "completed",
+                completed_at: completedAt,
+                details: result,
+                updated_at: completedAt,
+            })
+            .eq("key", CLOSING_TAG_BACKFILL_KEY);
+
+        if (completeError) {
+            throw new Error(
+                `Failed to complete closing tag backfill state: ${completeError.message}`,
+            );
+        }
+
+        return {
+            status: "completed" as const,
+            skipped: false,
+            details: result,
+        };
+    } catch (error) {
+        const failedAt = new Date().toISOString();
+
+        await supabase
+            .from("integration_sync_state")
+            .update({
+                status: "failed",
+                details: {
+                    row_limit: normalizedLimit,
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Unknown closing tag backfill error",
+                },
+                updated_at: failedAt,
+            })
+            .eq("key", CLOSING_TAG_BACKFILL_KEY);
+
+        throw error;
+    }
+}
+
 export async function matchConversationsSheetAttribution({
     limit = 1000,
     conversationIds,
 }: MatchInput) {
     validateEnv();
 
+    const uniqueConversationIds = conversationIds
+        ? Array.from(new Set(conversationIds.filter(Boolean))).slice(0, limit)
+        : undefined;
+
     console.log("[matchConversationsSheetAttribution] started", {
         limit,
-        conversation_ids_count: conversationIds?.length ?? null,
+        conversation_ids_count: uniqueConversationIds?.length ?? null,
     });
 
-    const rows = await getSheetRows();
-    const closingTagSync = await syncClientClosingTags(rows);
+    if (uniqueConversationIds && uniqueConversationIds.length === 0) {
+        return emptyResult();
+    }
 
-    if (conversationIds && conversationIds.length === 0) {
+    const conversations = await getConversationsToMatch({
+        limit,
+        conversationIds: uniqueConversationIds,
+    });
+
+    if (conversations.length === 0) {
+        const result = emptyResult();
+
+        console.log("[matchConversationsSheetAttribution] finished", result);
+        return result;
+    }
+
+    const clientTargets = getClientTargets(conversations);
+
+    if (clientTargets.length === 0) {
         const result = {
-            updated_conversations: 0,
-            skipped_without_phone: 0,
-            skipped_without_dates: 0,
-            skipped_without_match: 0,
-            checked_conversations: 0,
-            ...closingTagSync,
+            ...emptyResult(),
+            skipped_without_phone: conversations.length,
+            checked_conversations: conversations.length,
         };
 
         console.log("[matchConversationsSheetAttribution] finished", result);
         return result;
     }
 
-    const conversations = await getConversationsToMatch({
-        limit,
-        conversationIds,
+    const accessToken = await getGoogleAccessToken();
+    const sheetIndex = await getSheetIndex(accessToken);
+    const matchedRows = findMatchedSheetRows({
+        phoneRows: sheetIndex.phoneRows,
+        targetPhones: clientTargets.map((target) => target.phone),
     });
-    const candidates = buildSheetCandidates(rows);
+    const candidates = await getSheetCandidates({
+        accessToken,
+        columns: sheetIndex.columns,
+        rowNumbers: matchedRows.rowNumbers,
+    });
 
-    console.log("[matchConversationsSheetAttribution] loaded data", {
-        sheet_rows: rows.length,
-        sheet_candidates: candidates.length,
+    console.log("[matchConversationsSheetAttribution] loaded targeted data", {
         conversations: conversations.length,
+        clients: clientTargets.length,
+        phone_column_rows: sheetIndex.phoneRows.length,
+        matched_sheet_rows: candidates.length,
+        matched_rows_truncated: matchedRows.truncated,
+    });
+
+    const closingTagSync = await syncClientClosingTags({
+        targets: clientTargets,
+        candidates,
     });
 
     let updatedConversations = 0;
@@ -101,10 +317,7 @@ export async function matchConversationsSheetAttribution({
     let skippedWithoutMatch = 0;
 
     for (const conversation of conversations) {
-        const client = Array.isArray(conversation.clients)
-            ? conversation.clients[0]
-            : conversation.clients;
-
+        const client = normalizeNested(conversation.clients);
         const phone = normalizePhone(client?.phone ?? null);
 
         if (!phone) {
@@ -163,24 +376,6 @@ export async function matchConversationsSheetAttribution({
         }
 
         updatedConversations++;
-
-        console.log(
-            "[matchConversationsSheetAttribution] matched conversation",
-            {
-                conversation_id: conversation.id,
-                phone,
-                started_at: conversation.started_at,
-                ended_at: conversation.ended_at,
-                tunnel: updatePayload.tunnel ?? null,
-                origin: updatePayload.origin ?? null,
-                sheet_date: match.date.toISOString(),
-                score_ms: getDateDistanceScore({
-                    candidateDate: match.date,
-                    startedAt,
-                    endedAt,
-                }),
-            },
-        );
     }
 
     const result = {
@@ -189,12 +384,32 @@ export async function matchConversationsSheetAttribution({
         skipped_without_dates: skippedWithoutDates,
         skipped_without_match: skippedWithoutMatch,
         checked_conversations: conversations.length,
+        sheet_phone_rows_read: sheetIndex.phoneRows.length,
+        sheet_matched_rows_read: candidates.length,
+        sheet_matched_rows_truncated: matchedRows.truncated,
         ...closingTagSync,
     };
 
     console.log("[matchConversationsSheetAttribution] finished", result);
 
     return result;
+}
+
+function emptyResult() {
+    return {
+        updated_conversations: 0,
+        skipped_without_phone: 0,
+        skipped_without_dates: 0,
+        skipped_without_match: 0,
+        checked_conversations: 0,
+        sheet_phone_rows_read: 0,
+        sheet_matched_rows_read: 0,
+        sheet_matched_rows_truncated: false,
+        updated_client_closing_tags: 0,
+        checked_clients_for_closing_tag: 0,
+        closing_tag_sheet_candidates: 0,
+        skipped_clients_without_closing_tag_match: 0,
+    };
 }
 
 async function getConversationsToMatch({
@@ -205,9 +420,8 @@ async function getConversationsToMatch({
     conversationIds?: string[];
 }) {
     const idChunks = conversationIds?.length
-        ? chunk(conversationIds.slice(0, limit), 100)
+        ? chunk(conversationIds, 100)
         : [null];
-
     const result: ConversationToMatch[] = [];
 
     for (const idsChunk of idChunks) {
@@ -216,6 +430,7 @@ async function getConversationsToMatch({
             .select(
                 `
                 id,
+                client_id,
                 started_at,
                 ended_at,
                 tunnel,
@@ -226,12 +441,13 @@ async function getConversationsToMatch({
             `,
             )
             .not("ended_at", "is", null)
-            .or("tunnel.is.null,origin.is.null")
             .order("ended_at", { ascending: true })
             .limit(limit);
 
         if (idsChunk) {
             query = query.in("id", idsChunk);
+        } else {
+            query = query.or("tunnel.is.null,origin.is.null");
         }
 
         const { data, error } = await query;
@@ -248,7 +464,27 @@ async function getConversationsToMatch({
     return result.slice(0, limit);
 }
 
-async function getSheetRows(): Promise<SheetRow[]> {
+function getClientTargets(conversations: ConversationToMatch[]) {
+    const targetByClientId = new Map<string, ClientTarget>();
+
+    for (const conversation of conversations) {
+        const client = normalizeNested(conversation.clients);
+        const phone = normalizePhone(client?.phone ?? null);
+
+        if (!phone || targetByClientId.has(conversation.client_id)) {
+            continue;
+        }
+
+        targetByClientId.set(conversation.client_id, {
+            clientId: conversation.client_id,
+            phone,
+        });
+    }
+
+    return [...targetByClientId.values()];
+}
+
+async function getGoogleAccessToken() {
     const auth = new GoogleAuth({
         credentials: {
             client_email: GOOGLE_CLIENT_EMAIL,
@@ -259,13 +495,73 @@ async function getSheetRows(): Promise<SheetRow[]> {
 
     const client = await auth.getClient();
     const token = await client.getAccessToken();
-    const encodedRange = encodeURIComponent(`${SHEET_NAME}!A:Z`);
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodedRange}`;
+
+    if (!token.token) {
+        throw new Error("Google Sheets access token was not returned.");
+    }
+
+    return token.token;
+}
+
+async function getSheetIndex(accessToken: string): Promise<SheetIndex> {
+    if (sheetIndexCache && sheetIndexCache.expiresAt > Date.now()) {
+        return sheetIndexCache.value;
+    }
+
+    if (sheetIndexPromise) {
+        return sheetIndexPromise;
+    }
+
+    sheetIndexPromise = (async () => {
+        const headerRange = `${quoteSheetName(SHEET_NAME)}!A${HEADER_ROW_NUMBER}:Z${HEADER_ROW_NUMBER}`;
+        const headerResponse = await getGoogleValues({
+            accessToken,
+            range: headerRange,
+        });
+        const headers = headerResponse.values?.[0] ?? [];
+        const columns = resolveSheetColumns(headers);
+        const phoneColumn = columnIndexToA1(columns.phone);
+        const phoneRange = `${quoteSheetName(SHEET_NAME)}!${phoneColumn}${DATA_START_ROW_NUMBER}:${phoneColumn}`;
+        const phoneResponse = await getGoogleValues({
+            accessToken,
+            range: phoneRange,
+        });
+
+        const value: SheetIndex = {
+            columns,
+            phoneRows: phoneResponse.values ?? [],
+        };
+
+        sheetIndexCache = {
+            expiresAt: Date.now() + SHEET_INDEX_CACHE_MS,
+            value,
+        };
+
+        return value;
+    })().finally(() => {
+        sheetIndexPromise = null;
+    });
+
+    return sheetIndexPromise;
+}
+
+async function getGoogleValues({
+    accessToken,
+    range,
+}: {
+    accessToken: string;
+    range: string;
+}) {
+    const encodedRange = encodeURIComponent(range);
+    const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}` +
+        `/values/${encodedRange}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`;
 
     const response = await fetch(url, {
         headers: {
-            Authorization: `Bearer ${token.token}`,
+            Authorization: `Bearer ${accessToken}`,
         },
+        cache: "no-store",
     });
 
     if (!response.ok) {
@@ -274,59 +570,417 @@ async function getSheetRows(): Promise<SheetRow[]> {
         );
     }
 
-    const json = await response.json();
-    const sheetRows = json.values ?? [];
-    const headers = sheetRows[1];
-    const rows = sheetRows.slice(2);
-
-    if (!headers || rows.length === 0) {
-        return [];
-    }
-
-    return rows.map((row: string[]) => ({
-        ...Object.fromEntries(
-            headers.map((header: string, index: number) => [
-                String(header).trim(),
-                row[index] ?? "",
-            ]),
-        ),
-        __column_i: row[8] ?? "",
-    }));
+    return (await response.json()) as GoogleValuesResponse;
 }
 
-async function syncClientClosingTags(rows: SheetRow[]) {
-    const candidates = buildClosingTagCandidates(rows);
-    const latestCandidateByPhone = new Map<string, ClosingTagCandidate>();
+function resolveSheetColumns(headers: string[]): SheetColumns {
+    const phone = findHeaderIndex(headers, ["Telefone", "Phone"]);
+    const date = findHeaderIndex(headers, [
+        "Data Fim",
+        "Data Final",
+        "Data Inicio",
+        "Data Início",
+        "Data",
+        "Criado em",
+        "Created At",
+        "created_at",
+    ]);
+    const closingTagHeader = findHeaderIndex(
+        headers,
+        [
+            "Tag de fechamento",
+            "Tag De Fechamento",
+            "Tag fechamento",
+            "Closing Tag",
+        ],
+        false,
+    );
+    const closingTag =
+        closingTagHeader === null ? 8 : closingTagHeader;
+    const tunnel = findHeaderIndex(
+        headers,
+        ["Tunnel", "Túnel", "Funil", "Funnel"],
+        false,
+    );
+    const origin = findHeaderIndex(
+        headers,
+        ["Origem", "Origin", "Fonte", "Origem do contato"],
+        false,
+    );
+    const requiredIndexes = [
+        phone,
+        date,
+        closingTag,
+        tunnel,
+        origin,
+    ].filter((value): value is number => value !== null);
+
+    return {
+        phone,
+        date,
+        closingTag,
+        tunnel,
+        origin,
+        firstRequired: Math.min(...requiredIndexes),
+        lastRequired: Math.max(...requiredIndexes),
+    };
+}
+
+function findHeaderIndex(
+    headers: string[],
+    candidates: string[],
+): number;
+function findHeaderIndex(
+    headers: string[],
+    candidates: string[],
+    required: false,
+): number | null;
+function findHeaderIndex(
+    headers: string[],
+    candidates: string[],
+    required = true,
+): number | null {
+    const normalizedHeaders = headers.map(normalizeHeader);
+
+    for (const candidate of candidates) {
+        const index = normalizedHeaders.indexOf(normalizeHeader(candidate));
+
+        if (index >= 0) {
+            return index;
+        }
+    }
+
+    if (!required) {
+        return null;
+    }
+
+    throw new Error(
+        `Google Sheets column not found. Expected one of: ${candidates.join(", ")}`,
+    );
+}
+
+function findMatchedSheetRows({
+    phoneRows,
+    targetPhones,
+}: {
+    phoneRows: string[][];
+    targetPhones: string[];
+}) {
+    const targetPhoneByVariant = new Map<string, string>();
+    const rowsByPhone = new Map<string, number[]>();
+
+    for (const phone of targetPhones) {
+        rowsByPhone.set(phone, []);
+
+        for (const variant of getPhoneVariants(phone)) {
+            targetPhoneByVariant.set(variant, phone);
+        }
+    }
+
+    let totalMatchedRows = 0;
+    let truncated = false;
+
+    for (let index = phoneRows.length - 1; index >= 0; index--) {
+        const sheetPhone = normalizePhone(phoneRows[index]?.[0] ?? null);
+
+        if (!sheetPhone) {
+            continue;
+        }
+
+        const targetPhone =
+            targetPhoneByVariant.get(sheetPhone) ??
+            getPhoneVariants(sheetPhone)
+                .map((variant) => targetPhoneByVariant.get(variant))
+                .find(Boolean);
+
+        if (!targetPhone) {
+            continue;
+        }
+
+        const currentRows = rowsByPhone.get(targetPhone)!;
+
+        if (currentRows.length >= MAX_ROWS_PER_PHONE) {
+            truncated = true;
+            continue;
+        }
+
+        if (totalMatchedRows >= MAX_MATCHED_ROWS_PER_RUN) {
+            truncated = true;
+
+            if (currentRows.length > 0) {
+                continue;
+            }
+        }
+
+        currentRows.push(DATA_START_ROW_NUMBER + index);
+        totalMatchedRows++;
+    }
+
+    const rowNumbers = [
+        ...new Set([...rowsByPhone.values()].flat()),
+    ].sort((first, second) => first - second);
+
+    return {
+        rowNumbers,
+        truncated,
+    };
+}
+
+async function getSheetCandidates({
+    accessToken,
+    columns,
+    rowNumbers,
+}: {
+    accessToken: string;
+    columns: SheetColumns;
+    rowNumbers: number[];
+}) {
+    const candidates: SheetCandidate[] = [];
+
+    for (const rowNumberChunk of chunk(
+        rowNumbers,
+        BATCH_GET_RANGES_PER_REQUEST,
+    )) {
+        const ranges = rowNumberChunk.map(
+            (rowNumber) =>
+                `${quoteSheetName(SHEET_NAME)}!` +
+                `${columnIndexToA1(columns.firstRequired)}${rowNumber}:` +
+                `${columnIndexToA1(columns.lastRequired)}${rowNumber}`,
+        );
+        const params = new URLSearchParams({
+            majorDimension: "ROWS",
+            valueRenderOption: "FORMATTED_VALUE",
+        });
+
+        for (const range of ranges) {
+            params.append("ranges", range);
+        }
+
+        const url =
+            `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}` +
+            `/values:batchGet?${params.toString()}`;
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+            },
+            cache: "no-store",
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Google Sheets batch error: ${response.status} - ${await response.text()}`,
+            );
+        }
+
+        const json = (await response.json()) as GoogleBatchValuesResponse;
+        const valueRanges = json.valueRanges ?? [];
+
+        for (let index = 0; index < rowNumberChunk.length; index++) {
+            const rowNumber = rowNumberChunk[index];
+            const values = valueRanges[index]?.values?.[0] ?? [];
+            const readColumn = (columnIndex: number | null) => {
+                if (columnIndex === null) return "";
+                return String(
+                    values[columnIndex - columns.firstRequired] ?? "",
+                );
+            };
+            const phone = normalizePhone(readColumn(columns.phone));
+            const date = parseSheetDate(readColumn(columns.date));
+
+            if (!phone || !date) {
+                continue;
+            }
+
+            candidates.push({
+                rowNumber,
+                phone,
+                date,
+                tunnel: emptyToNull(readColumn(columns.tunnel)),
+                origin: emptyToNull(readColumn(columns.origin)),
+                closingTag: emptyToNull(readColumn(columns.closingTag)),
+            });
+        }
+    }
+
+    return candidates;
+}
+
+async function syncClientClosingTags({
+    targets,
+    candidates,
+}: {
+    targets: ClientTarget[];
+    candidates: SheetCandidate[];
+}) {
+    const latestCandidateByPhone = new Map<string, SheetCandidate>();
 
     for (const candidate of candidates) {
         for (const phoneVariant of getPhoneVariants(candidate.phone)) {
             const current = latestCandidateByPhone.get(phoneVariant);
 
-            if (!current || candidate.date > current.date) {
+            if (
+                !current ||
+                candidate.date > current.date ||
+                (candidate.date.getTime() === current.date.getTime() &&
+                    candidate.rowNumber > current.rowNumber)
+            ) {
+                latestCandidateByPhone.set(phoneVariant, candidate);
+            }
+        }
+    }
+
+    const updates: Array<{
+        client_id: string;
+        closing_tag: string | null;
+        closing_tag_at: string;
+    }> = [];
+    let skippedWithoutMatch = 0;
+
+    for (const target of targets) {
+        const match = getPhoneVariants(target.phone)
+            .map((variant) => latestCandidateByPhone.get(variant))
+            .find(Boolean);
+
+        if (!match) {
+            skippedWithoutMatch++;
+            continue;
+        }
+
+        updates.push({
+            client_id: target.clientId,
+            closing_tag: match.closingTag,
+            closing_tag_at: match.date.toISOString(),
+        });
+    }
+
+    let updatedClients = 0;
+
+    for (const updatesChunk of chunk(updates, 500)) {
+        const { data, error } = await supabase.rpc(
+            "sync_client_last_closing_tags",
+            {
+                p_items: updatesChunk,
+            },
+        );
+
+        if (error) {
+            throw new Error(
+                `Failed to sync client closing tags: ${error.message}`,
+            );
+        }
+
+        const firstResult = Array.isArray(data) ? data[0] : data;
+        updatedClients += Number(firstResult?.updated_clients ?? 0);
+    }
+
+    return {
+        updated_client_closing_tags: updatedClients,
+        checked_clients_for_closing_tag: targets.length,
+        closing_tag_sheet_candidates: candidates.length,
+        skipped_clients_without_closing_tag_match: skippedWithoutMatch,
+    };
+}
+
+
+async function backfillClientClosingTagsFromRecentRows(rowLimit: number) {
+    const accessToken = await getGoogleAccessToken();
+    const sheetIndex = await getSheetIndex(accessToken);
+    const lastDataRow =
+        DATA_START_ROW_NUMBER + sheetIndex.phoneRows.length - 1;
+
+    if (lastDataRow < DATA_START_ROW_NUMBER) {
+        return {
+            row_limit: rowLimit,
+            first_sheet_row: null,
+            last_sheet_row: null,
+            rows_read: 0,
+            candidates: 0,
+            checked_clients: 0,
+            matched_clients: 0,
+            updated_clients: 0,
+        };
+    }
+
+    const firstDataRow = Math.max(
+        DATA_START_ROW_NUMBER,
+        lastDataRow - rowLimit + 1,
+    );
+    const columns = sheetIndex.columns;
+    const range =
+        `${quoteSheetName(SHEET_NAME)}!` +
+        `${columnIndexToA1(columns.firstRequired)}${firstDataRow}:` +
+        `${columnIndexToA1(columns.lastRequired)}${lastDataRow}`;
+    const response = await getGoogleValues({
+        accessToken,
+        range,
+    });
+    const rows = response.values ?? [];
+    const candidates: SheetCandidate[] = [];
+
+    for (let index = 0; index < rows.length; index++) {
+        const values = rows[index] ?? [];
+        const readColumn = (columnIndex: number | null) => {
+            if (columnIndex === null) return "";
+            return String(
+                values[columnIndex - columns.firstRequired] ?? "",
+            );
+        };
+        const phone = normalizePhone(readColumn(columns.phone));
+        const date = parseSheetDate(readColumn(columns.date));
+
+        if (!phone || !date) {
+            continue;
+        }
+
+        candidates.push({
+            rowNumber: firstDataRow + index,
+            phone,
+            date,
+            tunnel: emptyToNull(readColumn(columns.tunnel)),
+            origin: emptyToNull(readColumn(columns.origin)),
+            closingTag: emptyToNull(readColumn(columns.closingTag)),
+        });
+    }
+
+    const latestCandidateByPhone = new Map<string, SheetCandidate>();
+
+    for (const candidate of candidates) {
+        for (const phoneVariant of getPhoneVariants(candidate.phone)) {
+            const current = latestCandidateByPhone.get(phoneVariant);
+
+            if (
+                !current ||
+                candidate.date > current.date ||
+                (candidate.date.getTime() === current.date.getTime() &&
+                    candidate.rowNumber > current.rowNumber)
+            ) {
                 latestCandidateByPhone.set(phoneVariant, candidate);
             }
         }
     }
 
     let checkedClients = 0;
-    let skippedWithoutMatch = 0;
+    let matchedClients = 0;
     let updatedClients = 0;
     const pageSize = 1000;
 
     for (let from = 0; ; from += pageSize) {
         const { data, error } = await supabase
             .from("clients")
-            .select("id, phone, last_closing_tag, last_closing_tag_at")
+            .select("id, phone")
             .order("id", { ascending: true })
             .range(from, from + pageSize - 1);
 
         if (error) {
             throw new Error(
-                `Failed to fetch clients for closing tag sync: ${error.message}`,
+                `Failed to load clients for closing tag backfill: ${error.message}`,
             );
         }
 
-        const clients = (data ?? []) as ClientClosingTagRow[];
+        const clients = (data ?? []) as Array<{
+            id: string;
+            phone: string | null;
+        }>;
         const updates: Array<{
             client_id: string;
             closing_tag: string | null;
@@ -336,48 +990,47 @@ async function syncClientClosingTags(rows: SheetRow[]) {
         for (const client of clients) {
             checkedClients++;
             const phone = normalizePhone(client.phone);
-            const match = phone ? latestCandidateByPhone.get(phone) : null;
+            const match = phone
+                ? getPhoneVariants(phone)
+                      .map((variant) =>
+                          latestCandidateByPhone.get(variant),
+                      )
+                      .find(Boolean)
+                : null;
 
             if (!match) {
-                skippedWithoutMatch++;
                 continue;
             }
 
-            const closingTagAt = match.date.toISOString();
-
-            if (
-                client.last_closing_tag === match.closingTag &&
-                client.last_closing_tag_at === closingTagAt
-            ) {
-                continue;
-            }
-
+            matchedClients++;
             updates.push({
                 client_id: client.id,
                 closing_tag: match.closingTag,
-                closing_tag_at: closingTagAt,
+                closing_tag_at: match.date.toISOString(),
             });
         }
 
         for (const updatesChunk of chunk(updates, 500)) {
-            const { data: syncResult, error: syncError } = await supabase.rpc(
-                "sync_client_last_closing_tags",
-                {
-                    p_items: updatesChunk,
-                },
-            );
+            const { data: syncResult, error: syncError } =
+                await supabase.rpc(
+                    "sync_client_last_closing_tags",
+                    {
+                        p_items: updatesChunk,
+                    },
+                );
 
             if (syncError) {
                 throw new Error(
-                    `Failed to sync client closing tags: ${syncError.message}`,
+                    `Failed to backfill client closing tags: ${syncError.message}`,
                 );
             }
 
             const firstResult = Array.isArray(syncResult)
                 ? syncResult[0]
                 : syncResult;
-
-            updatedClients += Number(firstResult?.updated_clients ?? 0);
+            updatedClients += Number(
+                firstResult?.updated_clients ?? 0,
+            );
         }
 
         if (clients.length < pageSize) {
@@ -385,124 +1038,16 @@ async function syncClientClosingTags(rows: SheetRow[]) {
         }
     }
 
-    const result = {
-        updated_client_closing_tags: updatedClients,
-        checked_clients_for_closing_tag: checkedClients,
-        closing_tag_sheet_candidates: candidates.length,
-        skipped_clients_without_closing_tag_match: skippedWithoutMatch,
+    return {
+        row_limit: rowLimit,
+        first_sheet_row: firstDataRow,
+        last_sheet_row: lastDataRow,
+        rows_read: rows.length,
+        candidates: candidates.length,
+        checked_clients: checkedClients,
+        matched_clients: matchedClients,
+        updated_clients: updatedClients,
     };
-
-    console.log(
-        "[matchConversationsSheetAttribution] client closing tags synced",
-        result,
-    );
-
-    return result;
-}
-
-function buildClosingTagCandidates(rows: SheetRow[]) {
-    const candidates: ClosingTagCandidate[] = [];
-
-    for (const row of rows) {
-        const phone = normalizePhone(
-            getFirstColumnValue(row, ["Telefone", "Phone"]),
-        );
-        const date = parseSheetDate(
-            getFirstColumnValue(row, [
-                "Data Fim",
-                "Data Final",
-                "Data Inicio",
-                "Data Início",
-                "Data",
-                "Criado em",
-                "Created At",
-                "created_at",
-            ]),
-        );
-
-        if (!phone || !date) {
-            continue;
-        }
-
-        candidates.push({
-            phone,
-            date,
-            closingTag: emptyToNull(
-                getFirstColumnValue(row, [
-                    "Tag de fechamento",
-                    "Tag De Fechamento",
-                    "Tag fechamento",
-                    "Closing Tag",
-                    "__column_i",
-                ]),
-            ),
-        });
-    }
-
-    return candidates;
-}
-
-function buildSheetCandidates(rows: SheetRow[]): SheetCandidate[] {
-    const candidates: SheetCandidate[] = [];
-
-    for (const row of rows) {
-        const phone = normalizePhone(
-            getFirstColumnValue(row, ["Telefone", "Phone"]),
-        );
-
-        if (!phone) {
-            continue;
-        }
-
-        const date = parseSheetDate(
-            getFirstColumnValue(row, [
-                "Data Fim",
-                "Data Final",
-                "Data Inicio",
-                "Data Início",
-                "Data",
-                "Criado em",
-                "Created At",
-                "created_at",
-            ]),
-        );
-
-        if (!date) {
-            continue;
-        }
-
-        const tunnel = emptyToNull(
-            getFirstColumnValue(row, [
-                "Tunnel",
-                "Túnel",
-                "Funil",
-                "Funnel",
-            ]),
-        );
-
-        const origin = emptyToNull(
-            getFirstColumnValue(row, [
-                "Origem",
-                "Origin",
-                "Fonte",
-                "Origem do contato",
-            ]),
-        );
-
-        if (!tunnel && !origin) {
-            continue;
-        }
-
-        candidates.push({
-            row,
-            phone,
-            date,
-            tunnel,
-            origin,
-        });
-    }
-
-    return candidates;
 }
 
 function findBestSheetMatch({
@@ -518,10 +1063,14 @@ function findBestSheetMatch({
 }) {
     const windowStart = addDays(startedAt, -1);
     const windowEnd = addDays(endedAt, 1);
-    const phoneVariants = getPhoneVariants(phone);
+    const phoneVariants = new Set(getPhoneVariants(phone));
 
     const possibleMatches = candidates.filter((candidate) => {
-        if (!phoneVariants.includes(candidate.phone)) {
+        if (
+            !getPhoneVariants(candidate.phone).some((variant) =>
+                phoneVariants.has(variant),
+            )
+        ) {
             return false;
         }
 
@@ -544,7 +1093,11 @@ function findBestSheetMatch({
             endedAt,
         });
 
-        return firstScore - secondScore;
+        if (firstScore !== secondScore) {
+            return firstScore - secondScore;
+        }
+
+        return second.rowNumber - first.rowNumber;
     })[0];
 }
 
@@ -569,18 +1122,6 @@ function getDateDistanceScore({
         Math.abs(candidateMs - startMs),
         Math.abs(candidateMs - endMs),
     );
-}
-
-function getFirstColumnValue(row: SheetRow, columns: string[]) {
-    for (const column of columns) {
-        const value = row[column];
-
-        if (value !== undefined && String(value).trim() !== "") {
-            return String(value);
-        }
-    }
-
-    return "";
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -616,7 +1157,32 @@ function getPhoneVariants(phone: string) {
         variants.add(`55${phone}`);
     }
 
-    return Array.from(variants);
+    return [...variants];
+}
+
+function normalizeHeader(value: string) {
+    return String(value)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR");
+}
+
+function quoteSheetName(value: string) {
+    return `'${value.replaceAll("'", "''")}'`;
+}
+
+function columnIndexToA1(index: number) {
+    let value = index + 1;
+    let result = "";
+
+    while (value > 0) {
+        const remainder = (value - 1) % 26;
+        result = String.fromCharCode(65 + remainder) + result;
+        value = Math.floor((value - 1) / 26);
+    }
+
+    return result;
 }
 
 function parseSheetDate(value: string | null | undefined) {
@@ -694,6 +1260,14 @@ function emptyToNull(value: string | null | undefined) {
 
     const trimmed = String(value).trim();
     return trimmed ? trimmed : null;
+}
+
+function normalizeNested<T>(value: T | T[] | null | undefined) {
+    if (Array.isArray(value)) {
+        return value[0] ?? null;
+    }
+
+    return value ?? null;
 }
 
 function chunk<T>(values: T[], size: number) {

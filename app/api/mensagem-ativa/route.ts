@@ -14,6 +14,8 @@ import type {
 
 export const dynamic = "force-dynamic";
 
+const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 type ClientApiRow = {
     id: string;
     name: string | null;
@@ -139,6 +141,8 @@ export async function GET() {
             funnel_name: funnelNameById.get(stage.funnel_id) ?? null,
         }));
 
+        const windowReferenceTime = Date.now();
+
         const clients: ActiveMessageClient[] = (clientsResult.data ?? []).map(
             (client: ClientApiRow) => ({
                 id: client.id,
@@ -151,6 +155,10 @@ export async function GET() {
                 last_closing_tag: client.last_closing_tag ?? null,
                 last_client_message_at:
                     lastClientMessageByClientId.get(client.id) ?? null,
+                whatsapp_window_open: isWhatsAppWindowOpenAt(
+                    lastClientMessageByClientId.get(client.id) ?? null,
+                    windowReferenceTime,
+                ),
                 last_active_message_sent_at:
                     client.last_active_message_sent_at ?? null,
             }),
@@ -228,4 +236,18 @@ async function loadHistoryMetrics(sendIds: string[]) {
 function toCount(value: number | string | null) {
     const parsed = Number(value ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
+}
+
+
+function isWhatsAppWindowOpenAt(
+    lastClientMessageAt: string | null,
+    referenceTime: number,
+) {
+    if (!lastClientMessageAt) return false;
+
+    const timestamp = new Date(lastClientMessageAt).getTime();
+    if (!Number.isFinite(timestamp)) return false;
+
+    const age = referenceTime - timestamp;
+    return age >= 0 && age <= WHATSAPP_WINDOW_MS;
 }

@@ -21,7 +21,6 @@ import {
     CalendarButton,
     DataTable,
     DropdownSelect,
-    InfoTooltip,
     Modal,
     Pagination,
     SearchFilter,
@@ -43,7 +42,6 @@ import type {
 const CLIENTS_PER_PAGE = 10;
 const HISTORY_PER_PAGE = 10;
 const MAX_CLIENTS_PER_SEND = 500;
-const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type ClientRow = {
     client: ActiveMessageClient;
@@ -358,9 +356,7 @@ export default function MensagemAtivaPage() {
             }
 
             if (windowValues.length > 0) {
-                const windowStatus = isWindowOpen(
-                    client.last_client_message_at,
-                )
+                const windowStatus = client.whatsapp_window_open
                     ? "open"
                     : "expired";
 
@@ -470,10 +466,7 @@ export default function MensagemAtivaPage() {
                     (item) => item.id === clientId,
                 );
 
-                return Boolean(
-                    client &&
-                        isWindowOpen(client.last_client_message_at),
-                );
+                return Boolean(client?.whatsapp_window_open);
             }).length,
         [data?.clients, selectedClientIds],
     );
@@ -565,6 +558,7 @@ export default function MensagemAtivaPage() {
             render: ({ client }) => (
                 <WindowStatus
                     timestamp={client.last_client_message_at}
+                    open={client.whatsapp_window_open}
                 />
             ),
         },
@@ -1153,22 +1147,23 @@ function HistoryTable({
                 label: (
                     <span className="inline-flex items-center gap-1.5">
                         Métricas
-                        <InfoTooltip text="Agendamentos: registros do Clinisys criados para clientes que receberam o envio, na data do disparo ou depois. Respostas: clientes que enviaram ao menos uma mensagem nas 24 horas após o disparo.">
-                            <Info
-                                size={14}
-                                className="text-slate-400"
-                            />
-                        </InfoTooltip>
+                        <span
+                            title="Respostas: clientes que enviaram ao menos uma mensagem nas 24 horas após o disparo. Agendamentos: registros do Clinisys criados para clientes que receberam o envio, desde a data do disparo até 30 dias depois."
+                            aria-label="Explicação das métricas"
+                            className="inline-flex shrink-0 cursor-help text-slate-400"
+                        >
+                            <Info size={14} />
+                        </span>
                     </span>
                 ),
                 width: "18%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
                         <div>
-                            {item.schedule_count} agendamentos
+                            {item.response_count} respostas {item.response_count/item.sent_count > 0 ? `(${((item.response_count/item.sent_count)*100).toFixed(1)}%)` : ''}
                         </div>
                         <div className="mt-1">
-                            {item.response_count} respostas em 24h
+                            {item.schedule_count} agendamentos {item.schedule_count/item.sent_count > 0 ? `(${((item.schedule_count/item.sent_count)*100).toFixed(1)}%)` : ''}
                         </div>
                     </div>
                 ),
@@ -1407,10 +1402,11 @@ function SelectionSummary({
 
 function WindowStatus({
     timestamp,
+    open,
 }: {
     timestamp: string | null;
+    open: boolean;
 }) {
-    const open = isWindowOpen(timestamp);
 
     return (
         <div className="min-w-0">
@@ -1648,20 +1644,6 @@ function isTimestampInsideDateRange(
     return dateKey >= range.start && dateKey <= end;
 }
 
-function isWindowOpen(timestamp: string | null) {
-    if (!timestamp) {
-        return false;
-    }
-
-    const time = new Date(timestamp).getTime();
-
-    if (!Number.isFinite(time)) {
-        return false;
-    }
-
-    const age = Date.now() - time;
-    return age >= 0 && age <= WHATSAPP_WINDOW_MS;
-}
 
 function normalizePhone(value: string | null | undefined) {
     return value?.replace(/\D/g, "") ?? "";
