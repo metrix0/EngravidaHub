@@ -68,7 +68,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "ert-10",
         command: "/ERT",
-        text: "Temos clínicas em:\nSP  👉 São Paulo (SP);\n👉 Bauru (SP);\n👉 Campinas (SP);\nMG 👉 Belo Horizonte (BH);\n👉 Juiz de Fora (MG);\nRJ   👉 Rio de Janeiro (RJ);\nBA  👉 Salvador (BA);\nDF  👉 Brasília (DF);\nAM 👉 Manaus (AM);\nES 👉 Vitória (ES).\nQual dessas seria a unidade ideal pra você?",
+        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:\n\n👉 Laqueadura;\n👉 Síndrome dos ovários policísticos (SOP);\n👉 Endometriose/adenomiose;\n👉 Miomas/cistos;\n👉 Menopausa/menopausa precoce\n👉 Congelamento de óvulos, sêmen e embriões;\n👉 Ovodoação/Embriodoação;\n👉 Fatores masculinos;\n👉 Casais homoafetivos;\n👉 Produção independente (Homem ou Mulher).",
     },
     {
         id: "humo-11",
