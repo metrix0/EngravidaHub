@@ -1,11 +1,19 @@
 // lib/importers/blip/parseBlipMessage.ts
 import type { SenderType } from "@/types/message";
 
+export type ParsedBlipAudio = {
+    uri: string;
+    mime_type: string;
+    size: number | null;
+    name: string | null;
+};
+
 export type ParsedBlipMessage = {
     sender_type: SenderType;
     sender_name: string | null;
 
     text: string;
+    audio: ParsedBlipAudio | null;
 
     sent_at: string;
 
@@ -40,6 +48,7 @@ export function parseBlipMessage(payload: BlipPayload): ParsedBlipMessage | null
         sender_name: getSenderName(payload),
 
         text,
+        audio: extractAudio(payload),
 
         sent_at: getSentAt(payload),
 
@@ -65,7 +74,7 @@ function extractText(payload: BlipPayload): string | null {
     }
 
     if (payload.type === "application/vnd.lime.media-link+json") {
-        const mediaType = payload.content?.type ?? "mídia";
+        const mediaType = normalizeMediaMimeType(payload.content?.type ?? "mídia");
 
         if (mediaType.startsWith("image/")) return "[Imagem enviada]";
         if (mediaType.startsWith("video/")) return "[Vídeo enviado]";
@@ -97,6 +106,58 @@ function extractText(payload: BlipPayload): string | null {
     }
 
     return null;
+}
+
+function extractAudio(payload: BlipPayload): ParsedBlipAudio | null {
+    if (payload.type !== "application/vnd.lime.media-link+json") {
+        return null;
+    }
+
+    const content = payload.content;
+    if (!content || typeof content !== "object") return null;
+
+    const uri = typeof content.uri === "string" ? content.uri.trim() : "";
+    const mimeType = normalizeMediaMimeType(
+        typeof content.type === "string" ? content.type : "",
+    );
+
+    if (!uri || !mimeType.startsWith("audio/")) return null;
+
+    const rawSize = Number(content.size ?? 0);
+    const title = typeof content.title === "string" ? content.title.trim() : "";
+
+    return {
+        uri,
+        mime_type: mimeType,
+        size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : null,
+        name: title || null,
+    };
+}
+
+function normalizeMediaMimeType(value: unknown) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .split(";", 1)[0]
+        .trim();
+
+    if (normalized === "audio/mp3" || normalized === "voice/mp3") {
+        return "audio/mpeg";
+    }
+
+    if (normalized === "audio/x-m4a" || normalized === "voice/mp4") {
+        return "audio/mp4";
+    }
+
+    if (normalized === "voice/ogg" || normalized === "audio/opus") {
+        return "audio/ogg";
+    }
+
+    if (normalized.startsWith("voice/")) {
+        return `audio/${normalized.slice("voice/".length)}`;
+    }
+
+    return normalized;
 }
 
 function getSenderType(payload: BlipPayload): SenderType {

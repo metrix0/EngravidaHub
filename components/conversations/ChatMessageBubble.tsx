@@ -2,7 +2,7 @@
 "use client";
 
 import Image from "next/image";
-import { Download, FileText } from "lucide-react";
+import { Download, FileAudio, FileText } from "lucide-react";
 import { useState } from "react";
 
 export type SharedChatMessage = {
@@ -85,10 +85,54 @@ function AttachmentContent({
     isAttendant: boolean;
 }) {
     const [imageFailed, setImageFailed] = useState(false);
+    const [audioFailed, setAudioFailed] = useState(false);
     const attachmentUrl = `/api/inbox/attachments?path=${encodeURIComponent(
         attachment.path,
     )}`;
     const isImage = attachment.mimeType.startsWith("image/");
+    const isAudio = attachment.mimeType.startsWith("audio/");
+
+    if (isAudio && !audioFailed) {
+        return (
+            <div className="min-w-0">
+                <div
+                    className={`rounded-xl border p-2 ${
+                        isAttendant
+                            ? "border-white/20 bg-white"
+                            : "border-slate-200 bg-slate-50"
+                    }`}
+                >
+                    <audio
+                        controls
+                        preload="metadata"
+                        src={attachmentUrl}
+                        onError={() => setAudioFailed(true)}
+                        className="block h-10 w-[320px] max-w-full"
+                    >
+                        Seu navegador não oferece suporte à reprodução de áudio.
+                    </audio>
+
+                    <a
+                        href={attachmentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    >
+                        <FileAudio size={15} className="shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">
+                            {attachment.name}
+                        </span>
+                        {attachment.size ? (
+                            <span className="shrink-0 text-slate-400">
+                                {formatAttachmentSize(attachment.size)}
+                            </span>
+                        ) : null}
+                        <Download size={14} className="shrink-0" />
+                    </a>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-w-0">
@@ -128,7 +172,7 @@ function AttachmentContent({
                                 : "bg-white text-slate-500"
                         }`}
                     >
-                        <FileText size={19}/>
+                        {isAudio ? <FileAudio size={19}/> : <FileText size={19}/>}
                     </span>
 
                     <span className="min-w-0 flex-1">
@@ -149,7 +193,6 @@ function AttachmentContent({
                     <Download size={17} className="shrink-0"/>
                 </a>
             )}
-
         </div>
     );
 }

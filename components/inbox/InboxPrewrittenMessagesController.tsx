@@ -68,7 +68,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "ert-10",
         command: "/ERT",
-        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:\n\n👉 Laqueadura;\n👉 Síndrome dos ovários policísticos (SOP);\n👉 Endometriose/adenomiose;\n👉 Miomas/cistos;\n👉 Menopausa/menopausa precoce\n👉 Congelamento de óvulos, sêmen e embriões;\n👉 Ovodoação/Embriodoação;\n👉 Fatores masculinos;\n👉 Casais homoafetivos;\n👉 Produção independente (Homem ou Mulher).",
+        text: "Temos clínicas em:\n\nSP  👉 São Paulo (SP);\n 👉 Bauru (SP);\n 👉 Campinas (SP);\nMG 👉 Belo Horizinte (BH);\n👉 Juiz de Fora (MG);\nRJ   👉 Rio de Janeiro (RJ);\nBA  👉 Salvador (BA);\nDF  👉 Brasília (DF);\nAM 👉 Manaus (AM);\nES 👉 Vitória (ES).\n\nQual dessas seria a unidade ideal pra você?",
     },
     {
         id: "humo-11",
@@ -373,7 +373,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "zxc-71",
         command: "/zxc",
-        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:\n👉 Laqueadura;\n👉 Síndrome dos ovários policísticos (SOP);\n👉 Endometriose/adenomiose;\n👉 Miomas/cistos;\n👉 Menopausa/menopausa precoce\n👉 Congelamento de óvulos, sêmen e embriões;\n👉 Ovodoação/Embriodoação;\n👉 Fatores masculinos;\n👉 Casais homoafetivos;\n👉 Produção independente (Homem ou Mulher).",
+        text: "Olá, a Engravida é uma clínica de reprodução humana assistida onde você pode investigar as causas da infertilidade e utilizar as técnicas para possibilitar ou aumentar as chances de gravidez em casos como:\n\n👉 Laqueadura;\n👉 Síndrome dos ovários policísticos (SOP);\n👉 Endometriose/adenomiose;\n👉 Miomas/cistos;\n👉 Menopausa/menopausa precoce\n👉 Congelamento de óvulos, sêmen e embriões;\n👉 Ovodoação/Embriodoação;\n👉 Fatores masculinos;\n👉 Casais homoafetivos;\n👉 Produção independente (Homem ou Mulher).",
     },
     {
         id: "sdf-72",
@@ -753,7 +753,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "medicos-147",
         command: "/MEDICOS",
-        text: "No Rio\nhttps://www.instagram.com/dra_jessicareis/\nhttps://www.instagram.com/daphusiglio/\nhttps://www.instagram.com/dr.marcossanches\nSalvador\nhttps://www.instagram.com/dra.amandacutalo/\nhttps://www.instagram.com/joyjoventinaaraujo/\nBrasília\nhttps://www.instagram.com/siqueiramayane/\nhttps://www.instagram.com/dra.larissa.barbosa/\nSão  Paulo\nhttps://www.instagram.com/dracarolfujimoto/\nhttps://www.instagram.com/drabarbara.tavares/\nhttps://www.instagram.com/dralauraleber/\nCampinas\nhttps://www.instagram.com/drfabiopadilla/\nManaus\nhttps://www.instagram.com/pamelagineco/\nVitória\nhttps://www.instagram.com/drabrunafertileuta\nhttps://www.instagram.com/brendabattestin",
+        text: "No Rio\nhttps://www.instagram.com/dra_jessicareis/\nhttps://www.instagram.com/daphusiglio/\nhttps://www.instagram.com/dr.marcossanches\n\nSalvador\nhttps://www.instagram.com/dra.amandacutalo/\nhttps://www.instagram.com/joyjoventinaaraujo/\n\nBrasília\nhttps://www.instagram.com/siqueiramayane/\nhttps://www.instagram.com/dra.larissa.barbosa/\n\nSão  Paulo\nhttps://www.instagram.com/dracarolfujimoto/\nhttps://www.instagram.com/drabarbara.tavares/\nhttps://www.instagram.com/dralauraleber/\n\nCampinas\nhttps://www.instagram.com/drfabiopadilla/\n\nManaus\nhttps://www.instagram.com/pamelagineco/\n\nVitória\nhttps://www.instagram.com/drabrunafertileuta\nhttps://www.instagram.com/brendabattestin",
     },
     {
         id: "gen-148",

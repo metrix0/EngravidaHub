@@ -1,15 +1,47 @@
 // app/api/(webhooks)/blip/messages/route.ts
 import { randomUUID } from "crypto";
+import { isIP } from "net";
 import { NextResponse } from "next/server";
 
 import { createAttendantFromParsedMessage } from "@/lib/attendants/createAttendant";
 import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { queueThreadForMessage } from "@/lib/inbox/queueThreadForMessage";
-import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
+import {
+    parseBlipMessage,
+    type ParsedBlipAudio,
+} from "@/lib/importers/blip/parseBlipMessage";
 import { supabase } from "@/lib";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const ATTACHMENT_BUCKET = "inbox-attachments";
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 20_000;
+const ALLOWED_ATTACHMENT_MIME_TYPES = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/3gpp",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+];
+
+let attachmentBucketReady: Promise<void> | null = null;
 
 export async function POST(request: Request) {
     const webhookRequestId = randomUUID();
@@ -113,6 +145,18 @@ export async function POST(request: Request) {
             webhookRequestId,
         );
 
+        let persistedText = parsedMessage.text;
+
+        if (parsedMessage.audio) {
+            persistedText = await persistIncomingAudio({
+                audio: parsedMessage.audio,
+                threadId: thread.id,
+                externalMessageId: parsedMessage.external_id,
+                sentAt: parsedMessage.sent_at,
+                webhookRequestId,
+            });
+        }
+
         console.info(`[blip-webhook:${webhookRequestId}] Saving message`, {
             thread_id: thread.id,
             client_id: client.id,
@@ -120,6 +164,7 @@ export async function POST(request: Request) {
             external_id: parsedMessage.external_id,
             sender_type: parsedMessage.sender_type,
             sent_at: parsedMessage.sent_at,
+            has_audio: Boolean(parsedMessage.audio),
         });
 
         const { error: messageError } = await supabase.from("messages").insert({
@@ -129,7 +174,7 @@ export async function POST(request: Request) {
             thread_id: thread.id,
             sender_type: parsedMessage.sender_type,
             sender_name: parsedMessage.sender_name,
-            text: parsedMessage.text,
+            text: persistedText,
             sent_at: parsedMessage.sent_at,
             sequence_index: sequenceIndex,
             external_id: parsedMessage.external_id,
@@ -196,6 +241,283 @@ export async function POST(request: Request) {
             { status: 500 },
         );
     }
+}
+
+async function persistIncomingAudio({
+    audio,
+    threadId,
+    externalMessageId,
+    sentAt,
+    webhookRequestId,
+}: {
+    audio: ParsedBlipAudio;
+    threadId: string;
+    externalMessageId: string | null;
+    sentAt: string;
+    webhookRequestId: string;
+}) {
+    const sourceUrl = parseRemoteMediaUrl(audio.uri);
+
+    console.info(`[blip-webhook:${webhookRequestId}] Downloading incoming audio`, {
+        host: sourceUrl.host,
+        mime_type: audio.mime_type,
+        declared_size: audio.size,
+    });
+
+    const response = await fetch(sourceUrl, {
+        method: "GET",
+        headers: {
+            Accept: "audio/*,application/octet-stream;q=0.9,*/*;q=0.1",
+        },
+        cache: "no-store",
+        redirect: "follow",
+        signal: AbortSignal.timeout(MEDIA_DOWNLOAD_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+        throw new Error(
+            `Não foi possível baixar o áudio recebido da Blip (HTTP ${response.status}).`,
+        );
+    }
+
+    const declaredLength = Number(response.headers.get("content-length") ?? 0);
+
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_ATTACHMENT_BYTES) {
+        throw new Error("O áudio recebido ultrapassa o limite de 16 MB.");
+    }
+
+    const fileBuffer = await response.arrayBuffer();
+    const size = fileBuffer.byteLength;
+
+    if (size <= 0) {
+        throw new Error("O áudio recebido está vazio.");
+    }
+
+    if (size > MAX_ATTACHMENT_BYTES) {
+        throw new Error("O áudio recebido ultrapassa o limite de 16 MB.");
+    }
+
+    const responseMimeType = normalizeAudioMimeType(
+        response.headers.get("content-type") ?? "",
+    );
+    const mimeType = responseMimeType || normalizeAudioMimeType(audio.mime_type);
+
+    if (!mimeType || !ALLOWED_ATTACHMENT_MIME_TYPES.includes(mimeType)) {
+        throw new Error(`Formato de áudio recebido não compatível: ${audio.mime_type}.`);
+    }
+
+    await ensureAttachmentBucket();
+
+    const extension = extensionForAudioMimeType(mimeType);
+    const preferredName = sanitizeFileName(audio.name ?? "");
+    const fileName = preferredName
+        ? ensureFileExtension(preferredName, extension)
+        : `audio-${safeTimestamp(sentAt)}.${extension}`;
+    const stableMessageId = sanitizeFileName(externalMessageId ?? "") || randomUUID();
+    const path = `${threadId}/incoming/${stableMessageId}-${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+        .from(ATTACHMENT_BUCKET)
+        .upload(path, fileBuffer, {
+            contentType: mimeType,
+            upsert: true,
+        });
+
+    if (uploadError) {
+        throw uploadError;
+    }
+
+    console.info(`[blip-webhook:${webhookRequestId}] Incoming audio stored`, {
+        path,
+        mime_type: mimeType,
+        size,
+    });
+
+    return attachmentHistoryText({
+        path,
+        name: fileName,
+        mimeType,
+        size,
+    });
+}
+
+function parseRemoteMediaUrl(value: string) {
+    let url: URL;
+
+    try {
+        url = new URL(value);
+    } catch {
+        throw new Error("A Blip enviou uma URL de áudio inválida.");
+    }
+
+    if (url.protocol !== "https:") {
+        throw new Error("A URL do áudio recebido precisa usar HTTPS.");
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    if (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname.endsWith(".local") ||
+        isPrivateIpAddress(hostname)
+    ) {
+        throw new Error("A URL do áudio recebido não é permitida.");
+    }
+
+    return url;
+}
+
+function isPrivateIpAddress(hostname: string) {
+    const version = isIP(hostname);
+    if (!version) return false;
+
+    if (version === 4) {
+        const octets = hostname.split(".").map(Number);
+        const [first, second] = octets;
+
+        return (
+            first === 10 ||
+            first === 127 ||
+            (first === 169 && second === 254) ||
+            (first === 172 && second >= 16 && second <= 31) ||
+            (first === 192 && second === 168) ||
+            first === 0
+        );
+    }
+
+    const normalized = hostname.toLowerCase();
+    return (
+        normalized === "::1" ||
+        normalized === "::" ||
+        normalized.startsWith("fc") ||
+        normalized.startsWith("fd") ||
+        normalized.startsWith("fe8") ||
+        normalized.startsWith("fe9") ||
+        normalized.startsWith("fea") ||
+        normalized.startsWith("feb")
+    );
+}
+
+async function ensureAttachmentBucket() {
+    if (!attachmentBucketReady) {
+        attachmentBucketReady = (async () => {
+            const { data: existing, error: getError } =
+                await supabase.storage.getBucket(ATTACHMENT_BUCKET);
+
+            if (existing) return;
+
+            if (getError && !/not found/i.test(getError.message)) {
+                throw getError;
+            }
+
+            const { error: createError } = await supabase.storage.createBucket(
+                ATTACHMENT_BUCKET,
+                {
+                    public: false,
+                    fileSizeLimit: MAX_ATTACHMENT_BYTES,
+                    allowedMimeTypes: ALLOWED_ATTACHMENT_MIME_TYPES,
+                },
+            );
+
+            if (createError && !/already exists/i.test(createError.message)) {
+                throw createError;
+            }
+        })().catch((error) => {
+            attachmentBucketReady = null;
+            throw error;
+        });
+    }
+
+    return attachmentBucketReady;
+}
+
+function attachmentHistoryText(attachment: {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+}) {
+    const metadata = new URLSearchParams({
+        path: attachment.path,
+        name: attachment.name,
+        mime_type: attachment.mimeType,
+        size: String(attachment.size),
+    });
+
+    return `🎵 Áudio${encodeInvisibleAttachmentMetadata(metadata.toString())}`;
+}
+
+function encodeInvisibleAttachmentMetadata(value: string) {
+    const payload = `engravida-attachment:${value}`;
+    const tagCharacters = [...payload]
+        .map((character) =>
+            String.fromCodePoint(0xe0000 + character.charCodeAt(0)),
+        )
+        .join("");
+
+    return `${tagCharacters}${String.fromCodePoint(0xe007f)}`;
+}
+
+function normalizeAudioMimeType(value: string) {
+    const normalized = value
+        .trim()
+        .toLowerCase()
+        .split(";", 1)[0]
+        .trim();
+
+    if (!normalized || normalized === "application/octet-stream") return "";
+    if (normalized === "audio/mp3" || normalized === "voice/mp3") {
+        return "audio/mpeg";
+    }
+    if (normalized === "audio/x-m4a" || normalized === "voice/mp4") {
+        return "audio/mp4";
+    }
+    if (normalized === "voice/ogg" || normalized === "audio/opus") {
+        return "audio/ogg";
+    }
+    if (normalized.startsWith("voice/")) {
+        return `audio/${normalized.slice("voice/".length)}`;
+    }
+
+    return normalized.startsWith("audio/") ? normalized : "";
+}
+
+function extensionForAudioMimeType(mimeType: string) {
+    switch (mimeType) {
+        case "audio/aac":
+            return "aac";
+        case "audio/amr":
+            return "amr";
+        case "audio/mpeg":
+            return "mp3";
+        case "audio/mp4":
+            return "m4a";
+        case "audio/ogg":
+        default:
+            return "ogg";
+    }
+}
+
+function ensureFileExtension(fileName: string, extension: string) {
+    return fileName.toLowerCase().endsWith(`.${extension}`)
+        ? fileName
+        : `${fileName}.${extension}`;
+}
+
+function sanitizeFileName(value: string) {
+    return value
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 120);
+}
+
+function safeTimestamp(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? Date.now() : date.getTime();
 }
 
 async function messageAlreadyExists(
