@@ -255,17 +255,9 @@ function restrictTabsForPreset(
     presetId: AccessPresetId | null | undefined,
     tabs: TabId[],
 ) {
-    const requiredTabs: TabId[] = ["assistente"];
-
-    if (presetId === "marketing") {
-        requiredTabs.push("conversas");
-    }
-
-    const normalized = [...new Set([...tabs, ...requiredTabs])];
-
     return presetAllowsActiveMessage(presetId)
-        ? normalized
-        : normalized.filter((tabId) => tabId !== "mensagem_ativa");
+        ? tabs
+        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
 }
 
 const colorClasses: Record<

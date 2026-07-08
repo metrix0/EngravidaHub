@@ -364,7 +364,8 @@ export async function PATCH(request: NextRequest) {
                 {
                     auth_user_id: authUserId,
                     preset,
-                    allowed_tabs: restrictTabsForPreset(preset, allowedTabs),
+                    allowed_tabs:
+                        preset === NO_PRESET_ID ? [] : allowedTabs,
                     attendant_id: attendantId,
                     active,
                     updated_at: new Date().toISOString(),
@@ -592,17 +593,9 @@ function normalizeAllowedTabs(value: unknown) {
 }
 
 function restrictTabsForPreset(preset: string, tabs: string[]) {
-    const requiredTabs = ["assistente"];
-
-    if (preset === "marketing") {
-        requiredTabs.push("conversas");
-    }
-
-    const normalized = [...new Set([...tabs, ...requiredTabs])];
-
     return ACTIVE_MESSAGE_PRESET_IDS.has(preset)
-        ? normalized
-        : normalized.filter((tabId) => tabId !== "mensagem_ativa");
+        ? tabs
+        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
 }
 
 function normalizeIdArray(value: unknown) {

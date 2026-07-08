@@ -666,7 +666,7 @@ function EmptyAssistant({
     return (
         <div className="flex min-h-full items-start justify-center px-5 pb-12 pt-20 sm:pt-24">
             <div className="w-full max-w-3xl text-center">
-                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand shadow-sm">
+                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-soft text-purple shadow-sm">
                     <Sparkles size={25} />
                 </span>
 

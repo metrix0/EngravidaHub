@@ -48,25 +48,15 @@ export async function PATCH(request: NextRequest) {
                   ),
               )]
             : [];
-        const requiredTabs = ["assistente"];
-
-        if (preset === "marketing") {
-            requiredTabs.push("conversas");
-        }
-
-        const normalizedTabs = [
-            ...new Set([...allowedTabs, ...requiredTabs]),
-        ];
         const restrictedTabs = ACTIVE_MESSAGE_PRESET_IDS.has(preset)
-            ? normalizedTabs
-            : normalizedTabs.filter(
-                  (tabId) => tabId !== "mensagem_ativa",
-              );
+            ? allowedTabs
+            : allowedTabs.filter((tabId) => tabId !== "mensagem_ativa");
 
         const { error } = await supabase
             .from("user_permissions")
             .update({
-                allowed_tabs: restrictedTabs,
+                allowed_tabs:
+                    preset === "__none__" ? [] : restrictedTabs,
                 updated_at: new Date().toISOString(),
             })
             .eq("auth_user_id", authUserId);
