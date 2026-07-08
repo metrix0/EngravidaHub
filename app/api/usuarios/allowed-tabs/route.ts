@@ -8,6 +8,7 @@ const VALID_TAB_IDS = new Set([
     "conversas",
     "jornada",
     "eventos",
+    "assistente",
     "usuarios",
     "inbox",
     "agendamentos",
@@ -47,14 +48,25 @@ export async function PATCH(request: NextRequest) {
                   ),
               )]
             : [];
+        const requiredTabs = ["assistente"];
+
+        if (preset === "marketing") {
+            requiredTabs.push("conversas");
+        }
+
+        const normalizedTabs = [
+            ...new Set([...allowedTabs, ...requiredTabs]),
+        ];
         const restrictedTabs = ACTIVE_MESSAGE_PRESET_IDS.has(preset)
-            ? allowedTabs
-            : allowedTabs.filter((tabId) => tabId !== "mensagem_ativa");
+            ? normalizedTabs
+            : normalizedTabs.filter(
+                  (tabId) => tabId !== "mensagem_ativa",
+              );
 
         const { error } = await supabase
             .from("user_permissions")
             .update({
-                allowed_tabs: preset === "__none__" ? [] : restrictedTabs,
+                allowed_tabs: restrictedTabs,
                 updated_at: new Date().toISOString(),
             })
             .eq("auth_user_id", authUserId);

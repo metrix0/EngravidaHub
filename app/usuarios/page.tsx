@@ -36,6 +36,7 @@ type TabId =
     | "conversas"
     | "jornada"
     | "eventos"
+    | "assistente"
     | "usuarios"
     | "inbox"
     | "agendamentos"
@@ -154,6 +155,7 @@ const TABS: PermissionTab[] = [
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
     { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
+    { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
@@ -174,6 +176,7 @@ const PRESETS: PermissionPreset[] = [
             "conversas",
             "jornada",
             "eventos",
+            "assistente",
             "usuarios",
             "inbox",
             "agendamentos",
@@ -193,6 +196,7 @@ const PRESETS: PermissionPreset[] = [
             "conversas",
             "jornada",
             "eventos",
+            "assistente",
             "internos",
             "clientes",
             "funil",
@@ -204,6 +208,7 @@ const PRESETS: PermissionPreset[] = [
         color: "green",
         icon: "headphones",
         default_tabs: [
+            "assistente",
             "inbox",
             "agendamentos",
             "mensagem_ativa",
@@ -219,8 +224,10 @@ const PRESETS: PermissionPreset[] = [
         icon: "megaphone",
         default_tabs: [
             "dashboard",
+            "conversas",
             "jornada",
             "eventos",
+            "assistente",
             "mensagem_ativa",
             "internos",
         ],
@@ -248,9 +255,17 @@ function restrictTabsForPreset(
     presetId: AccessPresetId | null | undefined,
     tabs: TabId[],
 ) {
+    const requiredTabs: TabId[] = ["assistente"];
+
+    if (presetId === "marketing") {
+        requiredTabs.push("conversas");
+    }
+
+    const normalized = [...new Set([...tabs, ...requiredTabs])];
+
     return presetAllowsActiveMessage(presetId)
-        ? tabs
-        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
+        ? normalized
+        : normalized.filter((tabId) => tabId !== "mensagem_ativa");
 }
 
 const colorClasses: Record<

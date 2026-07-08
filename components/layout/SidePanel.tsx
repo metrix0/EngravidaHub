@@ -16,6 +16,7 @@ import {
     MessageCircle,
     MessagesSquare,
     Send,
+    Sparkles,
     UserCog,
     Users,
 } from "lucide-react";
@@ -81,6 +82,12 @@ const defaultItems: SidePanelEntry[] = [
         icon: <Megaphone size={18} />,
         tabId: "eventos",
     },
+    {
+        label: "Assistente IA",
+        href: "/assistente",
+        icon: <Sparkles size={18} />,
+        tabId: "assistente",
+    },
     { type: "separator", id: "crm" },
     {
         label: "Inbox",
@@ -119,6 +126,7 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "mensagem_ativa",
     },
     { type: "separator", id: "usuarios" },
+
     {
         label: "Internos",
         href: "/internos",
@@ -191,7 +199,9 @@ function PersistentSidePanel({
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
 
     const isCompactPage =
-        pathname.startsWith("/inbox") || pathname.startsWith("/agendamentos");
+        pathname.startsWith("/inbox") ||
+        pathname.startsWith("/agendamentos") ||
+        pathname.startsWith("/assistente");
     const resolvedAffectLayout = affectLayout ?? !isCompactPage;
     const [isExpanded, setIsExpanded] = useState(
         () => defaultExpanded ?? !isCompactPage,
@@ -435,7 +445,6 @@ function PersistentSidePanel({
                                         item.href === "/"
                                             ? pathname === "/"
                                             : pathname.startsWith(item.href);
-
                                     return (
                                         <Link
                                             key={item.href}

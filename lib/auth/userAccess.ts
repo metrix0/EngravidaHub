@@ -5,6 +5,7 @@ export const APP_TAB_IDS = [
     "conversas",
     "jornada",
     "eventos",
+    "assistente",
     "usuarios",
     "inbox",
     "agendamentos",
@@ -29,6 +30,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
     conversas: "/conversas",
     jornada: "/jornada",
     eventos: "/eventos",
+    assistente: "/assistente",
     usuarios: "/usuarios",
     inbox: "/inbox",
     agendamentos: "/agendamentos",
@@ -40,6 +42,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
 
 const APP_TAB_ROUTE_ORDER: AppTabId[] = [
     "dashboard",
+    "assistente",
     "jornada",
     "eventos",
     "inbox",
