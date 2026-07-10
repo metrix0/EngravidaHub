@@ -1,235 +1,88 @@
 // lib/importers/blip/parseBlipMessage.ts
 import type { SenderType } from "@/types/message";
 
-export type ParsedBlipAudio = {
-    uri: string;
-    mime_type: string;
-    size: number | null;
-    name: string | null;
-};
-
+export type ParsedBlipAudio = { uri: string; mime_type: string; size: number | null; name: string | null };
 export type ParsedBlipMessage = {
-    sender_type: SenderType;
-    sender_name: string | null;
-
-    text: string;
-    audio: ParsedBlipAudio | null;
-
-    sent_at: string;
-
-    external_attendant_id: string | null;
-
-    external_id: string | null;
-    external_contact_id: string | null;
-    external_thread_id: string | null;
-    interactive_option_id: string | null;
+    sender_type: SenderType; sender_name: string | null; text: string; audio: ParsedBlipAudio | null;
+    sent_at: string; external_attendant_id: string | null; external_id: string | null;
+    external_contact_id: string | null; external_thread_id: string | null; interactive_option_id: string | null;
 };
-
-type BlipPayload = {
-    type?: string;
-    content?: any;
-    id?: string;
-    from?: string;
-    to?: string;
-    metadata?: Record<string, any>;
-};
+type BlipPayload = { type?: string; content?: any; id?: string; from?: string; to?: string; metadata?: Record<string, any> };
 
 export function parseBlipMessage(payload: BlipPayload): ParsedBlipMessage | null {
+    if (!payload || typeof payload !== "object") return null;
     const metadata = payload.metadata ?? {};
-
-    const text = extractText(payload);
-
-    if (!text) {
-        return null;
-    }
-
+    const text = extractText(payload) ?? unsupportedText(payload);
+    if (!text) return null;
     return {
-        sender_type: getSenderType(payload),
-        sender_name: getSenderName(payload),
-
-        text,
-        audio: extractAudio(payload),
-
-        sent_at: getSentAt(payload),
-
-        external_attendant_id: getExternalAttendantId(payload),
-
-        external_id: payload.id ?? null,
-        external_contact_id: getExternalContactId(payload),
-        external_thread_id: metadata["#wa.bsuid"] ?? null,
-        interactive_option_id:
-            metadata["#wa.interactive.list.id"] ??
-            metadata["#wa.interactive.button.id"] ??
-            null,
+        sender_type: senderType(payload), sender_name: senderName(payload), text, audio: extractAudio(payload), sent_at: sentAt(payload),
+        external_attendant_id: externalAttendantId(payload), external_id: payload.id ?? null,
+        external_contact_id: externalContactId(payload), external_thread_id: metadata["#wa.bsuid"] ?? null,
+        interactive_option_id: metadata["#wa.interactive.list.id"] ?? metadata["#wa.interactive.button.id"] ?? null,
     };
 }
 
 function extractText(payload: BlipPayload): string | null {
-    if (payload.type === "text/plain") {
-        return typeof payload.content === "string" ? payload.content : null;
-    }
-
-    if (payload.type === "application/vnd.lime.reply+json") {
-        return payload.content?.replied?.value ?? null;
-    }
-
+    if (payload.type === "text/plain") return text(payload.content);
+    if (payload.type === "application/vnd.lime.reply+json") return text(payload.content?.replied?.value) ?? text(payload.content?.value);
+    if (payload.type === "application/vnd.lime.select+json") return text(payload.content?.text) ?? text(payload.content?.selected?.text) ?? text(payload.content?.selected?.value);
+    if (payload.type === "application/json") return text(payload.content?.interactive?.body?.text) ?? text(payload.content?.text) ?? text(payload.content?.body);
     if (payload.type === "application/vnd.lime.media-link+json") {
-        const mediaType = normalizeMediaMimeType(payload.content?.type ?? "mídia");
-
-        if (mediaType.startsWith("image/")) return "[Imagem enviada]";
-        if (mediaType.startsWith("video/")) return "[Vídeo enviado]";
-        if (mediaType.startsWith("audio/")) return "[Áudio enviado]";
-
-        return "[Arquivo enviado]";
+        const mime = normalizeMime(payload.content?.type);
+        const label = mime.startsWith("image/") ? "Imagem" : mime.startsWith("video/") ? "Vídeo" : mime.startsWith("audio/") ? "Áudio" : "Arquivo";
+        const caption = text(payload.content?.text) ?? text(payload.content?.title);
+        return caption ? `[${label} enviado] ${caption}` : `[${label} enviado]`;
     }
-
-    if (payload.type === "application/vnd.lime.select+json") {
-        return payload.content?.text ?? null;
-    }
-
-    if (payload.type === "application/json") {
-        return (
-            payload.content?.interactive?.body?.text ??
-            payload.content?.text ??
-            null
-        );
-    }
-
     if (payload.type === "application/vnd.lime.reaction+json") {
         const values = payload.content?.emoji?.values;
-
         if (!Array.isArray(values)) return "[Reação enviada]";
-
-        return values
-            .map((value) => String.fromCodePoint(Number(value)))
-            .join("");
+        return values.map((value) => Number(value)).filter(Number.isFinite).map((value) => String.fromCodePoint(value)).join("") || "[Reação enviada]";
     }
-
+    if (payload.type === "application/vnd.lime.location+json") {
+        const address = text(payload.content?.text);
+        return `[Localização enviada]${address ? ` ${address}` : ""}`;
+    }
     return null;
 }
-
+function unsupportedText(payload: BlipPayload) {
+    if (payload.content === undefined && !payload.id) return null;
+    if (typeof payload.content === "string" && payload.content.trim()) return payload.content.trim();
+    return `[Mensagem preservada: ${String(payload.type ?? "tipo desconhecido")}]`;
+}
+function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function extractAudio(payload: BlipPayload): ParsedBlipAudio | null {
-    if (payload.type !== "application/vnd.lime.media-link+json") {
-        return null;
-    }
-
-    const content = payload.content;
-    if (!content || typeof content !== "object") return null;
-
-    const uri = typeof content.uri === "string" ? content.uri.trim() : "";
-    const mimeType = normalizeMediaMimeType(
-        typeof content.type === "string" ? content.type : "",
-    );
-
-    if (!uri || !mimeType.startsWith("audio/")) return null;
-
-    const rawSize = Number(content.size ?? 0);
-    const title = typeof content.title === "string" ? content.title.trim() : "";
-
-    return {
-        uri,
-        mime_type: mimeType,
-        size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : null,
-        name: title || null,
-    };
+    if (payload.type !== "application/vnd.lime.media-link+json" || !payload.content || typeof payload.content !== "object") return null;
+    const uri = typeof payload.content.uri === "string" ? payload.content.uri.trim() : "";
+    const mime = normalizeMime(payload.content.type);
+    if (!uri || !mime.startsWith("audio/")) return null;
+    const size = Number(payload.content.size ?? 0);
+    const name = text(payload.content.title);
+    return { uri, mime_type: mime, size: Number.isFinite(size) && size > 0 ? size : null, name };
 }
-
-function normalizeMediaMimeType(value: unknown) {
-    const normalized = String(value ?? "")
-        .trim()
-        .toLowerCase()
-        .split(";", 1)[0]
-        .trim();
-
-    if (normalized === "audio/mp3" || normalized === "voice/mp3") {
-        return "audio/mpeg";
-    }
-
-    if (normalized === "audio/x-m4a" || normalized === "voice/mp4") {
-        return "audio/mp4";
-    }
-
-    if (normalized === "voice/ogg" || normalized === "audio/opus") {
-        return "audio/ogg";
-    }
-
-    if (normalized.startsWith("voice/")) {
-        return `audio/${normalized.slice("voice/".length)}`;
-    }
-
-    return normalized;
+function normalizeMime(value: unknown) {
+    let mime = String(value ?? "").trim().toLowerCase().split(";", 1)[0].trim();
+    if (mime === "audio/mp3" || mime === "voice/mp3") mime = "audio/mpeg";
+    if (mime === "audio/x-m4a" || mime === "voice/mp4") mime = "audio/mp4";
+    if (mime === "voice/ogg" || mime === "audio/opus") mime = "audio/ogg";
+    if (mime.startsWith("voice/")) mime = `audio/${mime.slice(6)}`;
+    return mime;
 }
-
-function getSenderType(payload: BlipPayload): SenderType {
-    const metadata = payload.metadata ?? {};
-
-    if (isWhatsappIdentity(payload.from)) {
-        return "client";
-    }
-
-    if (metadata["#messageEmitter"] === "Human") {
-        return "attendant";
-    }
-
-    if (payload.from?.includes("msging.net")) {
-        return "bot";
-    }
-
+function senderType(payload: BlipPayload): SenderType {
+    if (isWhatsapp(payload.from)) return "client";
+    if (payload.metadata?.["#messageEmitter"] === "Human") return "attendant";
+    if (payload.from?.includes("msging.net")) return "bot";
     return "system";
 }
-
-function getSenderName(payload: BlipPayload): string | null {
-    const externalAttendantId = getExternalAttendantId(payload);
-
-    if (!externalAttendantId) return null;
-
-    return decodeURIComponent(String(externalAttendantId).split("@blip.ai")[0]);
-}
-
-function getExternalAttendantId(payload: BlipPayload): string | null {
-    const agentIdentity = payload.metadata?.["#message.agentIdentity"];
-
-    if (!agentIdentity) return null;
-
-    return decodeURIComponent(String(agentIdentity));
-}
-
-function getSentAt(payload: BlipPayload): string {
+function senderName(payload: BlipPayload) { const id = externalAttendantId(payload); return id ? decodeURIComponent(id.split("@blip.ai")[0]) : null; }
+function externalAttendantId(payload: BlipPayload) { const value = payload.metadata?.["#message.agentIdentity"]; return value ? decodeURIComponent(String(value)) : null; }
+function sentAt(payload: BlipPayload) {
     const metadata = payload.metadata ?? {};
-
-    if (metadata["#envelope.storageDate"]) {
-        return metadata["#envelope.storageDate"];
-    }
-
-    if (metadata.date_created) {
-        return new Date(Number(metadata.date_created)).toISOString();
-    }
-
-    if (metadata["#wa.timestamp"]) {
-        return new Date(Number(metadata["#wa.timestamp"]) * 1000).toISOString();
-    }
-
-    return new Date().toISOString();
+    const raw = metadata["#envelope.storageDate"] ?? (metadata.date_created ? Number(metadata.date_created) : metadata["#wa.timestamp"] ? Number(metadata["#wa.timestamp"]) * 1000 : Date.now());
+    const date = new Date(raw); return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
-
-function getExternalContactId(payload: BlipPayload): string | null {
-    const metadata = payload.metadata ?? {};
-
-    if (isWhatsappIdentity(payload.from)) {
-        return payload.from ?? null;
-    }
-
-    if (isWhatsappIdentity(payload.to)) {
-        return payload.to ?? null;
-    }
-
-    if (metadata["#tunnel.originator"]) {
-        return metadata["#tunnel.originator"];
-    }
-
-    return payload.from ?? null;
+function externalContactId(payload: BlipPayload) {
+    if (isWhatsapp(payload.from)) return payload.from ?? null;
+    if (isWhatsapp(payload.to)) return payload.to ?? null;
+    return payload.metadata?.["#tunnel.originator"] ?? payload.from ?? null;
 }
-
-function isWhatsappIdentity(value: string | undefined): boolean {
-    return Boolean(value?.includes("@wa.gw.msging.net"));
-}
+function isWhatsapp(value: string | undefined) { return Boolean(value?.includes("@wa.gw.msging.net")); }

@@ -1,217 +1,69 @@
 // lib/clients/createClient.ts
 import { randomUUID } from "crypto";
-
 import { supabase } from "@/lib";
 import type { Client } from "@/types/client";
 import type { ParsedBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 import { resolveClosestUnitIdFromPhone } from "@/lib/units/resolveClosestUnitFromPhone";
+import { extractPhoneIdentityFromExternalContactId, normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 
-type ExistingClient = Client & {
-    unit_id?: string | null;
-    email?: string | null;
-};
+type ExistingClient = Client & { unit_id?: string | null; phone_identity?: string | null };
 
-export async function createClientFromParsedMessage(
-    parsedMessage: ParsedBlipMessage
-): Promise<Client> {
-    if (!parsedMessage.external_contact_id) {
-        throw new Error("Cannot create client without external_contact_id");
-    }
+export async function createClientFromParsedMessage(parsedMessage: ParsedBlipMessage): Promise<Client> {
+    const externalContactId = parsedMessage.external_contact_id;
+    if (!externalContactId) throw new Error("Cannot create client without external_contact_id");
+
+    const phoneIdentity = extractPhoneIdentityFromExternalContactId(externalContactId);
+    const existing = await findExistingClient(externalContactId, phoneIdentity);
+    if (existing) return updateExistingClient(existing, externalContactId, phoneIdentity, parsedMessage.sent_at);
 
     const now = new Date().toISOString();
-    const phone = extractPhoneFromExternalContactId(
-        parsedMessage.external_contact_id
-    );
+    const unitId = await resolveClosestUnitIdFromPhone(phoneIdentity);
+    const { data, error } = await supabase.from("clients").insert({
+        id: randomUUID(), name: null, phone: phoneIdentity, email: null,
+        external_contact_id: externalContactId, unit_id: unitId,
+        first_seen_at: parsedMessage.sent_at, last_interaction_at: parsedMessage.sent_at,
+        created_at: now, updated_at: now,
+    }).select("*").single();
 
-    const existingClient = await findExistingClient({
-        externalContactId: parsedMessage.external_contact_id,
-        phone,
-    });
+    if (!error && data) return data;
+    if (error?.code !== "23505") throw error;
 
-    if (existingClient) {
-        const updatedClient = await updateExistingClientFromParsedMessage({
-            client: existingClient,
-            externalContactId: parsedMessage.external_contact_id,
-            phone,
-            lastInteractionAt: parsedMessage.sent_at,
-        });
-
-        return updatedClient;
-    }
-
-    const unitId = await resolveClosestUnitIdFromPhone(phone);
-
-    const { data: createdClient, error: createError } = await supabase
-        .from("clients")
-        .insert({
-            id: randomUUID(),
-
-            name: null,
-            phone,
-            email: null,
-
-            external_contact_id: parsedMessage.external_contact_id,
-            unit_id: unitId,
-
-            first_seen_at: parsedMessage.sent_at,
-            last_interaction_at: parsedMessage.sent_at,
-
-            created_at: now,
-            updated_at: now,
-        })
-        .select("*")
-        .single();
-
-    if (!createError && createdClient) {
-        return createdClient;
-    }
-
-    if (createError?.code !== "23505" || !phone) {
-        throw createError;
-    }
-
-    const fallbackClient = await findExistingClient({
-        externalContactId: parsedMessage.external_contact_id,
-        phone,
-    });
-
-    if (!fallbackClient) {
-        throw createError;
-    }
-
-    return updateExistingClientFromParsedMessage({
-        client: fallbackClient,
-        externalContactId: parsedMessage.external_contact_id,
-        phone,
-        lastInteractionAt: parsedMessage.sent_at,
-    });
+    const winner = await findExistingClient(externalContactId, phoneIdentity);
+    if (!winner) throw error;
+    return updateExistingClient(winner, externalContactId, phoneIdentity, parsedMessage.sent_at);
 }
 
-async function findExistingClient({
-                                      externalContactId,
-                                      phone,
-                                  }: {
-    externalContactId: string;
-    phone: string | null;
-}): Promise<ExistingClient | null> {
-    const { data: byExternalContactId, error: externalError } = await supabase
-        .from("clients")
-        .select("*")
-        .eq("external_contact_id", externalContactId)
-        .maybeSingle();
+async function findExistingClient(externalContactId: string, phoneIdentity: string | null): Promise<ExistingClient | null> {
+    const external = await supabase.from("clients").select("*").eq("external_contact_id", externalContactId).maybeSingle();
+    if (external.error) throw external.error;
+    if (external.data) return external.data;
+    if (!phoneIdentity) return null;
 
-    if (externalError) {
-        throw externalError;
-    }
+    const canonical = await supabase.from("clients").select("*").eq("phone_identity", phoneIdentity).limit(1).maybeSingle();
+    if (canonical.error) throw canonical.error;
+    if (canonical.data) return canonical.data;
 
-    if (byExternalContactId) {
-        return byExternalContactId;
-    }
-
-    if (!phone) return null;
-
-    const phoneCandidates = Array.from(
-        new Set([
-            phone,
-            `+${phone}`,
-            stripBrazilPrefix(phone),
-            `+${stripBrazilPrefix(phone)}`,
-        ])
-    );
-
-    const { data: byPhone, error: phoneError } = await supabase
-        .from("clients")
-        .select("*")
-        .in("phone", phoneCandidates)
-        .limit(1)
-        .maybeSingle();
-
-    if (phoneError) {
-        throw phoneError;
-    }
-
-    return byPhone ?? null;
+    const local = phoneIdentity.startsWith("55") ? phoneIdentity.slice(2) : phoneIdentity;
+    const legacy = await supabase.from("clients").select("*").in("phone", [phoneIdentity, `+${phoneIdentity}`, local, `+${local}`]).limit(20);
+    if (legacy.error) throw legacy.error;
+    return (legacy.data ?? []).find((row) => normalizePhoneIdentity(row.phone) === phoneIdentity) ?? null;
 }
 
-async function updateExistingClientFromParsedMessage({
-                                                         client,
-                                                         externalContactId,
-                                                         phone,
-                                                         lastInteractionAt,
-                                                     }: {
-    client: ExistingClient;
-    externalContactId: string;
-    phone: string | null;
-    lastInteractionAt: string;
-}): Promise<Client> {
-    const unitId = await resolveClosestUnitIdFromPhone(phone ?? client.phone);
-
-    const updateData: Record<string, string | null> = {
-        last_interaction_at: lastInteractionAt,
+async function updateExistingClient(client: ExistingClient, externalContactId: string, phoneIdentity: string | null, interactionAt: string): Promise<Client> {
+    const incoming = new Date(interactionAt).getTime();
+    const first = new Date(client.first_seen_at).getTime();
+    const last = new Date(client.last_interaction_at).getTime();
+    const unitId = await resolveClosestUnitIdFromPhone(phoneIdentity ?? client.phone);
+    const updates: Record<string, string | null> = {
+        first_seen_at: Number.isFinite(incoming) && incoming < first ? interactionAt : client.first_seen_at,
+        last_interaction_at: Number.isFinite(incoming) && incoming > last ? interactionAt : client.last_interaction_at,
         updated_at: new Date().toISOString(),
     };
+    if (!client.external_contact_id) updates.external_contact_id = externalContactId;
+    if (phoneIdentity && client.phone !== phoneIdentity) updates.phone = phoneIdentity;
+    if (!client.unit_id && unitId) updates.unit_id = unitId;
 
-    if (!client.external_contact_id) {
-        updateData.external_contact_id = externalContactId;
-    }
-
-    if (!client.phone && phone) {
-        updateData.phone = phone;
-    }
-
-    if (!client.unit_id && unitId) {
-        updateData.unit_id = unitId;
-    }
-
-    const { data: updatedClient, error } = await supabase
-        .from("clients")
-        .update(updateData)
-        .eq("id", client.id)
-        .select("*")
-        .single();
-
-    if (error) {
-        throw error;
-    }
-
-    return updatedClient;
-}
-
-function extractPhoneFromExternalContactId(
-    externalContactId: string
-): string | null {
-    const beforeAt = externalContactId.split("@")[0];
-    const onlyDigits = beforeAt.replace(/\D/g, "");
-
-    if (onlyDigits.length < 10 || onlyDigits.length > 15) {
-        return null;
-    }
-
-    return normalizeBrazilPhone(onlyDigits);
-}
-
-function normalizeBrazilPhone(phone: string | null) {
-    if (!phone) return null;
-
-    const digits = phone.replace(/\D/g, "");
-
-    if (!digits) return null;
-
-    if (digits.startsWith("55")) {
-        return digits;
-    }
-
-    if (digits.length === 10 || digits.length === 11) {
-        return `55${digits}`;
-    }
-
-    return digits;
-}
-
-function stripBrazilPrefix(phone: string) {
-    if (phone.startsWith("55")) {
-        return phone.slice(2);
-    }
-
-    return phone;
+    const result = await supabase.from("clients").update(updates).eq("id", client.id).select("*").single();
+    if (result.error) throw result.error;
+    return result.data;
 }

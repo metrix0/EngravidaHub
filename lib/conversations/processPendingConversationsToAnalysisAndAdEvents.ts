@@ -1,425 +1,116 @@
 // lib/conversations/processPendingConversationsToAnalysisAndAdEvents.ts
 import { supabase } from "@/lib";
-
 import { analyzeConversation } from "@/lib/ai/analyzeConversation";
 import { saveConversationAnalysis } from "@/lib/analysis/saveConversationAnalysis";
 import { deriveAdEventsFromAnalysis } from "@/lib/ads/deriveAdEventsFromAnalysis";
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
 import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
+import type { AnalyzeConversationInput, Conversation, Message } from "@/types";
 
-import type {
-    AnalyzeConversationInput,
-    Conversation,
-    Message,
-} from "@/types";
+const DEFAULT_CONCURRENCY = 4;
+const MAX_CONCURRENCY = 8;
+const RETRIES = 4;
 
-const AD_EVENT_SENDING_ENABLED = true;
-const DEFAULT_ANALYSIS_CONCURRENCY = 4;
-const MAX_ANALYSIS_CONCURRENCY = 8;
-
-export async function processPendingConversationsToAnalysisAndAdEvents({
-    limit = 1000,
-    conversationIds,
-}: {
-    limit?: number;
-    conversationIds?: string[];
-}) {
-    const conversations = await getConversationsWithoutAnalysis({
-        limit,
-        conversationIds,
-    });
-
-    console.log(
-        "[processPendingConversationsToAnalysisAndAdEvents] gathered conversations without analysis",
-        { conversations_found: conversations.length },
-    );
-
-    const concurrency = getAnalysisConcurrency();
-
-    console.log(
-        "[processPendingConversationsToAnalysisAndAdEvents] processing batch",
-        {
-            conversations: conversations.length,
-            concurrency,
-        },
-    );
-
-    return mapWithConcurrency(
-        conversations,
-        concurrency,
-        processConversation,
-    );
+export async function processPendingConversationsToAnalysisAndAdEvents({ limit = 1000, conversationIds }: { limit?: number; conversationIds?: string[] }) {
+    const conversations = await getPending({ limit, conversationIds });
+    return mapWithConcurrency(conversations, concurrency(), processConversation);
 }
 
 async function processConversation(conversation: Conversation) {
     try {
-        console.log(
-            "[processPendingConversationsToAnalysisAndAdEvents] preparing conversation",
-            {
-                conversation_id: conversation.id,
-                client_id: conversation.client_id,
-            },
-        );
-
-        const messages = await getConversationMessages(conversation.id);
-
-        const missingSenderName = messages.find(
-            (message) => !getSenderLabel(message),
-        );
-
-        if (missingSenderName) {
-            console.log(
-                "[processPendingConversationsToAnalysisAndAdEvents] skipped conversation: missing sender name",
-                {
-                    conversation_id: conversation.id,
-                    message_id: missingSenderName.id,
-                    sender_type: missingSenderName.sender_type,
-                },
-            );
-
-            await deferConversationRetry(conversation.id);
-
-            return {
-                ok: false as const,
-                skipped: true as const,
-                reason: "missing_sender_name" as const,
-                conversation_id: conversation.id,
-                client_id: conversation.client_id,
-                message_id: missingSenderName.id,
-            };
-        }
-
-        const analysisInput: AnalyzeConversationInput = {
-            conversation_id: conversation.id,
-            client_id: conversation.client_id,
-            started_at: conversation.started_at,
-            ended_at: conversation.ended_at ?? conversation.started_at,
-            attendant_id: conversation.attendant_id,
-            unit_id: conversation.unit_id,
-            service_id: conversation.service_id,
-            conversationText: buildConversationText(messages),
+        const messages = await retry(() => getMessages(conversation.id), `load ${conversation.id}`);
+        if (!messages.length) throw new Error("Conversation has no messages");
+        const normalized = messages.map((message) => ({ ...message, sender_name: senderLabel(message) }));
+        const first = normalized[0];
+        const last = normalized.at(-1)!;
+        const input: AnalyzeConversationInput = {
+            conversation_id: conversation.id, client_id: conversation.client_id,
+            started_at: first.sent_at, ended_at: last.sent_at,
+            attendant_id: conversation.attendant_id, unit_id: conversation.unit_id, service_id: conversation.service_id,
+            conversationText: buildText(normalized),
+            messages: normalized.map((message) => ({ id: message.id, sender_type: message.sender_type, sender_name: message.sender_name, text: message.text, sent_at: message.sent_at, sequence_index: message.sequence_index })),
         };
 
-        console.log(
-            "[processPendingConversationsToAnalysisAndAdEvents] analyzing conversation with AI",
-            {
-                conversation_id: conversation.id,
-                messages_count: messages.length,
-            },
-        );
+        const analysis = await analyzeConversation(input);
+        const analysisId = await retry(() => saveConversationAnalysis(analysis), `save ${conversation.id}`);
+        await retry(() => markAnalyzed(conversation.id, String(analysisId), analysis.started_at, analysis.ended_at, String(last.text)), `mark ${conversation.id}`);
 
-        const analysis = await analyzeConversation(analysisInput);
-
-        console.log(
-            "[processPendingConversationsToAnalysisAndAdEvents] analyzed conversation with AI",
-            {
-                conversation_id: analysis.conversation_id,
-                short_label: analysis.short_label,
-                goal: analysis.conversation_goal,
-                status: analysis.goal_status,
-                final_state: analysis.customer_final_state,
-            },
-        );
-
-        const analysisId = await saveConversationAnalysis(analysis);
-
-        await markConversationAsAnalyzed({
-            conversationId: conversation.id,
-            analysisId,
-        });
-
-        console.log(
-            "[processPendingConversationsToAnalysisAndAdEvents] analysis and conversation saved to supabase",
-            {
-                conversation_id: conversation.id,
-                conversation_analysis_id: analysisId,
-            },
-        );
-
-        const adEvents = deriveAdEventsFromAnalysis(analysis).filter(
-            (event) => event.type === "lead",
-        );
-
-        console.log(
-            "[processPendingConversationsToAnalysisAndAdEvents] ad events derived",
-            {
-                conversation_id: conversation.id,
-                count: adEvents.length,
-                ad_events: adEvents,
-            },
-        );
-
-        let metaResult = null;
-        let googleResult = null;
-
-        if (!AD_EVENT_SENDING_ENABLED) {
-            console.log(
-                "[processPendingConversationsToAnalysisAndAdEvents] ad event sending disabled",
-                {
-                    conversation_id: conversation.id,
-                    derived_count: adEvents.length,
-                    meta_sent: false,
-                    google_sent: false,
-                },
-            );
-        } else if (adEvents.length > 0) {
-            const { data: client, error: clientError } = await supabase
-                .from("clients")
-                .select("phone, email, name")
-                .eq("id", analysis.client_id)
-                .single();
-
-            if (clientError) {
-                throw clientError;
-            }
-
-            metaResult = await sendMetaEvents({
-                events: adEvents,
-                phone: client.phone,
-                email: client.email,
-                conversation_id: conversation.id,
-                conversation_ended_at:
-                    conversation.ended_at ?? conversation.started_at,
-            });
-
-            googleResult = await sendGoogleEvents({
-                events: adEvents,
-                phone: client.phone,
-                email: client.email,
-                name: client.name,
-                conversation_id: conversation.id,
-                conversation_ended_at:
-                    conversation.ended_at ?? conversation.started_at,
-            });
-        }
-
+        const events = deriveAdEventsFromAnalysis(analysis).filter((event) => event.type === "lead");
+        const delivery = await sendAdsSafely(conversation, analysis, events);
         return {
-            ok: true as const,
-            conversation_id: conversation.id,
-            client_id: conversation.client_id,
-            conversation_analysis_id: analysisId,
-            short_label: analysis.short_label,
-            ad_events: adEvents,
-            meta: metaResult,
-            google: googleResult,
+            ok: true as const, conversation_id: conversation.id, client_id: conversation.client_id,
+            conversation_analysis_id: analysisId, short_label: analysis.short_label,
+            ad_events: events, meta: delivery.meta, google: delivery.google, ad_delivery_errors: delivery.errors,
         };
     } catch (error) {
-        await deferConversationRetry(conversation.id);
-
-        console.error(
-            "[processPendingConversationsToAnalysisAndAdEvents] failed processing conversation",
-            {
-                conversation_id: conversation.id,
-                client_id: conversation.client_id,
-                error,
-            },
-        );
-
-        return {
-            ok: false as const,
-            conversation_id: conversation.id,
-            client_id: conversation.client_id,
-            error:
-                error instanceof Error
-                    ? error.message
-                    : "Failed to analyze conversation",
-        };
+        await defer(conversation.id);
+        console.error("[analysis-pipeline] conversation failed", { conversation_id: conversation.id, error });
+        return { ok: false as const, conversation_id: conversation.id, client_id: conversation.client_id, error: formatError(error) };
     }
 }
 
-async function getConversationsWithoutAnalysis({
-    limit,
-    conversationIds,
-}: {
-    limit: number;
-    conversationIds?: string[];
-}): Promise<Conversation[]> {
-    if (conversationIds && conversationIds.length === 0) {
-        return [];
-    }
+async function sendAdsSafely(conversation: Conversation, analysis: Awaited<ReturnType<typeof analyzeConversation>>, events: ReturnType<typeof deriveAdEventsFromAnalysis>) {
+    let meta = null;
+    let google = null;
+    const errors: string[] = [];
+    if (!events.length || await hasExistingAdEvents(conversation.id)) return { meta, google, errors };
 
+    try {
+        const result = await supabase.from("clients").select("phone, email, name").eq("id", analysis.client_id).single();
+        if (result.error) throw result.error;
+        try {
+            meta = await sendMetaEvents({ events, phone: result.data.phone, email: result.data.email, conversation_id: conversation.id, conversation_ended_at: analysis.ended_at });
+        } catch (error) { errors.push(`Meta: ${formatError(error)}`); }
+        try {
+            google = await sendGoogleEvents({ events, phone: result.data.phone, email: result.data.email, name: result.data.name, conversation_id: conversation.id, conversation_ended_at: analysis.ended_at });
+        } catch (error) { errors.push(`Google: ${formatError(error)}`); }
+    } catch (error) { errors.push(`Client lookup: ${formatError(error)}`); }
+    return { meta, google, errors };
+}
+
+async function hasExistingAdEvents(conversationId: string) {
+    try {
+        const result = await supabase.from("ad_events").select("id").eq("conversation_id", conversationId).limit(1).maybeSingle();
+        if (result.error) throw result.error;
+        return Boolean(result.data);
+    } catch (error) {
+        console.error("[analysis-pipeline] ad idempotency check failed", { conversation_id: conversationId, error });
+        return true;
+    }
+}
+
+async function getPending({ limit, conversationIds }: { limit: number; conversationIds?: string[] }): Promise<Conversation[]> {
+    if (conversationIds?.length === 0) return [];
     if (conversationIds) {
-        const conversations: Conversation[] = [];
-
+        const rows: Conversation[] = [];
         for (const ids of chunk(conversationIds, 100)) {
-            const { data, error } = await supabase
-                .from("conversations")
-                .select("*")
-                .is("conversation_analysis_id", null)
-                .not("ended_at", "is", null)
-                .in("id", ids)
-                .order("ended_at", { ascending: true });
-
-            if (error) {
-                console.error(
-                    "[processPendingConversationsToAnalysisAndAdEvents] failed fetching conversations batch",
-                    {
-                        message: error.message,
-                        details: error.details,
-                        hint: error.hint,
-                        code: error.code,
-                        batch_size: ids.length,
-                        first_conversation_ids: ids.slice(0, 10),
-                        raw: error,
-                    },
-                );
-
-                throw new Error(
-                    `Failed to fetch conversations without analysis: ${error.message}`,
-                );
-            }
-
-            conversations.push(...((data ?? []) as Conversation[]));
+            const result = await supabase.from("conversations").select("*").is("conversation_analysis_id", null).not("ended_at", "is", null).in("id", ids).order("ended_at", { ascending: true });
+            if (result.error) throw new Error(`Failed to fetch pending conversations: ${result.error.message}`);
+            rows.push(...((result.data ?? []) as Conversation[]));
         }
-
-        return conversations
-            .sort(
-                (a, b) =>
-                    new Date(a.ended_at ?? a.started_at).getTime() -
-                    new Date(b.ended_at ?? b.started_at).getTime(),
-            )
-            .slice(0, limit);
+        return rows.sort((a, b) => new Date(a.ended_at ?? a.started_at).getTime() - new Date(b.ended_at ?? b.started_at).getTime()).slice(0, limit);
     }
-
-    const { data, error } = await supabase
-        .from("conversations")
-        .select("*")
-        .is("conversation_analysis_id", null)
-        .not("ended_at", "is", null)
-        .order("ended_at", { ascending: true })
-        .limit(limit);
-
-    if (error) {
-        throw new Error(
-            `Failed to fetch conversations without analysis: ${error.message}`,
-        );
-    }
-
-    return (data ?? []) as Conversation[];
+    const result = await supabase.from("conversations").select("*").is("conversation_analysis_id", null).not("ended_at", "is", null).order("updated_at", { ascending: true }).order("ended_at", { ascending: true }).limit(limit);
+    if (result.error) throw new Error(`Failed to fetch pending conversations: ${result.error.message}`);
+    return (result.data ?? []) as Conversation[];
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-
-    for (let index = 0; index < items.length; index += size) {
-        chunks.push(items.slice(index, index + size));
-    }
-
-    return chunks;
+async function getMessages(conversationId: string): Promise<Message[]> {
+    const result = await supabase.from("messages").select("*").eq("conversation_id", conversationId)
+        .order("sent_at", { ascending: true }).order("sequence_index", { ascending: true }).order("id", { ascending: true });
+    if (result.error) throw new Error(`Failed to fetch conversation messages: ${result.error.message}`);
+    return (result.data ?? []) as Message[];
 }
 
-async function getConversationMessages(
-    conversationId: string,
-): Promise<Message[]> {
-    const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("sent_at", { ascending: true })
-        .order("sequence_index", { ascending: true });
-
-    if (error) {
-        throw new Error(
-            `Failed to fetch conversation messages: ${error.message}`,
-        );
-    }
-
-    return (data ?? []) as Message[];
+async function markAnalyzed(id: string, analysisId: string, startedAt: string, endedAt: string, lastText: string) {
+    const result = await supabase.from("conversations").update({ conversation_analysis_id: analysisId, started_at: startedAt, ended_at: endedAt, last_message_at: endedAt, last_message_text: lastText }).eq("id", id);
+    if (result.error) throw new Error(`Failed to mark conversation analyzed: ${result.error.message}`);
 }
-
-async function markConversationAsAnalyzed({
-    conversationId,
-    analysisId,
-}: {
-    conversationId: string;
-    analysisId: string;
-}) {
-    const { error } = await supabase
-        .from("conversations")
-        .update({ conversation_analysis_id: analysisId })
-        .eq("id", conversationId);
-
-    if (error) {
-        throw new Error(
-            `Failed to mark conversation as analyzed: ${error.message}`,
-        );
-    }
-}
-
-async function deferConversationRetry(conversationId: string) {
-    // Move a temporarily unprocessable conversation to the back of the retry
-    // queue. Without this, a small group of permanent failures can occupy the
-    // oldest N rows forever and starve every newer conversation.
-    const { error } = await supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", conversationId)
-        .is("conversation_analysis_id", null);
-
-    if (error) {
-        console.warn(
-            "[processPendingConversationsToAnalysisAndAdEvents] failed to defer retry",
-            { conversation_id: conversationId, error: error.message },
-        );
-    }
-}
-
-function buildConversationText(messages: Message[]): string {
-    return messages
-        .map((message) => {
-            const date = new Date(message.sent_at).toLocaleString("pt-BR");
-            const sender = getSenderLabel(message);
-            return `[${date}] ${sender}: ${message.text}`;
-        })
-        .join("\n");
-}
-
-function getSenderLabel(message: Message): string | null {
-    if (message.sender_type === "client") return message.sender_name;
-    if (message.sender_type === "attendant") return message.sender_name;
-    if (message.sender_type === "bot") return "Bot";
-    if (message.sender_type === "system") return "Sistema";
-    return null;
-}
-
-function getAnalysisConcurrency() {
-    const parsed = Number(
-        process.env.CONVERSATION_ANALYSIS_CONCURRENCY ??
-            DEFAULT_ANALYSIS_CONCURRENCY,
-    );
-
-    if (!Number.isFinite(parsed)) return DEFAULT_ANALYSIS_CONCURRENCY;
-
-    return Math.min(
-        MAX_ANALYSIS_CONCURRENCY,
-        Math.max(1, Math.floor(parsed)),
-    );
-}
-
-async function mapWithConcurrency<T, R>(
-    items: T[],
-    concurrency: number,
-    mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-    const results = new Array<R>(items.length);
-    let nextIndex = 0;
-
-    async function worker() {
-        while (true) {
-            const index = nextIndex;
-            nextIndex += 1;
-
-            if (index >= items.length) return;
-            results[index] = await mapper(items[index], index);
-        }
-    }
-
-    await Promise.all(
-        Array.from(
-            { length: Math.min(concurrency, items.length) },
-            () => worker(),
-        ),
-    );
-
-    return results;
-}
+async function defer(id: string) { await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", id).is("conversation_analysis_id", null); }
+function senderLabel(message: Message) { if (message.sender_type === "client") return message.sender_name?.trim() || "Cliente"; if (message.sender_type === "attendant") return message.sender_name?.trim() || "Atendente"; if (message.sender_type === "bot") return "Bot"; return "Sistema"; }
+function buildText(messages: Message[]) { return messages.map((message) => `[${new Date(message.sent_at).toLocaleString("pt-BR")}] ${senderLabel(message)}: ${message.text}`).join("\n"); }
+async function retry<T>(operation: () => Promise<T>, label: string): Promise<T> { let last: unknown; for (let attempt = 1; attempt <= RETRIES; attempt += 1) { try { return await operation(); } catch (error) { last = error; console.error("[analysis-pipeline] retry", { label, attempt, error }); if (attempt < RETRIES) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 400 * 2 ** (attempt - 1)))); } } throw last; }
+function concurrency() { const value = Number(process.env.CONVERSATION_ANALYSIS_CONCURRENCY ?? DEFAULT_CONCURRENCY); return Math.min(MAX_CONCURRENCY, Math.max(1, Number.isFinite(value) ? Math.floor(value) : DEFAULT_CONCURRENCY)); }
+async function mapWithConcurrency<T, R>(items: T[], count: number, mapper: (item: T, index: number) => Promise<R>) { const results = new Array<R>(items.length); let next = 0; async function worker() { while (true) { const index = next++; if (index >= items.length) return; results[index] = await mapper(items[index], index); } } await Promise.all(Array.from({ length: Math.min(count, items.length) }, worker)); return results; }
+function chunk<T>(items: T[], size: number) { const result: T[][] = []; for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size)); return result; }
+function formatError(error: unknown) { if (error instanceof Error) return error.message; try { return JSON.stringify(error); } catch { return String(error); } }

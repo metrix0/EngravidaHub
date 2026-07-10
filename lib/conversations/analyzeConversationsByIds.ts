@@ -298,7 +298,6 @@ async function prepareConversationSenderNames(
         normalizeName(typedConversation.attendant_chat_name);
 
     const updates: Array<{ id: string; sender_name: string }> = [];
-    let firstMissingAttendantMessageId: string | null = null;
     let firstResolvedAttendantName: string | null =
         assignedAttendantName;
 
@@ -350,12 +349,7 @@ async function prepareConversationSenderNames(
                 : null;
 
             const attendantName =
-                externalAttendantName ?? assignedAttendantName;
-
-            if (!attendantName) {
-                firstMissingAttendantMessageId ??= message.id;
-                continue;
-            }
+                externalAttendantName ?? assignedAttendantName ?? "Atendente";
 
             firstResolvedAttendantName ??= attendantName;
 
@@ -409,20 +403,9 @@ async function prepareConversationSenderNames(
             client_fallback_used:
                 clientName === "Cliente" &&
                 !normalizeName((client as ClientRow | null)?.name),
-            missing_attendant_message_id:
-                firstMissingAttendantMessageId,
+            missing_attendant_message_id: null,
         },
     );
-
-    if (firstMissingAttendantMessageId) {
-        return {
-            ok: false,
-            skipped: true,
-            reason: "missing_attendant_name",
-            conversation_id: conversationId,
-            message_id: firstMissingAttendantMessageId,
-        };
-    }
 
     return {
         ok: true,

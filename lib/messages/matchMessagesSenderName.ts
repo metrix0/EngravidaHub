@@ -273,7 +273,7 @@ function getSenderNameForMessage({
             message.external_attendant_id
         );
 
-        return attendant?.name ?? null;
+        return attendant?.name ?? message.sender_name?.trim() ?? "Atendente";
     }
 
     if (message.sender_type === "bot") {
@@ -284,7 +284,7 @@ function getSenderNameForMessage({
         return "Sistema";
     }
 
-    return null;
+    return "Sistema";
 }
 
 async function updateConversationAttendantNames({

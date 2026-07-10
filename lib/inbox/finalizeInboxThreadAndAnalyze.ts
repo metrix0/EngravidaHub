@@ -230,37 +230,25 @@ async function safelyAnalyzeConversation({
     requestId: string;
 }) {
     const logPrefix = `[inbox-finalize:${requestId}]`;
+    let lastError: unknown = null;
 
-    console.info(`${logPrefix} Starting targeted analysis`, {
-        conversationId,
-    });
-
-    try {
-        const result = await analyzeConversationById(conversationId);
-
-        console.info(`${logPrefix} Targeted analysis finished`, {
-            conversationId,
-            result: result.result,
-        });
-
-        return {
-            ok: true as const,
-            response: result,
-        };
-    } catch (error) {
-        console.error(`${logPrefix} Targeted analysis failed`, {
-            conversationId,
-            error,
-        });
-
-        return {
-            ok: false as const,
-            error:
-                error instanceof Error
-                    ? error.message
-                    : "Failed to analyze finalized conversation",
-        };
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+        try {
+            const result = await analyzeConversationById(conversationId);
+            const item = result.result;
+            if (!item || item.ok === false) {
+                throw new Error(item && "error" in item ? String(item.error) : item && "reason" in item ? String(item.reason) : "Conversation analysis did not complete");
+            }
+            console.info(`${logPrefix} Targeted analysis finished`, { conversationId, attempt, result: item });
+            return { ok: true as const, response: result };
+        } catch (error) {
+            lastError = error;
+            console.error(`${logPrefix} Targeted analysis attempt failed`, { conversationId, attempt, error });
+            if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, 500 * 2 ** (attempt - 1))));
+        }
     }
+
+    return { ok: false as const, error: lastError instanceof Error ? lastError.message : "Failed to analyze finalized conversation" };
 }
 
 async function loadThread(threadId: string) {
