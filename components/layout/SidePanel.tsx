@@ -532,7 +532,9 @@ function PersistentSidePanel({
                                     : undefined
                             }
                             title={profileName}
-                            className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white px-2 text-left transition-colors duration-150 ${
+                            className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white text-left transition-[padding,background-color] duration-150 ${
+                                isExpanded ? "px-2" : "px-1"
+                            } ${
                                 currentAttendant
                                     ? "cursor-pointer hover:bg-slate-50"
                                     : "cursor-default"
