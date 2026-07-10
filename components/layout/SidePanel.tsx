@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -12,6 +13,7 @@ import {
     Funnel,
     HelpCircle,
     LayoutDashboard,
+    LogOut,
     Megaphone,
     MessageCircle,
     MessagesSquare,
@@ -302,6 +304,16 @@ function PersistentSidePanel({
         : "";
     const homeHref = getFirstAllowedHref(allowedTabs) ?? pathname;
 
+    async function handleLogout() {
+        const supabase = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        );
+
+        await supabase.auth.signOut();
+        window.location.replace("/login");
+    }
+
     async function handleToggleAttendantStatus() {
         if (!currentAttendant || isStatusUpdating) return;
 
@@ -495,6 +507,28 @@ function PersistentSidePanel({
                                 }`}
                             >
                                 Precisa de ajuda?
+                            </span>
+                        </button>
+                    </div>
+
+                    <div className="shrink-0 px-4 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => void handleLogout()}
+                            title="Sair"
+                            className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-xl px-3 text-sm font-medium text-muted transition-colors duration-150 hover:bg-red-soft hover:text-red"
+                        >
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                <LogOut size={19} />
+                            </span>
+                            <span
+                                className={`min-w-0 whitespace-nowrap transition-[width,margin,opacity,transform] duration-150 ${
+                                    isExpanded
+                                        ? "ml-4 w-[160px] translate-x-0 opacity-100"
+                                        : "ml-0 w-0 -translate-x-1 opacity-0"
+                                }`}
+                            >
+                                Sair
                             </span>
                         </button>
                     </div>

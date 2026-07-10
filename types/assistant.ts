@@ -94,6 +94,7 @@ export type AssistantChatRequest = {
 export type AssistantChatResponse =
     | {
           ok: true;
+          error?: never;
           message: {
               role: "assistant";
               content: string;
@@ -103,4 +104,5 @@ export type AssistantChatResponse =
     | {
           ok: false;
           error: string;
+          message?: never;
       };
