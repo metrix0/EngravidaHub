@@ -223,7 +223,7 @@ const TOOLS = [
 export async function POST(request: Request) {
     const access = await getServerTabAccess("assistente");
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { ok: false, error: access.error },
             { status: access.status },

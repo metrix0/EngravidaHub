@@ -720,7 +720,8 @@ async function getBusinessOverview(
         clientsResult,
         conversationsResult,
         analysesResult,
-        appointmentsResult,
+        appointmentsScheduledResult,
+        appointmentsCreatedResult,
         openThreadsResult,
         activeMessagesResult,
         followupsResult,
@@ -746,6 +747,11 @@ async function getBusinessOverview(
             .gte("starts_at", fromIso)
             .lt("starts_at", toIso),
         supabase
+            .from("appointments")
+            .select("id", { count: "exact", head: true })
+            .gte("created_at", fromIso)
+            .lt("created_at", toIso),
+        supabase
             .from("thread")
             .select("id", { count: "exact", head: true })
             .eq("status", "open"),
@@ -756,55 +762,116 @@ async function getBusinessOverview(
             .lt("created_at", toIso),
         supabase
             .from("followups")
-            .select("id", { count: "exact", head: true })
-            .gte("created_at", fromIso)
-            .lt("created_at", toIso),
+            .select("ticket_id", { count: "exact", head: true })
+            .gte("storage_date", fromIso)
+            .lt("storage_date", toIso),
     ]);
 
-    const errors = [
-        clientsResult.error,
-        conversationsResult.error,
-        analysesResult.error,
-        appointmentsResult.error,
-        openThreadsResult.error,
-        activeMessagesResult.error,
-        followupsResult.error,
-    ].filter(Boolean);
+    const metricResults = [
+        { metric: "new_clients", result: clientsResult },
+        { metric: "conversations", result: conversationsResult },
+        { metric: "analyzed_conversations", result: analysesResult },
+        {
+            metric: "appointments_scheduled_for_period",
+            result: appointmentsScheduledResult,
+        },
+        {
+            metric: "appointments_created",
+            result: appointmentsCreatedResult,
+        },
+        { metric: "currently_open_threads", result: openThreadsResult },
+        { metric: "active_messages_sent", result: activeMessagesResult },
+        { metric: "followups_created", result: followupsResult },
+    ];
 
-    if (errors.length > 0) {
-        throw new Error(
-            `Falha ao carregar visão geral: ${errors[0]!.message}`,
-        );
+    const warnings: Array<{ metric: string; error: string }> = metricResults
+        .filter(({ result }) => Boolean(result.error))
+        .map(({ metric, result }) => ({
+            metric,
+            error:
+                result.error?.message?.trim() ||
+                "Falha desconhecida ao consultar esta métrica.",
+        }));
+
+    let unitPerformance: unknown[] = [];
+
+    try {
+        const comparison = await compareUnitPerformance({
+            date_from: dateFrom,
+            date_to: dateTo,
+            minimum_conversations: 1,
+        });
+        const comparisonOutput = isRecord(comparison.output)
+            ? comparison.output
+            : {};
+
+        if (comparisonOutput.ok === false) {
+            warnings.push({
+                metric: "unit_performance",
+                error:
+                    typeof comparisonOutput.error === "string" &&
+                    comparisonOutput.error.trim()
+                        ? comparisonOutput.error
+                        : "Não foi possível comparar o desempenho das unidades.",
+            });
+        } else {
+            unitPerformance = Array.isArray(comparisonOutput.units)
+                ? comparisonOutput.units
+                : [];
+        }
+    } catch (error) {
+        warnings.push({
+            metric: "unit_performance",
+            error:
+                error instanceof Error && error.message.trim()
+                    ? error.message
+                    : "Não foi possível comparar o desempenho das unidades.",
+        });
     }
 
-    const comparison = await compareUnitPerformance({
-        date_from: dateFrom,
-        date_to: dateTo,
-        minimum_conversations: 1,
-    });
-    const comparisonOutput = isRecord(comparison.output)
-        ? comparison.output
-        : {};
-    const unitPerformance = Array.isArray(comparisonOutput.units)
-        ? comparisonOutput.units
-        : [];
+    const countOrNull = (result: {
+        count: number | null;
+        error: { message?: string } | null;
+    }) => (result.error ? null : (result.count ?? 0));
 
     return {
         output: {
             ok: true,
+            partial_data: warnings.length > 0,
+            warnings,
             period: {
                 date_from: dateFrom,
                 date_to: dateTo,
                 timezone: TIME_ZONE,
             },
             totals: {
-                new_clients: clientsResult.count ?? 0,
-                conversations: conversationsResult.count ?? 0,
-                analyzed_conversations: analysesResult.count ?? 0,
-                appointments: appointmentsResult.count ?? 0,
-                currently_open_threads: openThreadsResult.count ?? 0,
-                active_messages_sent: activeMessagesResult.count ?? 0,
-                followups_created: followupsResult.count ?? 0,
+                new_clients: countOrNull(clientsResult),
+                conversations: countOrNull(conversationsResult),
+                analyzed_conversations: countOrNull(analysesResult),
+
+                // "appointments" is kept for backward compatibility and means
+                // appointments whose scheduled date falls inside the period.
+                appointments: countOrNull(appointmentsScheduledResult),
+                appointments_scheduled_for_period: countOrNull(
+                    appointmentsScheduledResult,
+                ),
+
+                // Use this field for sales/bookings made during the period.
+                appointments_created: countOrNull(appointmentsCreatedResult),
+
+                currently_open_threads: countOrNull(openThreadsResult),
+                active_messages_sent: countOrNull(activeMessagesResult),
+                followups_created: countOrNull(followupsResult),
+            },
+            metric_definitions: {
+                appointments_scheduled_for_period:
+                    "Consultas cuja data marcada acontece dentro do período.",
+                appointments_created:
+                    "Agendamentos criados dentro do período; use como referência para vendas/agendamentos realizados.",
+                followups_created:
+                    "Follow-ups registrados pela data de armazenamento dentro do período.",
+                currently_open_threads:
+                    "Total atual de conversas abertas; não é limitado pelo período.",
             },
             unit_performance: unitPerformance,
         },

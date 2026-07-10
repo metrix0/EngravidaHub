@@ -18,7 +18,7 @@ const MAX_MESSAGES_PER_SESSION = 100;
 export async function GET() {
     const access = await getServerTabAccess("assistente");
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { ok: false, error: access.error },
             { status: access.status },
@@ -97,7 +97,7 @@ export async function GET() {
 export async function POST(request: Request) {
     const access = await getServerTabAccess("assistente");
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { ok: false, error: access.error },
             { status: access.status },
@@ -222,7 +222,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
     const access = await getServerTabAccess("assistente");
 
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { ok: false, error: access.error },
             { status: access.status },
