@@ -14,36 +14,100 @@ type ParsedAnalysis = z.infer<typeof conversationAnalysisSchema>;
 type Attempt = { provider: "groq" | "openai"; model: string };
 
 export async function analyzeConversation(input: AnalyzeConversationInput): Promise<ConversationAnalysis> {
+    const prompt = userPrompt(input, null);
+    const estimatedInputTokens = estimateTokens(systemPrompt()) + estimateTokens(prompt);
+    const canUseGroq = estimatedInputTokens <= 5_000;
     const attempts: Attempt[] = [
-        { provider: "groq", model: PRIMARY },
-        { provider: "groq", model: PRIMARY },
-        { provider: "groq", model: SECONDARY },
+        ...(canUseGroq
+            ? [
+                  { provider: "groq", model: PRIMARY } as Attempt,
+                  { provider: "groq", model: SECONDARY } as Attempt,
+              ]
+            : []),
+        { provider: "openai", model: OPENAI_FALLBACK },
         { provider: "openai", model: OPENAI_FALLBACK },
     ];
     let lastError: unknown = null;
     let lastContent = "";
+    let skipRemainingGroqAttempts = false;
+
+    console.info("[analyzeConversation] analysis plan", {
+        conversation_id: input.conversation_id,
+        estimated_input_tokens: estimatedInputTokens,
+        groq_enabled: canUseGroq,
+        attempts: attempts.map((attempt) => ({
+            provider: attempt.provider,
+            model: attempt.model,
+        })),
+    });
 
     for (let index = 0; index < attempts.length; index += 1) {
         const attempt = attempts[index];
+
+        if (attempt.provider === "groq" && skipRemainingGroqAttempts) {
+            continue;
+        }
+
         try {
-            const response = await clientFor(attempt.provider).chat.completions.create({
-                model: attempt.model,
-                temperature: 0,
-                max_completion_tokens: 8_000,
-                response_format: { type: "json_schema", json_schema: { name: "conversation_analysis", strict: true, schema: JSON_SCHEMA } },
-                messages: [
-                    { role: "system", content: systemPrompt() },
-                    { role: "user", content: userPrompt(input, index > 0 ? errorText(lastError, lastContent) : null) },
-                ],
-            });
+            const retryContext =
+                index > 0 ? errorText(lastError, lastContent) : null;
+            const messages = [
+                { role: "system" as const, content: systemPrompt() },
+                {
+                    role: "user" as const,
+                    content: userPrompt(input, retryContext),
+                },
+            ];
+            const request =
+                attempt.provider === "groq"
+                    ? {
+                          model: attempt.model,
+                          temperature: 0,
+                          max_completion_tokens: 2_000,
+                          response_format: {
+                              type: "json_schema" as const,
+                              json_schema: {
+                                  name: "conversation_analysis",
+                                  strict: true,
+                                  schema: JSON_SCHEMA,
+                              },
+                          },
+                          messages,
+                      }
+                    : {
+                          model: attempt.model,
+                          max_completion_tokens: 4_000,
+                          response_format: {
+                              type: "json_schema" as const,
+                              json_schema: {
+                                  name: "conversation_analysis",
+                                  strict: true,
+                                  schema: JSON_SCHEMA,
+                              },
+                          },
+                          messages,
+                      };
+            const response: any = await clientFor(
+                attempt.provider,
+            ).chat.completions.create(request as any);
             const content = response.choices[0]?.message?.content?.trim();
             if (!content) throw new Error("AI did not return content");
             lastContent = content;
-            const parsed = conversationAnalysisSchema.safeParse(JSON.parse(extractJson(content)));
+            const parsed = conversationAnalysisSchema.safeParse(
+                JSON.parse(extractJson(content)),
+            );
             if (!parsed.success) throw parsed.error;
             return enforceRules(input, parsed.data);
         } catch (error) {
             lastError = error;
+
+            if (
+                attempt.provider === "groq" &&
+                isGroqCapacityError(error)
+            ) {
+                skipRemainingGroqAttempts = true;
+            }
+
             console.error("[analyzeConversation] attempt failed", {
                 conversation_id: input.conversation_id,
                 attempt: index + 1,
@@ -51,15 +115,16 @@ export async function analyzeConversation(input: AnalyzeConversationInput): Prom
                 model: attempt.model,
                 error: formatError(error),
             });
-            if (index < attempts.length - 1) await sleep(Math.min(8_000, 750 * 2 ** index));
+
+            if (index < attempts.length - 1) {
+                await sleep(Math.min(8_000, 750 * 2 ** index));
+            }
         }
     }
 
-    console.error("[analyzeConversation] using deterministic fallback", {
-        conversation_id: input.conversation_id,
-        error: formatError(lastError),
-    });
-    return enforceRules(input, conservativeFallback(input));
+    throw new Error(
+        `Conversation analysis failed after all providers: ${formatError(lastError)}`,
+    );
 }
 
 function clientFor(provider: Attempt["provider"]) {
@@ -184,24 +249,6 @@ function enforceRules(input: AnalyzeConversationInput, raw: ParsedAnalysis): Con
     };
 }
 
-function conservativeFallback(input: AnalyzeConversationInput): ParsedAnalysis {
-    const messages = sortMessages(input.messages);
-    const timing = responseTiming(messages);
-    const human = messages.some((message) => message.sender_type === "attendant");
-    return {
-        conversation_id: input.conversation_id, client_id: input.client_id,
-        started_at: messages[0]?.sent_at ?? input.started_at, ended_at: messages.at(-1)?.sent_at ?? input.ended_at,
-        attendant_id: input.attendant_id, unit_id: input.unit_id, service_id: input.service_id,
-        customer_start_intent: "other", conversation_goal: "other", goal_status: "unclear", customer_final_state: "unclear",
-        outcome_events: [], dropoff: { happened: false, moment: null, likely_reason: null, confidence: 0 }, objections: [],
-        sentiment: { customer_sentiment: "neutral", satisfaction_score: 50, confidence: 0.2 },
-        attendant_quality: human ? { clarity_score: 50, empathy_score: 50, proactivity_score: 50, objection_handling_score: 50, response_speed_score: speedScore(timing.average_human_response_time_seconds), overall_score: 50 } : zeroQuality(),
-        response_timing: timing,
-        resolution: { resolved: "partial", resolution_score: 50, reasoning_category: "unclear" },
-        short_label: "Análise conservadora", notable: false, notable_reason: null,
-    };
-}
-
 function responseTiming(messages: AnalyzeConversationMessage[]) {
     const delays: number[] = [];
     let pendingClient: number | null = null;
@@ -245,6 +292,24 @@ function fallbackLabel(dropoff: ConversationAnalysis["dropoff"]) { return dropof
 function sortMessages(messages: AnalyzeConversationMessage[]) { return [...messages].sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime() || a.sequence_index - b.sequence_index || a.id.localeCompare(b.id)); }
 function dedupeEvents<T extends { type: string; occurred_at: string | null }>(events: T[]) { const seen = new Set<string>(); return events.filter((event) => { const key = `${event.type}:${event.occurred_at ?? ""}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
 function extractJson(content: string) { const cleanContent = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(); const start = cleanContent.indexOf("{"); const end = cleanContent.lastIndexOf("}"); if (start < 0 || end < start) throw new Error("AI response does not contain JSON"); return cleanContent.slice(start, end + 1); }
-function errorText(error: unknown, content: string) { return `${formatError(error)}${content ? ` | output: ${content.slice(0, 2000)}` : ""}`; }
+function errorText(error: unknown, content: string) {
+    return `${formatError(error).slice(0, 500)}${
+        content ? ` | output: ${content.slice(0, 500)}` : ""
+    }`;
+}
+function estimateTokens(value: string) {
+    return Math.ceil(value.length / 3);
+}
+function isGroqCapacityError(error: unknown) {
+    const message = formatError(error).toLowerCase();
+    return (
+        message.includes("request too large") ||
+        message.includes("tokens per minute") ||
+        message.includes("tokens per day") ||
+        message.includes("rate limit") ||
+        message.includes("status 413") ||
+        message.includes("status 429")
+    );
+}
 function formatError(error: unknown) { if (error instanceof Error) return error.message; try { return JSON.stringify(error); } catch { return String(error); } }
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }

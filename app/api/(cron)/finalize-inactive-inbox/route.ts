@@ -11,7 +11,6 @@ export const maxDuration = 300;
 
 const DEFAULT_INACTIVITY_HOURS = 16;
 const DEFAULT_FINALIZE_LIMIT = 100;
-const DEFAULT_ANALYSIS_RETRY_LIMIT = 100;
 const DEFAULT_LEGACY_MESSAGE_LIMIT = 1000;
 const MAX_LIMIT = 250;
 const FINALIZE_CONCURRENCY = 8;
@@ -63,13 +62,6 @@ export async function GET(request: Request) {
                 DEFAULT_FINALIZE_LIMIT,
         ),
     );
-    const analysisRetryLimit = parseLimit(
-        searchParams.get("analysis_retry_limit"),
-        Number(
-            process.env.INBOX_ANALYSIS_RETRY_LIMIT ??
-                DEFAULT_ANALYSIS_RETRY_LIMIT,
-        ),
-    );
     const legacyMessageLimit = parseLimit(
         searchParams.get("legacy_limit"),
         Number(
@@ -85,7 +77,6 @@ export async function GET(request: Request) {
         inactivityHours,
         inactiveBefore: inactiveBefore.toISOString(),
         finalizeLimit,
-        analysisRetryLimit,
         legacyMessageLimit,
     });
 
@@ -188,11 +179,25 @@ export async function GET(request: Request) {
             );
         }
 
-        // This intentionally includes both Inbox and legacy conversations.
-        // The oldest pending conversations are processed first, so a backlog
-        // cannot be permanently starved by newly finalized threads.
-        const conversationIdsToAnalyze =
-            await loadPendingConversationIds(analysisRetryLimit);
+        const finalizedConversationIds = finalizeResults
+            .filter(
+                (
+                    item,
+                ): item is Extract<
+                    FinalizeResult,
+                    { ok: true; skipped: false }
+                > => item.ok && !item.skipped,
+            )
+            .map((item) => item.conversation_id);
+
+        // Analyze only conversations produced by this request. A cron execution
+        // must never silently expand into an unrelated production backlog.
+        const conversationIdsToAnalyze = Array.from(
+            new Set([
+                ...finalizedConversationIds,
+                ...legacyConversationIds,
+            ]),
+        );
 
         let analysis = null;
         let analysisError: string | null = null;
@@ -308,33 +313,6 @@ async function loadInactiveThreads({
     }
 
     return (data ?? []) as InactiveThreadRow[];
-}
-
-async function loadPendingConversationIds(limit: number) {
-    const { data, error } = await supabase
-        .from("conversations")
-        .select("id")
-        .is("conversation_analysis_id", null)
-        .not("ended_at", "is", null)
-        .order("updated_at", {
-            ascending: true,
-            nullsFirst: false,
-        })
-        .order("ended_at", {
-            ascending: true,
-            nullsFirst: false,
-        })
-        .limit(limit);
-
-    if (error) {
-        throw new Error(
-            `Failed to load pending conversations: ${error.message}`,
-        );
-    }
-
-    return (data ?? [])
-        .map((conversation) => conversation.id)
-        .filter((value): value is string => Boolean(value));
 }
 
 async function deferConversationRetries(conversationIds: string[]) {
