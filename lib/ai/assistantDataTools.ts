@@ -1255,6 +1255,7 @@ async function loadConversationContext(
         goal_status: analysis?.goal_status ?? null,
         customer_final_state: analysis?.customer_final_state ?? null,
         resolution_result: analysis?.resolution_result ?? null,
+        resolution_score: numberOrNull(analysis?.resolution_score),
         dropoff_happened: Boolean(analysis?.dropoff_happened),
         dropoff_moment: analysis?.dropoff_moment ?? null,
         satisfaction_score: numberOrNull(analysis?.satisfaction_score),

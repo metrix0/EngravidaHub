@@ -1583,10 +1583,8 @@ export function FloatingConversationPanel() {
       return;
     }
 
-    window.dispatchEvent(
-      new CustomEvent(OPEN_CONVERSATION_DETAILS_EVENT, {
-        detail: { conversationId: target.id },
-      }),
+    router.push(
+      `/conversas?conversation_id=${encodeURIComponent(target.id)}`,
     );
   }
 

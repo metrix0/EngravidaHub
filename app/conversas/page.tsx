@@ -1,7 +1,8 @@
 // app/conversas/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, CircleAlert } from "lucide-react";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import {
@@ -123,6 +124,18 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
 ];
 
 export default function MessagesPage() {
+    return (
+        <Suspense fallback={<MessagesPageLoading />}>
+            <MessagesPageContent />
+        </Suspense>
+    );
+}
+
+function MessagesPageContent() {
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const requestedConversationId = searchParams.get("conversation_id");
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
@@ -134,7 +147,6 @@ export default function MessagesPage() {
     const [notableValues, setNotableValues] = useState<string[]>([]);
     const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
     const [selectedRange, setSelectedRange] = useState<DateRange>({ start: null, end: null });
-    const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [totalConversations, setTotalConversations] = useState(0);
@@ -200,11 +212,34 @@ export default function MessagesPage() {
     const firstItem = totalConversations === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
     const lastItem = Math.min(currentPage * PAGE_SIZE, totalConversations);
 
+    function handleOpenConversation(conversationId: string) {
+        const nextSearchParams = new URLSearchParams(searchParams.toString());
+        nextSearchParams.set("conversation_id", conversationId);
+        router.replace(`${pathname}?${nextSearchParams.toString()}`, {
+            scroll: false,
+        });
+    }
+
+    function handleCloseConversationPanel() {
+        if (!requestedConversationId) return;
+
+        const nextSearchParams = new URLSearchParams(searchParams.toString());
+        nextSearchParams.delete("conversation_id");
+        const query = nextSearchParams.toString();
+        router.replace(query ? `${pathname}?${query}` : pathname, {
+            scroll: false,
+        });
+    }
+
     if (loadingFilters && loadingConversations) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel/>
                 <section className="flex-1 px-8 py-8"><MessagesSkeleton/></section>
+                <ConversationPanel
+                    conversationId={requestedConversationId}
+                    onClose={handleCloseConversationPanel}
+                />
             </main>
         );
     }
@@ -295,7 +330,7 @@ export default function MessagesPage() {
                         columns={CONVERSATION_COLUMNS}
                         rows={conversations}
                         getRowKey={(conversation) => conversation.id}
-                        onRowClick={(conversation) => setSelectedConversationId(conversation.id)}
+                        onRowClick={(conversation) => handleOpenConversation(conversation.id)}
                     />
                 )}
 
@@ -311,9 +346,20 @@ export default function MessagesPage() {
             </section>
 
             <ConversationPanel
-                conversationId={selectedConversationId}
-                onClose={() => setSelectedConversationId(null)}
+                conversationId={requestedConversationId}
+                onClose={handleCloseConversationPanel}
             />
+        </main>
+    );
+}
+
+function MessagesPageLoading() {
+    return (
+        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <SidePanel />
+            <section className="flex-1 px-8 py-8">
+                <MessagesSkeleton />
+            </section>
         </main>
     );
 }

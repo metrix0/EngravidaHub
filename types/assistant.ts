@@ -44,6 +44,7 @@ export type AssistantConversationCardData = {
     goal_status: string | null;
     customer_final_state: string | null;
     resolution_result: string | null;
+    resolution_score?: number | null;
     dropoff_happened: boolean;
     dropoff_moment: string | null;
     satisfaction_score: number | null;
