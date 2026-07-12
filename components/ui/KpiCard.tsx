@@ -7,15 +7,13 @@ type KpiCardColor = "brand" | "green" | "blue" | "orange" | "purple" | "pink";
 type KpiCardProps = {
     icon: ReactNode;
     label: string;
-
-    currentValue: number;
+    currentValue: number | null;
     previousValue?: number | null;
-
     suffix?: string;
     formatter?: (value: number) => string;
-
     color?: KpiCardColor;
     positiveDirection?: "up" | "down";
+    unavailableLabel?: string;
 };
 
 const colorClasses: Record<KpiCardColor, string> = {
@@ -28,18 +26,22 @@ const colorClasses: Record<KpiCardColor, string> = {
 };
 
 export default function KpiCard({
-                                    icon,
-                                    label,
-                                    currentValue,
-                                    previousValue = null,
-                                    suffix = "",
-                                    formatter,
-                                    color = "brand",
-                                    positiveDirection = "up",
-                                }: KpiCardProps) {
-    const formattedValue = formatter
-        ? formatter(currentValue)
-        : `${currentValue}${suffix}`;
+    icon,
+    label,
+    currentValue,
+    previousValue = null,
+    suffix = "",
+    formatter,
+    color = "brand",
+    positiveDirection = "up",
+    unavailableLabel = "—",
+}: KpiCardProps) {
+    const formattedValue =
+        currentValue === null
+            ? unavailableLabel
+            : formatter
+              ? formatter(currentValue)
+              : `${currentValue}${suffix}`;
 
     const trend = getTrend({
         currentValue,
@@ -49,13 +51,13 @@ export default function KpiCard({
 
     return (
         <Card className="h-full">
-            <div className="flex min-w-0 items-center gap-5 h-full">
-                <div className={"h-full flex items-center "}>
-                <div
-                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${colorClasses[color]}`}
-                >
-                    {icon}
-                </div>
+            <div className="flex h-full min-w-0 items-center gap-5">
+                <div className="flex h-full items-center">
+                    <div
+                        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${colorClasses[color]}`}
+                    >
+                        {icon}
+                    </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -83,31 +85,33 @@ export default function KpiCard({
 }
 
 function getTrend({
-                      currentValue,
-                      previousValue,
-                      positiveDirection,
-                  }: {
-    currentValue: number;
+    currentValue,
+    previousValue,
+    positiveDirection,
+}: {
+    currentValue: number | null;
     previousValue: number | null;
     positiveDirection: "up" | "down";
 }) {
-    if (previousValue === null || previousValue === 0) return null;
+    if (
+        currentValue === null ||
+        previousValue === null ||
+        previousValue === 0
+    ) {
+        return null;
+    }
 
     const difference = currentValue - previousValue;
-
     if (difference === 0) return null;
 
     const percentageChange = (difference / previousValue) * 100;
-
     if (Math.abs(percentageChange) < 0.1) return null;
 
     const wentUp = difference > 0;
     const isPositive = positiveDirection === "up" ? wentUp : !wentUp;
-
     const arrow = wentUp ? "↑" : "↓";
-
     const formattedChange = Math.abs(percentageChange).toLocaleString("pt-BR", {
-        minimumFractionDigits: percentageChange < 1 ? 1 : 0,
+        minimumFractionDigits: Math.abs(percentageChange) < 1 ? 1 : 0,
         maximumFractionDigits: 1,
     });
 
@@ -128,12 +132,5 @@ export const __uiDemo = {
             color="green"
         />
     ),
-    code: `<KpiCard
-  icon={<span>✓</span>}
-  label="Resolução real"
-  currentValue={78}
-  previousValue={72}
-  suffix="%"
-  color="green"
-/>`,
+    code: `<KpiCard currentValue={78} previousValue={72} suffix="%" />`,
 };

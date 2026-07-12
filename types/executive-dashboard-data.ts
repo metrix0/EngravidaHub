@@ -1,4 +1,26 @@
 // types/executive-dashboard-data.ts
+export type ExecutiveKpis = {
+    conversations_analyzed: number;
+
+    real_resolution_rate: number | null;
+    resolution_observed: number;
+    resolution_coverage_rate: number | null;
+
+    clear_satisfaction_rate: number | null;
+    satisfaction_observed: number;
+    satisfaction_coverage_rate: number | null;
+
+    scheduling_rate: number | null;
+    scheduling_eligible: number;
+
+    average_first_human_response_seconds: number | null;
+    median_first_human_response_seconds: number | null;
+    p90_first_human_response_seconds: number | null;
+    first_human_response_observed: number;
+    first_human_response_eligible: number;
+    first_human_response_coverage_rate: number | null;
+};
+
 export type ExecutiveDashboardData = {
     filters: {
         days: number;
@@ -11,58 +33,50 @@ export type ExecutiveDashboardData = {
         attendant_ids: string[];
     };
 
-    kpis: {
-        conversations_analyzed: number;
-
-        real_resolution_rate: number;
-        clear_satisfaction_rate: number;
-        scheduling_rate: number;
-
-        average_first_human_response_seconds: number | null;
-    };
+    kpis: ExecutiveKpis;
+    previous_kpis: ExecutiveKpis;
 
     daily_evolution: {
         date: string;
+        date_iso?: string;
         conversations: number;
-        resolution_rate: number;
-        satisfaction_rate: number;
+        resolution_rate: number | null;
+        resolution_observed: number;
+        satisfaction_rate: number | null;
+        satisfaction_observed: number;
     }[];
 
     attendance_score: {
-        overall_score: number;
-        resolution_score: number;
-        satisfaction_score: number;
-        response_speed_score: number;
-        attendant_quality_score: number;
+        overall_score: number | null;
+        resolution_score: number | null;
+        satisfaction_score: number | null;
+        response_speed_score: number | null;
+        attendant_quality_score: number | null;
     };
 
     dropoff_moments: {
         moment: string;
         label: string;
         count: number;
-        percentage: number;
+        percentage: number | null;
     }[];
 
     conversation_goals: {
         goal: string;
         label: string;
         count: number;
-        percentage: number;
+        percentage: number | null;
     }[];
 
     by_unit: {
         unit_id: string | null;
         unit_name: string;
         conversations: number;
-        resolution_rate: number;
-        satisfaction_rate: number;
-        scheduling_rate: number;
+        resolution_rate: number | null;
+        resolution_observed: number;
+        satisfaction_rate: number | null;
+        satisfaction_observed: number;
+        scheduling_rate: number | null;
+        scheduling_eligible: number;
     }[];
-    previous_kpis: {
-        conversations_analyzed: number;
-        real_resolution_rate: number;
-        clear_satisfaction_rate: number;
-        scheduling_rate: number;
-        average_first_human_response_seconds: number | null;
-    };
 };
