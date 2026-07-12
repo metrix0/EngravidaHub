@@ -182,6 +182,7 @@ export default function InboxPage() {
         itemType: InboxItemType;
     } | null>(null);
     const selectedThreadRequestRef = useRef(0);
+    const finalizingThreadIdRef = useRef<string | null>(null);
 
     const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
@@ -271,6 +272,14 @@ export default function InboxPage() {
     }, []);
 
     const loadSelectedThread = useCallback(async () => {
+        if (
+            selectedItemType === "thread" &&
+            selectedId !== null &&
+            selectedId === finalizingThreadIdRef.current
+        ) {
+            return;
+        }
+
         const requestId = ++selectedThreadRequestRef.current;
 
         if (!selectedId) {
@@ -475,6 +484,9 @@ export default function InboxPage() {
             threads.findIndex((thread) => thread.id === selectedId),
         );
 
+        finalizingThreadIdRef.current = threadId;
+        selectedThreadRequestRef.current += 1;
+        setIsLoadingSelectedThread(false);
         setIsFinalizingConversation(true);
 
         try {
@@ -553,6 +565,10 @@ export default function InboxPage() {
         } catch (error) {
             console.error("[inbox] failed to finalize conversation", error);
         } finally {
+            if (finalizingThreadIdRef.current === threadId) {
+                finalizingThreadIdRef.current = null;
+            }
+
             setIsFinalizingConversation(false);
         }
     }
