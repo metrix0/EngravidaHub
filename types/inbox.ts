@@ -50,6 +50,8 @@ export type InboxMessage = {
     sent_at: string;
     sequence_index?: number | null;
     conversation_boundary_label?: string | null;
+    external_id?: string | null;
+    external_contact_id?: string | null;
 };
 
 export type InboxNote = {

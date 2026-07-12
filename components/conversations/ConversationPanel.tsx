@@ -28,6 +28,7 @@ import {
     type ConversationResult,
 } from "@/components";
 import { InitialsAvatar } from "./InitialsAvatar";
+import { ChatMessageContent } from "./ChatMessageBubble";
 import { OPEN_CONVERSATION_DETAILS_EVENT } from "./FloatingConversationPanel";
 
 type SenderType = "client" | "attendant" | "bot" | "system";
@@ -38,6 +39,8 @@ type PanelMessage = {
     sender_name: string | null;
     text: string;
     sent_at: string;
+    external_id: string | null;
+    external_contact_id: string | null;
 };
 
 type PanelData = {
@@ -268,13 +271,19 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
 }
 
 function MessagesTab({ messages }: { messages: PanelMessage[] }) {
-    if (messages.length === 0) {
+    const visibleMessages = messages.filter(
+        (message) =>
+            message.text.trim() !==
+            "[Mensagem preservada: application/vnd.iris.ticket+json]",
+    );
+
+    if (visibleMessages.length === 0) {
         return <EmptyPanelMessage text="Nenhuma mensagem encontrada." />;
     }
 
     return (
         <div className="space-y-5">
-            {messages.map((message) => {
+            {visibleMessages.map((message) => {
                 const isClient = message.sender_type === "client";
                 const isAttendant = message.sender_type === "attendant";
                 const isBot = message.sender_type === "bot";
@@ -315,7 +324,10 @@ function MessagesTab({ messages }: { messages: PanelMessage[] }) {
                                         : "bg-purple-soft text-slate-800"
                                 }`}
                             >
-                                {message.text}
+                                <ChatMessageContent
+                                    message={message}
+                                    attachmentAccess="conversation"
+                                />
                             </div>
                         </div>
 

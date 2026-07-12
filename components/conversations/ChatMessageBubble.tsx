@@ -16,6 +16,8 @@ export type SharedChatMessage = {
     time?: string | null;
     sequence_index?: number | null;
     conversation_boundary_label?: string | null;
+    external_id?: string | null;
+    external_contact_id?: string | null;
 };
 
 type ChatMessageBubbleProps = {
@@ -23,7 +25,8 @@ type ChatMessageBubbleProps = {
 };
 
 type MessageAttachment = {
-    path: string;
+    path: string | null;
+    legacyMessageId: string | null;
     name: string;
     mimeType: string;
     size: number | null;
@@ -32,12 +35,14 @@ type MessageAttachment = {
 const LEGACY_ATTACHMENT_MARKER = "\n::engravida-attachment::";
 const ATTACHMENT_METADATA_PREFIX = "engravida-attachment:";
 const TAG_CHARACTER_PATTERN = /[\u{E0020}-\u{E007E}]+\u{E007F}/u;
+const LEGACY_MEDIA_PATTERN =
+    /^\[(Imagem|Vídeo|Áudio|Arquivo) enviado\](?:\s+([\s\S]+))?$/i;
 
 export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
     const isAttendant = isAttendantMessage(message);
     const senderLabel = getSenderLabel(message, isAttendant);
     const timeLabel = getTimeLabel(message);
-    const attachmentMessage = parseAttachmentMessage(message.text);
+    const attachmentMessage = parseAttachmentMessage(message);
 
     return (
         <div className={`flex ${isAttendant ? "justify-end" : "justify-start"}`}>
@@ -56,14 +61,11 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
                     {senderLabel}
                 </div>
 
-                {attachmentMessage ? (
-                    <AttachmentContent
-                        attachment={attachmentMessage.attachment}
-                        isAttendant={isAttendant}
-                    />
-                ) : (
-                    <p className="whitespace-pre-wrap">{message.text}</p>
-                )}
+                <ChatMessageContent
+                    message={message}
+                    isAttendant={isAttendant}
+                    attachmentMessage={attachmentMessage}
+                />
 
                 <div
                     className={`mt-1 text-right text-xs ${
@@ -77,18 +79,46 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
     );
 }
 
+export function ChatMessageContent({
+    message,
+    isAttendant = false,
+    attachmentAccess = "inbox",
+    attachmentMessage = parseAttachmentMessage(message),
+}: {
+    message: SharedChatMessage;
+    isAttendant?: boolean;
+    attachmentAccess?: "inbox" | "conversation";
+    attachmentMessage?: ReturnType<typeof parseAttachmentMessage>;
+}) {
+    return attachmentMessage ? (
+        <AttachmentContent
+            attachment={attachmentMessage.attachment}
+            isAttendant={isAttendant}
+            attachmentAccess={attachmentAccess}
+        />
+    ) : (
+        <p className="whitespace-pre-wrap">{message.text}</p>
+    );
+}
+
 function AttachmentContent({
     attachment,
     isAttendant,
+    attachmentAccess,
 }: {
     attachment: MessageAttachment;
     isAttendant: boolean;
+    attachmentAccess: "inbox" | "conversation";
 }) {
     const [imageFailed, setImageFailed] = useState(false);
     const [audioFailed, setAudioFailed] = useState(false);
-    const attachmentUrl = `/api/inbox/attachments?path=${encodeURIComponent(
-        attachment.path,
-    )}`;
+    const attachmentUrl = attachment.path
+        ? attachmentAccess === "conversation"
+            ? `/api/conversations/media?path=${encodeURIComponent(attachment.path)}`
+            : `/api/inbox/attachments?path=${encodeURIComponent(attachment.path)}`
+        : `/api/conversations/media?message_id=${encodeURIComponent(
+              attachment.legacyMessageId ?? "",
+          )}`;
     const isImage = attachment.mimeType.startsWith("image/");
     const isAudio = attachment.mimeType.startsWith("audio/");
 
@@ -227,9 +257,9 @@ function getTimeLabel(message: SharedChatMessage) {
     }).format(new Date(message.sent_at));
 }
 
-function parseAttachmentMessage(text: string) {
-    const metadataText = readAttachmentMetadata(text);
-    if (!metadataText) return null;
+function parseAttachmentMessage(message: SharedChatMessage) {
+    const metadataText = readAttachmentMetadata(message.text);
+    if (!metadataText) return parseLegacyMediaMessage(message);
 
     const params = new URLSearchParams(metadataText);
     const path = params.get("path")?.trim() ?? "";
@@ -242,9 +272,38 @@ function parseAttachmentMessage(text: string) {
     return {
         attachment: {
             path,
+            legacyMessageId: null,
             name,
             mimeType,
             size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : null,
+        } satisfies MessageAttachment,
+    };
+}
+
+function parseLegacyMediaMessage(message: SharedChatMessage) {
+    if (!message.external_id || !message.external_contact_id) return null;
+
+    const match = LEGACY_MEDIA_PATTERN.exec(message.text.trim());
+    if (!match) return null;
+
+    const kind = normalize(match[1]);
+    const suppliedName = match[2]?.trim() || null;
+    const properties = {
+        imagem: { name: "Imagem recebida", mimeType: "image/legacy" },
+        video: { name: "Vídeo recebido", mimeType: "video/legacy" },
+        audio: { name: "Áudio recebido", mimeType: "audio/legacy" },
+        arquivo: { name: "Arquivo recebido", mimeType: "application/octet-stream" },
+    }[kind];
+
+    if (!properties) return null;
+
+    return {
+        attachment: {
+            path: null,
+            legacyMessageId: message.id,
+            name: suppliedName ?? properties.name,
+            mimeType: properties.mimeType,
+            size: null,
         } satisfies MessageAttachment,
     };
 }

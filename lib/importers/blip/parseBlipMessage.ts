@@ -1,9 +1,14 @@
 // lib/importers/blip/parseBlipMessage.ts
 import type { SenderType } from "@/types/message";
 
-export type ParsedBlipAudio = { uri: string; mime_type: string; size: number | null; name: string | null };
+export type ParsedBlipMedia = {
+    uri: string;
+    mime_type: string;
+    size: number | null;
+    name: string | null;
+};
 export type ParsedBlipMessage = {
-    sender_type: SenderType; sender_name: string | null; text: string; audio: ParsedBlipAudio | null;
+    sender_type: SenderType; sender_name: string | null; text: string; media: ParsedBlipMedia | null;
     sent_at: string; external_attendant_id: string | null; external_id: string | null;
     external_contact_id: string | null; external_thread_id: string | null; interactive_option_id: string | null;
 };
@@ -15,7 +20,7 @@ export function parseBlipMessage(payload: BlipPayload): ParsedBlipMessage | null
     const text = extractText(payload) ?? unsupportedText(payload);
     if (!text) return null;
     return {
-        sender_type: senderType(payload), sender_name: senderName(payload), text, audio: extractAudio(payload), sent_at: sentAt(payload),
+        sender_type: senderType(payload), sender_name: senderName(payload), text, media: extractMedia(payload), sent_at: sentAt(payload),
         external_attendant_id: externalAttendantId(payload), external_id: payload.id ?? null,
         external_contact_id: externalContactId(payload), external_thread_id: metadata["#wa.bsuid"] ?? null,
         interactive_option_id: metadata["#wa.interactive.list.id"] ?? metadata["#wa.interactive.button.id"] ?? null,
@@ -50,11 +55,11 @@ function unsupportedText(payload: BlipPayload) {
     return `[Mensagem preservada: ${String(payload.type ?? "tipo desconhecido")}]`;
 }
 function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }
-function extractAudio(payload: BlipPayload): ParsedBlipAudio | null {
+function extractMedia(payload: BlipPayload): ParsedBlipMedia | null {
     if (payload.type !== "application/vnd.lime.media-link+json" || !payload.content || typeof payload.content !== "object") return null;
     const uri = typeof payload.content.uri === "string" ? payload.content.uri.trim() : "";
     const mime = normalizeMime(payload.content.type);
-    if (!uri || !mime.startsWith("audio/")) return null;
+    if (!uri || !mime) return null;
     const size = Number(payload.content.size ?? 0);
     const name = text(payload.content.title);
     return { uri, mime_type: mime, size: Number.isFinite(size) && size > 0 ? size : null, name };

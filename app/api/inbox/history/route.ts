@@ -167,6 +167,8 @@ function mapMessage(message: any): InboxMessage {
         time: formatMessageTime(message.sent_at),
         sent_at: message.sent_at,
         sequence_index: message.sequence_index ?? null,
+        external_id: message.external_id ?? null,
+        external_contact_id: message.external_contact_id ?? null,
     };
 }
 

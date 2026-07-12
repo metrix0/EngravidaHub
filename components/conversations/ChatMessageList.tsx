@@ -25,6 +25,8 @@ const FLOATING_TICKET_LIST_CLASS =
 const FLOATING_CHAT_RAIL_STORAGE_KEY = "engravida:floating-chat-rail:v2";
 const OPEN_FLOATING_CONVERSATION_EVENT =
     "engravida:open-floating-conversation";
+const HIDDEN_BLIP_MESSAGE_TEXT =
+    "[Mensagem preservada: application/vnd.iris.ticket+json]";
 
 type ChatMessageListProps = {
     messages: SharedChatMessage[];
@@ -151,7 +153,9 @@ export function ChatMessageList({
             (message) => !persistedIds.has(message.id),
         );
 
-        return dedupeMessages([...messages, ...localOnly]);
+        return dedupeMessages([...messages, ...localOnly]).filter(
+            (message) => message.text.trim() !== HIDDEN_BLIP_MESSAGE_TEXT,
+        );
     }, [localFloatingMessages, messages]);
 
     const orderedMessages = [...visibleMessages].sort((a, b) => {
