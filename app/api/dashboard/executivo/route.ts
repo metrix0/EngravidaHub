@@ -20,10 +20,13 @@ type ExecutiveKpis = {
     scheduling_rate: number | null;
     scheduling_eligible: number;
     average_first_human_response_seconds: number | null;
+    raw_average_first_human_response_seconds: number | null;
     median_first_human_response_seconds: number | null;
     p90_first_human_response_seconds: number | null;
     first_human_response_observed: number;
     first_human_response_eligible: number;
+    first_human_response_included_in_average: number;
+    first_human_response_excluded_over_2h: number;
     first_human_response_coverage_rate: number | null;
 };
 
@@ -166,6 +169,10 @@ function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
                 payload.kpis,
                 "average_first_human_response_seconds",
             ),
+            raw_average_first_human_response_seconds: nullableNumber(
+                payload.kpis,
+                "raw_average_first_human_response_seconds",
+            ),
             median_first_human_response_seconds: nullableNumber(
                 payload.kpis,
                 "median_first_human_response_seconds",
@@ -181,6 +188,14 @@ function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
             first_human_response_eligible: numberOrZero(
                 payload.kpis,
                 "first_human_response_eligible",
+            ),
+            first_human_response_included_in_average: numberOrZero(
+                payload.kpis,
+                "first_human_response_included_in_average",
+            ),
+            first_human_response_excluded_over_2h: numberOrZero(
+                payload.kpis,
+                "first_human_response_excluded_over_2h",
             ),
             first_human_response_coverage_rate: nullableNumber(
                 payload.kpis,
@@ -204,9 +219,9 @@ function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
     };
 }
 
-function asObject(value: unknown): Record<string, any> {
+function asObject(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
-        ? (value as Record<string, any>)
+        ? (value as Record<string, unknown>)
         : {};
 }
 

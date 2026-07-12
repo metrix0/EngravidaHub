@@ -648,17 +648,21 @@ function validateAndNormalize(
         raw.attendant_quality.evidence_message_ids,
         "attendant_quality",
     );
-    const quality = hasAttendant
+    const quality: ConversationAnalysis["attendant_quality"] = hasAttendant
         ? {
-              ...raw.attendant_quality,
+              clarity_score: raw.attendant_quality.clarity_score ?? null,
+              empathy_score: raw.attendant_quality.empathy_score ?? null,
+              proactivity_score:
+                  raw.attendant_quality.proactivity_score ?? null,
               objection_handling_score:
                   objections.length > 0
-                      ? raw.attendant_quality.objection_handling_score
+                      ? raw.attendant_quality.objection_handling_score ?? null
                       : null,
               response_speed_score:
                   timing.first_human_response_time_seconds !== null
-                      ? raw.attendant_quality.response_speed_score
+                      ? raw.attendant_quality.response_speed_score ?? null
                       : null,
+              overall_score: raw.attendant_quality.overall_score ?? null,
               evidence_message_ids: qualityEvidence,
           }
         : emptyQuality();

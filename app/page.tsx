@@ -56,10 +56,13 @@ type ExecutiveKpis = {
     scheduling_rate: number | null;
     scheduling_eligible: number;
     average_first_human_response_seconds: number | null;
+    raw_average_first_human_response_seconds: number | null;
     median_first_human_response_seconds: number | null;
     p90_first_human_response_seconds: number | null;
     first_human_response_observed: number;
     first_human_response_eligible: number;
+    first_human_response_included_in_average: number;
+    first_human_response_excluded_over_2h: number;
     first_human_response_coverage_rate: number | null;
 };
 
@@ -166,10 +169,12 @@ export default function ExecutiveDashboardPage() {
                 const response = await fetch(
                     `/api/dashboard/executivo?${params.toString()}`,
                 );
-                const json: ExecutiveDashboardData = await response.json();
+                const json = (await response.json()) as ExecutiveDashboardData & {
+                    error?: string;
+                };
 
                 if (!response.ok) {
-                    throw new Error((json as any).error ?? "Falha ao carregar dashboard.");
+                    throw new Error(json.error ?? "Falha ao carregar dashboard.");
                 }
 
                 setData(json);
@@ -216,6 +221,15 @@ export default function ExecutiveDashboardPage() {
     );
     const previousAverageResponseMinutes = secondsToMinutes(
         data.previous_kpis.average_first_human_response_seconds,
+    );
+    const rawAverageResponseMinutes = secondsToMinutes(
+        data.kpis.raw_average_first_human_response_seconds,
+    );
+    const medianResponseMinutes = secondsToMinutes(
+        data.kpis.median_first_human_response_seconds,
+    );
+    const p90ResponseMinutes = secondsToMinutes(
+        data.kpis.p90_first_human_response_seconds,
     );
 
     return (
@@ -305,6 +319,18 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={averageResponseMinutes}
                                         previousValue={previousAverageResponseMinutes}
                                         suffix=" min"
+                                        tooltipText={responseTimingTooltip({
+                                            filteredMeanMinutes: averageResponseMinutes,
+                                            rawMeanMinutes: rawAverageResponseMinutes,
+                                            medianMinutes: medianResponseMinutes,
+                                            p90Minutes: p90ResponseMinutes,
+                                            included:
+                                                data.kpis.first_human_response_included_in_average,
+                                            observed: data.kpis.first_human_response_observed,
+                                            eligible: data.kpis.first_human_response_eligible,
+                                            excludedOverTwoHours:
+                                                data.kpis.first_human_response_excluded_over_2h,
+                                        })}
                                         color="orange"
                                         positiveDirection="down"
                                     />
@@ -635,4 +661,37 @@ function secondsToMinutes(value: number | null): number | null {
     return value === null ? null : Math.round(value / 60);
 }
 
+function responseTimingTooltip({
+    filteredMeanMinutes,
+    rawMeanMinutes,
+    medianMinutes,
+    p90Minutes,
+    included,
+    observed,
+    eligible,
+    excludedOverTwoHours,
+}: {
+    filteredMeanMinutes: number | null;
+    rawMeanMinutes: number | null;
+    medianMinutes: number | null;
+    p90Minutes: number | null;
+    included: number;
+    observed: number;
+    eligible: number;
+    excludedOverTwoHours: number;
+}): string {
+    return [
+        `Média sem respostas acima de 2h: ${formatMinutes(filteredMeanMinutes)}`,
+        `Média bruta: ${formatMinutes(rawMeanMinutes)}`,
+        `Mediana: ${formatMinutes(medianMinutes)}`,
+        `P90: ${formatMinutes(p90Minutes)}`,
+        `Base da média: ${included.toLocaleString("pt-BR")} de ${observed.toLocaleString("pt-BR")} respostas observadas`,
+        `${eligible.toLocaleString("pt-BR")} conversas elegíveis`,
+        `${excludedOverTwoHours.toLocaleString("pt-BR")} respostas acima de 2h removidas`,
+    ].join(" · ");
+}
+
+function formatMinutes(value: number | null): string {
+    return value === null ? "—" : `${value.toLocaleString("pt-BR")} min`;
+}
 

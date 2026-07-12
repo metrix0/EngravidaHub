@@ -1673,6 +1673,9 @@ export function FloatingConversationPanel() {
               onToggleCollapsed={handleToggleChatCollapsed}
               onClose={handleCloseDock}
               onOpenDetails={() => handleOpenDetails(selectedTicket)}
+              onOpenClientProfile={(clientId) =>
+                router.push(`/clientes?client_id=${encodeURIComponent(clientId)}`)
+              }
             />
           ) : selected.kind === "internal" ? (
             <InternalFloatingPanel
@@ -1797,7 +1800,6 @@ export function FloatingConversationPanel() {
                         ),
                       };
                     });
-
                     throw error;
                   }
                 });
@@ -2197,7 +2199,6 @@ function SavedChatRow({
     </div>
   );
 }
-
 function PendingChatPanel({
   pending,
   collapsed,
@@ -2296,6 +2297,7 @@ function TicketFloatingPanel({
   onToggleCollapsed,
   onClose,
   onOpenDetails,
+  onOpenClientProfile,
 }: {
   target: SavedTicketTarget;
   data: FloatingConversationResponse | null;
@@ -2305,6 +2307,7 @@ function TicketFloatingPanel({
   onToggleCollapsed: () => void;
   onClose: () => void;
   onOpenDetails: () => void;
+  onOpenClientProfile: (clientId: string) => void;
 }) {
   const clientName = data?.client?.name ?? target.name ?? "Cliente sem nome";
   const phone = formatPhone(data?.client?.phone ?? target.phone ?? null);
@@ -2359,12 +2362,26 @@ function TicketFloatingPanel({
 
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <div
-                  title={clientName}
-                  className="truncate text-sm font-bold text-slate-950"
-                >
-                  {loading ? "Carregando..." : clientName}
-                </div>
+                {data?.client?.id ? (
+                  <button
+                    type="button"
+                    title={clientName}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenClientProfile(data.client!.id);
+                    }}
+                    className="min-w-0 cursor-pointer truncate text-left text-sm font-bold text-slate-950 transition-colors hover:text-slate-600"
+                  >
+                    {loading ? "Carregando..." : clientName}
+                  </button>
+                ) : (
+                  <div
+                    title={clientName}
+                    className="truncate text-sm font-bold text-slate-950"
+                  >
+                    {loading ? "Carregando..." : clientName}
+                  </div>
+                )}
 
                 {hasUnread ? (
                   <span

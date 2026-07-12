@@ -219,6 +219,11 @@ export default function ClientesPage() {
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
+    useEffect(() => {
+        const clientId = new URLSearchParams(window.location.search).get("client_id");
+        if (clientId) setSelectedClientId(clientId);
+    }, []);
+
     async function load() {
         setLoading(true);
 
@@ -347,7 +352,6 @@ export default function ClientesPage() {
     const paginatedClients = useMemo(() => {
         const start = (currentPage - 1) * CLIENTS_PER_PAGE;
         const end = start + CLIENTS_PER_PAGE;
-
         return filteredClients.slice(start, end);
     }, [filteredClients, currentPage]);
 
@@ -388,6 +392,18 @@ export default function ClientesPage() {
             new Date(client.last_interaction_at).getTime();
         return diff > 24 * 60 * 60 * 1000;
     }).length;
+
+    function handleCloseClientProfile() {
+        setSelectedClientId(null);
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has("client_id")) return;
+        url.searchParams.delete("client_id");
+        window.history.replaceState(
+            {},
+            "",
+            `${url.pathname}${url.search}${url.hash}`,
+        );
+    }
 
     if (loading || loadingFilters) {
         return (
@@ -600,7 +616,7 @@ export default function ClientesPage() {
 
             <ClientPanel
                 clientId={selectedClientId}
-                onClose={() => setSelectedClientId(null)}
+                onClose={handleCloseClientProfile}
                 onOpenConversation={setSelectedConversationId}
             />
 

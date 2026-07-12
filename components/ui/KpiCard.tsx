@@ -1,6 +1,8 @@
 // components/ui/KpiCard.tsx
 import type { ReactNode } from "react";
+import { HelpCircle } from "lucide-react";
 import Card from "./Card";
+import InfoTooltip from "./InfoTooltip";
 
 type KpiCardColor = "brand" | "green" | "blue" | "orange" | "purple" | "pink";
 
@@ -13,6 +15,7 @@ type KpiCardProps = {
     formatter?: (value: number) => string;
     color?: KpiCardColor;
     positiveDirection?: "up" | "down";
+    tooltipText?: string | null;
     unavailableLabel?: string;
 };
 
@@ -34,6 +37,7 @@ export default function KpiCard({
     formatter,
     color = "brand",
     positiveDirection = "up",
+    tooltipText = null,
     unavailableLabel = "—",
 }: KpiCardProps) {
     const formattedValue =
@@ -62,7 +66,18 @@ export default function KpiCard({
 
                 <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium leading-tight text-muted">
-                        {label}
+                        <span>{label}</span>
+                        {tooltipText ? (
+                            <>
+                                {" "}
+                                <InfoTooltip text={tooltipText} portal>
+                                    <HelpCircle
+                                        size={13}
+                                        className="inline align-[-2px] text-slate-400"
+                                    />
+                                </InfoTooltip>
+                            </>
+                        ) : null}
                     </div>
 
                     <div className="mt-1 whitespace-nowrap text-3xl font-bold tracking-tight text-text">

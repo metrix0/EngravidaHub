@@ -2,7 +2,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Calendar, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
 
 import {
@@ -49,6 +50,7 @@ type PanelData = {
         origin: string | null;
     };
     client: {
+        id: string;
         name: string | null;
         phone: string;
     };
@@ -64,6 +66,7 @@ type ConversationPanelProps = {
 type Tab = "messages" | "analysis" | "events" | "details";
 
 export function ConversationPanel({ conversationId, onClose }: ConversationPanelProps) {
+    const router = useRouter();
     const [data, setData] = useState<PanelData | null>(null);
     const [loading, setLoading] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
@@ -162,34 +165,46 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                 ) : (
                     <>
                         <div className="mb-5 flex items-start justify-between gap-4">
-                            <div className="flex min-w-0 items-center gap-4">
-                                <InitialsAvatar name={clientName} />
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    router.push(
+                                        `/clientes?client_id=${encodeURIComponent(data.client.id)}`,
+                                    )
+                                }
+                                className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 text-left transition-opacity hover:opacity-80"
+                                aria-label={`Abrir perfil de ${clientName}`}
+                            >
+                                <div className="flex min-w-0 items-center gap-4">
+                                    <InitialsAvatar name={clientName} />
 
-                                <div className="min-w-0">
-                                    <div
-                                        title={clientName}
-                                        className="truncate text-base font-bold text-slate-950"
-                                    >
-                                        {clientName}
-                                    </div>
-
-                                    <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                                        <Phone size={15} />
-                                        <span>{data.client.phone}</span>
-                                    </div>
-
-                                    <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                                        <Calendar size={15} />
-                                        <span
-                                            className="truncate"
-                                            title={`${formatDateTime(data.conversation.started_at)} - ${formatDateTime(data.conversation.ended_at)}`}
+                                    <div className="min-w-0">
+                                        <div
+                                            title={clientName}
+                                            className="truncate text-base font-bold text-slate-950"
                                         >
-                                            {formatDateTime(data.conversation.started_at)} -{" "}
-                                            {formatDateTime(data.conversation.ended_at)}
-                                        </span>
+                                            {clientName}
+                                        </div>
+
+                                        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                                            <Phone size={15} />
+                                            <span>{data.client.phone}</span>
+                                        </div>
+
+                                        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                                            <Calendar size={15} />
+                                            <span
+                                                className="truncate"
+                                                title={`${formatDateTime(data.conversation.started_at)} - ${formatDateTime(data.conversation.ended_at)}`}
+                                            >
+                                                {formatDateTime(data.conversation.started_at)} -{" "}
+                                                {formatDateTime(data.conversation.ended_at)}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                                <ChevronRight size={18} className="shrink-0 text-slate-400" />
+                            </button>
 
                             <span title={`Resolução ${result}`}>
                                 <Badge value={result} />

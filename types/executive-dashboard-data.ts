@@ -14,10 +14,13 @@ export type ExecutiveKpis = {
     scheduling_eligible: number;
 
     average_first_human_response_seconds: number | null;
+    raw_average_first_human_response_seconds: number | null;
     median_first_human_response_seconds: number | null;
     p90_first_human_response_seconds: number | null;
     first_human_response_observed: number;
     first_human_response_eligible: number;
+    first_human_response_included_in_average: number;
+    first_human_response_excluded_over_2h: number;
     first_human_response_coverage_rate: number | null;
 };
 
