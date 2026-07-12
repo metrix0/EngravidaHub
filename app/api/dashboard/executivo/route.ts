@@ -85,6 +85,10 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
         origin_values: string[];
     };
     previous_kpis: ExecutiveKpis;
+    response_anchor_breakdown: {
+        bot_handoff_to_attendant: number;
+        pending_client_to_attendant: number;
+    };
 };
 
 export async function GET(request: Request) {
@@ -92,7 +96,7 @@ export async function GET(request: Request) {
     const range = resolveDashboardDateRange(searchParams);
     const filters = readDashboardFilters(searchParams);
 
-    const [currentResult, previousResult] = await Promise.all([
+    const [currentResult, previousResult, responseAnchorResult] = await Promise.all([
         supabase.rpc(
             "dashboard_executive_metrics_v2",
             executiveRpcParams(
@@ -110,10 +114,24 @@ export async function GET(request: Request) {
                 filters,
             ),
         ),
+        supabase.rpc(
+            "dashboard_response_anchor_breakdown_v1",
+            executiveRpcParams(
+                { startAt: range.startAt, endAt: range.endAt },
+                filters,
+            ),
+        ),
     ]);
 
-    if (currentResult.error || previousResult.error) {
-        const error = currentResult.error ?? previousResult.error;
+    if (
+        currentResult.error ||
+        previousResult.error ||
+        responseAnchorResult.error
+    ) {
+        const error =
+            currentResult.error ??
+            previousResult.error ??
+            responseAnchorResult.error;
         console.error("[dashboard/executivo] canonical metric RPC failed", error);
         return NextResponse.json(
             { error: error?.message ?? "Falha ao carregar métricas." },
@@ -137,6 +155,9 @@ export async function GET(request: Request) {
         },
         kpis: current.kpis,
         previous_kpis: previous.kpis,
+        response_anchor_breakdown: normalizeResponseAnchorBreakdown(
+            responseAnchorResult.data,
+        ),
         daily_evolution: current.daily_evolution,
         attendance_score: current.attendance_score,
         dropoff_moments: current.dropoff_moments,
@@ -149,6 +170,21 @@ export async function GET(request: Request) {
             "Cache-Control": "private, no-store",
         },
     });
+}
+
+function normalizeResponseAnchorBreakdown(value: unknown) {
+    const payload = asObject(value);
+
+    return {
+        bot_handoff_to_attendant: numberOrZero(
+            payload,
+            "bot_handoff_to_attendant",
+        ),
+        pending_client_to_attendant: numberOrZero(
+            payload,
+            "pending_client_to_attendant",
+        ),
+    };
 }
 
 function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {

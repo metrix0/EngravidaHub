@@ -36,6 +36,11 @@ export type ExecutiveDashboardData = {
         attendant_ids: string[];
     };
 
+    response_anchor_breakdown: {
+        bot_handoff_to_attendant: number;
+        pending_client_to_attendant: number;
+    };
+
     kpis: ExecutiveKpis;
     previous_kpis: ExecutiveKpis;
 

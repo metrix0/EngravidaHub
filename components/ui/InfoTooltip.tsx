@@ -28,6 +28,7 @@ type PortalPosition = {
 
 const VIEWPORT_MARGIN = 12;
 const TOOLTIP_GAP = 8;
+const TOOLTIP_CLOSE_DELAY_MS = 160;
 
 export default function InfoTooltip({
                                         children,
@@ -37,6 +38,7 @@ export default function InfoTooltip({
                                     }: InfoTooltipProps) {
     const wrapperRef = useRef<HTMLSpanElement | null>(null);
     const tooltipRef = useRef<HTMLSpanElement | null>(null);
+    const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState<TooltipPosition>("bottom");
@@ -120,9 +122,26 @@ export default function InfoTooltip({
         };
     }, [open, portal, updatePosition]);
 
+    const clearCloseTimeout = useCallback(() => {
+        if (closeTimeoutRef.current === null) return;
+        clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+    }, []);
+
+    useEffect(() => clearCloseTimeout, [clearCloseTimeout]);
+
     function handleOpen() {
+        clearCloseTimeout();
         updatePosition();
         setOpen(true);
+    }
+
+    function handleClose() {
+        clearCloseTimeout();
+        closeTimeoutRef.current = setTimeout(() => {
+            setOpen(false);
+            closeTimeoutRef.current = null;
+        }, TOOLTIP_CLOSE_DELAY_MS);
     }
 
     const positionClass =
@@ -139,12 +158,15 @@ export default function InfoTooltip({
     const tooltip = (
         <span
             ref={tooltipRef}
+            role="tooltip"
+            onMouseEnter={clearCloseTimeout}
+            onMouseLeave={handleClose}
             className={
                 portal
-                    ? `pointer-events-none fixed z-[100] rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-opacity duration-150 ${
+                    ? `pointer-events-auto fixed z-[100] whitespace-pre-wrap rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-opacity duration-150 ${
                           open ? "opacity-100" : "opacity-0"
                       } ${widthClassName}`
-                    : `absolute ${positionClass} ${alignClass} z-50 rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-all duration-150 ${
+                    : `absolute ${positionClass} ${alignClass} z-50 whitespace-pre-wrap rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-all duration-150 ${
                           open
                               ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                               : "pointer-events-none -translate-y-1 scale-95 opacity-0"
@@ -169,7 +191,7 @@ export default function InfoTooltip({
             ref={wrapperRef}
             className="relative inline-flex"
             onMouseEnter={handleOpen}
-            onMouseLeave={() => setOpen(false)}
+            onMouseLeave={handleClose}
         >
             <span className="inline-flex cursor-help">{children}</span>
             {portal

@@ -77,6 +77,10 @@ type ExecutiveDashboardData = {
         origin_values: string[];
         attendant_ids: string[];
     };
+    response_anchor_breakdown: {
+        bot_handoff_to_attendant: number;
+        pending_client_to_attendant: number;
+    };
     kpis: ExecutiveKpis;
     previous_kpis: ExecutiveKpis;
     daily_evolution: {
@@ -330,6 +334,10 @@ export default function ExecutiveDashboardPage() {
                                             eligible: data.kpis.first_human_response_eligible,
                                             excludedOverTwoHours:
                                                 data.kpis.first_human_response_excluded_over_2h,
+                                            botHandoffToAttendant:
+                                                data.response_anchor_breakdown.bot_handoff_to_attendant,
+                                            pendingClientToAttendant:
+                                                data.response_anchor_breakdown.pending_client_to_attendant,
                                         })}
                                         color="orange"
                                         positiveDirection="down"
@@ -670,6 +678,8 @@ function responseTimingTooltip({
     observed,
     eligible,
     excludedOverTwoHours,
+    botHandoffToAttendant,
+    pendingClientToAttendant,
 }: {
     filteredMeanMinutes: number | null;
     rawMeanMinutes: number | null;
@@ -679,6 +689,8 @@ function responseTimingTooltip({
     observed: number;
     eligible: number;
     excludedOverTwoHours: number;
+    botHandoffToAttendant: number;
+    pendingClientToAttendant: number;
 }): string {
     return [
         `Média sem respostas acima de 2h: ${formatMinutes(filteredMeanMinutes)}`,
@@ -688,10 +700,13 @@ function responseTimingTooltip({
         `Base da média: ${included.toLocaleString("pt-BR")} de ${observed.toLocaleString("pt-BR")} respostas observadas`,
         `${eligible.toLocaleString("pt-BR")} conversas elegíveis`,
         `${excludedOverTwoHours.toLocaleString("pt-BR")} respostas acima de 2h removidas`,
-    ].join(" · ");
+        "",
+        "Origem da 1ª resposta observada:",
+        `Bot handoff → atendente: ${botHandoffToAttendant.toLocaleString("pt-BR")}`,
+        `Mensagem pendente do cliente → atendente: ${pendingClientToAttendant.toLocaleString("pt-BR")}`,
+    ].join("\n");
 }
 
 function formatMinutes(value: number | null): string {
     return value === null ? "—" : `${value.toLocaleString("pt-BR")} min`;
 }
-
