@@ -56,7 +56,7 @@ const BADGE_DEFINITIONS: readonly BadgeDefinition[] = [
     {
         values: ["pendente", "pending"],
         label: "Pendente",
-        className: "bg-orange text-orange",
+        className: "bg-soft-orange text-orange",
     },
     {
         values: ["direct", "direto"],

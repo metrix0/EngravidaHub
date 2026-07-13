@@ -9,7 +9,7 @@ import {
     getActiveMessageTemplateParameters,
     renderActiveMessageText,
 } from "@/lib/active-messages/templates";
-import { sendBlipTemplateMessage } from "@/lib/blip/sendBlipTemplateMessage";
+import { sendBlipActiveTemplateMessage } from "@/lib/blip/sendBlipActiveTemplateMessage";
 import { sendBlipTextMessage } from "@/lib/blip/sendBlipTextMessage";
 import { supabase } from "@/lib/supabase/client";
 import type {
@@ -228,14 +228,15 @@ export async function POST(request: Request) {
                               text: renderedText,
                               requestId: `${batch.id}:${client.id}`,
                           })
-                        : await sendBlipTemplateMessage({
+                        : await sendBlipActiveTemplateMessage({
                               recipientNumber: client.phone,
                               template,
-                              messageParams: getActiveMessageTemplateParameters({
-                                  template,
-                                  clientName: client.name,
-                                  dynamicValues,
-                              }),
+                              messageParams:
+                                  getActiveMessageTemplateParameters({
+                                      template,
+                                      clientName: client.name,
+                                      dynamicValues,
+                                  }),
                           });
 
                     const thread = threadByClientId.get(client.id) ?? null;
@@ -451,6 +452,7 @@ function normalizeClientIds(value: unknown) {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
 
 function isWhatsAppWindowOpen(lastClientMessageAt: string | null) {
     if (!lastClientMessageAt) return false;
