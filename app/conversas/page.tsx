@@ -54,14 +54,14 @@ const PAGE_SIZE = 50;
 
 const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
-        id: "attendant",
-        label: "Atendente",
+        id: "client",
+        label: "Cliente",
         width: "15%",
         render: (conversation) => (
             <div className="flex min-w-0 items-center gap-3">
-                <InitialsAvatar name={conversation.attendant_name}/>
-                <span title={conversation.attendant_name} className="truncate font-medium text-slate-700">
-                    {conversation.attendant_name}
+                <InitialsAvatar name={conversation.client_name}/>
+                <span title={conversation.client_name} className="truncate font-medium text-slate-700">
+                    {conversation.client_name}
                 </span>
             </div>
         ),
@@ -83,11 +83,11 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         render: (conversation) => <DateRangeCell start={conversation.started_at} end={conversation.ended_at}/>,
     },
     {
-        id: "client",
-        label: "Cliente",
+        id: "attendant",
+        label: "Atendente",
         width: "15%",
         render: (conversation) => (
-            <div title={conversation.client_name} className="truncate text-slate-700">{conversation.client_name}</div>
+            <div title={conversation.attendant_name} className="truncate text-slate-700">{conversation.attendant_name}</div>
         ),
     },
     {

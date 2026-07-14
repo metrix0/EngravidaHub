@@ -11,6 +11,7 @@ export type ActiveMessageClient = {
     last_interaction_at: string;
     utm_source: string | null;
     last_closing_tag: string | null;
+    tunnel: string | null;
     last_client_message_at: string | null;
     whatsapp_window_open: boolean;
     last_active_message_sent_at: string | null;

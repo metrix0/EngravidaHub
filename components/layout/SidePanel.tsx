@@ -63,7 +63,6 @@ type SidePanelProps = {
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
-const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
 
 const defaultItems: SidePanelEntry[] = [
     {
@@ -271,14 +270,7 @@ function PersistentSidePanel({
 
     const permission = currentUser?.permission ?? null;
     const allowedTabs = useMemo(
-        () =>
-            permission?.active
-                ? ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset)
-                    ? permission.allowed_tabs
-                    : permission.allowed_tabs.filter(
-                          (tabId) => tabId !== "mensagem_ativa",
-                      )
-                : [],
+        () => (permission?.active ? permission.allowed_tabs : []),
         [permission],
     );
 

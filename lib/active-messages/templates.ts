@@ -88,6 +88,62 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
             },
         ],
     },
+    {
+        id: "recaptacao_clientes_congelamento",
+        name: "Recaptação de clientes — Congelamento",
+        preview: [
+            "Olá, {{1}}, tudo bem? 😊",
+            "",
+            "Percebemos que nossa conversa ficou em pausa nos últimos dias.",
+            "",
+            "Continuamos à disposição para orientar você sobre o congelamento de óvulos, esclarecer dúvidas e acompanhar esse momento tão importante. 💛",
+            "",
+            "Se tiver alguma dúvida, é só nos chamar por aqui.",
+        ].join("\n"),
+        blip_template_name: "recaptacao_clientes_congelamento",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
+    {
+        id: "recaptacao_clientes_organico",
+        name: "Recaptação de clientes — Orgânico",
+        preview: [
+            "Olá, {{1}}, tudo bem? 😊",
+            "",
+            "Percebemos que nossa conversa ficou em pausa nos últimos dias.",
+            "",
+            "Continuamos à disposição para orientar você sobre os próximos passos e acompanhar esse momento tão importante. 💛",
+            "",
+            "Se tiver alguma dúvida, é só nos chamar por aqui.",
+        ].join("\n"),
+        blip_template_name: "recaptacao_clientes_organico",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
 ];
 
 export function getActiveMessageTemplate(templateId: string) {

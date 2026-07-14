@@ -18,12 +18,6 @@ const VALID_TAB_IDS = new Set([
     "funil",
 ]);
 
-const ACTIVE_MESSAGE_PRESET_IDS = new Set([
-    "admin",
-    "atendente",
-    "marketing",
-]);
-
 export async function PATCH(request: NextRequest) {
     try {
         const body = await request.json();
@@ -48,15 +42,14 @@ export async function PATCH(request: NextRequest) {
                   ),
               )]
             : [];
-        const restrictedTabs = ACTIVE_MESSAGE_PRESET_IDS.has(preset)
-            ? allowedTabs
-            : allowedTabs.filter((tabId) => tabId !== "mensagem_ativa");
+
+        const savedAllowedTabs =
+            preset === "__none__" ? [] : allowedTabs;
 
         const { error } = await supabase
             .from("user_permissions")
             .update({
-                allowed_tabs:
-                    preset === "__none__" ? [] : restrictedTabs,
+                allowed_tabs: savedAllowedTabs,
                 updated_at: new Date().toISOString(),
             })
             .eq("auth_user_id", authUserId);
@@ -65,7 +58,7 @@ export async function PATCH(request: NextRequest) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        return NextResponse.json({ ok: true, allowed_tabs: restrictedTabs });
+        return NextResponse.json({ ok: true, allowed_tabs: savedAllowedTabs });
     } catch (error) {
         return NextResponse.json(
             {

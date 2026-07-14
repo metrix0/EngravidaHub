@@ -234,32 +234,6 @@ const PRESETS: PermissionPreset[] = [
     },
 ];
 
-const ACTIVE_MESSAGE_PRESET_IDS = new Set<PresetId>([
-    "admin",
-    "atendente",
-    "marketing",
-]);
-
-function presetAllowsActiveMessage(
-    presetId: AccessPresetId | null | undefined,
-) {
-    return (
-        presetId !== null &&
-        presetId !== undefined &&
-        presetId !== NO_PRESET_ID &&
-        ACTIVE_MESSAGE_PRESET_IDS.has(presetId)
-    );
-}
-
-function restrictTabsForPreset(
-    presetId: AccessPresetId | null | undefined,
-    tabs: TabId[],
-) {
-    return presetAllowsActiveMessage(presetId)
-        ? tabs
-        : tabs.filter((tabId) => tabId !== "mensagem_ativa");
-}
-
 const colorClasses: Record<
     ColorName,
     { iconBg: string; iconText: string; softBg: string; text: string }
@@ -369,12 +343,9 @@ export default function UsuariosPage() {
                 permission?.preset === NO_PRESET_ID
                     ? null
                     : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-            const allowedTabs = restrictTabsForPreset(
-                permission?.preset ?? preset?.id ?? NO_PRESET_ID,
-                normalizeAllowedTabs(
-                    permission?.allowed_tabs,
-                    permission ? [] : preset?.default_tabs ?? [],
-                ),
+            const allowedTabs = normalizeAllowedTabs(
+                permission?.allowed_tabs,
+                permission ? [] : preset?.default_tabs ?? [],
             );
             const attendant = permission
                 ? permission.attendant_id
@@ -477,13 +448,11 @@ export default function UsuariosPage() {
         const nextPreset = noPresetSelected
             ? null
             : PRESETS.find((preset) => preset.id === nextPresetId) ?? null;
-        const nextAllowedTabs = restrictTabsForPreset(
-            nextPresetId,
+        const nextAllowedTabs =
             patch.allowed_tabs ??
-                (patchHasPreset
-                    ? nextPreset?.default_tabs ?? []
-                    : user.allowed_tabs),
-        );
+            (patchHasPreset
+                ? nextPreset?.default_tabs ?? []
+                : user.allowed_tabs);
         const nextAttendantId =
             patch.attendant_id !== undefined
                 ? patch.attendant_id
@@ -578,13 +547,6 @@ export default function UsuariosPage() {
     }
 
     function toggleUserTab(user: UserView, tabId: TabId) {
-        if (
-            tabId === "mensagem_ativa" &&
-            !presetAllowsActiveMessage(user.preset?.id ?? NO_PRESET_ID)
-        ) {
-            return;
-        }
-
         const nextTabs = user.allowed_tabs.includes(tabId)
             ? user.allowed_tabs.filter((item) => item !== tabId)
             : [...user.allowed_tabs, tabId];
@@ -948,13 +910,7 @@ function UserDetailsPanel({
 }) {
     if (!user) return null;
 
-    const allTabs = tabsFromIds(
-        TABS.filter(
-            (tab) =>
-                tab.id !== "mensagem_ativa" ||
-                presetAllowsActiveMessage(user.preset?.id ?? NO_PRESET_ID),
-        ).map((tab) => tab.id),
-    );
+    const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
     const accessInfo = getAccessInfo(user);
     const accessColors = accessInfo.preset
         ? getColorClasses(accessInfo.preset.color)

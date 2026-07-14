@@ -78,6 +78,7 @@ export default function MensagemAtivaPage() {
 
     const [search, setSearch] = useState("");
     const [stageValues, setStageValues] = useState<string[]>([]);
+    const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [closingTagValues, setClosingTagValues] = useState<string[]>([]);
     const [lastClientMessageRange, setLastClientMessageRange] =
@@ -217,6 +218,21 @@ export default function MensagemAtivaPage() {
             : true,
     );
 
+    const tunnelOptions = useMemo(() => {
+        const values = new Set<string>();
+
+        for (const client of data?.clients ?? []) {
+            const tunnel = client.tunnel?.trim();
+            if (tunnel) values.add(tunnel);
+        }
+
+        return [...values]
+            .sort((first, second) =>
+                first.localeCompare(second, "pt-BR"),
+            )
+            .map((value) => ({ label: value, value }));
+    }, [data?.clients]);
+
     const sourceOptions = useMemo(() => {
         const values = new Set<string>();
 
@@ -329,6 +345,13 @@ export default function MensagemAtivaPage() {
             }
 
             if (
+                tunnelValues.length > 0 &&
+                !tunnelValues.includes(client.tunnel?.trim() || "")
+            ) {
+                return false;
+            }
+
+            if (
                 sourceValues.length > 0 &&
                 !sourceValues.includes(
                     client.utm_source?.trim() || "direct",
@@ -393,6 +416,7 @@ export default function MensagemAtivaPage() {
         search,
         sourceValues,
         stageValues,
+        tunnelValues,
         windowValues,
     ]);
 
@@ -401,6 +425,7 @@ export default function MensagemAtivaPage() {
     }, [
         search,
         stageValues,
+        tunnelValues,
         sourceValues,
         closingTagValues,
         lastClientMessageRange,
@@ -604,6 +629,7 @@ export default function MensagemAtivaPage() {
                         filters: {
                             search: search.trim() || null,
                             funnel_stage_ids: stageValues,
+                            tunnels: tunnelValues,
                             origins: sourceValues,
                             closing_tags: closingTagValues,
                             last_client_message_date_range:
@@ -779,6 +805,13 @@ export default function MensagemAtivaPage() {
                                     dropdownWidthClassName="w-[360px]"
                                     sections={[
                                         ...stageFilterSections,
+                                        {
+                                            id: "tunnel",
+                                            title: "Túneis",
+                                            values: tunnelValues,
+                                            onChange: setTunnelValues,
+                                            options: tunnelOptions,
+                                        },
                                         {
                                             id: "source",
                                             title: "Origem",

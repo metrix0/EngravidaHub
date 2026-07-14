@@ -3,8 +3,6 @@
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import { supabase } from "@/lib/supabase/client";
 
-const ACTIVE_MESSAGE_PRESET_IDS = new Set(["admin", "atendente", "marketing"]);
-
 export type ActiveMessageActor = {
     id: string;
     name: string;
@@ -28,7 +26,7 @@ export async function requireActiveMessageAccess(): Promise<ActiveMessageAccessR
 
     const { data: permission, error } = await supabase
         .from("user_permissions")
-        .select("active, allowed_tabs, preset")
+        .select("active, allowed_tabs")
         .eq("auth_user_id", user.id)
         .maybeSingle();
 
@@ -47,7 +45,6 @@ export async function requireActiveMessageAccess(): Promise<ActiveMessageAccessR
 
     if (
         !permission?.active ||
-        !ACTIVE_MESSAGE_PRESET_IDS.has(permission.preset) ||
         !allowedTabs.includes("mensagem_ativa")
     ) {
         return {

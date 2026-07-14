@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+
 type ClientApiRow = {
     id: string;
     name: string | null;
@@ -26,6 +27,19 @@ type ClientApiRow = {
     utm_source: string | null;
     last_closing_tag: string | null;
     last_active_message_sent_at: string | null;
+};
+
+type ThreadApiRow = {
+    client_id: string | null;
+    latest_conversation_id: string | null;
+    last_client_message_at: string | null;
+    last_message_at: string | null;
+    updated_at: string | null;
+};
+
+type ConversationTunnelRow = {
+    id: string;
+    tunnel: string | null;
 };
 
 type HistoryMetricsRow = {
@@ -76,7 +90,13 @@ export async function GET() {
                 .order("name", { ascending: true }),
             supabase
                 .from("thread")
-                .select("client_id, last_client_message_at"),
+                .select(`
+                    client_id,
+                    latest_conversation_id,
+                    last_client_message_at,
+                    last_message_at,
+                    updated_at
+                `),
             supabase
                 .from("active_message_sends")
                 .select(`
@@ -115,17 +135,59 @@ export async function GET() {
         );
 
         const lastClientMessageByClientId = new Map<string, string | null>();
+        const latestConversationIdByClientId = new Map<string, string>();
+        const latestThreadActivityByClientId = new Map<string, number>();
 
-        for (const thread of threadsResult.data ?? []) {
+        for (const thread of (threadsResult.data ?? []) as ThreadApiRow[]) {
             if (!thread.client_id) continue;
 
-            const current = lastClientMessageByClientId.get(thread.client_id);
-            const next = thread.last_client_message_at ?? null;
+            const currentClientMessage = lastClientMessageByClientId.get(
+                thread.client_id,
+            );
+            const nextClientMessage = thread.last_client_message_at ?? null;
 
-            if (!current || (next && new Date(next) > new Date(current))) {
-                lastClientMessageByClientId.set(thread.client_id, next);
+            if (
+                !currentClientMessage ||
+                (nextClientMessage &&
+                    new Date(nextClientMessage) > new Date(currentClientMessage))
+            ) {
+                lastClientMessageByClientId.set(
+                    thread.client_id,
+                    nextClientMessage,
+                );
+            }
+
+            if (!thread.latest_conversation_id) continue;
+
+            const activityAt =
+                thread.last_message_at ??
+                thread.updated_at ??
+                thread.last_client_message_at;
+            const parsedActivityTimestamp = activityAt
+                ? new Date(activityAt).getTime()
+                : 0;
+            const activityTimestamp = Number.isFinite(parsedActivityTimestamp)
+                ? parsedActivityTimestamp
+                : 0;
+            const currentActivityTimestamp =
+                latestThreadActivityByClientId.get(thread.client_id) ??
+                Number.NEGATIVE_INFINITY;
+
+            if (activityTimestamp >= currentActivityTimestamp) {
+                latestThreadActivityByClientId.set(
+                    thread.client_id,
+                    activityTimestamp,
+                );
+                latestConversationIdByClientId.set(
+                    thread.client_id,
+                    thread.latest_conversation_id,
+                );
             }
         }
+
+        const tunnelByConversationId = await loadTunnelByConversationId(
+            [...new Set(latestConversationIdByClientId.values())],
+        );
 
         const funnelNameById = new Map(
             (funnelsResult.data ?? []).map((funnel) => [
@@ -144,24 +206,32 @@ export async function GET() {
         const windowReferenceTime = Date.now();
 
         const clients: ActiveMessageClient[] = (clientsResult.data ?? []).map(
-            (client: ClientApiRow) => ({
-                id: client.id,
-                name: client.name ?? null,
-                phone: client.phone ?? null,
-                email: client.email ?? null,
-                funnel_stage_id: client.funnel_stage_id ?? null,
-                last_interaction_at: client.last_interaction_at,
-                utm_source: client.utm_source ?? null,
-                last_closing_tag: client.last_closing_tag ?? null,
-                last_client_message_at:
-                    lastClientMessageByClientId.get(client.id) ?? null,
-                whatsapp_window_open: isWhatsAppWindowOpenAt(
-                    lastClientMessageByClientId.get(client.id) ?? null,
-                    windowReferenceTime,
-                ),
-                last_active_message_sent_at:
-                    client.last_active_message_sent_at ?? null,
-            }),
+            (client: ClientApiRow) => {
+                const latestConversationId =
+                    latestConversationIdByClientId.get(client.id) ?? null;
+
+                return {
+                    id: client.id,
+                    name: client.name ?? null,
+                    phone: client.phone ?? null,
+                    email: client.email ?? null,
+                    funnel_stage_id: client.funnel_stage_id ?? null,
+                    last_interaction_at: client.last_interaction_at,
+                    utm_source: client.utm_source ?? null,
+                    last_closing_tag: client.last_closing_tag ?? null,
+                    tunnel: latestConversationId
+                        ? tunnelByConversationId.get(latestConversationId) ?? null
+                        : null,
+                    last_client_message_at:
+                        lastClientMessageByClientId.get(client.id) ?? null,
+                    whatsapp_window_open: isWhatsAppWindowOpenAt(
+                        lastClientMessageByClientId.get(client.id) ?? null,
+                        windowReferenceTime,
+                    ),
+                    last_active_message_sent_at:
+                        client.last_active_message_sent_at ?? null,
+                };
+            },
         );
 
         const history: ActiveMessageSendHistory[] = historyRows.map((item) => {
@@ -195,6 +265,32 @@ export async function GET() {
             { status: 500 },
         );
     }
+}
+
+async function loadTunnelByConversationId(conversationIds: string[]) {
+    const tunnelByConversationId = new Map<string, string | null>();
+
+    for (const batch of chunk(conversationIds, 100)) {
+        const { data, error } = await supabase
+            .from("conversations")
+            .select("id, tunnel")
+            .in("id", batch);
+
+        if (error) {
+            throw new Error(
+                `Não foi possível carregar os túneis dos clientes: ${error.message}`,
+            );
+        }
+
+        for (const conversation of (data ?? []) as ConversationTunnelRow[]) {
+            tunnelByConversationId.set(
+                conversation.id,
+                conversation.tunnel?.trim() || null,
+            );
+        }
+    }
+
+    return tunnelByConversationId;
 }
 
 async function loadHistoryMetrics(sendIds: string[]) {
@@ -238,6 +334,15 @@ function toCount(value: number | string | null) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function chunk<T>(items: T[], size: number) {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
+}
 
 function isWhatsAppWindowOpenAt(
     lastClientMessageAt: string | null,
