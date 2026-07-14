@@ -13,9 +13,14 @@ import type {
 } from "@/types/activeMessages";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
-
+const NO_CACHE_HEADERS = {
+    "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+};
 
 type ClientApiRow = {
     id: string;
@@ -54,7 +59,7 @@ export async function GET() {
     if (access.ok === false) {
         return NextResponse.json(
             { error: access.error },
-            { status: access.status },
+            { status: access.status, headers: NO_CACHE_HEADERS },
         );
     }
 
@@ -251,7 +256,9 @@ export async function GET() {
             history,
         };
 
-        return NextResponse.json(response);
+        return NextResponse.json(response, {
+            headers: NO_CACHE_HEADERS,
+        });
     } catch (error) {
         console.error("[mensagem-ativa] GET failed", error);
 
@@ -262,7 +269,7 @@ export async function GET() {
                         ? error.message
                         : "Não foi possível carregar a Mensagem Ativa",
             },
-            { status: 500 },
+            { status: 500, headers: NO_CACHE_HEADERS },
         );
     }
 }

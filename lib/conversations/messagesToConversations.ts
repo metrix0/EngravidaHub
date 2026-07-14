@@ -1,5 +1,6 @@
 // lib/conversations/messagesToConversations.ts
 import { supabase } from "@/lib";
+import { getConversationEffectiveEndMessage } from "@/lib/conversations/conversationEffectiveEnd";
 import type { AnalyzeConversationInput, Message } from "@/types";
 
 const BATCH_SIZE = 100;
@@ -25,9 +26,7 @@ export async function messageToConversations({ inactivityHours = 6, limit = 1000
     }
 
     const inputs: AnalyzeConversationInput[] = [];
-    for (const group of endedGroups(pending, cutoff, inactivityHours)) {
-        inputs.push(await createAndAttach(group));
-    }
+    for (const group of endedGroups(pending, cutoff, inactivityHours)) inputs.push(await createAndAttach(group));
     return inputs;
 }
 
@@ -60,11 +59,12 @@ async function createAndAttach(sourceMessages: Message[]): Promise<AnalyzeConver
     const first = messages[0];
     const last = messages.at(-1);
     if (!first || !last) throw new Error("Cannot create conversation from empty messages array");
+    const effectiveEnd = getConversationEffectiveEndMessage(messages);
 
     const attendantMessage = messages.find((message) => message.sender_type === "attendant");
     const attendant = attendantMessage?.external_attendant_id ? await getAttendant(attendantMessage.external_attendant_id) : null;
     const created = await supabase.from("conversations").insert({
-        client_id: first.client_id, source: "blip", started_at: first.sent_at, ended_at: last.sent_at,
+        client_id: first.client_id, source: "blip", started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
         attendant_id: attendant?.id ?? null, attendant_chat_name: attendant?.name ?? attendantMessage?.sender_name ?? null,
         unit_id: null, service_id: null, last_message_text: last.text, last_message_at: last.sent_at,
     }).select("id").single();
@@ -82,7 +82,7 @@ async function createAndAttach(sourceMessages: Message[]): Promise<AnalyzeConver
     }
 
     return {
-        conversation_id: created.data.id, client_id: first.client_id, started_at: first.sent_at, ended_at: last.sent_at,
+        conversation_id: created.data.id, client_id: first.client_id, started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
         attendant_id: attendant?.id ?? null, unit_id: null, service_id: null,
         conversationText: buildText(messages),
         messages: messages.map((message, index) => ({ id: message.id, sender_type: message.sender_type, sender_name: message.sender_name, text: message.text, sent_at: message.sent_at, sequence_index: index + 1 })),

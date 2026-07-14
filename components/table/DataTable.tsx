@@ -1,7 +1,15 @@
 // components/table/DataTable.tsx
 "use client";
 
-import type { ReactNode } from "react";
+import {
+    Children,
+    cloneElement,
+    isValidElement,
+    type ReactElement,
+    type ReactNode,
+} from "react";
+
+import InfoTooltip from "@/components/ui/InfoTooltip";
 
 import { DataTableRow } from "./DataTableRow";
 
@@ -52,7 +60,7 @@ export function DataTable<TRow,>({
                             .filter(Boolean)
                             .join(" ")}
                     >
-                        {column.label}
+                        {renderHeaderLabel(column.label)}
                     </div>
                 ))}
             </div>
@@ -74,6 +82,35 @@ export function DataTable<TRow,>({
                 </div>
             )}
         </div>
+    );
+}
+
+function renderHeaderLabel(node: ReactNode): ReactNode {
+    if (!isValidElement(node)) return node;
+
+    const element = node as ReactElement<{
+        title?: unknown;
+        children?: ReactNode;
+    }>;
+    const title =
+        typeof element.props.title === "string"
+            ? element.props.title.trim()
+            : "";
+    const children = Children.map(
+        element.props.children,
+        renderHeaderLabel,
+    );
+    const cloned = cloneElement(element, {
+        ...(title ? { title: undefined } : {}),
+        children,
+    });
+
+    if (!title) return cloned;
+
+    return (
+        <InfoTooltip text={title} portal>
+            {cloned}
+        </InfoTooltip>
     );
 }
 
