@@ -144,6 +144,62 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
             },
         ],
     },
+    {
+        id: "recaptacao_clientes_laqueadura",
+        name: "Recaptação de clientes — Laqueadura",
+        preview: [
+            "Olá, {{1}}, tudo bem? 😊",
+            "",
+            "Percebemos que nossa conversa ficou em pausa nos últimos dias.",
+            "",
+            "Continuamos à disposição para orientar você sobre as possibilidades de gravidez após a laqueadura e acompanhar esse momento tão importante. 💛",
+            "",
+            "Se tiver alguma dúvida, é só nos chamar por aqui.",
+        ].join("\n"),
+        blip_template_name: "recaptacao_clientes_laqueadura",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
+    {
+        id: "recaptacao_clientes_problemas_e_lgbt",
+        name: "Recaptação de clientes — Problemas e LGBT",
+        preview: [
+            "Olá, {{1}}, tudo bem? 😊",
+            "",
+            "Percebemos que nossa conversa ficou em pausa nos últimos dias.",
+            "",
+            "Continuamos à disposição para orientar você sobre os tratamentos de reprodução assistida e acompanhar esse momento tão importante. 💛",
+            "",
+            "Se tiver alguma dúvida, é só nos chamar por aqui.",
+        ].join("\n"),
+        blip_template_name: "recaptacao_clientes_problemas_e_lgbt",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
 ];
 
 export function getActiveMessageTemplate(templateId: string) {
