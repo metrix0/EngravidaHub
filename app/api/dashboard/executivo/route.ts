@@ -47,8 +47,18 @@ type ExecutiveMetricsPayload = {
         response_speed_score: number | null;
         attendant_quality_score: number | null;
     };
-    dropoff_moments: { moment: string; label: string; count: number; percentage: number | null }[];
-    conversation_goals: { goal: string; label: string; count: number; percentage: number | null }[];
+    dropoff_moments: {
+        moment: string;
+        label: string;
+        count: number;
+        percentage: number | null;
+    }[];
+    conversation_goals: {
+        goal: string;
+        label: string;
+        count: number;
+        percentage: number | null;
+    }[];
     by_unit: {
         unit_id: string | null;
         unit_name: string;
@@ -60,6 +70,14 @@ type ExecutiveMetricsPayload = {
         scheduling_rate: number | null;
         scheduling_eligible: number;
     }[];
+};
+
+type ClearSatisfactionMetric = {
+    conversations_analyzed: number;
+    satisfaction_observed: number;
+    satisfied: number;
+    clear_satisfaction_rate: number | null;
+    satisfaction_coverage_rate: number | null;
 };
 
 type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
@@ -84,36 +102,83 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
     const filters = readDashboardFilters(searchParams);
+    const currentParams = executiveRpcParams(
+        { startAt: range.startAt, endAt: range.endAt },
+        filters,
+    );
+    const previousParams = executiveRpcParams(
+        {
+            startAt: range.previousStartAt,
+            endAt: range.previousEndAt,
+        },
+        filters,
+    );
 
-    const [currentResult, previousResult, responseAnchorResult] = await Promise.all([
-        supabase.rpc(
-            "dashboard_executive_metrics_v2",
-            executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
-        ),
-        supabase.rpc(
-            "dashboard_executive_metrics_v2",
-            executiveRpcParams(
-                { startAt: range.previousStartAt, endAt: range.previousEndAt },
-                filters,
-            ),
-        ),
+    const [
+        currentResult,
+        previousResult,
+        responseAnchorResult,
+        currentSatisfactionResult,
+        previousSatisfactionResult,
+    ] = await Promise.all([
+        supabase.rpc("dashboard_executive_metrics_v2", currentParams),
+        supabase.rpc("dashboard_executive_metrics_v2", previousParams),
         supabase.rpc(
             "dashboard_response_anchor_breakdown_v1",
-            executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+            currentParams,
+        ),
+        supabase.rpc(
+            "dashboard_clear_satisfaction_metric_v1",
+            currentParams,
+        ),
+        supabase.rpc(
+            "dashboard_clear_satisfaction_metric_v1",
+            previousParams,
         ),
     ]);
 
-    if (currentResult.error || previousResult.error || responseAnchorResult.error) {
-        const error = currentResult.error ?? previousResult.error ?? responseAnchorResult.error;
-        console.error("[dashboard/executivo] canonical metric RPC failed", error);
+    if (
+        currentResult.error ||
+        previousResult.error ||
+        responseAnchorResult.error
+    ) {
+        const error =
+            currentResult.error ??
+            previousResult.error ??
+            responseAnchorResult.error;
+        console.error(
+            "[dashboard/executivo] canonical metric RPC failed",
+            error,
+        );
         return NextResponse.json(
             { error: error?.message ?? "Falha ao carregar métricas." },
             { status: 500 },
         );
     }
 
-    const current = normalizeExecutivePayload(currentResult.data);
-    const previous = normalizeExecutivePayload(previousResult.data);
+    if (currentSatisfactionResult.error || previousSatisfactionResult.error) {
+        console.error(
+            "[dashboard/executivo] clear satisfaction RPC failed; using legacy metric",
+            currentSatisfactionResult.error ?? previousSatisfactionResult.error,
+        );
+    }
+
+    const current = applyClearSatisfactionMetric(
+        normalizeExecutivePayload(currentResult.data),
+        currentSatisfactionResult.error
+            ? null
+            : normalizeClearSatisfactionMetric(
+                  currentSatisfactionResult.data,
+              ),
+    );
+    const previous = applyClearSatisfactionMetric(
+        normalizeExecutivePayload(previousResult.data),
+        previousSatisfactionResult.error
+            ? null
+            : normalizeClearSatisfactionMetric(
+                  previousSatisfactionResult.data,
+              ),
+    );
 
     const response: ExecutiveDashboardResponse = {
         filters: {
@@ -128,7 +193,9 @@ export async function GET(request: Request) {
         },
         kpis: current.kpis,
         previous_kpis: previous.kpis,
-        response_anchor_breakdown: normalizeResponseAnchorBreakdown(responseAnchorResult.data),
+        response_anchor_breakdown: normalizeResponseAnchorBreakdown(
+            responseAnchorResult.data,
+        ),
         daily_evolution: current.daily_evolution,
         attendance_score: current.attendance_score,
         dropoff_moments: current.dropoff_moments,
@@ -136,22 +203,105 @@ export async function GET(request: Request) {
         by_unit: current.by_unit,
     };
 
-    return NextResponse.json(response, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json(response, {
+        headers: { "Cache-Control": "private, no-store" },
+    });
 }
 
 function normalizeResponseAnchorBreakdown(value: unknown) {
     const payload = asObject(value);
     return {
-        bot_handoff_to_attendant: numberOrZero(payload, "bot_handoff_to_attendant"),
-        pending_client_to_attendant: numberOrZero(payload, "pending_client_to_attendant"),
+        bot_handoff_to_attendant: numberOrZero(
+            payload,
+            "bot_handoff_to_attendant",
+        ),
+        pending_client_to_attendant: numberOrZero(
+            payload,
+            "pending_client_to_attendant",
+        ),
+    };
+}
+
+function normalizeClearSatisfactionMetric(
+    value: unknown,
+): ClearSatisfactionMetric | null {
+    const payload = asObject(value);
+    const conversationsAnalyzed = nullableNumber(
+        payload,
+        "conversations_analyzed",
+    );
+
+    if (conversationsAnalyzed === null) {
+        return null;
+    }
+
+    return {
+        conversations_analyzed: conversationsAnalyzed,
+        satisfaction_observed: numberOrZero(
+            payload,
+            "satisfaction_observed",
+        ),
+        satisfied: numberOrZero(payload, "satisfied"),
+        clear_satisfaction_rate: nullableNumber(
+            payload,
+            "clear_satisfaction_rate",
+        ),
+        satisfaction_coverage_rate: nullableNumber(
+            payload,
+            "satisfaction_coverage_rate",
+        ),
+    };
+}
+
+function applyClearSatisfactionMetric(
+    payload: ExecutiveMetricsPayload,
+    metric: ClearSatisfactionMetric | null,
+): ExecutiveMetricsPayload {
+    if (!metric) {
+        return payload;
+    }
+
+    const satisfactionRate = metric.clear_satisfaction_rate;
+    const attendanceScore = {
+        ...payload.attendance_score,
+        satisfaction_score: satisfactionRate,
+    };
+
+    return {
+        ...payload,
+        kpis: {
+            ...payload.kpis,
+            clear_satisfaction_rate: satisfactionRate,
+            satisfaction_observed: metric.satisfaction_observed,
+            satisfaction_coverage_rate:
+                metric.satisfaction_coverage_rate,
+        },
+        attendance_score: {
+            ...attendanceScore,
+            overall_score: averageNullable([
+                attendanceScore.resolution_score,
+                satisfactionRate,
+                payload.kpis.scheduling_rate,
+                attendanceScore.attendant_quality_score,
+            ]),
+        },
     };
 }
 
 function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
     const payload = asObject(value);
-    const conversationsAnalyzed = numberOrZero(payload.kpis, "conversations_analyzed");
-    const satisfactionObserved = numberOrZero(payload.kpis, "satisfaction_observed");
-    const observedSatisfactionRate = nullableNumber(payload.kpis, "clear_satisfaction_rate");
+    const conversationsAnalyzed = numberOrZero(
+        payload.kpis,
+        "conversations_analyzed",
+    );
+    const satisfactionObserved = numberOrZero(
+        payload.kpis,
+        "satisfaction_observed",
+    );
+    const observedSatisfactionRate = nullableNumber(
+        payload.kpis,
+        "clear_satisfaction_rate",
+    );
     const clearSatisfactionRate = satisfactionRateAcrossAllAnalyzed({
         conversationsAnalyzed,
         satisfactionObserved,
@@ -159,32 +309,82 @@ function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
     });
 
     const attendanceScorePayload = asObject(payload.attendance_score);
-    const resolutionScore = nullableNumber(attendanceScorePayload, "resolution_score");
+    const resolutionScore = nullableNumber(
+        attendanceScorePayload,
+        "resolution_score",
+    );
     const schedulingRate = nullableNumber(payload.kpis, "scheduling_rate");
-    const attendantQualityScore = nullableNumber(attendanceScorePayload, "attendant_quality_score");
+    const attendantQualityScore = nullableNumber(
+        attendanceScorePayload,
+        "attendant_quality_score",
+    );
 
     return {
         kpis: {
             conversations_analyzed: conversationsAnalyzed,
-            real_resolution_rate: nullableNumber(payload.kpis, "real_resolution_rate"),
-            resolution_observed: numberOrZero(payload.kpis, "resolution_observed"),
-            resolution_coverage_rate: nullableNumber(payload.kpis, "resolution_coverage_rate"),
+            real_resolution_rate: nullableNumber(
+                payload.kpis,
+                "real_resolution_rate",
+            ),
+            resolution_observed: numberOrZero(
+                payload.kpis,
+                "resolution_observed",
+            ),
+            resolution_coverage_rate: nullableNumber(
+                payload.kpis,
+                "resolution_coverage_rate",
+            ),
             clear_satisfaction_rate: clearSatisfactionRate,
             satisfaction_observed: satisfactionObserved,
-            satisfaction_coverage_rate: nullableNumber(payload.kpis, "satisfaction_coverage_rate"),
+            satisfaction_coverage_rate: nullableNumber(
+                payload.kpis,
+                "satisfaction_coverage_rate",
+            ),
             scheduling_rate: schedulingRate,
-            scheduling_eligible: numberOrZero(payload.kpis, "scheduling_eligible"),
-            average_first_human_response_seconds: nullableNumber(payload.kpis, "average_first_human_response_seconds"),
-            raw_average_first_human_response_seconds: nullableNumber(payload.kpis, "raw_average_first_human_response_seconds"),
-            median_first_human_response_seconds: nullableNumber(payload.kpis, "median_first_human_response_seconds"),
-            p90_first_human_response_seconds: nullableNumber(payload.kpis, "p90_first_human_response_seconds"),
-            first_human_response_observed: numberOrZero(payload.kpis, "first_human_response_observed"),
-            first_human_response_eligible: numberOrZero(payload.kpis, "first_human_response_eligible"),
-            first_human_response_included_in_average: numberOrZero(payload.kpis, "first_human_response_included_in_average"),
-            first_human_response_excluded_over_2h: numberOrZero(payload.kpis, "first_human_response_excluded_over_2h"),
-            first_human_response_coverage_rate: nullableNumber(payload.kpis, "first_human_response_coverage_rate"),
+            scheduling_eligible: numberOrZero(
+                payload.kpis,
+                "scheduling_eligible",
+            ),
+            average_first_human_response_seconds: nullableNumber(
+                payload.kpis,
+                "average_first_human_response_seconds",
+            ),
+            raw_average_first_human_response_seconds: nullableNumber(
+                payload.kpis,
+                "raw_average_first_human_response_seconds",
+            ),
+            median_first_human_response_seconds: nullableNumber(
+                payload.kpis,
+                "median_first_human_response_seconds",
+            ),
+            p90_first_human_response_seconds: nullableNumber(
+                payload.kpis,
+                "p90_first_human_response_seconds",
+            ),
+            first_human_response_observed: numberOrZero(
+                payload.kpis,
+                "first_human_response_observed",
+            ),
+            first_human_response_eligible: numberOrZero(
+                payload.kpis,
+                "first_human_response_eligible",
+            ),
+            first_human_response_included_in_average: numberOrZero(
+                payload.kpis,
+                "first_human_response_included_in_average",
+            ),
+            first_human_response_excluded_over_2h: numberOrZero(
+                payload.kpis,
+                "first_human_response_excluded_over_2h",
+            ),
+            first_human_response_coverage_rate: nullableNumber(
+                payload.kpis,
+                "first_human_response_coverage_rate",
+            ),
         },
-        daily_evolution: arrayOrEmpty<ExecutiveMetricsPayload["daily_evolution"][number]>(payload.daily_evolution),
+        daily_evolution: arrayOrEmpty<
+            ExecutiveMetricsPayload["daily_evolution"][number]
+        >(payload.daily_evolution),
         attendance_score: {
             overall_score: averageNullable([
                 resolutionScore,
@@ -194,12 +394,21 @@ function normalizeExecutivePayload(value: unknown): ExecutiveMetricsPayload {
             ]),
             resolution_score: resolutionScore,
             satisfaction_score: clearSatisfactionRate,
-            response_speed_score: nullableNumber(attendanceScorePayload, "response_speed_score"),
+            response_speed_score: nullableNumber(
+                attendanceScorePayload,
+                "response_speed_score",
+            ),
             attendant_quality_score: attendantQualityScore,
         },
-        dropoff_moments: arrayOrEmpty<ExecutiveMetricsPayload["dropoff_moments"][number]>(payload.dropoff_moments),
-        conversation_goals: arrayOrEmpty<ExecutiveMetricsPayload["conversation_goals"][number]>(payload.conversation_goals),
-        by_unit: arrayOrEmpty<ExecutiveMetricsPayload["by_unit"][number]>(payload.by_unit),
+        dropoff_moments: arrayOrEmpty<
+            ExecutiveMetricsPayload["dropoff_moments"][number]
+        >(payload.dropoff_moments),
+        conversation_goals: arrayOrEmpty<
+            ExecutiveMetricsPayload["conversation_goals"][number]
+        >(payload.conversation_goals),
+        by_unit: arrayOrEmpty<
+            ExecutiveMetricsPayload["by_unit"][number]
+        >(payload.by_unit),
     };
 }
 
@@ -212,22 +421,49 @@ function satisfactionRateAcrossAllAnalyzed({
     satisfactionObserved: number;
     observedSatisfactionRate: number | null;
 }) {
-    if (conversationsAnalyzed <= 0 || satisfactionObserved <= 0 || observedSatisfactionRate === null) return null;
-    const estimatedSatisfied = Math.round(satisfactionObserved * observedSatisfactionRate / 100);
-    return Math.round(estimatedSatisfied * 100 / conversationsAnalyzed);
+    if (
+        conversationsAnalyzed <= 0 ||
+        satisfactionObserved <= 0 ||
+        observedSatisfactionRate === null
+    ) {
+        return null;
+    }
+
+    const estimatedSatisfied = Math.round(
+        (satisfactionObserved * observedSatisfactionRate) / 100,
+    );
+    return Math.round((estimatedSatisfied * 100) / conversationsAnalyzed);
 }
 
 function averageNullable(values: (number | null)[]) {
-    const present = values.filter((value): value is number => value !== null);
-    return present.length ? Math.round(present.reduce((sum, value) => sum + value, 0) / present.length) : null;
+    const present = values.filter(
+        (value): value is number => value !== null,
+    );
+    return present.length
+        ? Math.round(
+              present.reduce((sum, value) => sum + value, 0) /
+                  present.length,
+          )
+        : null;
 }
 
 function asObject(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
 }
-function arrayOrEmpty<T>(value: unknown): T[] { return Array.isArray(value) ? value as T[] : []; }
+
+function arrayOrEmpty<T>(value: unknown): T[] {
+    return Array.isArray(value) ? (value as T[]) : [];
+}
+
 function nullableNumber(container: unknown, key: string): number | null {
     const value = asObject(container)[key];
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
+    return typeof value === "number" && Number.isFinite(value)
+        ? value
+        : null;
 }
-function numberOrZero(container: unknown, key: string) { return nullableNumber(container, key) ?? 0; }
+
+function numberOrZero(container: unknown, key: string) {
+    return nullableNumber(container, key) ?? 0;
+}
