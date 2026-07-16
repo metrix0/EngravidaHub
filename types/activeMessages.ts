@@ -9,9 +9,9 @@ export type ActiveMessageClient = {
     email: string | null;
     funnel_stage_id: string | null;
     last_interaction_at: string;
-    utm_source: string | null;
+    last_origin: string | null;
+    last_tunnel: string | null;
     last_closing_tag: string | null;
-    tunnel: string | null;
     last_client_message_at: string | null;
     whatsapp_window_open: boolean;
     last_active_message_sent_at: string | null;
@@ -26,6 +26,16 @@ export type ActiveMessageFunnelStage = {
     funnel_name: string | null;
 };
 
+export type ActiveMessageHistoryRecipient = {
+    client_id: string;
+    client_name: string;
+    phone: string | null;
+    status: "sent" | "failed";
+    responded: boolean;
+    response_target_type: "thread" | "conversation" | null;
+    response_target_id: string | null;
+};
+
 export type ActiveMessageSendHistory = {
     id: string;
     template_id: string;
@@ -37,6 +47,7 @@ export type ActiveMessageSendHistory = {
     template_message_count: number;
     schedule_count: number;
     response_count: number;
+    recipients: ActiveMessageHistoryRecipient[];
     status: "processing" | "completed" | "partial" | "failed";
     created_by_name: string | null;
     created_at: string;

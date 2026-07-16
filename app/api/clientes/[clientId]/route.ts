@@ -45,7 +45,8 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             created_at,
             updated_at,
             external_contact_id,
-            utm_source,
+            last_origin,
+            last_tunnel,
             utm_medium,
             utm_campaign,
             utm_content,
@@ -79,16 +80,13 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         ]);
 
     const liveConversationId = liveThread?.latest_conversation_id ?? null;
-
     const historicalConversations = conversations.filter(
         (conversation) => conversation.id !== liveConversationId,
     );
-
     const conversationIds = historicalConversations.map((item) => item.id);
     const analysisIds = historicalConversations
         .map((item) => item.conversation_analysis_id)
         .filter(Boolean) as string[];
-
     const [analysesById, messageCountsByConversationId] = await Promise.all([
         fetchAnalysesById(analysisIds),
         fetchMessageCountsByConversationId(conversationIds),
@@ -97,6 +95,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({
         client: {
             ...client,
+            // Client panels already display `utm_source` as "Origem". Keep the
+            // response contract while sourcing it from the canonical sheet match.
+            utm_source: client.last_origin ?? null,
             unit,
             stage: stage?.stage ?? null,
             funnel: stage?.funnel ?? null,
@@ -321,7 +322,6 @@ async function fetchUnit(unitId: string | null) {
         .maybeSingle();
 
     if (error) throw error;
-
     return data ?? null;
 }
 
@@ -378,7 +378,6 @@ async function fetchLiveThread(clientId: string) {
         .maybeSingle();
 
     if (error) throw error;
-
     return data ?? null;
 }
 
@@ -408,7 +407,6 @@ async function fetchClientConversations(clientId: string) {
         .limit(100);
 
     if (error) throw error;
-
     return data ?? [];
 }
 

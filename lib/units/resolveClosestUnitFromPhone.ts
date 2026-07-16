@@ -117,7 +117,7 @@ const DDD_CITY_COORDS: Record<string, Coordinates> = {
 
     "71": { city: "Salvador", lat: -12.9777, lng: -38.5016 },
     "73": { city: "Ilhéus", lat: -14.793, lng: -39.046 },
-    "74": { city: "Juazeiro", lat: -9.4162, lng: -40.5033 },
+    "74": { city: "Juazeiro", lat: -9.4162, lng: -40.5027 },
     "75": { city: "Feira de Santana", lat: -12.2664, lng: -38.9663 },
     "77": { city: "Vitória da Conquista", lat: -14.8619, lng: -40.8442 },
     "79": { city: "Aracaju", lat: -10.9472, lng: -37.0731 },
@@ -143,6 +143,15 @@ const DDD_CITY_COORDS: Record<string, Coordinates> = {
     "99": { city: "Imperatriz", lat: -5.5206, lng: -47.4718 },
 };
 
+const ACTIVE_UNITS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let activeUnitsCache: {
+    units: UnitRow[];
+    expiresAt: number;
+} | null = null;
+
+let activeUnitsRequest: Promise<UnitRow[]> | null = null;
+
 export async function resolveClosestUnitIdFromPhone(phone: string | null) {
     const ddd = extractBrazilDdd(phone);
 
@@ -152,16 +161,9 @@ export async function resolveClosestUnitIdFromPhone(phone: string | null) {
 
     if (!phoneLocation) return null;
 
-    const { data: units, error } = await supabase
-        .from("units")
-        .select("id, name")
-        .eq("active", true);
+    const units = await getActiveUnits();
 
-    if (error) {
-        throw error;
-    }
-
-    const rankedUnits = ((units ?? []) as UnitRow[])
+    const rankedUnits = units
         .map((unit) => {
             const unitLocation = UNIT_COORDS_BY_NAME[normalizeKey(unit.name)];
 
@@ -180,6 +182,44 @@ export async function resolveClosestUnitIdFromPhone(phone: string | null) {
     rankedUnits.sort((a, b) => a.distanceKm - b.distanceKm);
 
     return rankedUnits[0]?.unit.id ?? null;
+}
+
+async function getActiveUnits(): Promise<UnitRow[]> {
+    const now = Date.now();
+
+    if (activeUnitsCache && activeUnitsCache.expiresAt > now) {
+        return activeUnitsCache.units;
+    }
+
+    if (!activeUnitsRequest) {
+        activeUnitsRequest = loadActiveUnits();
+    }
+
+    try {
+        return await activeUnitsRequest;
+    } finally {
+        activeUnitsRequest = null;
+    }
+}
+
+async function loadActiveUnits(): Promise<UnitRow[]> {
+    const { data, error } = await supabase
+        .from("units")
+        .select("id, name")
+        .eq("active", true);
+
+    if (error) {
+        throw error;
+    }
+
+    const units = (data ?? []) as UnitRow[];
+
+    activeUnitsCache = {
+        units,
+        expiresAt: Date.now() + ACTIVE_UNITS_CACHE_TTL_MS,
+    };
+
+    return units;
 }
 
 function extractBrazilDdd(phone: string | null) {
@@ -210,9 +250,9 @@ function getDistanceKm(from: Coordinates, to: Coordinates) {
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
         Math.sin(dLng / 2) *
-        Math.sin(dLng / 2) *
-        Math.cos(lat1) *
-        Math.cos(lat2);
+            Math.sin(dLng / 2) *
+            Math.cos(lat1) *
+            Math.cos(lat2);
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 

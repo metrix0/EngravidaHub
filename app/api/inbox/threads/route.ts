@@ -15,7 +15,6 @@ const MAX_FETCH = 5000;
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-
     const page = Math.max(1, Number(searchParams.get("page") ?? 1));
     const pageSize = Math.max(
         1,
@@ -23,7 +22,6 @@ export async function GET(request: Request) {
     );
     const status = normalizeStatus(searchParams.get("status")) ?? "open";
     const search = searchParams.get("search")?.trim().toLowerCase() ?? "";
-
     const { attendant } = await getCurrentAttendantFromRequest();
 
     if (!attendant || !attendant.is_online) {
@@ -40,34 +38,30 @@ export async function GET(request: Request) {
             ? await loadClosedConversations(attendant.id)
             : await loadOpenThreads(attendant.id);
 
-    if (!result.ok) {
-        return result.response;
-    }
+    if (!result.ok) return result.response;
 
     const filtered = search
         ? result.items.filter((item) =>
-            [
-                item.name,
-                item.phone,
-                item.preview,
-                item.city,
-                item.unit_name,
-                item.origin,
-                item.campaign,
-                item.responsible,
-                item.funnel,
-                item.funnelStage,
-            ]
-                .filter(Boolean)
-                .some((value) =>
-                    String(value).toLowerCase().includes(search),
-                ),
-        )
+              [
+                  item.name,
+                  item.phone,
+                  item.preview,
+                  item.city,
+                  item.unit_name,
+                  item.origin,
+                  item.campaign,
+                  item.responsible,
+                  item.funnel,
+                  item.funnelStage,
+              ]
+                  .filter(Boolean)
+                  .some((value) =>
+                      String(value).toLowerCase().includes(search),
+                  ),
+          )
         : result.items;
-
     const start = (page - 1) * pageSize;
     const end = start + pageSize;
-
     const response: InboxThreadsResponse = {
         items: filtered.slice(start, end),
         total: filtered.length,
@@ -95,7 +89,8 @@ async function loadOpenThreads(attendantId: string) {
                     id,
                     name
                 ),
-                utm_source,
+                last_origin,
+                last_tunnel,
                 utm_campaign,
                 funnel_stage_id,
                 funnel_stages (
@@ -164,6 +159,8 @@ async function loadClosedConversations(attendantId: string) {
             last_message_text,
             last_message_at,
             conversation_analysis_id,
+            tunnel,
+            origin,
             clients (
                 id,
                 name,
@@ -176,7 +173,8 @@ async function loadClosedConversations(attendantId: string) {
                     id,
                     name
                 ),
-                utm_source,
+                last_origin,
+                last_tunnel,
                 utm_campaign,
                 funnel_stage_id,
                 funnel_stages (
@@ -227,10 +225,10 @@ async function loadClosedConversations(attendantId: string) {
 function mapOpenThread(row: any): InboxThreadListItem {
     const client = row.clients;
     const attendant = row.attendants;
-    const latestConversation = row.conversations;
-    const analysis = latestConversation?.analysis;
-    const stage = client?.funnel_stages;
-    const funnel = stage?.funnels;
+    const latestConversation = normalizeRelation(row.conversations);
+    const analysis = normalizeRelation(latestConversation?.analysis);
+    const stage = normalizeRelation(client?.funnel_stages);
+    const funnel = normalizeRelation(stage?.funnels);
     const name = client?.name ?? "Cliente sem nome";
 
     return {
@@ -256,7 +254,7 @@ function mapOpenThread(row: any): InboxThreadListItem {
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: latestConversation?.origin ?? client?.utm_source ?? null,
+        origin: latestConversation?.origin ?? client?.last_origin ?? null,
         campaign: client?.utm_campaign ?? null,
         responsible: attendant?.name ?? null,
         lastContact: formatTimeAgo(row.last_message_at ?? row.updated_at),
@@ -268,8 +266,8 @@ function mapClosedConversation(row: any): InboxThreadListItem {
     const client = row.clients;
     const attendant = row.attendants;
     const analysis = row.analysis;
-    const stage = client?.funnel_stages;
-    const funnel = stage?.funnels;
+    const stage = normalizeRelation(client?.funnel_stages);
+    const funnel = normalizeRelation(stage?.funnels);
     const name = client?.name ?? "Cliente sem nome";
     const lastActivity = row.last_message_at ?? row.ended_at ?? row.started_at;
 
@@ -298,11 +296,15 @@ function mapClosedConversation(row: any): InboxThreadListItem {
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: row.source ?? client?.utm_source ?? null,
+        origin: row.origin ?? client?.last_origin ?? null,
         campaign: client?.utm_campaign ?? null,
         responsible: attendant?.name ?? row.attendant_chat_name ?? null,
         lastContact: formatTimeAgo(lastActivity),
     };
+}
+
+function normalizeRelation<T>(value: T | T[] | null | undefined) {
+    return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
 function getUnitName(value: unknown) {
@@ -320,10 +322,7 @@ function getUnitName(value: unknown) {
 }
 
 function normalizeStatus(value: string | null): InboxStatus | null {
-    if (value === "open" || value === "closed") {
-        return value;
-    }
-
+    if (value === "open" || value === "closed") return value;
     return null;
 }
 

@@ -4,10 +4,8 @@ import { NextResponse } from "next/server";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 import { processPendingConversationsToAnalysisAndAdEvents } from "@/lib/conversations/processPendingConversationsToAnalysisAndAdEvents";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
-import {
-    matchConversationsSheetAttribution,
-    runClosingTagBackfillOnce,
-} from "@/lib/conversations/matchConversationsSheetAttribution";
+import { runClosingTagBackfillOnce } from "@/lib/conversations/matchConversationsSheetAttribution";
+import { repairConversationsSheetAttribution } from "@/lib/conversations/repairConversationsSheetAttribution";
 
 export const maxDuration = 300;
 
@@ -63,19 +61,33 @@ export async function GET(request: Request) {
             skipped_conversations: senderNameMatch.skipped_conversation_ids.length,
         });
 
-        console.log("[/api/analyze] matching spreadsheet tunnel/origin");
+        console.log("[/api/analyze] repairing canonical spreadsheet tunnel/origin");
 
-        const sheetAttributionMatch = await matchConversationsSheetAttribution({
-            limit,
-            conversationIds: senderNameMatch.ready_conversation_ids,
-        });
+        let sheetAttributionRepair:
+            | Awaited<ReturnType<typeof repairConversationsSheetAttribution>>
+            | { error: string }
+            | null = null;
 
-        console.log("[/api/analyze] spreadsheet tunnel/origin matched", {
-            updated_conversations: sheetAttributionMatch.updated_conversations,
-            skipped_without_phone: sheetAttributionMatch.skipped_without_phone,
-            skipped_without_dates: sheetAttributionMatch.skipped_without_dates,
-            skipped_without_match: sheetAttributionMatch.skipped_without_match,
-        });
+        try {
+            sheetAttributionRepair = await repairConversationsSheetAttribution({
+                limit: Math.min(2500, Math.max(250, limit)),
+                conversationIds: createdConversations.map(
+                    (conversation) => conversation.conversation_id,
+                ),
+            });
+            console.log(
+                "[/api/analyze] recurring spreadsheet attribution repair completed",
+                sheetAttributionRepair,
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            sheetAttributionRepair = { error: message };
+            console.error(
+                "[/api/analyze] recurring spreadsheet attribution repair failed",
+                error,
+            );
+        }
 
         console.log("[/api/analyze] gathering pending conversations to analysis");
 
@@ -90,15 +102,14 @@ export async function GET(request: Request) {
             failed: results.filter((item) => !item.ok).length,
             skipped_missing_sender_name:
                 senderNameMatch.skipped_conversation_ids.length,
-            sheet_attribution_updated:
-                sheetAttributionMatch.updated_conversations,
+            sheet_attribution_repair: sheetAttributionRepair,
         });
 
         return NextResponse.json({
             ok: true,
             closing_tag_backfill: closingTagBackfill,
             sender_name_match: senderNameMatch,
-            sheet_attribution_match: sheetAttributionMatch,
+            sheet_attribution_repair: sheetAttributionRepair,
             results,
         });
     } catch (error) {

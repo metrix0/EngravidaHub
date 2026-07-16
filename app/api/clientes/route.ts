@@ -16,24 +16,20 @@ export async function GET() {
             .from("clients")
             .select(
                 `
-        id,
-        name,
-        phone,
-        email,
-        funnel_stage_id,
-        first_seen_at,
-        last_interaction_at,
-        utm_source,
-        utm_medium,
-        utm_campaign
-    `
+                    id,
+                    name,
+                    phone,
+                    email,
+                    funnel_stage_id,
+                    first_seen_at,
+                    last_interaction_at,
+                    last_origin,
+                    last_tunnel,
+                    utm_medium,
+                    utm_campaign
+                `,
             )
             .order("last_interaction_at", { ascending: false });
-
-        const clients = (clientsRaw ?? []).map((client) => ({
-            ...client,
-            attendant_name: null,
-        }));
 
         if (clientsError) {
             return NextResponse.json(
@@ -42,20 +38,28 @@ export async function GET() {
                     error: "Failed to load clients",
                     details: clientsError,
                 },
-                { status: 500 }
+                { status: 500 },
             );
         }
+
+        const clients = (clientsRaw ?? []).map((client) => ({
+            ...client,
+            // Existing clients UI consumes this key as "Origem". Its canonical
+            // source is now the latest spreadsheet-matched conversation.
+            utm_source: client.last_origin ?? null,
+            attendant_name: null,
+        }));
 
         const { data: stages, error: stagesError } = await supabase
             .from("funnel_stages")
             .select(
                 `
-                id,
-                funnel_id,
-                name,
-                position,
-                color
-            `
+                    id,
+                    funnel_id,
+                    name,
+                    position,
+                    color
+                `,
             )
             .order("position", { ascending: true });
 
@@ -66,12 +70,12 @@ export async function GET() {
                     error: "Failed to load funnel stages",
                     details: stagesError,
                 },
-                { status: 500 }
+                { status: 500 },
             );
         }
 
         return NextResponse.json({
-            clients: clients ?? [],
+            clients,
             stages: stages ?? [],
         });
     } catch (error) {
@@ -81,7 +85,7 @@ export async function GET() {
                 error: "Unexpected server error in clientes route",
                 details: error instanceof Error ? error.message : String(error),
             },
-            { status: 500 }
+            { status: 500 },
         );
     }
 }

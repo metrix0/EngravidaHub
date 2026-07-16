@@ -89,7 +89,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
         ],
     },
     {
-        id: "recaptacao_clientes_congelamento",
+        id: "recaptacao_clientes_congelamento_util",
         name: "Recaptação de clientes — Congelamento",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
@@ -100,7 +100,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
             "",
             "Se tiver alguma dúvida, é só nos chamar por aqui.",
         ].join("\n"),
-        blip_template_name: "recaptacao_clientes_congelamento",
+        blip_template_name: "recaptacao_clientes_congelamento_util",
         active_campaign: {
             flow_id: "",
             state_id: "",
@@ -117,7 +117,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
         ],
     },
     {
-        id: "recaptacao_clientes_organico",
+        id: "recaptacao_clientes_organico_util",
         name: "Recaptação de clientes — Orgânico",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
@@ -128,7 +128,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
             "",
             "Se tiver alguma dúvida, é só nos chamar por aqui.",
         ].join("\n"),
-        blip_template_name: "recaptacao_clientes_organico",
+        blip_template_name: "recaptacao_clientes_organico_util",
         active_campaign: {
             flow_id: "",
             state_id: "",

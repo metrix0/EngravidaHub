@@ -21,6 +21,7 @@ import {
     CalendarButton,
     DataTable,
     DropdownSelect,
+    HoverBadgeList,
     Modal,
     Pagination,
     SearchFilter,
@@ -30,6 +31,7 @@ import {
     type DateRange,
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 import type {
     ActiveMessageClient,
@@ -79,7 +81,7 @@ export default function MensagemAtivaPage() {
     const [search, setSearch] = useState("");
     const [stageValues, setStageValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
-    const [sourceValues, setSourceValues] = useState<string[]>([]);
+    const [originValues, setOriginValues] = useState<string[]>([]);
     const [closingTagValues, setClosingTagValues] = useState<string[]>([]);
     const [lastClientMessageRange, setLastClientMessageRange] =
         useState<DateRange>({
@@ -222,7 +224,7 @@ export default function MensagemAtivaPage() {
         const values = new Set<string>();
 
         for (const client of data?.clients ?? []) {
-            const tunnel = client.tunnel?.trim();
+            const tunnel = client.last_tunnel?.trim();
             if (tunnel) values.add(tunnel);
         }
 
@@ -233,11 +235,11 @@ export default function MensagemAtivaPage() {
             .map((value) => ({ label: value, value }));
     }, [data?.clients]);
 
-    const sourceOptions = useMemo(() => {
+    const originOptions = useMemo(() => {
         const values = new Set<string>();
 
         for (const client of data?.clients ?? []) {
-            values.add(client.utm_source?.trim() || "direct");
+            values.add(client.last_origin?.trim() || "__NULL__");
         }
 
         return [...values]
@@ -245,7 +247,7 @@ export default function MensagemAtivaPage() {
                 first.localeCompare(second, "pt-BR"),
             )
             .map((value) => ({
-                label: value === "direct" ? "Direto" : value,
+                label: value === "__NULL__" ? "Sem origem" : value,
                 value,
             }));
     }, [data?.clients]);
@@ -346,15 +348,15 @@ export default function MensagemAtivaPage() {
 
             if (
                 tunnelValues.length > 0 &&
-                !tunnelValues.includes(client.tunnel?.trim() || "")
+                !tunnelValues.includes(client.last_tunnel?.trim() || "")
             ) {
                 return false;
             }
 
             if (
-                sourceValues.length > 0 &&
-                !sourceValues.includes(
-                    client.utm_source?.trim() || "direct",
+                originValues.length > 0 &&
+                !originValues.includes(
+                    client.last_origin?.trim() || "__NULL__",
                 )
             ) {
                 return false;
@@ -414,7 +416,7 @@ export default function MensagemAtivaPage() {
         data?.clients,
         lastClientMessageRange,
         search,
-        sourceValues,
+        originValues,
         stageValues,
         tunnelValues,
         windowValues,
@@ -426,7 +428,7 @@ export default function MensagemAtivaPage() {
         search,
         stageValues,
         tunnelValues,
-        sourceValues,
+        originValues,
         closingTagValues,
         lastClientMessageRange,
         windowValues,
@@ -630,7 +632,7 @@ export default function MensagemAtivaPage() {
                             search: search.trim() || null,
                             funnel_stage_ids: stageValues,
                             tunnels: tunnelValues,
-                            origins: sourceValues,
+                            origins: originValues,
                             closing_tags: closingTagValues,
                             last_client_message_date_range:
                                 lastClientMessageRange,
@@ -815,9 +817,9 @@ export default function MensagemAtivaPage() {
                                         {
                                             id: "source",
                                             title: "Origem",
-                                            values: sourceValues,
-                                            onChange: setSourceValues,
-                                            options: sourceOptions,
+                                            values: originValues,
+                                            onChange: setOriginValues,
+                                            options: originOptions,
                                         },
                                         {
                                             id: "closing-tag",
@@ -1121,16 +1123,19 @@ function HistoryTable({
             {
                 id: "created_at",
                 label: "Enviado em",
-                width: "15%",
+                width: "11%",
                 render: (item) =>
                     formatDateTime(item.created_at),
             },
             {
                 id: "template",
                 label: "Template",
-                width: "20%",
+                width: "16%",
                 render: (item) => (
-                    <div className="min-w-0">
+                    <div
+                        className="min-w-0"
+                        title={`${item.template_name}\n${item.template_id}`}
+                    >
                         <div className="truncate font-medium text-slate-700">
                             {item.template_name}
                         </div>
@@ -1141,16 +1146,52 @@ function HistoryTable({
                 ),
             },
             {
-                id: "clients",
-                label: "Clientes",
-                width: "9%",
-                align: "center",
-                render: (item) => item.requested_count,
+                id: "recipients",
+                label: "Conversas",
+                width: "31%",
+                render: (item) => (
+                    <HoverBadgeList
+                        items={item.recipients.map((recipient) => {
+                            const canOpen =
+                                recipient.responded &&
+                                recipient.response_target_type !== null &&
+                                recipient.response_target_id !== null;
+                            const statusDescription = recipient.responded
+                                ? "Respondeu ao disparo — clique para abrir a conversa"
+                                : recipient.status === "failed"
+                                  ? "Falha no envio"
+                                  : "Sem resposta nas 24 horas após o disparo";
+
+                            return {
+                                key: recipient.client_id,
+                                label: recipient.client_name,
+                                title: `${recipient.client_name} — ${statusDescription}`,
+                                ariaLabel: `${recipient.client_name}. ${statusDescription}`,
+                                className: recipient.responded
+                                    ? "bg-soft-green text-green"
+                                    : recipient.status === "failed"
+                                      ? "bg-red-soft text-red"
+                                      : "bg-slate-100 text-slate-600",
+                                onClick: canOpen
+                                    ? () =>
+                                          openFloatingConversation({
+                                              type: recipient.response_target_type!,
+                                              id: recipient.response_target_id!,
+                                          })
+                                    : undefined,
+                            };
+                        })}
+                        badgeClassName="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                        maxBadgeWidthClassName="max-w-[145px]"
+                        expandedBadgeClassName="max-w-[260px]"
+                        popupMaxWidthClassName="max-w-[680px]"
+                    />
+                ),
             },
             {
                 id: "routing",
                 label: "Roteamento",
-                width: "15%",
+                width: "11%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
                         <div>
@@ -1165,7 +1206,7 @@ function HistoryTable({
             {
                 id: "result",
                 label: "Resultado",
-                width: "13%",
+                width: "10%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
                         <div>{item.sent_count} enviados</div>
@@ -1189,7 +1230,7 @@ function HistoryTable({
                         </span>
                     </span>
                 ),
-                width: "18%",
+                width: "13%",
                 render: (item) => (
                     <div className="text-xs text-slate-600">
                         <div>
@@ -1204,7 +1245,7 @@ function HistoryTable({
             {
                 id: "status",
                 label: "Status",
-                width: "10%",
+                width: "8%",
                 render: (item) => (
                     <HistoryStatus status={item.status} />
                 ),

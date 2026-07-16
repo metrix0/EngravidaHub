@@ -7,6 +7,9 @@ export type HoverBadgeListItem = {
     key: string;
     label: string;
     className?: string;
+    title?: string;
+    ariaLabel?: string;
+    onClick?: () => void;
 };
 
 type HoverBadgeListProps = {
@@ -64,7 +67,7 @@ export function HoverBadgeList({
         <div
             ref={wrapperRef}
             onMouseEnter={handleMouseEnter}
-            className={`group/badge-list relative min-w-0 max-w-full cursor-pointer ${className}`}
+            className={`group/badge-list relative min-w-0 max-w-full ${className}`}
         >
             <div className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
                 {items.map((item) => (
@@ -78,19 +81,23 @@ export function HoverBadgeList({
             </div>
 
             <div
-                className={`pointer-events-none absolute top-full z-50 mt-2 ${popupMaxWidthClassName} rounded-2xl border border-slate-100 bg-white p-3 opacity-0 shadow-xl transition-all duration-150 ease-out group-hover/badge-list:pointer-events-auto group-hover/badge-list:translate-y-0 group-hover/badge-list:scale-100 group-hover/badge-list:opacity-100 ${
+                className={`pointer-events-none absolute top-full z-50 pt-2 opacity-0 transition-all duration-150 ease-out group-hover/badge-list:pointer-events-auto group-hover/badge-list:translate-y-0 group-hover/badge-list:scale-100 group-hover/badge-list:opacity-100 ${
                     side === "right" ? "right-0" : "left-0"
                 } translate-y-1 scale-[0.98]`}
             >
-                <div className="flex flex-nowrap gap-1.5 overflow-hidden whitespace-nowrap">
-                    {items.map((item) => (
-                        <Badge
-                            key={`hover-${item.key}`}
-                            item={item}
-                            badgeClassName={badgeClassName}
-                            extraClassName={expandedBadgeClassName}
-                        />
-                    ))}
+                <div
+                    className={`${popupMaxWidthClassName} rounded-2xl border border-slate-100 bg-white p-3 shadow-xl`}
+                >
+                    <div className="flex max-w-full flex-wrap gap-1.5">
+                        {items.map((item) => (
+                            <Badge
+                                key={`hover-${item.key}`}
+                                item={item}
+                                badgeClassName={badgeClassName}
+                                extraClassName={expandedBadgeClassName}
+                            />
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
@@ -106,13 +113,30 @@ function Badge({
     badgeClassName: string;
     extraClassName: string;
 }) {
+    const className = `inline-flex shrink-0 truncate ${badgeClassName} ${extraClassName} ${
+        item.className ?? "bg-slate-100 text-slate-500"
+    }`;
+    const title = item.title ?? item.label;
+
+    if (item.onClick) {
+        return (
+            <button
+                type="button"
+                title={title}
+                aria-label={item.ariaLabel ?? title}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    item.onClick?.();
+                }}
+                className={`${className} cursor-pointer transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25`}
+            >
+                {item.label}
+            </button>
+        );
+    }
+
     return (
-        <span
-            title={item.label}
-            className={`inline-flex shrink-0 truncate ${badgeClassName} ${extraClassName} ${
-                item.className ?? "bg-slate-100 text-slate-500"
-            }`}
-        >
+        <span title={title} className={className}>
             {item.label}
         </span>
     );

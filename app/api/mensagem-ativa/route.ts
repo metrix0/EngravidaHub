@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase/client";
 import type {
     ActiveMessageClient,
     ActiveMessageFunnelStage,
+    ActiveMessageHistoryRecipient,
     ActiveMessageSendHistory,
     ActiveMessagesPageResponse,
 } from "@/types/activeMessages";
@@ -29,28 +30,36 @@ type ClientApiRow = {
     email: string | null;
     funnel_stage_id: string | null;
     last_interaction_at: string;
-    utm_source: string | null;
+    last_origin: string | null;
+    last_tunnel: string | null;
     last_closing_tag: string | null;
     last_active_message_sent_at: string | null;
 };
 
 type ThreadApiRow = {
     client_id: string | null;
-    latest_conversation_id: string | null;
     last_client_message_at: string | null;
-    last_message_at: string | null;
-    updated_at: string | null;
-};
-
-type ConversationTunnelRow = {
-    id: string;
-    tunnel: string | null;
 };
 
 type HistoryMetricsRow = {
     send_id: string;
     schedule_count: number | string | null;
     response_count: number | string | null;
+};
+
+type RecipientDetailRow = {
+    send_id: string;
+    client_id: string;
+    responded: boolean | null;
+    response_target_type: "thread" | "conversation" | null;
+    response_target_id: string | null;
+};
+
+type StoredRecipientResult = {
+    client_id: string;
+    client_name: string | null;
+    phone: string | null;
+    status: "sent" | "failed";
 };
 
 export async function GET() {
@@ -64,63 +73,55 @@ export async function GET() {
     }
 
     try {
-        const [
-            clientsResult,
-            stagesResult,
-            funnelsResult,
-            threadsResult,
-            historyResult,
-        ] = await Promise.all([
-            supabase
-                .from("clients")
-                .select(`
-                    id,
-                    name,
-                    phone,
-                    email,
-                    funnel_stage_id,
-                    last_interaction_at,
-                    utm_source,
-                    last_closing_tag,
-                    last_active_message_sent_at
-                `)
-                .order("last_interaction_at", { ascending: false }),
-            supabase
-                .from("funnel_stages")
-                .select("id, funnel_id, name, position, color")
-                .order("position", { ascending: true }),
-            supabase
-                .from("funnels")
-                .select("id, name")
-                .order("name", { ascending: true }),
-            supabase
-                .from("thread")
-                .select(`
-                    client_id,
-                    latest_conversation_id,
-                    last_client_message_at,
-                    last_message_at,
-                    updated_at
-                `),
-            supabase
-                .from("active_message_sends")
-                .select(`
-                    id,
-                    template_id,
-                    template_name,
-                    requested_count,
-                    sent_count,
-                    failed_count,
-                    normal_message_count,
-                    template_message_count,
-                    status,
-                    created_by_name,
-                    created_at,
-                    completed_at
-                `)
-                .order("created_at", { ascending: false })
-                .limit(50),
-        ]);
+        const [clientsResult, stagesResult, funnelsResult, threadsResult, historyResult] =
+            await Promise.all([
+                supabase
+                    .from("clients")
+                    .select(`
+                        id,
+                        name,
+                        phone,
+                        email,
+                        funnel_stage_id,
+                        last_interaction_at,
+                        last_origin,
+                        last_tunnel,
+                        last_closing_tag,
+                        last_active_message_sent_at
+                    `)
+                    .order("last_interaction_at", { ascending: false }),
+                supabase
+                    .from("funnel_stages")
+                    .select("id, funnel_id, name, position, color")
+                    .order("position", { ascending: true }),
+                supabase
+                    .from("funnels")
+                    .select("id, name")
+                    .order("name", { ascending: true }),
+                supabase
+                    .from("thread")
+                    .select("client_id, last_client_message_at"),
+                supabase
+                    .from("active_message_sends")
+                    .select(`
+                        id,
+                        template_id,
+                        template_name,
+                        requested_count,
+                        sent_count,
+                        failed_count,
+                        normal_message_count,
+                        template_message_count,
+                        status,
+                        created_by_name,
+                        created_at,
+                        completed_at,
+                        client_ids,
+                        results
+                    `)
+                    .order("created_at", { ascending: false })
+                    .limit(50),
+            ]);
 
         const firstError = [
             clientsResult.error,
@@ -130,69 +131,29 @@ export async function GET() {
             historyResult.error,
         ].find(Boolean);
 
-        if (firstError) {
-            throw firstError;
-        }
+        if (firstError) throw firstError;
 
+        const clientRows = (clientsResult.data ?? []) as ClientApiRow[];
+        const clientById = new Map(clientRows.map((client) => [client.id, client]));
         const historyRows = historyResult.data ?? [];
-        const metricsBySendId = await loadHistoryMetrics(
-            historyRows.map((item) => item.id),
-        );
+        const sendIds = historyRows.map((item) => item.id);
+        const [metricsBySendId, recipientDetailsByKey] = await Promise.all([
+            loadHistoryMetrics(sendIds),
+            loadRecipientDetails(sendIds),
+        ]);
 
         const lastClientMessageByClientId = new Map<string, string | null>();
-        const latestConversationIdByClientId = new Map<string, string>();
-        const latestThreadActivityByClientId = new Map<string, number>();
 
         for (const thread of (threadsResult.data ?? []) as ThreadApiRow[]) {
             if (!thread.client_id) continue;
 
-            const currentClientMessage = lastClientMessageByClientId.get(
-                thread.client_id,
-            );
-            const nextClientMessage = thread.last_client_message_at ?? null;
+            const next = thread.last_client_message_at ?? null;
+            const current = lastClientMessageByClientId.get(thread.client_id);
 
-            if (
-                !currentClientMessage ||
-                (nextClientMessage &&
-                    new Date(nextClientMessage) > new Date(currentClientMessage))
-            ) {
-                lastClientMessageByClientId.set(
-                    thread.client_id,
-                    nextClientMessage,
-                );
-            }
-
-            if (!thread.latest_conversation_id) continue;
-
-            const activityAt =
-                thread.last_message_at ??
-                thread.updated_at ??
-                thread.last_client_message_at;
-            const parsedActivityTimestamp = activityAt
-                ? new Date(activityAt).getTime()
-                : 0;
-            const activityTimestamp = Number.isFinite(parsedActivityTimestamp)
-                ? parsedActivityTimestamp
-                : 0;
-            const currentActivityTimestamp =
-                latestThreadActivityByClientId.get(thread.client_id) ??
-                Number.NEGATIVE_INFINITY;
-
-            if (activityTimestamp >= currentActivityTimestamp) {
-                latestThreadActivityByClientId.set(
-                    thread.client_id,
-                    activityTimestamp,
-                );
-                latestConversationIdByClientId.set(
-                    thread.client_id,
-                    thread.latest_conversation_id,
-                );
+            if (!current || (next && new Date(next) > new Date(current))) {
+                lastClientMessageByClientId.set(thread.client_id, next);
             }
         }
-
-        const tunnelByConversationId = await loadTunnelByConversationId(
-            [...new Set(latestConversationIdByClientId.values())],
-        );
 
         const funnelNameById = new Map(
             (funnelsResult.data ?? []).map((funnel) => [
@@ -200,52 +161,58 @@ export async function GET() {
                 funnel.name ?? null,
             ]),
         );
-
         const stages: ActiveMessageFunnelStage[] = (
             stagesResult.data ?? []
         ).map((stage) => ({
             ...stage,
             funnel_name: funnelNameById.get(stage.funnel_id) ?? null,
         }));
-
         const windowReferenceTime = Date.now();
-
-        const clients: ActiveMessageClient[] = (clientsResult.data ?? []).map(
-            (client: ClientApiRow) => {
-                const latestConversationId =
-                    latestConversationIdByClientId.get(client.id) ?? null;
-
-                return {
-                    id: client.id,
-                    name: client.name ?? null,
-                    phone: client.phone ?? null,
-                    email: client.email ?? null,
-                    funnel_stage_id: client.funnel_stage_id ?? null,
-                    last_interaction_at: client.last_interaction_at,
-                    utm_source: client.utm_source ?? null,
-                    last_closing_tag: client.last_closing_tag ?? null,
-                    tunnel: latestConversationId
-                        ? tunnelByConversationId.get(latestConversationId) ?? null
-                        : null,
-                    last_client_message_at:
-                        lastClientMessageByClientId.get(client.id) ?? null,
-                    whatsapp_window_open: isWhatsAppWindowOpenAt(
-                        lastClientMessageByClientId.get(client.id) ?? null,
-                        windowReferenceTime,
-                    ),
-                    last_active_message_sent_at:
-                        client.last_active_message_sent_at ?? null,
-                };
-            },
-        );
+        const clients: ActiveMessageClient[] = clientRows.map((client) => ({
+            id: client.id,
+            name: client.name ?? null,
+            phone: client.phone ?? null,
+            email: client.email ?? null,
+            funnel_stage_id: client.funnel_stage_id ?? null,
+            last_interaction_at: client.last_interaction_at,
+            last_origin: cleanText(client.last_origin),
+            last_tunnel: cleanText(client.last_tunnel),
+            last_closing_tag: cleanText(client.last_closing_tag),
+            last_client_message_at:
+                lastClientMessageByClientId.get(client.id) ?? null,
+            whatsapp_window_open: isWhatsAppWindowOpenAt(
+                lastClientMessageByClientId.get(client.id) ?? null,
+                windowReferenceTime,
+            ),
+            last_active_message_sent_at:
+                client.last_active_message_sent_at ?? null,
+        }));
 
         const history: ActiveMessageSendHistory[] = historyRows.map((item) => {
             const metrics = metricsBySendId.get(item.id);
 
             return {
-                ...item,
+                id: item.id,
+                template_id: item.template_id,
+                template_name: item.template_name,
+                requested_count: item.requested_count,
+                sent_count: item.sent_count,
+                failed_count: item.failed_count,
+                normal_message_count: item.normal_message_count,
+                template_message_count: item.template_message_count,
+                status: item.status,
+                created_by_name: item.created_by_name,
+                created_at: item.created_at,
+                completed_at: item.completed_at,
                 schedule_count: metrics?.schedule_count ?? 0,
                 response_count: metrics?.response_count ?? 0,
+                recipients: buildHistoryRecipients({
+                    sendId: item.id,
+                    results: item.results,
+                    clientIds: item.client_ids,
+                    clientById,
+                    recipientDetailsByKey,
+                }),
             } as ActiveMessageSendHistory;
         });
 
@@ -256,9 +223,7 @@ export async function GET() {
             history,
         };
 
-        return NextResponse.json(response, {
-            headers: NO_CACHE_HEADERS,
-        });
+        return NextResponse.json(response, { headers: NO_CACHE_HEADERS });
     } catch (error) {
         console.error("[mensagem-ativa] GET failed", error);
 
@@ -274,50 +239,17 @@ export async function GET() {
     }
 }
 
-async function loadTunnelByConversationId(conversationIds: string[]) {
-    const tunnelByConversationId = new Map<string, string | null>();
-
-    for (const batch of chunk(conversationIds, 100)) {
-        const { data, error } = await supabase
-            .from("conversations")
-            .select("id, tunnel")
-            .in("id", batch);
-
-        if (error) {
-            throw new Error(
-                `Não foi possível carregar os túneis dos clientes: ${error.message}`,
-            );
-        }
-
-        for (const conversation of (data ?? []) as ConversationTunnelRow[]) {
-            tunnelByConversationId.set(
-                conversation.id,
-                conversation.tunnel?.trim() || null,
-            );
-        }
-    }
-
-    return tunnelByConversationId;
-}
-
 async function loadHistoryMetrics(sendIds: string[]) {
     const metricsBySendId = new Map<
         string,
-        {
-            schedule_count: number;
-            response_count: number;
-        }
+        { schedule_count: number; response_count: number }
     >();
 
-    if (sendIds.length === 0) {
-        return metricsBySendId;
-    }
+    if (sendIds.length === 0) return metricsBySendId;
 
     const { data, error } = await supabase.rpc(
         "get_active_message_send_metrics",
-        {
-            p_send_ids: sendIds,
-        },
+        { p_send_ids: sendIds },
     );
 
     if (error) {
@@ -336,19 +268,131 @@ async function loadHistoryMetrics(sendIds: string[]) {
     return metricsBySendId;
 }
 
+async function loadRecipientDetails(sendIds: string[]) {
+    const detailsByKey = new Map<string, RecipientDetailRow>();
+
+    if (sendIds.length === 0) return detailsByKey;
+
+    const { data, error } = await supabase.rpc(
+        "get_active_message_send_recipient_details",
+        { p_send_ids: sendIds },
+    );
+
+    if (error) {
+        throw new Error(
+            `Não foi possível carregar as respostas por cliente: ${error.message}`,
+        );
+    }
+
+    for (const row of (data ?? []) as RecipientDetailRow[]) {
+        detailsByKey.set(recipientKey(row.send_id, row.client_id), row);
+    }
+
+    return detailsByKey;
+}
+
+function buildHistoryRecipients({
+    sendId,
+    results,
+    clientIds,
+    clientById,
+    recipientDetailsByKey,
+}: {
+    sendId: string;
+    results: unknown;
+    clientIds: unknown;
+    clientById: Map<string, ClientApiRow>;
+    recipientDetailsByKey: Map<string, RecipientDetailRow>;
+}): ActiveMessageHistoryRecipient[] {
+    const storedResults = parseStoredRecipientResults(results);
+    const orderedResults =
+        storedResults.length > 0
+            ? storedResults
+            : parseClientIds(clientIds).map((clientId) => ({
+                  client_id: clientId,
+                  client_name: clientById.get(clientId)?.name ?? null,
+                  phone: clientById.get(clientId)?.phone ?? null,
+                  status: "sent" as const,
+              }));
+    const seen = new Set<string>();
+    const recipients: ActiveMessageHistoryRecipient[] = [];
+
+    for (const result of orderedResults) {
+        if (seen.has(result.client_id)) continue;
+        seen.add(result.client_id);
+
+        const client = clientById.get(result.client_id);
+        const detail = recipientDetailsByKey.get(
+            recipientKey(sendId, result.client_id),
+        );
+
+        recipients.push({
+            client_id: result.client_id,
+            client_name:
+                cleanText(result.client_name) ??
+                cleanText(client?.name) ??
+                "Cliente sem nome",
+            phone: cleanText(result.phone) ?? cleanText(client?.phone),
+            status: result.status,
+            responded: result.status === "sent" && detail?.responded === true,
+            response_target_type:
+                detail?.responded === true
+                    ? detail.response_target_type
+                    : null,
+            response_target_id:
+                detail?.responded === true ? detail.response_target_id : null,
+        });
+    }
+
+    return recipients;
+}
+
+function parseStoredRecipientResults(value: unknown): StoredRecipientResult[] {
+    if (!Array.isArray(value)) return [];
+
+    return value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+
+        const row = item as Record<string, unknown>;
+        const clientId = cleanText(row.client_id);
+        const status = row.status === "sent" || row.status === "failed"
+            ? row.status
+            : null;
+
+        if (!clientId || !status) return [];
+
+        return [
+            {
+                client_id: clientId,
+                client_name: cleanText(row.client_name),
+                phone: cleanText(row.phone),
+                status,
+            },
+        ];
+    });
+}
+
+function parseClientIds(value: unknown) {
+    if (!Array.isArray(value)) return [];
+
+    return value
+        .map((item) => cleanText(item))
+        .filter((item): item is string => Boolean(item));
+}
+
+function recipientKey(sendId: string, clientId: string) {
+    return `${sendId}:${clientId}`;
+}
+
+function cleanText(value: unknown) {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim();
+    return normalized || null;
+}
+
 function toCount(value: number | string | null) {
     const parsed = Number(value ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function chunk<T>(items: T[], size: number) {
-    const chunks: T[][] = [];
-
-    for (let index = 0; index < items.length; index += size) {
-        chunks.push(items.slice(index, index + size));
-    }
-
-    return chunks;
 }
 
 function isWhatsAppWindowOpenAt(
