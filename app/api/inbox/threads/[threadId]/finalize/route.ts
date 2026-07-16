@@ -19,23 +19,14 @@ export async function POST(
     console.info(`[inbox-finalize:${requestId}] Starting`, {
         threadId,
         mode: "manual",
+        analysis: "deferred_to_hourly_bedrock_batch",
     });
 
     const { attendant } = await getCurrentAttendantFromRequest();
 
     if (!attendant || !attendant.active || !attendant.is_online) {
-        console.warn(`[inbox-finalize:${requestId}] Not allowed`, {
-            hasAttendant: Boolean(attendant),
-            active: attendant?.active ?? null,
-            online: attendant?.is_online ?? null,
-        });
-
         return NextResponse.json(
-            {
-                ok: false,
-                error: "Not allowed",
-                request_id: requestId,
-            },
+            { ok: false, error: "Not allowed", request_id: requestId },
             { status: 403 },
         );
     }
@@ -48,37 +39,17 @@ export async function POST(
         .maybeSingle();
 
     if (threadError) {
-        console.error(
-            `[inbox-finalize:${requestId}] Failed to verify thread`,
-            {
-                error: threadError.message,
-            },
-        );
-
         return NextResponse.json(
-            {
-                ok: false,
-                error: threadError.message,
-                request_id: requestId,
-            },
+            { ok: false, error: threadError.message, request_id: requestId },
             { status: 500 },
         );
     }
 
     if (!thread) {
-        console.warn(
-            `[inbox-finalize:${requestId}] Thread unavailable`,
-            {
-                threadId,
-                attendantId: attendant.id,
-            },
-        );
-
         return NextResponse.json(
             {
                 ok: false,
-                error:
-                    "Thread not found or not assigned to this attendant",
+                error: "Thread not found or not assigned to this attendant",
                 request_id: requestId,
             },
             { status: 404 },
@@ -91,27 +62,17 @@ export async function POST(
             attendantId: attendant.id,
             requestId,
             mode: "manual",
-            analyze: true,
+            analyze: false,
         });
 
         return NextResponse.json({
             ...result,
+            analysis_deferred: true,
+            analysis_provider: "amazon-bedrock-batch",
             request_id: requestId,
         });
     } catch (error) {
-        console.error(
-            `[inbox-finalize:${requestId}] Finalization failed`,
-            {
-                threadId,
-                attendantId: attendant.id,
-                error,
-            },
-        );
-
-        const status =
-            error instanceof InboxFinalizeError
-                ? error.status
-                : 500;
+        const status = error instanceof InboxFinalizeError ? error.status : 500;
 
         return NextResponse.json(
             {

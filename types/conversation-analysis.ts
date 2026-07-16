@@ -24,5 +24,5 @@ export type ConversationAnalysis = {
     response_timing: { first_human_response_time_seconds: number | null; average_human_response_time_seconds: number | null; longest_human_delay_seconds: number | null };
     resolution: { resolved: true | false | "partial"; resolution_score: number | null; reasoning_category: ResolutionReasoningCategory; evidence_message_ids: EvidenceIds };
     short_label: string; notable: boolean; notable_reason: string | null;
-    analysis_provider: "openai" | "groq"; analysis_model: string; analysis_prompt_version: string; analysis_message_count: number;
+    analysis_provider: "openai" | "groq" | "bedrock"; analysis_model: string; analysis_prompt_version: string; analysis_message_count: number;
 };

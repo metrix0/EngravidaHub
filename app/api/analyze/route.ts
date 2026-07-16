@@ -1,8 +1,8 @@
 // app/api/analyze/route.ts
 import { NextResponse } from "next/server";
 
+import { runBedrockBatchAnalysis } from "@/lib/ai/bedrockBatchAnalysis";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
-import { processPendingConversationsToAnalysisAndAdEvents } from "@/lib/conversations/processPendingConversationsToAnalysisAndAdEvents";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
 import { runClosingTagBackfillOnce } from "@/lib/conversations/matchConversationsSheetAttribution";
 import { repairConversationsSheetAttribution } from "@/lib/conversations/repairConversationsSheetAttribution";
@@ -12,56 +12,30 @@ export const maxDuration = 300;
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
-
         const inactivityHours = Number(searchParams.get("inactivity_hours") ?? 12);
-        const limit = Number(searchParams.get("limit") ?? 9999);
+        const limit = Number(searchParams.get("limit") ?? 100000);
 
-        console.log("[/api/analyze] starting pipeline", {
+        console.log("[/api/analyze] starting hourly Bedrock batch pipeline", {
             inactivity_hours: inactivityHours,
             limit,
         });
 
         let closingTagBackfill = null;
-
         try {
-            closingTagBackfill = await runClosingTagBackfillOnce({
-                rowLimit: 10_000,
-            });
-            console.log(
-                "[/api/analyze] one-time closing tag backfill",
-                closingTagBackfill,
-            );
+            closingTagBackfill = await runClosingTagBackfillOnce({ rowLimit: 10_000 });
         } catch (error) {
             console.error(
-                "[/api/analyze] one-time closing tag backfill failed; normal analysis will continue",
+                "[/api/analyze] one-time closing tag backfill failed; analysis will continue",
                 error,
             );
         }
-
-        console.log("[/api/analyze] converting pending messages into conversations");
 
         const createdConversations = await messageToConversations({
             inactivityHours,
             limit,
         });
 
-        console.log("[/api/analyze] messages converted into conversations", {
-            conversations_created: createdConversations.length,
-        });
-
-        console.log("[/api/analyze] matching sender names");
-
-        const senderNameMatch = await matchMessagesSenderName({
-            limit,
-        });
-
-        console.log("[/api/analyze] sender names matched", {
-            updated_messages: senderNameMatch.updated_messages,
-            ready_conversations: senderNameMatch.ready_conversation_ids.length,
-            skipped_conversations: senderNameMatch.skipped_conversation_ids.length,
-        });
-
-        console.log("[/api/analyze] repairing canonical spreadsheet tunnel/origin");
+        const senderNameMatch = await matchMessagesSenderName({ limit });
 
         let sheetAttributionRepair:
             | Awaited<ReturnType<typeof repairConversationsSheetAttribution>>
@@ -75,13 +49,8 @@ export async function GET(request: Request) {
                     (conversation) => conversation.conversation_id,
                 ),
             });
-            console.log(
-                "[/api/analyze] recurring spreadsheet attribution repair completed",
-                sheetAttributionRepair,
-            );
         } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error ? error.message : String(error);
             sheetAttributionRepair = { error: message };
             console.error(
                 "[/api/analyze] recurring spreadsheet attribution repair failed",
@@ -89,20 +58,12 @@ export async function GET(request: Request) {
             );
         }
 
-        console.log("[/api/analyze] gathering pending conversations to analysis");
+        const bedrockBatch = await runBedrockBatchAnalysis({ limit });
 
-        const results = await processPendingConversationsToAnalysisAndAdEvents({
-            limit,
-            conversationIds: senderNameMatch.ready_conversation_ids,
-        });
-
-        console.log("[/api/analyze] pipeline finished", {
-            conversations_processed: results.length,
-            succeeded: results.filter((item) => item.ok).length,
-            failed: results.filter((item) => !item.ok).length,
-            skipped_missing_sender_name:
-                senderNameMatch.skipped_conversation_ids.length,
-            sheet_attribution_repair: sheetAttributionRepair,
+        console.log("[/api/analyze] hourly Bedrock batch pipeline finished", {
+            conversations_created: createdConversations.length,
+            sender_names_ready: senderNameMatch.ready_conversation_ids.length,
+            bedrock_batch: bedrockBatch,
         });
 
         return NextResponse.json({
@@ -110,7 +71,7 @@ export async function GET(request: Request) {
             closing_tag_backfill: closingTagBackfill,
             sender_name_match: senderNameMatch,
             sheet_attribution_repair: sheetAttributionRepair,
-            results,
+            bedrock_batch: bedrockBatch,
         });
     } catch (error) {
         console.error("[/api/analyze] pipeline failed", error);

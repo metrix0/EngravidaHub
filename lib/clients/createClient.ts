@@ -116,7 +116,7 @@ async function findExistingClient(
     }
 
     if (external.data) {
-        return external.data as ExistingClient;
+        return external.data as unknown as ExistingClient;
     }
 
     if (!phoneIdentity) {
@@ -135,7 +135,7 @@ async function findExistingClient(
     }
 
     if (canonical.data) {
-        return canonical.data as ExistingClient;
+        return canonical.data as unknown as ExistingClient;
     }
 
     const local = phoneIdentity.startsWith("55")
@@ -158,7 +158,7 @@ async function findExistingClient(
     }
 
     return (
-        ((legacy.data ?? []) as ExistingClient[]).find(
+        ((legacy.data ?? []) as unknown as ExistingClient[]).find(
             (row) => normalizePhoneIdentity(row.phone) === phoneIdentity,
         ) ?? null
     );

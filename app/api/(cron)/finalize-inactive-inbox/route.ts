@@ -3,7 +3,6 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
-import { analyzeConversationsByIds } from "@/lib/conversations/analyzeConversationsByIds";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 
 export const dynamic = "force-dynamic";
@@ -50,17 +49,11 @@ export async function GET(request: Request) {
 
     const inactivityHours = parsePositiveNumber(
         searchParams.get("inactivity_hours"),
-        Number(
-            process.env.INBOX_AUTO_FINALIZE_HOURS ??
-                DEFAULT_INACTIVITY_HOURS,
-        ),
+        Number(process.env.INBOX_AUTO_FINALIZE_HOURS ?? DEFAULT_INACTIVITY_HOURS),
     );
     const finalizeLimit = parseLimit(
         searchParams.get("limit"),
-        Number(
-            process.env.INBOX_AUTO_FINALIZE_LIMIT ??
-                DEFAULT_FINALIZE_LIMIT,
-        ),
+        Number(process.env.INBOX_AUTO_FINALIZE_LIMIT ?? DEFAULT_FINALIZE_LIMIT),
     );
     const legacyMessageLimit = parseLimit(
         searchParams.get("legacy_limit"),
@@ -73,28 +66,11 @@ export async function GET(request: Request) {
         Date.now() - inactivityHours * 60 * 60 * 1000,
     );
 
-    console.info(`[inbox-auto-finalize:${requestId}] Starting`, {
-        inactivityHours,
-        inactiveBefore: inactiveBefore.toISOString(),
-        finalizeLimit,
-        legacyMessageLimit,
-    });
-
     try {
         const inactiveThreads = await loadInactiveThreads({
             inactiveBefore,
             limit: finalizeLimit,
         });
-
-        console.info(
-            `[inbox-auto-finalize:${requestId}] Eligible threads loaded`,
-            {
-                threads: inactiveThreads.length,
-                first_thread_ids: inactiveThreads
-                    .slice(0, 10)
-                    .map((thread) => thread.id),
-            },
-        );
 
         const finalizeResults = await mapWithConcurrency(
             inactiveThreads,
@@ -105,18 +81,13 @@ export async function GET(request: Request) {
                         "finalize_inactive_inbox_thread",
                         {
                             p_thread_id: thread.id,
-                            p_inactive_before:
-                                inactiveBefore.toISOString(),
+                            p_inactive_before: inactiveBefore.toISOString(),
                         },
                     );
-
-                    if (error) {
-                        throw new Error(error.message);
-                    }
+                    if (error) throw new Error(error.message);
 
                     const conversationId =
                         typeof data === "string" ? data : null;
-
                     if (!conversationId) {
                         return {
                             ok: true,
@@ -134,16 +105,6 @@ export async function GET(request: Request) {
                         conversation_id: conversationId,
                     };
                 } catch (error) {
-                    console.error(
-                        `[inbox-auto-finalize:${requestId}] Thread failed`,
-                        {
-                            threadId: thread.id,
-                            status: thread.status,
-                            attendantId: thread.assigned_attendant_id,
-                            error,
-                        },
-                    );
-
                     return {
                         ok: false,
                         thread_id: thread.id,
@@ -173,10 +134,6 @@ export async function GET(request: Request) {
                 error instanceof Error
                     ? error.message
                     : "Failed to convert legacy messages";
-            console.error(
-                `[inbox-auto-finalize:${requestId}] Legacy conversion failed`,
-                error,
-            );
         }
 
         const finalizedConversationIds = finalizeResults
@@ -190,93 +147,30 @@ export async function GET(request: Request) {
             )
             .map((item) => item.conversation_id);
 
-        // Analyze only conversations produced by this request. A cron execution
-        // must never silently expand into an unrelated production backlog.
-        const conversationIdsToAnalyze = Array.from(
-            new Set([
-                ...finalizedConversationIds,
-                ...legacyConversationIds,
-            ]),
+        const conversationIdsDeferred = Array.from(
+            new Set([...finalizedConversationIds, ...legacyConversationIds]),
         );
 
-        let analysis = null;
-        let analysisError: string | null = null;
-
-        if (conversationIdsToAnalyze.length > 0) {
-            try {
-                analysis = await analyzeConversationsByIds(
-                    conversationIdsToAnalyze,
-                );
-
-                const skippedPreparationIds = analysis.sender_preparation
-                    .filter((item) => !item.ok)
-                    .map((item) => item.conversation_id);
-
-                await deferConversationRetries(skippedPreparationIds);
-            } catch (error) {
-                analysisError =
-                    error instanceof Error
-                        ? error.message
-                        : "Failed to analyze finalized conversations";
-                console.error(
-                    `[inbox-auto-finalize:${requestId}] Analysis batch failed`,
-                    {
-                        conversationIds: conversationIdsToAnalyze,
-                        error,
-                    },
-                );
-
-                await deferConversationRetries(
-                    conversationIdsToAnalyze,
-                );
-            }
-        }
-
-        const response = {
+        return NextResponse.json({
             ok: true,
             request_id: requestId,
             inactivity_hours: inactivityHours,
             inactive_before: inactiveBefore.toISOString(),
             eligible_threads: inactiveThreads.length,
-            finalized_threads: finalizeResults.filter(
-                (item) => item.ok && !item.skipped,
-            ).length,
+            finalized_threads: finalizedConversationIds.length,
             skipped_threads: finalizeResults.filter(
                 (item) => item.ok && item.skipped,
             ).length,
-            failed_threads: finalizeResults.filter((item) => !item.ok)
-                .length,
+            failed_threads: finalizeResults.filter((item) => !item.ok).length,
             legacy_conversations_created: legacyConversationIds.length,
             legacy_conversation_ids: legacyConversationIds,
             legacy_error: legacyError,
-            conversation_ids_to_analyze: conversationIdsToAnalyze,
-            analysis_error: analysisError,
+            conversation_ids_deferred_to_bedrock_batch: conversationIdsDeferred,
+            analysis_deferred: true,
+            analysis_provider: "amazon-bedrock-batch",
             finalize_results: finalizeResults,
-            analysis,
-        };
-
-        console.info(
-            `[inbox-auto-finalize:${requestId}] Finished`,
-            {
-                eligible_threads: response.eligible_threads,
-                finalized_threads: response.finalized_threads,
-                skipped_threads: response.skipped_threads,
-                failed_threads: response.failed_threads,
-                legacy_conversations_created:
-                    response.legacy_conversations_created,
-                conversations_to_analyze:
-                    conversationIdsToAnalyze.length,
-                analysis_error: analysisError,
-            },
-        );
-
-        return NextResponse.json(response);
+        });
     } catch (error) {
-        console.error(
-            `[inbox-auto-finalize:${requestId}] Pipeline failed`,
-            error,
-        );
-
         return NextResponse.json(
             {
                 ok: false,
@@ -298,41 +192,14 @@ async function loadInactiveThreads({
     inactiveBefore: Date;
     limit: number;
 }) {
-    const { data, error } = await supabase.rpc(
-        "get_inactive_inbox_threads",
-        {
-            p_inactive_before: inactiveBefore.toISOString(),
-            p_limit: limit,
-        },
-    );
-
+    const { data, error } = await supabase.rpc("get_inactive_inbox_threads", {
+        p_inactive_before: inactiveBefore.toISOString(),
+        p_limit: limit,
+    });
     if (error) {
-        throw new Error(
-            `Failed to load inactive inbox threads: ${error.message}`,
-        );
+        throw new Error(`Failed to load inactive inbox threads: ${error.message}`);
     }
-
     return (data ?? []) as InactiveThreadRow[];
-}
-
-async function deferConversationRetries(conversationIds: string[]) {
-    if (conversationIds.length === 0) return;
-
-    const { error } = await supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .in("id", conversationIds)
-        .is("conversation_analysis_id", null);
-
-    if (error) {
-        console.warn(
-            "[inbox-auto-finalize] Failed to defer conversation retries",
-            {
-                conversations: conversationIds.length,
-                error: error.message,
-            },
-        );
-    }
 }
 
 async function mapWithConcurrency<T, R>(
@@ -347,42 +214,23 @@ async function mapWithConcurrency<T, R>(
         while (true) {
             const currentIndex = nextIndex;
             nextIndex += 1;
-
             if (currentIndex >= items.length) return;
-            results[currentIndex] = await mapper(
-                items[currentIndex],
-                currentIndex,
-            );
+            results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
         }
     }
 
     await Promise.all(
-        Array.from(
-            { length: Math.min(concurrency, items.length) },
-            () => worker(),
-        ),
+        Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
     );
-
     return results;
 }
 
-function parsePositiveNumber(
-    rawValue: string | null,
-    fallback: number,
-) {
+function parsePositiveNumber(rawValue: string | null, fallback: number) {
     const parsed = Number(rawValue ?? fallback);
-
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return fallback;
-    }
-
-    return parsed;
+    return !Number.isFinite(parsed) || parsed <= 0 ? fallback : parsed;
 }
 
 function parseLimit(rawValue: string | null, fallback: number) {
-    const parsed = Math.floor(
-        parsePositiveNumber(rawValue, fallback),
-    );
-
+    const parsed = Math.floor(parsePositiveNumber(rawValue, fallback));
     return Math.min(MAX_LIMIT, Math.max(1, parsed));
 }
