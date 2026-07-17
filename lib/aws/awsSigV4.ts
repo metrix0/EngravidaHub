@@ -70,7 +70,7 @@ export async function awsFetch(request: AwsRequest) {
             request.method === "HEAD" ||
             request.method === "DELETE"
                 ? undefined
-                : payload,
+                : (payload as unknown as BodyInit),
         cache: "no-store",
     });
 }

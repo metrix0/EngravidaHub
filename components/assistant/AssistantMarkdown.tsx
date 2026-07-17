@@ -33,6 +33,24 @@ function parseBlocks(source: string) {
             continue;
         }
 
+        if (
+            trimmed.toLowerCase() === "assistant-chart" &&
+            index + 1 < lines.length
+        ) {
+            const config = parseChartConfig(lines[index + 1]!.trim());
+
+            if (config) {
+                output.push(
+                    <AssistantChart
+                        key={`chart-${output.length}`}
+                        config={config}
+                    />,
+                );
+                index += 2;
+                continue;
+            }
+        }
+
         const fence = /^```([^\s`]*)\s*$/.exec(trimmed);
         if (fence) {
             const language = fence[1] || null;

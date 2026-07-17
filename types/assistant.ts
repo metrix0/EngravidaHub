@@ -20,6 +20,7 @@ export type AssistantClientCardData = {
         status: string;
         procedure_name: string;
         doctor_name: string | null;
+        attendant_name: string | null;
         unit_name: string | null;
     } | null;
 };

@@ -61,6 +61,7 @@ type Client = {
     utm_source: string | null;
     utm_medium: string | null;
     utm_campaign: string | null;
+    last_tunnel: string | null;
     attendant_name: string | null;
 };
 
@@ -114,7 +115,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
         id: "client",
         label: "Cliente",
-        width: "24%",
+        width: "22%",
         render: ({client}) => (
             <div className="flex min-w-0 items-center gap-3">
                 <InitialsAvatar name={client.name ?? "Cliente"}/>
@@ -131,7 +132,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
         id: "phone",
         label: "Telefone",
-        width: "13%",
+        width: "12%",
         render: ({client}) => (
             <div className="truncate text-slate-700">
                 {formatPhone(client.phone)}
@@ -155,15 +156,21 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
         id: "origin",
         label: "Origem",
-        width: "12%",
+        width: "11%",
         render: ({client}) => (
             <Badge value={client.utm_source} />
         ),
     },
     {
+        id: "tunnel",
+        label: "Túnel",
+        width: "11%",
+        render: ({client}) => <Badge value={client.last_tunnel} />,
+    },
+    {
         id: "last_interaction",
         label: "Última interação",
-        width: "16%",
+        width: "15%",
         render: ({client}) => (
             <div className="truncate text-slate-700">
                 {timeAgo(client.last_interaction_at)}
@@ -173,7 +180,7 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     {
         id: "attendant",
         label: "Último Atendente",
-        width: "17%",
+        width: "15%",
         render: ({client}) => (
             <div className="truncate text-slate-700">
                 {client.attendant_name ?? "—"}
@@ -217,6 +224,7 @@ export default function ClientesPage() {
 
     const [stageValues, setStageValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
+    const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
     useEffect(() => {
@@ -261,7 +269,7 @@ export default function ClientesPage() {
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=attendants,origins"
+                    "/api/dashboard/filters?entities=attendants,origins,tunnels"
                 );
                 const json: FiltersResponse = await response.json();
 
@@ -304,6 +312,13 @@ export default function ClientesPage() {
             ) {
                 return false;
             }
+
+            if (
+                tunnelValues.length > 0 &&
+                !tunnelValues.includes(client.last_tunnel ?? "__NULL__")
+            ) {
+                return false;
+            }
             if (interactionDateRange) {
                 const interactionDate = toDateString(client.last_interaction_at);
 
@@ -323,7 +338,14 @@ export default function ClientesPage() {
                 client.email?.toLowerCase().includes(term)
             );
         });
-    }, [clients, search, sourceValues, stageValues, interactionDateRange]);
+    }, [
+        clients,
+        search,
+        sourceValues,
+        stageValues,
+        tunnelValues,
+        interactionDateRange,
+    ]);
 
     const totalClients = filteredClients.length;
 
@@ -333,6 +355,7 @@ export default function ClientesPage() {
         search,
         stageValues,
         sourceValues,
+        tunnelValues,
         period,
         selectedRange.start,
         selectedRange.end,
@@ -442,20 +465,21 @@ export default function ClientesPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-[1.8fr_1fr_1.1fr_0.9fr_1.2fr_1.3fr_48px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3">
-                            {Array.from({length: 7}).map((_, index) => (
+                        <div className="grid grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3">
+                            {Array.from({length: 8}).map((_, index) => (
                                 <Skeleton key={index} className="h-3 w-[70%]" />
                             ))}
                         </div>
 
                         {Array.from({length: 7}).map((_, rowIndex) => (
-                            <div key={rowIndex} className="grid grid-cols-[1.8fr_1fr_1.1fr_0.9fr_1.2fr_1.3fr_48px] items-center gap-4 border-b border-slate-100 px-6 py-4">
+                            <div key={rowIndex} className="grid grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] items-center gap-4 border-b border-slate-100 px-6 py-4">
                                 <div className="flex items-center gap-3">
                                     <Skeleton className="h-9 w-9 rounded-full" />
                                     <Skeleton className="h-4 w-[110px]" />
                                 </div>
                                 <Skeleton className="h-4 w-[90px]" />
                                 <Skeleton className="h-6 w-[88px] rounded-lg" />
+                                <Skeleton className="h-6 w-[72px] rounded-lg" />
                                 <Skeleton className="h-6 w-[72px] rounded-lg" />
                                 <Skeleton className="h-4 w-[90px]" />
                                 <Skeleton className="h-4 w-[105px]" />
@@ -486,17 +510,21 @@ export default function ClientesPage() {
                 <div className="mb-8 flex justify-end gap-3">
                     <MainFilters
                         attendants={filters?.attendants}
+                        tunnels={filters?.tunnels}
                         origins={filters?.origins}
                         originValues={sourceValues}
                         setOriginValues={setSourceValues}
+                        tunnelValues={tunnelValues}
+                        setTunnelValues={setTunnelValues}
                         show={{
                             units: false,
                             attendants: true,
-                            tunnels: false,
+                            tunnels: true,
                             origins: true,
                         }}
                         widths={{
                             attendants: "w-[230px]",
+                            tunnels: "w-[230px]",
                             origins: "w-[230px]",
                         }}
                     />
@@ -584,6 +612,13 @@ export default function ClientesPage() {
                                     values: sourceValues,
                                     onChange: setSourceValues,
                                     options: filters?.origins ?? [],
+                                },
+                                {
+                                    id: "tunnel",
+                                    title: "Túnel",
+                                    values: tunnelValues,
+                                    onChange: setTunnelValues,
+                                    options: filters?.tunnels ?? [],
                                 },
                             ]}
                         />

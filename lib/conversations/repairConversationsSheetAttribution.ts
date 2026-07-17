@@ -43,6 +43,8 @@ type SyncItem = {
     matched: boolean;
     tunnel: string | null;
     origin: string | null;
+    closing_tag: string | null;
+    closing_tag_at: string | null;
 };
 
 type GoogleValuesResponse = {
@@ -129,6 +131,8 @@ export async function repairConversationsSheetAttribution({
             matched: false,
             tunnel: null,
             origin: null,
+            closing_tag: null,
+            closing_tag_at: null,
         }));
         const sync = await syncItems(items);
 
@@ -178,6 +182,8 @@ export async function repairConversationsSheetAttribution({
                 matched: false,
                 tunnel: null,
                 origin: null,
+                closing_tag: null,
+                closing_tag_at: null,
             });
             continue;
         }
@@ -194,6 +200,8 @@ export async function repairConversationsSheetAttribution({
                 matched: false,
                 tunnel: null,
                 origin: null,
+                closing_tag: null,
+                closing_tag_at: null,
             });
             continue;
         }
@@ -212,6 +220,8 @@ export async function repairConversationsSheetAttribution({
                 matched: false,
                 tunnel: null,
                 origin: null,
+                closing_tag: null,
+                closing_tag_at: null,
             });
             continue;
         }
@@ -222,6 +232,8 @@ export async function repairConversationsSheetAttribution({
             matched: true,
             tunnel: match.tunnel,
             origin: match.origin,
+            closing_tag: match.closingTag,
+            closing_tag_at: match.date.toISOString(),
         });
     }
 
@@ -316,6 +328,7 @@ async function loadBacklogRange({
             )
         `)
         .not("ended_at", "is", null)
+        .or("tunnel.is.null,origin.is.null,closing_tag.is.null")
         .order("ended_at", { ascending: false })
         .order("id", { ascending: false })
         .range(offset, offset + limit - 1);

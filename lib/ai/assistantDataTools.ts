@@ -17,6 +17,29 @@ const MAX_ANALYTICS_ROWS = 25_000;
 const ANALYTICS_PAGE_SIZE = 1_000;
 const TIME_ZONE = "America/Sao_Paulo";
 
+type ScheduleSearchRow = {
+    id: string;
+    client_id: string | null;
+    scheduled_for: string;
+    created_in_source_at: string | null;
+    patient_name: string | null;
+    phone: string | null;
+    unit_name: string | null;
+    attendant_name: string | null;
+    procedure_name: string | null;
+    status: string | null;
+};
+
+const SCHEDULE_STATUS_ALIASES: Record<string, string[]> = {
+    // schedules are appointment records; status is the imported agenda_chegou
+    // attendance field, so "scheduled" must not filter out any appointment.
+    scheduled: [],
+    confirmed: ["Sim"],
+    completed: ["Atendido"],
+    cancelled: ["Desmarcou"],
+    no_show: ["Faltou"],
+};
+
 export async function executeAssistantDataTool(
     name: string,
     rawArguments: unknown,
@@ -166,92 +189,38 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
     const statuses = stringArrayArg(args, "statuses");
     const limit = integerArg(args, "limit", 20, 1, 50);
 
-    const [doctorIds, unitIds] = await Promise.all([
-        doctorName ? resolveNamedIds("doctors", doctorName) : Promise.resolve([]),
-        unitName ? resolveNamedIds("units", unitName) : Promise.resolve([]),
-    ]);
-
-    if (doctorName && doctorIds.length === 0) {
-        return {
-            output: {
-                ok: true,
-                appointments: [],
-                note: `Nenhum médico encontrado para “${doctorName}”.`,
-            },
-            cards: [],
-        };
-    }
-
-    if (unitName && unitIds.length === 0) {
-        return {
-            output: {
-                ok: true,
-                appointments: [],
-                note: `Nenhuma unidade encontrada para “${unitName}”.`,
-            },
-            cards: [],
-        };
-    }
-
     let databaseQuery = supabase
-        .from("appointments")
-        .select(`
-            id,
-            client_id,
-            thread_id,
-            starts_at,
-            ends_at,
-            status,
-            format,
-            procedure_name,
-            patient_name,
-            patient_phone,
-            patient_email,
-            spouse_name,
-            notes,
-            client:clients!appointments_client_id_fkey (
-                id,
-                name,
-                phone,
-                email
-            ),
-            unit:units!appointments_unit_id_fkey (
-                id,
-                name,
-                city,
-                state
-            ),
-            doctor:doctors!appointments_doctor_id_fkey (
-                id,
-                name,
-                specialty,
-                crm
-            )
-        `)
-        .order("starts_at", { ascending: true })
+        .from("schedules")
+        .select(
+            "id, client_id, scheduled_for, created_in_source_at, patient_name, phone, unit_name, attendant_name, procedure_name, status",
+            { count: "exact" },
+        )
+        .order("scheduled_for", { ascending: true })
         .limit(limit);
 
-    if (futureOnly) {
-        databaseQuery = databaseQuery.gte("ends_at", new Date().toISOString());
+    const effectiveStartDate = startDate ?? (futureOnly ? todayInBrazil() : null);
+    if (effectiveStartDate) {
+        databaseQuery = databaseQuery.gte("scheduled_for", effectiveStartDate);
     }
-
-    if (startDate) {
-        databaseQuery = databaseQuery.gte(
-            "starts_at",
-            brazilDayBoundary(startDate),
-        );
-    }
-
     if (endDate) {
-        databaseQuery = databaseQuery.lt(
-            "starts_at",
-            brazilDayBoundary(addDays(endDate, 1)),
+        databaseQuery = databaseQuery.lte("scheduled_for", endDate);
+    }
+    if (unitName) {
+        databaseQuery = databaseQuery.ilike(
+            "unit_name",
+            `%${sanitizePostgrestText(unitName)}%`,
         );
     }
 
-    if (statuses.length > 0) databaseQuery = databaseQuery.in("status", statuses);
-    if (doctorIds.length > 0) databaseQuery = databaseQuery.in("doctor_id", doctorIds);
-    if (unitIds.length > 0) databaseQuery = databaseQuery.in("unit_id", unitIds);
+    const scheduleStatuses = statuses.flatMap((status) =>
+        SCHEDULE_STATUS_ALIASES[status] ?? [status],
+    );
+    if (scheduleStatuses.length > 0) {
+        databaseQuery = databaseQuery.in(
+            "status",
+            [...new Set(scheduleStatuses)],
+        );
+    }
 
     if (query) {
         const safeText = sanitizePostgrestText(query);
@@ -260,57 +229,36 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
 
         if (safeText) {
             filters.push(`patient_name.ilike.%${safeText}%`);
-            filters.push(`spouse_name.ilike.%${safeText}%`);
-            filters.push(`patient_email.ilike.%${safeText}%`);
+            filters.push(`unit_name.ilike.%${safeText}%`);
+            filters.push(`procedure_name.ilike.%${safeText}%`);
+            filters.push(`attendant_name.ilike.%${safeText}%`);
         }
-
         if (digits.length >= 3) {
-            filters.push(`patient_phone.ilike.%${digits}%`);
-            filters.push(`spouse_phone.ilike.%${digits}%`);
+            filters.push(`phone.ilike.%${digits}%`);
         }
-
         if (filters.length > 0) databaseQuery = databaseQuery.or(filters.join(","));
     }
 
-    const { data, error } = await databaseQuery;
+    const { data, error, count } = await databaseQuery;
     if (error) throw new Error(`Falha ao buscar agendamentos: ${error.message}`);
 
-    const appointments = (data ?? []).map((row) => {
-        const client = relationOne(row.client);
-        const unit = relationOne(row.unit);
-        const doctor = relationOne(row.doctor);
-
-        return {
-            id: row.id,
-            client_id: row.client_id ?? client?.id ?? null,
-            patient_name: row.patient_name,
-            patient_phone: row.patient_phone ?? null,
-            patient_email: row.patient_email ?? null,
-            spouse_name: row.spouse_name ?? null,
-            starts_at: row.starts_at,
-            ends_at: row.ends_at,
-            status: row.status,
-            format: row.format,
-            procedure_name: row.procedure_name,
-            doctor: doctor
-                ? {
-                      id: doctor.id,
-                      name: doctor.name,
-                      specialty: doctor.specialty ?? null,
-                      crm: doctor.crm ?? null,
-                  }
-                : null,
-            unit: unit
-                ? {
-                      id: unit.id,
-                      name: unit.name,
-                      city: unit.city ?? null,
-                      state: unit.state ?? null,
-                  }
-                : null,
-            notes: row.notes ?? null,
-        };
-    });
+    const schedules = (data ?? []) as unknown as ScheduleSearchRow[];
+    const appointments = schedules.map((row) => ({
+        id: row.id,
+        client_id: row.client_id,
+        patient_name: row.patient_name,
+        patient_phone: row.phone,
+        scheduled_for: row.scheduled_for,
+        starts_at: `${row.scheduled_for}T00:00:00-03:00`,
+        ends_at: null,
+        status: row.status,
+        status_field: "agenda_chegou",
+        procedure_name: row.procedure_name,
+        attendant_name: row.attendant_name,
+        doctor: null,
+        unit: row.unit_name ? { name: row.unit_name } : null,
+        source: "schedules",
+    }));
 
     const uniqueClientIds: string[] = [
         ...new Set<string>(
@@ -329,28 +277,15 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
     const publicAppointments = appointments.map((appointment) => ({
         patient_name: appointment.patient_name,
         patient_phone: appointment.patient_phone,
-        patient_email: appointment.patient_email,
-        spouse_name: appointment.spouse_name,
+        scheduled_for: appointment.scheduled_for,
         starts_at: appointment.starts_at,
         ends_at: appointment.ends_at,
         status: appointment.status,
-        format: appointment.format,
+        status_field: appointment.status_field,
         procedure_name: appointment.procedure_name,
-        doctor: appointment.doctor
-            ? {
-                  name: appointment.doctor.name,
-                  specialty: appointment.doctor.specialty,
-                  crm: appointment.doctor.crm,
-              }
-            : null,
-        unit: appointment.unit
-            ? {
-                  name: appointment.unit.name,
-                  city: appointment.unit.city,
-                  state: appointment.unit.state,
-              }
-            : null,
-        notes: appointment.notes,
+        attendant_name: appointment.attendant_name,
+        unit: appointment.unit,
+        source: appointment.source,
     }));
 
     return {
@@ -358,7 +293,12 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
             ok: true,
             appointments: publicAppointments,
             total_returned: publicAppointments.length,
+            total_matches: count ?? publicAppointments.length,
+            source: "schedules",
             current_time: new Date().toISOString(),
+            note: doctorName
+                ? "A agenda importada não possui campo de médico; a busca priorizou os registros da agenda do CliniSys."
+                : "O campo status da agenda é o campo agenda_chegou da fonte CliniSys e representa o comparecimento; cada linha retornada já é um registro de agendamento.",
         },
         cards,
     };
@@ -742,15 +682,15 @@ async function getBusinessOverview(
             .gte("started_at", fromIso)
             .lt("started_at", toIso),
         supabase
-            .from("appointments")
+            .from("schedules")
             .select("id", { count: "exact", head: true })
-            .gte("starts_at", fromIso)
-            .lt("starts_at", toIso),
+            .gte("scheduled_for", dateFrom)
+            .lte("scheduled_for", dateTo),
         supabase
-            .from("appointments")
+            .from("schedules")
             .select("id", { count: "exact", head: true })
-            .gte("created_at", fromIso)
-            .lt("created_at", toIso),
+            .gte("created_in_source_at", dateFrom)
+            .lte("created_in_source_at", dateTo),
         supabase
             .from("thread")
             .select("id", { count: "exact", head: true })
@@ -850,7 +790,7 @@ async function getBusinessOverview(
                 analyzed_conversations: countOrNull(analysesResult),
 
                 // "appointments" is kept for backward compatibility and means
-                // appointments whose scheduled date falls inside the period.
+                // imported CliniSys schedules whose scheduled date falls inside the period.
                 appointments: countOrNull(appointmentsScheduledResult),
                 appointments_scheduled_for_period: countOrNull(
                     appointmentsScheduledResult,
@@ -935,30 +875,21 @@ async function loadClientContext(
 
     if (!clientRow) return null;
 
-    const [appointmentsResult, threadResult, conversationResult] =
+    const [schedulesResult, threadResult, conversationResult] =
         await Promise.all([
             supabase
-                .from("appointments")
+                .from("schedules")
                 .select(`
                     id,
-                    starts_at,
-                    ends_at,
+                    scheduled_for,
                     status,
                     procedure_name,
-                    unit:units!appointments_unit_id_fkey (
-                        id,
-                        name
-                    ),
-                    doctor:doctors!appointments_doctor_id_fkey (
-                        id,
-                        name,
-                        specialty
-                    )
+                    unit_name,
+                    attendant_name
                 `)
                 .eq("client_id", clientId)
-                .in("status", ["scheduled", "confirmed"])
-                .gte("ends_at", new Date().toISOString())
-                .order("starts_at", { ascending: true })
+                .gte("scheduled_for", todayInBrazil())
+                .order("scheduled_for", { ascending: true })
                 .limit(20),
             supabase
                 .from("thread")
@@ -1012,7 +943,7 @@ async function loadClientContext(
         ]);
 
     const errors = [
-        appointmentsResult.error,
+        schedulesResult.error,
         threadResult.error,
         conversationResult.error,
     ].filter(Boolean);
@@ -1026,19 +957,16 @@ async function loadClientContext(
     const unit = relationOne(clientRow.units);
     const stage = relationOne(clientRow.funnel_stages);
     const funnel = relationOne(stage?.funnels);
-    const upcomingAppointments = (appointmentsResult.data ?? []).map((row) => {
-        const appointmentUnit = relationOne(row.unit);
-        const doctor = relationOne(row.doctor);
-
+    const upcomingAppointments = (schedulesResult.data ?? []).map((row) => {
         return {
             id: row.id,
-            starts_at: row.starts_at,
-            ends_at: row.ends_at,
+            scheduled_for: row.scheduled_for,
+            starts_at: `${row.scheduled_for}T00:00:00-03:00`,
+            ends_at: null,
             status: row.status,
             procedure_name: row.procedure_name,
-            unit_name: appointmentUnit?.name ?? null,
-            doctor_name: doctor?.name ?? null,
-            doctor_specialty: doctor?.specialty ?? null,
+            unit_name: row.unit_name ?? null,
+            attendant_name: row.attendant_name ?? null,
         };
     });
     const nextAppointment = upcomingAppointments[0] ?? null;
@@ -1064,7 +992,8 @@ async function loadClientContext(
                   starts_at: nextAppointment.starts_at,
                   status: nextAppointment.status,
                   procedure_name: nextAppointment.procedure_name,
-                  doctor_name: nextAppointment.doctor_name,
+                  doctor_name: null,
+                  attendant_name: nextAppointment.attendant_name,
                   unit_name: nextAppointment.unit_name,
               }
             : null,
@@ -1547,12 +1476,26 @@ async function loadUnitAppointments(
     dateFrom: string,
     dateTo: string,
 ) {
+    const { data: unit, error: unitError } = await supabase
+        .from("units")
+        .select("name")
+        .eq("id", unitId)
+        .maybeSingle();
+
+    if (unitError) {
+        throw new Error(
+            `Falha ao localizar unidade para agenda: ${unitError.message}`,
+        );
+    }
+
+    if (!unit?.name) return [];
+
     const { data, error } = await supabase
-        .from("appointments")
-        .select("id, status, starts_at")
-        .eq("unit_id", unitId)
-        .gte("starts_at", brazilDayBoundary(dateFrom))
-        .lt("starts_at", brazilDayBoundary(addDays(dateTo, 1)))
+        .from("schedules")
+        .select("id, status, scheduled_for")
+        .ilike("unit_name", unit.name)
+        .gte("scheduled_for", dateFrom)
+        .lte("scheduled_for", dateTo)
         .limit(5_000);
 
     if (error) {
@@ -1565,7 +1508,7 @@ async function loadUnitAppointments(
 }
 
 function summarizeAppointments(
-    rows: Array<{ id: string; status: string; starts_at: string }>,
+    rows: Array<{ id: string; status: string | null; scheduled_for?: string }>,
 ) {
     return {
         total: rows.length,

@@ -121,6 +121,7 @@ type ExecutiveDashboardData = {
         satisfaction_observed: number;
         scheduling_rate: number | null;
         scheduling_eligible: number;
+        appointments_count: number;
     }[];
 };
 
@@ -312,6 +313,7 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={data.kpis.scheduling_rate}
                                         previousValue={data.previous_kpis.scheduling_rate}
                                         suffix="%"
+                                        tooltipText="É a porcentagem de conversas analisadas elegíveis para agendamento que tiveram evento de agendamento, reagendamento ou confirmação de presença. Usa a análise das conversas e seus eventos de resultado; não usa a tabela schedules. A tabela schedules é usada somente na coluna Agendamentos por unidade."
                                         color="purple"
                                     />
                                 </div>
@@ -527,7 +529,7 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                     <div>Unidade</div>
                     <div>Resolução</div>
                     <div>Satisfação</div>
-                    <div>Agendamento</div>
+                    <div>Agendamentos</div>
                 </div>
 
                 {data.by_unit.map((unit) => (
@@ -542,8 +544,10 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                         <div title={`Base observável: ${unit.satisfaction_observed}`}>
                             <PercentageValue value={unit.satisfaction_rate} greenFrom={70} orangeFrom={40} />
                         </div>
-                        <div title={`Base elegível: ${unit.scheduling_eligible}`}>
-                            <PercentageValue value={unit.scheduling_rate} greenFrom={45} orangeFrom={35} />
+                        <div title="Agendamentos importados da agenda do CliniSys">
+                            <span className="font-semibold text-slate-700">
+                                {unit.appointments_count.toLocaleString("pt-BR")}
+                            </span>
                         </div>
                     </div>
                 ))}

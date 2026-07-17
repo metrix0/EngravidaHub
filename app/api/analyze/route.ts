@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
         let closingTagBackfill = null;
         try {
-            closingTagBackfill = await runClosingTagBackfillOnce({ rowLimit: 10_000 });
+            closingTagBackfill = await runClosingTagBackfillOnce({ rowLimit: 50_000 });
         } catch (error) {
             console.error(
                 "[/api/analyze] one-time closing tag backfill failed; analysis will continue",

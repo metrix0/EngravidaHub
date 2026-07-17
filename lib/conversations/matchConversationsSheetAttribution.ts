@@ -15,6 +15,7 @@ type ConversationToMatch = {
     ended_at: string | null;
     tunnel: string | null;
     origin: string | null;
+    closing_tag: string | null;
     clients:
         | {
               phone: string | null;
@@ -78,7 +79,7 @@ const MAX_ROWS_PER_PHONE = 250;
 const MAX_MATCHED_ROWS_PER_RUN = 5000;
 const BATCH_GET_RANGES_PER_REQUEST = 100;
 const SHEET_INDEX_CACHE_MS = 30_000;
-const CLOSING_TAG_BACKFILL_KEY = "closing_tags_recent_10000_v1";
+const CLOSING_TAG_BACKFILL_KEY = "closing_tags_recent_50000_v2";
 const BACKFILL_RUNNING_STALE_MS = 30 * 60 * 1000;
 
 let sheetIndexCache:
@@ -347,7 +348,7 @@ export async function matchConversationsSheetAttribution({
             continue;
         }
 
-        const updatePayload: Record<string, string> = {};
+        const updatePayload: Record<string, string | null> = {};
 
         if (!conversation.tunnel && match.tunnel) {
             updatePayload.tunnel = match.tunnel;
@@ -355,6 +356,14 @@ export async function matchConversationsSheetAttribution({
 
         if (!conversation.origin && match.origin) {
             updatePayload.origin = match.origin;
+        }
+
+        if (
+            match.closingTag &&
+            conversation.closing_tag !== match.closingTag
+        ) {
+            updatePayload.closing_tag = match.closingTag;
+            updatePayload.closing_tag_at = match.date.toISOString();
         }
 
         if (Object.keys(updatePayload).length === 0) {
@@ -435,6 +444,7 @@ async function getConversationsToMatch({
                 ended_at,
                 tunnel,
                 origin,
+                closing_tag,
                 clients!inner (
                     phone
                 )
@@ -447,7 +457,9 @@ async function getConversationsToMatch({
         if (idsChunk) {
             query = query.in("id", idsChunk);
         } else {
-            query = query.or("tunnel.is.null,origin.is.null");
+            query = query.or(
+                "tunnel.is.null,origin.is.null,closing_tag.is.null",
+            );
         }
 
         const { data, error } = await query;

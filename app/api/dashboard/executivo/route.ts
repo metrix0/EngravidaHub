@@ -69,6 +69,7 @@ type ExecutiveMetricsPayload = {
         satisfaction_observed: number;
         scheduling_rate: number | null;
         scheduling_eligible: number;
+        appointments_count: number;
     }[];
 };
 
@@ -177,7 +178,17 @@ export async function GET(request: Request) {
             ? null
             : normalizeClearSatisfactionMetric(
                   previousSatisfactionResult.data,
-              ),
+        ),
+    );
+
+    const [scheduleCounts, unitSatisfaction] = await Promise.all([
+        loadScheduleCounts(range, filters),
+        loadUnitSatisfaction(current.by_unit, currentParams),
+    ]);
+    const byUnit = mergeUnitMetrics(
+        current.by_unit,
+        scheduleCounts,
+        unitSatisfaction,
     );
 
     const response: ExecutiveDashboardResponse = {
@@ -200,12 +211,184 @@ export async function GET(request: Request) {
         attendance_score: current.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
-        by_unit: current.by_unit,
+        by_unit: byUnit,
     };
 
     return NextResponse.json(response, {
         headers: { "Cache-Control": "private, no-store" },
     });
+}
+
+type ScheduleCount = {
+    unit_name: string;
+    count: number;
+};
+
+type UnitSatisfaction = {
+    satisfaction_observed: number;
+    satisfaction_rate: number | null;
+};
+
+async function loadScheduleCounts(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    filters: ReturnType<typeof readDashboardFilters>,
+): Promise<ScheduleCount[]> {
+    try {
+        let selectedUnitNames: string[] | null = null;
+
+        if (filters.unitIds.length > 0) {
+            const { data: units, error: unitsError } = await supabase
+                .from("units")
+                .select("name")
+                .in("id", filters.unitIds);
+
+            if (unitsError) throw unitsError;
+            selectedUnitNames = (units ?? [])
+                .map((unit) => unit.name?.trim())
+                .filter((name): name is string => Boolean(name));
+        }
+
+        const startDate = range.startDate ?? brazilDate(range.startAt);
+        const endDate = range.endDate ?? brazilDate(
+            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        );
+
+        let query = supabase
+            .from("schedules")
+            .select("unit_name")
+            .gte("scheduled_for", startDate)
+            .lte("scheduled_for", endDate)
+            .limit(50_000);
+
+        if (selectedUnitNames) {
+            if (selectedUnitNames.length === 0) return [];
+            query = query.in("unit_name", selectedUnitNames);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const counts = new Map<string, ScheduleCount>();
+        for (const row of data ?? []) {
+            const unitName = row.unit_name?.trim() || "Sem unidade";
+            const key = normalizeUnitName(unitName);
+            const current = counts.get(key) ?? { unit_name: unitName, count: 0 };
+            current.count += 1;
+            counts.set(key, current);
+        }
+
+        return [...counts.values()];
+    } catch (error) {
+        console.error("[dashboard/executivo] failed to load schedules", error);
+        return [];
+    }
+}
+
+async function loadUnitSatisfaction(
+    units: ExecutiveMetricsPayload["by_unit"],
+    params: ReturnType<typeof executiveRpcParams>,
+) {
+    const entries = await Promise.all(
+        units
+            .filter((unit): unit is typeof unit & { unit_id: string } => Boolean(unit.unit_id))
+            .map(async (unit) => {
+                const { data, error } = await supabase.rpc(
+                    "dashboard_clear_satisfaction_metric_v1",
+                    { ...params, p_unit_ids: [unit.unit_id] },
+                );
+
+                if (error) {
+                    console.error(
+                        "[dashboard/executivo] unit satisfaction RPC failed",
+                        { unit_id: unit.unit_id, error },
+                    );
+                    return [unit.unit_id, null] as const;
+                }
+
+                const metric = normalizeClearSatisfactionMetric(data);
+                return [
+                    unit.unit_id,
+                    metric
+                        ? {
+                              satisfaction_observed:
+                                  metric.satisfaction_observed,
+                              satisfaction_rate:
+                                  metric.clear_satisfaction_rate,
+                          }
+                        : null,
+                ] as const;
+            }),
+    );
+
+    return new Map<string, UnitSatisfaction | null>(entries);
+}
+
+function mergeUnitMetrics(
+    units: ExecutiveMetricsPayload["by_unit"],
+    scheduleCounts: ScheduleCount[],
+    unitSatisfaction: Map<string, UnitSatisfaction | null>,
+) {
+    const schedulesByName = new Map(
+        scheduleCounts.map((item) => [normalizeUnitName(item.unit_name), item.count]),
+    );
+    const seenNames = new Set<string>();
+
+    const merged = units.map((unit) => {
+        const nameKey = normalizeUnitName(unit.unit_name);
+        seenNames.add(nameKey);
+        const satisfaction = unit.unit_id
+            ? unitSatisfaction.get(unit.unit_id)
+            : null;
+
+        return {
+            ...unit,
+            satisfaction_rate:
+                satisfaction?.satisfaction_rate ?? unit.satisfaction_rate,
+            satisfaction_observed:
+                satisfaction?.satisfaction_observed ??
+                unit.satisfaction_observed,
+            appointments_count: schedulesByName.get(nameKey) ?? 0,
+        };
+    });
+
+    for (const schedule of scheduleCounts) {
+        const nameKey = normalizeUnitName(schedule.unit_name);
+        if (seenNames.has(nameKey)) continue;
+
+        merged.push({
+            unit_id: null,
+            unit_name: schedule.unit_name,
+            conversations: 0,
+            resolution_rate: null,
+            resolution_observed: 0,
+            satisfaction_rate: null,
+            satisfaction_observed: 0,
+            scheduling_rate: null,
+            scheduling_eligible: 0,
+            appointments_count: schedule.count,
+        });
+    }
+
+    return merged;
+}
+
+function brazilDate(value: string) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(new Date(value));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+}
+
+function normalizeUnitName(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR");
 }
 
 function normalizeResponseAnchorBreakdown(value: unknown) {

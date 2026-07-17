@@ -1009,9 +1009,11 @@ function mergeLedgerEvents(
     analysisEvents: ConversationAnalysis["outcome_events"],
     ledger: EvidenceLedger,
     messages: AnalyzeConversationMessage[],
-) {
+): ConversationAnalysis["outcome_events"] {
     const messageById = new Map(messages.map((message) => [message.id, message]));
-    const events = [...analysisEvents];
+    const events: ConversationAnalysis["outcome_events"] = [
+        ...analysisEvents,
+    ];
 
     if (
         ledger.primary_goal.evidence_message_ids.length > 0 &&
@@ -1088,7 +1090,9 @@ function mergeLedgerEvents(
         });
     }
 
-    return dedupeEvents(events);
+    return dedupeEvents<ConversationAnalysis["outcome_events"][number]>(
+        events,
+    );
 }
 
 function deterministicFacts(
@@ -1290,7 +1294,7 @@ function validClinicId(
 
 function dedupeEvents<T extends {
     type: string;
-    occurred_at: string | null;
+    occurred_at?: string | null;
     evidence_message_ids: string[];
 }>(events: T[]) {
     const seen = new Set<string>();

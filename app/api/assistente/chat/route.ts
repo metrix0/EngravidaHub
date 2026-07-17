@@ -57,7 +57,7 @@ const TOOLS = [
         type: "function",
         name: "search_appointments",
         description:
-            "Busca agendamentos por paciente, médico, unidade, data e status.",
+            "Busca prioritariamente os agendamentos importados da agenda do CliniSys (tabela schedules) por paciente, unidade, data e status. Use para confirmar agendas; a tabela appointments local é apenas complementar.",
         strict: true,
         parameters: {
             type: "object",
@@ -76,16 +76,7 @@ const TOOLS = [
                 future_only: { type: "boolean" },
                 statuses: {
                     type: "array",
-                    items: {
-                        type: "string",
-                        enum: [
-                            "scheduled",
-                            "confirmed",
-                            "completed",
-                            "cancelled",
-                            "no_show",
-                        ],
-                    },
+                    items: { type: "string" },
                 },
                 limit: { type: "integer", minimum: 1, maximum: 50 },
             },
@@ -446,7 +437,7 @@ REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão ou operação. Nunca invente dados.
 3. Para uma pessoa específica, use search_clients e depois get_client_context antes da resposta final.
-4. Em perguntas de agenda, diferencie scheduled/confirmed de cancelled/no_show/completed e use datas absolutas.
+4. Em perguntas de agenda, conte as linhas retornadas de schedules como agendamentos. O campo status de schedules vem de agenda_chegou e representa comparecimento; não diga que um registro não é agendamento porque status é "Não". Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
@@ -469,6 +460,11 @@ CARDS:
 20. Para perguntas sobre uma pessoa específica, inclua o card do cliente.
 21. Não chame get_conversation_context repetidamente para aumentar o número de cards.
 22. O limite absoluto é dois cards: no máximo um de cliente e um de conversa.
+23. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
+\`\`\`assistant-chart
+{"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
+\`\`\`
+Use \`line\` para evolução por dia, \`bar\` para comparação e \`pie\` para composição. Nunca escreva \`assistant-chart\` e o JSON fora do bloco.
 `.trim();
 }
 
