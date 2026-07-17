@@ -3,16 +3,18 @@
 
 import type { ReactNode } from "react";
 
+import AssistantChart, {
+    type AssistantChartConfig,
+} from "@/components/assistant/AssistantChart";
+
 export default function AssistantMarkdown({
     content,
 }: {
     content: string;
 }) {
-    const blocks = parseBlocks(content);
-
     return (
         <div className="space-y-4 text-sm leading-7 text-slate-700">
-            {blocks}
+            {parseBlocks(content)}
         </div>
     );
 }
@@ -24,42 +26,59 @@ function parseBlocks(source: string) {
 
     while (index < lines.length) {
         const line = lines[index] ?? "";
+        const trimmed = line.trim();
 
-        if (!line.trim()) {
+        if (!trimmed) {
             index += 1;
             continue;
         }
 
-        const fence = /^```([^\s`]*)\s*$/.exec(line.trim());
+        const fence = /^```([^\s`]*)\s*$/.exec(trimmed);
         if (fence) {
-            const code: string[] = [];
             const language = fence[1] || null;
+            const code: string[] = [];
             index += 1;
 
-            while (index < lines.length && !/^```\s*$/.test(lines[index]!.trim())) {
+            while (
+                index < lines.length &&
+                !/^```\s*$/.test(lines[index]!.trim())
+            ) {
                 code.push(lines[index]!);
                 index += 1;
             }
 
             if (index < lines.length) index += 1;
 
+            if (language?.toLowerCase() === "assistant-chart") {
+                const config = parseChartConfig(code.join("\n"));
+                if (config) {
+                    output.push(
+                        <AssistantChart
+                            key={`chart-${output.length}`}
+                            config={config}
+                        />,
+                    );
+                }
+                continue;
+            }
+
             output.push(
                 <pre
                     key={`code-${output.length}`}
                     className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-xs leading-6 text-slate-100"
                 >
-                    {language && (
+                    {language ? (
                         <div className="mb-2 border-b border-white/10 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                             {language}
                         </div>
-                    )}
+                    ) : null}
                     <code>{code.join("\n")}</code>
                 </pre>,
             );
             continue;
         }
 
-        const heading = /^(#{1,3})\s+(.+)$/.exec(line.trim());
+        const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
         if (heading) {
             const level = heading[1].length;
             const text = heading[2];
@@ -91,16 +110,21 @@ function parseBlocks(source: string) {
 
         if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
             output.push(
-                <hr key={`rule-${output.length}`} className="border-slate-200" />,
+                <hr
+                    key={`rule-${output.length}`}
+                    className="border-slate-200"
+                />,
             );
             index += 1;
             continue;
         }
 
-        if (/^>\s?/.test(line.trim())) {
+        if (/^>\s?/.test(trimmed)) {
             const quote: string[] = [];
-
-            while (index < lines.length && /^>\s?/.test(lines[index]!.trim())) {
+            while (
+                index < lines.length &&
+                /^>\s?/.test(lines[index]!.trim())
+            ) {
                 quote.push(lines[index]!.trim().replace(/^>\s?/, ""));
                 index += 1;
             }
@@ -117,7 +141,7 @@ function parseBlocks(source: string) {
         }
 
         if (isTableStart(lines, index)) {
-            const tableLines: string[] = [lines[index]!, lines[index + 1]!];
+            const tableLines = [lines[index]!, lines[index + 1]!];
             index += 2;
 
             while (
@@ -133,10 +157,8 @@ function parseBlocks(source: string) {
             continue;
         }
 
-        const unorderedMatch = /^\s*[-*+]\s+(.+)$/.exec(line);
-        if (unorderedMatch) {
+        if (/^\s*[-*+]\s+/.test(line)) {
             const items: string[] = [];
-
             while (index < lines.length) {
                 const match = /^\s*[-*+]\s+(.+)$/.exec(lines[index]!);
                 if (!match) break;
@@ -157,10 +179,8 @@ function parseBlocks(source: string) {
             continue;
         }
 
-        const orderedMatch = /^\s*\d+[.)]\s+(.+)$/.exec(line);
-        if (orderedMatch) {
+        if (/^\s*\d+[.)]\s+/.test(line)) {
             const items: string[] = [];
-
             while (index < lines.length) {
                 const match = /^\s*\d+[.)]\s+(.+)$/.exec(lines[index]!);
                 if (!match) break;
@@ -181,7 +201,7 @@ function parseBlocks(source: string) {
             continue;
         }
 
-        const paragraph: string[] = [line.trim()];
+        const paragraph = [trimmed];
         index += 1;
 
         while (index < lines.length && lines[index]!.trim()) {
@@ -198,6 +218,55 @@ function parseBlocks(source: string) {
     }
 
     return output;
+}
+
+function parseChartConfig(value: string): AssistantChartConfig | null {
+    try {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        const type = parsed.type;
+        const rawData = parsed.data;
+
+        if (
+            type !== "pie" &&
+            type !== "bar" &&
+            type !== "line"
+        ) {
+            return null;
+        }
+        if (!Array.isArray(rawData)) return null;
+
+        const data = rawData
+            .map((item) => {
+                if (!item || typeof item !== "object") return null;
+                const row = item as Record<string, unknown>;
+                const label =
+                    typeof row.label === "string" ? row.label.trim() : "";
+                const valueNumber = Number(row.value);
+                if (!label || !Number.isFinite(valueNumber)) return null;
+                return { label, value: valueNumber };
+            })
+            .filter(
+                (item): item is { label: string; value: number } =>
+                    item !== null,
+            );
+
+        if (data.length === 0) return null;
+
+        return {
+            type,
+            title:
+                typeof parsed.title === "string" && parsed.title.trim()
+                    ? parsed.title.trim().slice(0, 120)
+                    : "Gráfico",
+            data,
+            valueSuffix:
+                typeof parsed.valueSuffix === "string"
+                    ? parsed.valueSuffix.slice(0, 8)
+                    : undefined,
+        };
+    } catch {
+        return null;
+    }
 }
 
 function startsBlock(lines: string[], index: number) {
@@ -251,7 +320,10 @@ function renderTable(lines: string[], keyIndex: number) {
                 </thead>
                 <tbody>
                     {rows.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="border-b border-slate-100 last:border-0">
+                        <tr
+                            key={rowIndex}
+                            className="border-b border-slate-100 last:border-0"
+                        >
                             {header.map((_, cellIndex) => (
                                 <td
                                     key={cellIndex}
@@ -285,21 +357,22 @@ function renderInlineLines(lines: string[]) {
 }
 
 function renderInline(text: string, keyPrefix = "inline") {
-    const tokenPattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^\s)]+\)|\*[^*\n]+\*|_[^_\n]+_)/g;
+    const tokenPattern =
+        /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^\s)]+\)|\*[^*\n]+\*|_[^_\n]+_)/g;
     const nodes: ReactNode[] = [];
     let cursor = 0;
     let match: RegExpExecArray | null;
 
     while ((match = tokenPattern.exec(text)) !== null) {
-        if (match.index > cursor) {
-            nodes.push(text.slice(cursor, match.index));
-        }
+        if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
 
         const token = match[0];
         const key = `${keyPrefix}-${nodes.length}`;
 
-        if ((token.startsWith("**") && token.endsWith("**")) ||
-            (token.startsWith("__") && token.endsWith("__"))) {
+        if (
+            (token.startsWith("**") && token.endsWith("**")) ||
+            (token.startsWith("__") && token.endsWith("__"))
+        ) {
             nodes.push(
                 <strong key={key} className="font-bold text-slate-950">
                     {token.slice(2, -2)}
@@ -317,7 +390,6 @@ function renderInline(text: string, keyPrefix = "inline") {
         } else if (token.startsWith("[")) {
             const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(token);
             const href = link ? safeHref(link[2]) : null;
-
             nodes.push(
                 href ? (
                     <a

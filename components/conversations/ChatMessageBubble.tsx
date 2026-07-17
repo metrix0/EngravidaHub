@@ -37,8 +37,11 @@ const ATTACHMENT_METADATA_PREFIX = "engravida-attachment:";
 const TAG_CHARACTER_PATTERN = /[\u{E0020}-\u{E007E}]+\u{E007F}/u;
 const LEGACY_MEDIA_PATTERN =
     /^\[(Imagem|Vídeo|Áudio|Arquivo) enviado\](?:\s+([\s\S]+))?$/i;
+const PRESERVED_MESSAGE_PATTERN = /^\[Mensagem preservada:/i;
 
 export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
+    if (PRESERVED_MESSAGE_PATTERN.test(message.text.trim())) return null;
+
     const isAttendant = isAttendantMessage(message);
     const senderLabel = getSenderLabel(message, isAttendant);
     const timeLabel = getTimeLabel(message);
@@ -191,7 +194,11 @@ function AttachmentContent({
                                 : "bg-white text-slate-500"
                         }`}
                     >
-                        {isAudio ? <FileAudio size={19}/> : <FileText size={19}/>}
+                        {isAudio ? (
+                            <FileAudio size={19} />
+                        ) : (
+                            <FileText size={19} />
+                        )}
                     </span>
 
                     <span className="min-w-0 flex-1">
@@ -201,7 +208,9 @@ function AttachmentContent({
                         {attachment.size ? (
                             <span
                                 className={`mt-0.5 block text-xs ${
-                                    isAttendant ? "text-white/70" : "text-slate-400"
+                                    isAttendant
+                                        ? "text-white/70"
+                                        : "text-slate-400"
                                 }`}
                             >
                                 {formatAttachmentSize(attachment.size)}
@@ -209,7 +218,7 @@ function AttachmentContent({
                         ) : null}
                     </span>
 
-                    <Download size={17} className="shrink-0"/>
+                    <Download size={17} className="shrink-0" />
                 </a>
             )}
         </div>
@@ -240,7 +249,9 @@ function getSenderLabel(message: SharedChatMessage, isAttendant: boolean) {
 
     if (!rawName || isEmail(rawName)) {
         if (normalize(message.sender_type ?? "").includes("bot")) return "Bot";
-        if (normalize(message.sender_type ?? "").includes("system")) return "Sistema";
+        if (normalize(message.sender_type ?? "").includes("system")) {
+            return "Sistema";
+        }
         return "Atendente";
     }
 
@@ -292,7 +303,10 @@ function parseLegacyMediaMessage(message: SharedChatMessage) {
         imagem: { name: "Imagem recebida", mimeType: "image/legacy" },
         video: { name: "Vídeo recebido", mimeType: "video/legacy" },
         audio: { name: "Áudio recebido", mimeType: "audio/legacy" },
-        arquivo: { name: "Arquivo recebido", mimeType: "application/octet-stream" },
+        arquivo: {
+            name: "Arquivo recebido",
+            mimeType: "application/octet-stream",
+        },
     }[kind];
 
     if (!properties) return null;
@@ -312,7 +326,9 @@ function readAttachmentMetadata(text: string) {
     const legacyMarkerIndex = text.indexOf(LEGACY_ATTACHMENT_MARKER);
 
     if (legacyMarkerIndex >= 0) {
-        return text.slice(legacyMarkerIndex + LEGACY_ATTACHMENT_MARKER.length);
+        return text.slice(
+            legacyMarkerIndex + LEGACY_ATTACHMENT_MARKER.length,
+        );
     }
 
     const tagMatch = text.match(TAG_CHARACTER_PATTERN)?.[0];
@@ -342,5 +358,8 @@ function isEmail(value: string) {
 }
 
 function normalize(value: string) {
-    return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+    return value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "");
 }

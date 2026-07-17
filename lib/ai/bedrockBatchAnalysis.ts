@@ -414,6 +414,7 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         service_id: conversation.service_id,
         resolution: {
             ...parsed.resolution,
+            resolution_score: parsed.resolution.resolution_score ?? null,
             resolved:
                 parsed.resolution.resolved === "true"
                     ? true
@@ -454,10 +455,15 @@ async function buildAnalysisInput(
     const messages = await getMessages(conversation.id);
     if (messages.length === 0) throw new Error("Conversation has no messages");
 
-    const normalized = messages.map((message) => ({
-        ...message,
-        sender_name: senderLabel(message),
-    }));
+    const normalized = messages
+        .filter((message) => !isInvisibleBlipControlText(message.text))
+        .map((message) => ({
+            ...message,
+            sender_name: senderLabel(message),
+        }));
+    if (normalized.length === 0) {
+        throw new Error("Conversation contains only internal Blip control events");
+    }
     const effectiveEnd = getConversationEffectiveEndMessage(normalized);
 
     return {
@@ -483,6 +489,12 @@ async function buildAnalysisInput(
             sequence_index: message.sequence_index,
         })),
     };
+}
+
+function isInvisibleBlipControlText(value: string) {
+    return /^\[Mensagem preservada:\s*(?:application\/vnd\.iris\.ticket\+json|application\/json)\]$/i.test(
+        value.trim(),
+    );
 }
 
 async function getPendingConversations(limit: number) {

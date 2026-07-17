@@ -15,7 +15,7 @@ export async function GET(request: Request) {
         const inactivityHours = Number(searchParams.get("inactivity_hours") ?? 12);
         const limit = Number(searchParams.get("limit") ?? 100000);
 
-        console.log("[/api/analyze] starting hourly Bedrock batch pipeline", {
+        console.log("[/api/analyze] starting daily Bedrock batch pipeline", {
             inactivity_hours: inactivityHours,
             limit,
         });
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
 
         const bedrockBatch = await runBedrockBatchAnalysis({ limit });
 
-        console.log("[/api/analyze] hourly Bedrock batch pipeline finished", {
+        console.log("[/api/analyze] daily Bedrock batch pipeline finished", {
             conversations_created: createdConversations.length,
             sender_names_ready: senderNameMatch.ready_conversation_ids.length,
             bedrock_batch: bedrockBatch,
