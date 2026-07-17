@@ -313,7 +313,7 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={data.kpis.scheduling_rate}
                                         previousValue={data.previous_kpis.scheduling_rate}
                                         suffix="%"
-                                        tooltipText="É a porcentagem de conversas analisadas elegíveis para agendamento que tiveram evento de agendamento, reagendamento ou confirmação de presença. Usa a análise das conversas e seus eventos de resultado; não usa a tabela schedules. A tabela schedules é usada somente na coluna Agendamentos por unidade."
+                                        tooltipText="Informação adquirida pelo Clinisys"
                                         color="purple"
                                     />
                                 </div>

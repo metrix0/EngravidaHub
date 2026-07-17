@@ -22,6 +22,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_RECENT_CLIENT_MESSAGES = 50_000;
 const MAX_CLIENTS_PER_SEND = 500;
 const SEND_CONCURRENCY = 5;
 
@@ -42,6 +43,11 @@ type ThreadRow = {
     id: string;
     client_id: string;
     last_client_message_at: string | null;
+};
+
+type RecentClientMessageRow = {
+    client_id: string | null;
+    sent_at: string | null;
 };
 
 export async function POST(request: Request) {
@@ -139,7 +145,11 @@ export async function POST(request: Request) {
     }
 
     try {
-        const [clientsResult, threadsResult] = await Promise.all([
+        const [
+            clientsResult,
+            threadsResult,
+            recentMessagesResult,
+        ] = await Promise.all([
             supabase
                 .from("clients")
                 .select("id, name, phone")
@@ -148,10 +158,22 @@ export async function POST(request: Request) {
                 .from("thread")
                 .select("id, client_id, last_client_message_at")
                 .in("client_id", clientIds),
+            supabase
+                .from("messages")
+                .select("client_id, sent_at")
+                .in("client_id", clientIds)
+                .eq("sender_type", "client")
+                .gte(
+                    "sent_at",
+                    new Date(Date.now() - WHATSAPP_WINDOW_MS).toISOString(),
+                )
+                .order("sent_at", { ascending: false })
+                .limit(MAX_RECENT_CLIENT_MESSAGES),
         ]);
 
         if (clientsResult.error) throw clientsResult.error;
         if (threadsResult.error) throw threadsResult.error;
+        if (recentMessagesResult.error) throw recentMessagesResult.error;
 
         const clients = (clientsResult.data ?? []) as ClientRow[];
         const threads = (threadsResult.data ?? []) as ThreadRow[];
@@ -165,6 +187,21 @@ export async function POST(request: Request) {
                 lastClientMessageByClientId.set(
                     thread.client_id,
                     thread.last_client_message_at,
+                );
+            }
+        }
+
+        for (const message of (recentMessagesResult.data ?? []) as RecentClientMessageRow[]) {
+            if (!message.client_id || !message.sent_at) continue;
+
+            const current = lastClientMessageByClientId.get(message.client_id);
+            if (
+                !current ||
+                new Date(message.sent_at).getTime() > new Date(current).getTime()
+            ) {
+                lastClientMessageByClientId.set(
+                    message.client_id,
+                    message.sent_at,
                 );
             }
         }
@@ -460,8 +497,8 @@ function isWhatsAppWindowOpen(lastClientMessageAt: string | null) {
     const timestamp = new Date(lastClientMessageAt).getTime();
     if (!Number.isFinite(timestamp)) return false;
 
-    const age = Date.now() - timestamp;
-    return age >= 0 && age <= WHATSAPP_WINDOW_MS;
+    const age = Math.max(0, Date.now() - timestamp);
+    return age <= WHATSAPP_WINDOW_MS;
 }
 
 async function fillMissingLastClientMessages({

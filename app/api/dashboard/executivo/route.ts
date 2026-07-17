@@ -181,12 +181,31 @@ export async function GET(request: Request) {
         ),
     );
 
-    const [scheduleCounts, unitSatisfaction] = await Promise.all([
+    const [
+        scheduleCounts,
+        currentScheduleCount,
+        previousScheduleCount,
+        currentConversationCount,
+        previousConversationCount,
+        unitSatisfaction,
+    ] = await Promise.all([
         loadScheduleCounts(range, filters),
+        loadScheduleTotal(range, filters, "current"),
+        loadScheduleTotal(range, filters, "previous"),
+        loadRawConversationCount(range, filters, "current"),
+        loadRawConversationCount(range, filters, "previous"),
         loadUnitSatisfaction(current.by_unit, currentParams),
     ]);
+    const currentWithScheduleRate = applyScheduleRateMetric(current, {
+        scheduleCount: currentScheduleCount,
+        conversationCount: currentConversationCount,
+    });
+    const previousWithScheduleRate = applyScheduleRateMetric(previous, {
+        scheduleCount: previousScheduleCount,
+        conversationCount: previousConversationCount,
+    });
     const byUnit = mergeUnitMetrics(
-        current.by_unit,
+        currentWithScheduleRate.by_unit,
         scheduleCounts,
         unitSatisfaction,
     );
@@ -202,13 +221,13 @@ export async function GET(request: Request) {
             tunnel_values: filters.tunnels,
             origin_values: filters.origins,
         },
-        kpis: current.kpis,
-        previous_kpis: previous.kpis,
+        kpis: currentWithScheduleRate.kpis,
+        previous_kpis: previousWithScheduleRate.kpis,
         response_anchor_breakdown: normalizeResponseAnchorBreakdown(
             responseAnchorResult.data,
         ),
         daily_evolution: current.daily_evolution,
-        attendance_score: current.attendance_score,
+        attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
         by_unit: byUnit,
@@ -282,6 +301,147 @@ async function loadScheduleCounts(
         console.error("[dashboard/executivo] failed to load schedules", error);
         return [];
     }
+}
+
+async function loadScheduleTotal(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    filters: ReturnType<typeof readDashboardFilters>,
+    period: "current" | "previous",
+): Promise<number | null> {
+    try {
+        const startAt =
+            period === "current" ? range.startAt : range.previousStartAt;
+        const endAt = period === "current" ? range.endAt : range.previousEndAt;
+        const startDate =
+            period === "current" && range.startDate
+                ? range.startDate
+                : brazilDate(startAt);
+        const endDate =
+            period === "current" && range.endDate
+                ? range.endDate
+                : brazilDate(
+                      new Date(new Date(endAt).getTime() - 1).toISOString(),
+                  );
+
+        let selectedUnitNames: string[] | null = null;
+
+        if (filters.unitIds.length > 0) {
+            const { data: units, error: unitsError } = await supabase
+                .from("units")
+                .select("name")
+                .in("id", filters.unitIds);
+
+            if (unitsError) throw unitsError;
+            selectedUnitNames = (units ?? [])
+                .map((unit) => unit.name?.trim())
+                .filter((name): name is string => Boolean(name));
+        }
+
+        let query = supabase
+            .from("schedules")
+            .select("id", { count: "exact", head: true })
+            .gte("scheduled_for", startDate)
+            .lte("scheduled_for", endDate);
+
+        if (selectedUnitNames) {
+            if (selectedUnitNames.length === 0) return 0;
+            query = query.in("unit_name", selectedUnitNames);
+        }
+
+        const { count, error } = await query;
+        if (error) throw error;
+        return count ?? 0;
+    } catch (error) {
+        console.error(
+            `[dashboard/executivo] failed to load ${period} schedules total`,
+            error,
+        );
+        return null;
+    }
+}
+
+async function loadRawConversationCount(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    filters: ReturnType<typeof readDashboardFilters>,
+    period: "current" | "previous",
+): Promise<number | null> {
+    try {
+        const startAt =
+            period === "current" ? range.startAt : range.previousStartAt;
+        const endAt = period === "current" ? range.endAt : range.previousEndAt;
+
+        let query = supabase
+            .from("conversations")
+            .select("id", { count: "exact", head: true })
+            .gte("started_at", startAt)
+            .lt("started_at", endAt);
+
+        if (filters.unitIds.length > 0) {
+            query = query.in("unit_id", filters.unitIds);
+        }
+        if (filters.serviceIds.length > 0) {
+            query = query.in("service_id", filters.serviceIds);
+        }
+        if (filters.attendantIds.length > 0) {
+            query = query.in("attendant_id", filters.attendantIds);
+        }
+        if (filters.tunnels.length > 0) {
+            query = query.in("tunnel", filters.tunnels);
+        }
+        if (filters.origins.length > 0) {
+            query = query.in("origin", filters.origins);
+        }
+
+        const { count, error } = await query;
+        if (error) throw error;
+        return count ?? 0;
+    } catch (error) {
+        console.error(
+            `[dashboard/executivo] failed to load ${period} raw conversations`,
+            error,
+        );
+        return null;
+    }
+}
+
+function applyScheduleRateMetric(
+    payload: ExecutiveMetricsPayload,
+    values: {
+        scheduleCount: number | null;
+        conversationCount: number | null;
+    },
+): ExecutiveMetricsPayload {
+    const schedulingRate =
+        values.scheduleCount === null ||
+        values.conversationCount === null ||
+        values.conversationCount <= 0
+            ? null
+            : Number(
+                  ((values.scheduleCount / values.conversationCount) * 100).toFixed(
+                      1,
+                  ),
+              );
+    const attendanceScore = {
+        ...payload.attendance_score,
+        overall_score: averageNullable([
+            payload.attendance_score.resolution_score,
+            payload.attendance_score.satisfaction_score,
+            schedulingRate,
+            payload.attendance_score.attendant_quality_score,
+        ]),
+    };
+
+    return {
+        ...payload,
+        kpis: {
+            ...payload.kpis,
+            scheduling_rate: schedulingRate,
+            // Kept for API compatibility; this is now the raw conversation
+            // denominator used by the schedules-based rate.
+            scheduling_eligible: values.conversationCount ?? 0,
+        },
+        attendance_score: attendanceScore,
+    };
 }
 
 async function loadUnitSatisfaction(

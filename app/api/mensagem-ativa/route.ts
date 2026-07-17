@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_RECENT_CLIENT_MESSAGES = 50_000;
 const NO_CACHE_HEADERS = {
     "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
     Pragma: "no-cache",
@@ -39,6 +40,11 @@ type ClientApiRow = {
 type ThreadApiRow = {
     client_id: string | null;
     last_client_message_at: string | null;
+};
+
+type MessageApiRow = {
+    client_id: string | null;
+    sent_at: string | null;
 };
 
 type HistoryMetricsRow = {
@@ -73,7 +79,14 @@ export async function GET() {
     }
 
     try {
-        const [clientsResult, stagesResult, funnelsResult, threadsResult, historyResult] =
+        const [
+            clientsResult,
+            stagesResult,
+            funnelsResult,
+            threadsResult,
+            recentMessagesResult,
+            historyResult,
+        ] =
             await Promise.all([
                 supabase
                     .from("clients")
@@ -102,6 +115,16 @@ export async function GET() {
                     .from("thread")
                     .select("client_id, last_client_message_at"),
                 supabase
+                    .from("messages")
+                    .select("client_id, sent_at")
+                    .eq("sender_type", "client")
+                    .gte(
+                        "sent_at",
+                        new Date(Date.now() - WHATSAPP_WINDOW_MS).toISOString(),
+                    )
+                    .order("sent_at", { ascending: false })
+                    .limit(MAX_RECENT_CLIENT_MESSAGES),
+                supabase
                     .from("active_message_sends")
                     .select(`
                         id,
@@ -128,6 +151,7 @@ export async function GET() {
             stagesResult.error,
             funnelsResult.error,
             threadsResult.error,
+            recentMessagesResult.error,
             historyResult.error,
         ].find(Boolean);
 
@@ -152,6 +176,21 @@ export async function GET() {
 
             if (!current || (next && new Date(next) > new Date(current))) {
                 lastClientMessageByClientId.set(thread.client_id, next);
+            }
+        }
+
+        for (const message of (recentMessagesResult.data ?? []) as MessageApiRow[]) {
+            if (!message.client_id || !message.sent_at) continue;
+
+            const current = lastClientMessageByClientId.get(message.client_id);
+            if (
+                !current ||
+                new Date(message.sent_at).getTime() > new Date(current).getTime()
+            ) {
+                lastClientMessageByClientId.set(
+                    message.client_id,
+                    message.sent_at,
+                );
             }
         }
 
@@ -187,6 +226,18 @@ export async function GET() {
             last_active_message_sent_at:
                 client.last_active_message_sent_at ?? null,
         }));
+
+        clients.sort((first, second) =>
+            compareNullableTimestamps(
+                first.last_client_message_at,
+                second.last_client_message_at,
+            ) ||
+            compareNullableTimestamps(
+                first.last_interaction_at,
+                second.last_interaction_at,
+            ) ||
+            first.id.localeCompare(second.id),
+        );
 
         const history: ActiveMessageSendHistory[] = historyRows.map((item) => {
             const metrics = metricsBySendId.get(item.id);
@@ -404,6 +455,17 @@ function isWhatsAppWindowOpenAt(
     const timestamp = new Date(lastClientMessageAt).getTime();
     if (!Number.isFinite(timestamp)) return false;
 
-    const age = referenceTime - timestamp;
-    return age >= 0 && age <= WHATSAPP_WINDOW_MS;
+    const age = Math.max(0, referenceTime - timestamp);
+    return age <= WHATSAPP_WINDOW_MS;
+}
+
+function compareNullableTimestamps(
+    first: string | null,
+    second: string | null,
+) {
+    if (!first && !second) return 0;
+    if (!first) return 1;
+    if (!second) return -1;
+
+    return new Date(second).getTime() - new Date(first).getTime();
 }
