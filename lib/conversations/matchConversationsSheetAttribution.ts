@@ -15,7 +15,6 @@ type ConversationToMatch = {
     ended_at: string | null;
     tunnel: string | null;
     origin: string | null;
-    closing_tag: string | null;
     clients:
         | {
               phone: string | null;
@@ -76,11 +75,14 @@ const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 const HEADER_ROW_NUMBER = 2;
 const DATA_START_ROW_NUMBER = 3;
 const MAX_ROWS_PER_PHONE = 250;
-const MAX_MATCHED_ROWS_PER_RUN = 5000;
+// Targeted tunnel/origin matching is intentionally bounded. The client closing
+// tag backfill below uses one contiguous range and does not use this path.
+const MAX_MATCHED_ROWS_PER_RUN = 2500;
 const BATCH_GET_RANGES_PER_REQUEST = 100;
 const SHEET_INDEX_CACHE_MS = 30_000;
 const CLOSING_TAG_BACKFILL_KEY = "closing_tags_recent_50000_v2";
 const BACKFILL_RUNNING_STALE_MS = 30 * 60 * 1000;
+const BACKFILL_COOLDOWN_MS = 60 * 1000;
 
 let sheetIndexCache:
     | {
@@ -91,7 +93,7 @@ let sheetIndexCache:
 let sheetIndexPromise: Promise<SheetIndex> | null = null;
 
 
-export async function runClosingTagBackfillOnce({
+export async function runClientClosingTagBackfill({
     rowLimit = 10_000,
 }: {
     rowLimit?: number;
@@ -111,11 +113,19 @@ export async function runClosingTagBackfillOnce({
         );
     }
 
-    if (existingState?.status === "completed") {
+    const completedAt = existingState?.completed_at
+        ? new Date(existingState.completed_at).getTime()
+        : 0;
+    const completedRecently =
+        existingState?.status === "completed" &&
+        Number.isFinite(completedAt) &&
+        Date.now() - completedAt < BACKFILL_COOLDOWN_MS;
+
+    if (completedRecently) {
         return {
             status: "completed" as const,
             skipped: true,
-            reason: "already_completed" as const,
+            reason: "cooldown" as const,
             details: existingState.details ?? {},
         };
     }
@@ -307,11 +317,6 @@ export async function matchConversationsSheetAttribution({
         matched_rows_truncated: matchedRows.truncated,
     });
 
-    const closingTagSync = await syncClientClosingTags({
-        targets: clientTargets,
-        candidates,
-    });
-
     let updatedConversations = 0;
     let skippedWithoutPhone = 0;
     let skippedWithoutDates = 0;
@@ -358,14 +363,6 @@ export async function matchConversationsSheetAttribution({
             updatePayload.origin = match.origin;
         }
 
-        if (
-            match.closingTag &&
-            conversation.closing_tag !== match.closingTag
-        ) {
-            updatePayload.closing_tag = match.closingTag;
-            updatePayload.closing_tag_at = match.date.toISOString();
-        }
-
         if (Object.keys(updatePayload).length === 0) {
             continue;
         }
@@ -396,7 +393,6 @@ export async function matchConversationsSheetAttribution({
         sheet_phone_rows_read: sheetIndex.phoneRows.length,
         sheet_matched_rows_read: candidates.length,
         sheet_matched_rows_truncated: matchedRows.truncated,
-        ...closingTagSync,
     };
 
     console.log("[matchConversationsSheetAttribution] finished", result);
@@ -414,10 +410,6 @@ function emptyResult() {
         sheet_phone_rows_read: 0,
         sheet_matched_rows_read: 0,
         sheet_matched_rows_truncated: false,
-        updated_client_closing_tags: 0,
-        checked_clients_for_closing_tag: 0,
-        closing_tag_sheet_candidates: 0,
-        skipped_clients_without_closing_tag_match: 0,
     };
 }
 
@@ -444,7 +436,6 @@ async function getConversationsToMatch({
                 ended_at,
                 tunnel,
                 origin,
-                closing_tag,
                 clients!inner (
                     phone
                 )
@@ -457,9 +448,7 @@ async function getConversationsToMatch({
         if (idsChunk) {
             query = query.in("id", idsChunk);
         } else {
-            query = query.or(
-                "tunnel.is.null,origin.is.null,closing_tag.is.null",
-            );
+            query = query.or("tunnel.is.null,origin.is.null");
         }
 
         const { data, error } = await query;
@@ -816,83 +805,6 @@ async function getSheetCandidates({
 
     return candidates;
 }
-
-async function syncClientClosingTags({
-    targets,
-    candidates,
-}: {
-    targets: ClientTarget[];
-    candidates: SheetCandidate[];
-}) {
-    const latestCandidateByPhone = new Map<string, SheetCandidate>();
-
-    for (const candidate of candidates) {
-        for (const phoneVariant of getPhoneVariants(candidate.phone)) {
-            const current = latestCandidateByPhone.get(phoneVariant);
-
-            if (
-                !current ||
-                candidate.date > current.date ||
-                (candidate.date.getTime() === current.date.getTime() &&
-                    candidate.rowNumber > current.rowNumber)
-            ) {
-                latestCandidateByPhone.set(phoneVariant, candidate);
-            }
-        }
-    }
-
-    const updates: Array<{
-        client_id: string;
-        closing_tag: string | null;
-        closing_tag_at: string;
-    }> = [];
-    let skippedWithoutMatch = 0;
-
-    for (const target of targets) {
-        const match = getPhoneVariants(target.phone)
-            .map((variant) => latestCandidateByPhone.get(variant))
-            .find(Boolean);
-
-        if (!match) {
-            skippedWithoutMatch++;
-            continue;
-        }
-
-        updates.push({
-            client_id: target.clientId,
-            closing_tag: match.closingTag,
-            closing_tag_at: match.date.toISOString(),
-        });
-    }
-
-    let updatedClients = 0;
-
-    for (const updatesChunk of chunk(updates, 500)) {
-        const { data, error } = await supabase.rpc(
-            "sync_client_last_closing_tags",
-            {
-                p_items: updatesChunk,
-            },
-        );
-
-        if (error) {
-            throw new Error(
-                `Failed to sync client closing tags: ${error.message}`,
-            );
-        }
-
-        const firstResult = Array.isArray(data) ? data[0] : data;
-        updatedClients += Number(firstResult?.updated_clients ?? 0);
-    }
-
-    return {
-        updated_client_closing_tags: updatedClients,
-        checked_clients_for_closing_tag: targets.length,
-        closing_tag_sheet_candidates: candidates.length,
-        skipped_clients_without_closing_tag_match: skippedWithoutMatch,
-    };
-}
-
 
 async function backfillClientClosingTagsFromRecentRows(rowLimit: number) {
     const accessToken = await getGoogleAccessToken();
