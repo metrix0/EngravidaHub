@@ -8,6 +8,7 @@ const NO_PRESET_ID = "__none__";
 
 const VALID_TAB_IDS = new Set([
     "dashboard",
+    "financeiro",
     "conversas",
     "jornada",
     "eventos",

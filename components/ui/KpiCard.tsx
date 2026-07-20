@@ -70,7 +70,11 @@ export default function KpiCard({
                         {tooltipText ? (
                             <>
                                 {" "}
-                                <InfoTooltip text={tooltipText} portal>
+                                <InfoTooltip
+                                    text={tooltipText}
+                                    portal
+                                    fitContent
+                                >
                                     <HelpCircle
                                         size={13}
                                         className="inline align-[-2px] text-slate-400"

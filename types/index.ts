@@ -8,6 +8,7 @@ export * from "./unit";
 export * from "./conversation";
 export * from "./conversation-analysis";
 export * from "./executive-dashboard-data";
+export * from "./financial-dashboard";
 export * from "./filters";
 export * from "./analyze-conversation-input";
 export * from "./ad-event";

@@ -33,6 +33,7 @@ import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 
 type TabId =
     | "dashboard"
+    | "financeiro"
     | "conversas"
     | "jornada"
     | "eventos"
@@ -152,6 +153,7 @@ type UserView = {
 
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
+    { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
     { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
@@ -173,6 +175,7 @@ const PRESETS: PermissionPreset[] = [
         icon: "crown",
         default_tabs: [
             "dashboard",
+            "financeiro",
             "conversas",
             "jornada",
             "eventos",
@@ -193,6 +196,7 @@ const PRESETS: PermissionPreset[] = [
         icon: "briefcase",
         default_tabs: [
             "dashboard",
+            "financeiro",
             "conversas",
             "jornada",
             "eventos",

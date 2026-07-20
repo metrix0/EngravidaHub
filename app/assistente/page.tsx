@@ -44,7 +44,7 @@ const MAX_STORED_SESSIONS = 30;
 const SUGGESTIONS = [
     "A Dra. Leila Lamas está ocupada amanhã?",
     "Sheila dos Santos Oliveira Ferreira tem algo agendado?",
-    "Por que Vitória, Bauru e Belo Horizonte estão convertendo menos que o normal?",
+    "Compare faturamento, ticket e cancelamentos por unidade nos últimos 30 dias.",
     "Compare a conversão das unidades nos últimos 30 dias.",
 ];
 
@@ -865,4 +865,3 @@ function formatSessionDate(value: string) {
         minute: "2-digit",
     }).format(new Date(value));
 }
-

@@ -1,5 +1,13 @@
 // lib/ai/assistantDataTools.ts
 import { supabase } from "@/lib";
+import {
+    FINANCIAL_CATEGORIES,
+    getFinancialCategoryLabel,
+} from "@/lib/invoices/categories";
+import {
+    findDoctorBySourceName,
+    type DoctorReference,
+} from "@/lib/invoices/matchDoctor";
 import type {
     AssistantCard,
     AssistantClientCardData,
@@ -14,6 +22,7 @@ type ToolExecution = {
 type JsonRecord = Record<string, unknown>;
 
 const MAX_ANALYTICS_ROWS = 25_000;
+const MAX_FINANCIAL_ROWS = 25_000;
 const ANALYTICS_PAGE_SIZE = 1_000;
 const TIME_ZONE = "America/Sao_Paulo";
 
@@ -28,6 +37,26 @@ type ScheduleSearchRow = {
     attendant_name: string | null;
     procedure_name: string | null;
     status: string | null;
+};
+
+type FinancialInvoiceRow = {
+    source_invoice_id: number | string;
+    issued_at: string;
+    amount: number | string;
+    category: string;
+    status: string;
+    unit_id: string | null;
+    unit_name: string | null;
+    doctor_id: string | null;
+    doctor_name: string | null;
+    patient_code: number | string | null;
+    client_id: string | null;
+    updated_at: string;
+    doctors: DoctorReference | DoctorReference[] | null;
+    clients:
+        | { last_origin: string | null; last_tunnel: string | null }
+        | Array<{ last_origin: string | null; last_tunnel: string | null }>
+        | null;
 };
 
 const SCHEDULE_STATUS_ALIASES: Record<string, string[]> = {
@@ -63,6 +92,8 @@ export async function executeAssistantDataTool(
             return compareUnitPerformance(args);
         case "get_business_overview":
             return getBusinessOverview(args);
+        case "get_financial_overview":
+            return getFinancialOverview(args);
         default:
             return {
                 output: { ok: false, error: `Unknown tool: ${name}` },
@@ -819,6 +850,537 @@ async function getBusinessOverview(
     };
 }
 
+async function getFinancialOverview(
+    args: JsonRecord,
+): Promise<ToolExecution> {
+    const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
+    const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
+    const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
+    const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const unitName = stringArg(args, "unit_name");
+    const doctorName = stringArg(args, "doctor_name");
+    const requestedCategories = stringArrayArg(args, "categories");
+    const categories = resolveFinancialCategories(requestedCategories);
+
+    const [unit, doctors] = await Promise.all([
+        unitName ? resolveSingleUnit(unitName) : Promise.resolve(null),
+        loadFinancialDoctors(),
+    ]);
+
+    if (unitName && !unit) {
+        return {
+            output: {
+                ok: true,
+                period: { date_from: dateFrom, date_to: dateTo },
+                totals: emptyFinancialTotals(),
+                note: `Unidade “${unitName}” não encontrada.`,
+            },
+            cards: [],
+        };
+    }
+
+    const rows = await loadFinancialInvoices({
+        dateFrom,
+        dateTo,
+        unitId: unit?.id ?? null,
+        categories,
+    });
+    const requestedDoctor = doctorName
+        ? resolveRequestedDoctor(doctorName, doctors)
+        : null;
+    const filteredRows = doctorName
+        ? rows.filter((invoice) =>
+              financialInvoiceMatchesDoctor(
+                  invoice,
+                  doctorName,
+                  requestedDoctor,
+                  doctors,
+              ),
+          )
+        : rows;
+    const authorized = filteredRows.filter(
+        (invoice) => financialStatusGroup(invoice.status) === "authorized",
+    );
+    const cancelled = filteredRows.filter(
+        (invoice) => financialStatusGroup(invoice.status) === "cancelled",
+    );
+    const authorizedRevenue = financialSum(authorized);
+    const cancelledAmount = financialSum(cancelled);
+    const finalInvoices = authorized.length + cancelled.length;
+    const linkedAuthorized = authorized.filter((invoice) => invoice.client_id);
+    const linkedRevenue = financialSum(linkedAuthorized);
+    const resolvedDoctors = authorized.filter((invoice) =>
+        financialDoctor(invoice, doctors),
+    );
+    const lastSyncedAt = filteredRows.reduce<string | null>(
+        (latest, invoice) =>
+            !latest || invoice.updated_at > latest
+                ? invoice.updated_at
+                : latest,
+        null,
+    );
+
+    return {
+        output: {
+            ok: true,
+            source: "NFS-e do CliniSys",
+            period: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                timezone: TIME_ZONE,
+            },
+            filters: {
+                unit_name: unit?.name ?? null,
+                doctor_name:
+                    requestedDoctor?.name ?? doctorName ?? null,
+                categories: categories.map(getFinancialCategoryLabel),
+            },
+            totals: {
+                authorized_revenue: financialMoney(authorizedRevenue),
+                authorized_invoices: authorized.length,
+                average_ticket:
+                    authorized.length > 0
+                        ? financialMoney(
+                              authorizedRevenue / authorized.length,
+                          )
+                        : null,
+                billed_patients: new Set(
+                    authorized.map(financialPatientKey),
+                ).size,
+                cancelled_amount: financialMoney(cancelledAmount),
+                cancelled_invoices: cancelled.length,
+                cancellation_rate: financialPercentage(
+                    cancelled.length,
+                    finalInvoices,
+                ),
+            },
+            by_status: financialStatusBreakdown(filteredRows),
+            by_category: financialCategoryBreakdown(authorized),
+            by_unit: financialUnitBreakdown(authorized),
+            by_doctor: financialDoctorBreakdown(authorized, doctors),
+            by_origin: financialOriginBreakdown(authorized),
+            evolution: financialEvolution(filteredRows),
+            coverage: {
+                invoices_with_client: linkedAuthorized.length,
+                linked_revenue: financialMoney(linkedRevenue),
+                linked_revenue_percentage: financialPercentage(
+                    linkedRevenue,
+                    authorizedRevenue,
+                ),
+                invoices_with_configured_doctor: resolvedDoctors.length,
+                configured_doctor_percentage: financialPercentage(
+                    resolvedDoctors.length,
+                    authorized.length,
+                ),
+            },
+            audit: {
+                invoices_read: filteredRows.length,
+                last_synced_at: lastSyncedAt,
+                truncated: rows.length >= MAX_FINANCIAL_ROWS,
+            },
+            metric_definitions: {
+                authorized_revenue:
+                    "Soma das NFS-e autorizadas; não representa recebimento, caixa ou lucro.",
+                cancellation_rate:
+                    "Notas canceladas divididas por autorizadas mais canceladas.",
+                average_ticket:
+                    "Faturamento autorizado dividido pelas notas autorizadas.",
+            },
+        },
+        cards: [],
+    };
+}
+
+async function loadFinancialInvoices({
+    dateFrom,
+    dateTo,
+    unitId,
+    categories,
+}: {
+    dateFrom: string;
+    dateTo: string;
+    unitId: string | null;
+    categories: string[];
+}) {
+    const rows: FinancialInvoiceRow[] = [];
+
+    for (
+        let offset = 0;
+        offset < MAX_FINANCIAL_ROWS;
+        offset += ANALYTICS_PAGE_SIZE
+    ) {
+        let query = supabase
+            .from("clinisys_invoices")
+            .select(`
+                source_invoice_id,
+                issued_at,
+                amount,
+                category,
+                status,
+                unit_id,
+                unit_name,
+                doctor_id,
+                doctor_name,
+                patient_code,
+                client_id,
+                updated_at,
+                doctors!clinisys_invoices_doctor_id_fkey (id, name),
+                clients!clinisys_invoices_client_id_fkey (
+                    last_origin,
+                    last_tunnel
+                )
+            `)
+            .gte("issued_at", brazilDayBoundary(dateFrom))
+            .lt("issued_at", brazilDayBoundary(addDays(dateTo, 1)))
+            .order("issued_at", { ascending: true })
+            .order("source_invoice_id", { ascending: true })
+            .range(offset, offset + ANALYTICS_PAGE_SIZE - 1);
+
+        if (unitId) query = query.eq("unit_id", unitId);
+        if (categories.length > 0) {
+            query = query.in("category", categories);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            throw new Error(
+                `Falha ao carregar faturamento: ${error.message}`,
+            );
+        }
+
+        const page = (data ?? []) as unknown as FinancialInvoiceRow[];
+        rows.push(...page);
+        if (page.length < ANALYTICS_PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadFinancialDoctors() {
+    const { data, error } = await supabase
+        .from("doctors")
+        .select("id, name")
+        .eq("active", true)
+        .order("name", { ascending: true });
+
+    if (error) {
+        throw new Error(`Falha ao carregar médicos: ${error.message}`);
+    }
+
+    return (data ?? []) as DoctorReference[];
+}
+
+function resolveRequestedDoctor(
+    requestedName: string,
+    doctors: DoctorReference[],
+) {
+    const matched = findDoctorBySourceName(requestedName, doctors);
+    if (matched) return matched;
+
+    const requested = financialNormalizeText(requestedName);
+    const matches = doctors.filter((doctor) => {
+        const name = financialNormalizeText(doctor.name);
+        return name.includes(requested) || requested.includes(name);
+    });
+
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function financialInvoiceMatchesDoctor(
+    invoice: FinancialInvoiceRow,
+    requestedName: string,
+    requestedDoctor: DoctorReference | null,
+    doctors: DoctorReference[],
+) {
+    const doctor = financialDoctor(invoice, doctors);
+    if (requestedDoctor) return doctor?.id === requestedDoctor.id;
+
+    const requested = financialNormalizeText(requestedName);
+    return [doctor?.name, invoice.doctor_name]
+        .map(financialNormalizeText)
+        .some((name) => name.includes(requested));
+}
+
+function financialDoctor(
+    invoice: FinancialInvoiceRow,
+    doctors: DoctorReference[],
+) {
+    return (
+        relationOne(invoice.doctors) ??
+        findDoctorBySourceName(invoice.doctor_name, doctors)
+    );
+}
+
+function financialStatusBreakdown(rows: FinancialInvoiceRow[]) {
+    const statuses = [
+        ["authorized", "Autorizadas"],
+        ["cancelled", "Canceladas"],
+        ["pending", "Pendentes"],
+        ["denied", "Negadas"],
+        ["other", "Outros"],
+    ] as const;
+
+    return statuses
+        .map(([status, label]) => {
+            const matching = rows.filter(
+                (invoice) => financialStatusGroup(invoice.status) === status,
+            );
+            return {
+                status,
+                label,
+                invoices: matching.length,
+                amount: financialMoney(financialSum(matching)),
+                percentage: financialPercentage(matching.length, rows.length),
+            };
+        })
+        .filter((item) => item.invoices > 0);
+}
+
+function financialCategoryBreakdown(rows: FinancialInvoiceRow[]) {
+    const totalRevenue = financialSum(rows);
+    const groups = groupFinancialRows(rows, (invoice) => invoice.category);
+
+    return [...groups.entries()]
+        .map(([category, invoices]) => {
+            const revenue = financialSum(invoices);
+            return {
+                category: getFinancialCategoryLabel(category),
+                invoices: invoices.length,
+                revenue: financialMoney(revenue),
+                average_ticket: invoices.length
+                    ? financialMoney(revenue / invoices.length)
+                    : null,
+                percentage: financialPercentage(revenue, totalRevenue),
+            };
+        })
+        .sort((first, second) => second.revenue - first.revenue)
+        .slice(0, 10);
+}
+
+function financialUnitBreakdown(rows: FinancialInvoiceRow[]) {
+    const groups = groupFinancialRows(
+        rows,
+        (invoice) => invoice.unit_name?.trim() || "Sem unidade",
+    );
+
+    return [...groups.entries()]
+        .map(([unitName, invoices]) => {
+            const revenue = financialSum(invoices);
+            return {
+                unit_name: unitName,
+                invoices: invoices.length,
+                revenue: financialMoney(revenue),
+                average_ticket: invoices.length
+                    ? financialMoney(revenue / invoices.length)
+                    : null,
+                patients: new Set(invoices.map(financialPatientKey)).size,
+            };
+        })
+        .sort((first, second) => second.revenue - first.revenue)
+        .slice(0, 15);
+}
+
+function financialDoctorBreakdown(
+    rows: FinancialInvoiceRow[],
+    doctors: DoctorReference[],
+) {
+    const groups = new Map<
+        string,
+        { doctor_name: string; invoices: FinancialInvoiceRow[] }
+    >();
+
+    for (const invoice of rows) {
+        const doctor = financialDoctor(invoice, doctors);
+        const doctorName =
+            doctor?.name ?? invoice.doctor_name?.trim() ?? "Sem médico";
+        const key = doctor?.id ?? `source:${financialNormalizeText(doctorName)}`;
+        const group = groups.get(key) ?? { doctor_name: doctorName, invoices: [] };
+        group.invoices.push(invoice);
+        groups.set(key, group);
+    }
+
+    return [...groups.values()]
+        .map((group) => {
+            const revenue = financialSum(group.invoices);
+            return {
+                doctor_name: group.doctor_name,
+                invoices: group.invoices.length,
+                revenue: financialMoney(revenue),
+                average_ticket: group.invoices.length
+                    ? financialMoney(revenue / group.invoices.length)
+                    : null,
+            };
+        })
+        .sort((first, second) => second.revenue - first.revenue)
+        .slice(0, 15);
+}
+
+function financialOriginBreakdown(rows: FinancialInvoiceRow[]) {
+    const groups = new Map<string, FinancialInvoiceRow[]>();
+
+    for (const invoice of rows) {
+        const origin = relationOne(invoice.clients)?.last_origin?.trim();
+        if (!origin) continue;
+        const group = groups.get(origin) ?? [];
+        group.push(invoice);
+        groups.set(origin, group);
+    }
+
+    const attributedRevenue = financialSum([...groups.values()].flat());
+    return [...groups.entries()]
+        .map(([origin, invoices]) => {
+            const revenue = financialSum(invoices);
+            return {
+                origin,
+                invoices: invoices.length,
+                revenue: financialMoney(revenue),
+                percentage: financialPercentage(revenue, attributedRevenue),
+            };
+        })
+        .sort((first, second) => second.revenue - first.revenue)
+        .slice(0, 10);
+}
+
+function financialEvolution(rows: FinancialInvoiceRow[]) {
+    const groups = new Map<
+        string,
+        { authorized_revenue: number; cancelled_amount: number; invoices: number }
+    >();
+
+    for (const invoice of rows) {
+        const date = saoPauloDateKey(invoice.issued_at);
+        const group = groups.get(date) ?? {
+            authorized_revenue: 0,
+            cancelled_amount: 0,
+            invoices: 0,
+        };
+        const status = financialStatusGroup(invoice.status);
+
+        if (status === "authorized") {
+            group.authorized_revenue += financialAmount(invoice.amount);
+            group.invoices += 1;
+        } else if (status === "cancelled") {
+            group.cancelled_amount += financialAmount(invoice.amount);
+        }
+
+        groups.set(date, group);
+    }
+
+    return [...groups.entries()]
+        .sort(([first], [second]) => first.localeCompare(second))
+        .slice(-120)
+        .map(([date, values]) => ({
+            date,
+            authorized_revenue: financialMoney(values.authorized_revenue),
+            cancelled_amount: financialMoney(values.cancelled_amount),
+            authorized_invoices: values.invoices,
+        }));
+}
+
+function financialStatusGroup(status: string) {
+    const normalized = financialNormalizeText(status).replace(/\s+/g, "");
+
+    if (
+        normalized.startsWith("autorizada") ||
+        normalized.includes("cancelamentonegado") ||
+        normalized.includes("cancelamentorejeitado")
+    ) {
+        return "authorized" as const;
+    }
+    if (normalized === "cancelada") return "cancelled" as const;
+    if (normalized.includes("aguardando")) return "pending" as const;
+    if (normalized.includes("negada")) return "denied" as const;
+    return "other" as const;
+}
+
+function resolveFinancialCategories(values: string[]) {
+    const aliases = new Map<string, string>();
+
+    for (const category of FINANCIAL_CATEGORIES) {
+        aliases.set(financialNormalizeText(category.value), category.value);
+        aliases.set(financialNormalizeText(category.label), category.value);
+    }
+
+    return [...new Set(
+        values
+            .map((value) => aliases.get(financialNormalizeText(value)))
+            .filter((value): value is string => Boolean(value)),
+    )];
+}
+
+function groupFinancialRows(
+    rows: FinancialInvoiceRow[],
+    keyFor: (row: FinancialInvoiceRow) => string,
+) {
+    const groups = new Map<string, FinancialInvoiceRow[]>();
+
+    for (const row of rows) {
+        const key = keyFor(row);
+        const group = groups.get(key) ?? [];
+        group.push(row);
+        groups.set(key, group);
+    }
+
+    return groups;
+}
+
+function financialPatientKey(invoice: FinancialInvoiceRow) {
+    if (invoice.patient_code !== null) return `patient:${invoice.patient_code}`;
+    if (invoice.client_id) return `client:${invoice.client_id}`;
+    return `invoice:${invoice.source_invoice_id}`;
+}
+
+function financialSum(rows: FinancialInvoiceRow[]) {
+    return rows.reduce(
+        (total, invoice) => total + financialAmount(invoice.amount),
+        0,
+    );
+}
+
+function financialAmount(value: number | string) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function financialMoney(value: number) {
+    return Math.round(value * 100) / 100;
+}
+
+function financialPercentage(value: number, total: number) {
+    return total > 0 ? Math.round((value / total) * 10_000) / 100 : null;
+}
+
+function financialNormalizeText(value: string | null | undefined) {
+    return (value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function saoPauloDateKey(value: string) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date(value));
+}
+
+function emptyFinancialTotals() {
+    return {
+        authorized_revenue: 0,
+        authorized_invoices: 0,
+        average_ticket: null,
+        billed_patients: 0,
+        cancelled_amount: 0,
+        cancelled_invoices: 0,
+        cancellation_rate: null,
+    };
+}
+
 type ClientContext = {
     client: unknown;
     upcomingAppointments: unknown[];
@@ -1540,25 +2102,6 @@ async function resolveSingleUnit(name: string) {
     return exact ?? rows[0] ?? null;
 }
 
-async function resolveNamedIds(
-    table: "doctors" | "units",
-    name: string,
-) {
-    const safe = sanitizePostgrestText(name);
-    const { data, error } = await supabase
-        .from(table)
-        .select("id, name")
-        .ilike("name", `%${safe}%`)
-        .eq("active", true)
-        .limit(25);
-
-    if (error) {
-        throw new Error(`Falha ao localizar ${table}: ${error.message}`);
-    }
-
-    return (data ?? []).map((row) => row.id);
-}
-
 async function searchClientIds(query: string, limit: number) {
     const filters = buildClientSearchFilters(query);
     if (filters.length === 0) return [];
@@ -1876,6 +2419,14 @@ function stringArg(args: JsonRecord, key: string) {
     return typeof value === "string" && value.trim()
         ? value.trim()
         : null;
+}
+
+function validDateArg(args: JsonRecord, key: string) {
+    const value = stringArg(args, key);
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+
+    const parsed = new Date(`${value}T12:00:00.000Z`);
+    return Number.isNaN(parsed.getTime()) ? null : value;
 }
 
 function stringArrayArg(args: JsonRecord, key: string) {

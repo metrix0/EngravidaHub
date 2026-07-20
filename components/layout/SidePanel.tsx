@@ -9,6 +9,7 @@ import {
     BriefcaseBusiness,
     CalendarDays,
     ChevronRight,
+    CircleDollarSign,
     Flag,
     Funnel,
     HelpCircle,
@@ -70,6 +71,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/",
         icon: <LayoutDashboard size={18} />,
         tabId: "dashboard",
+    },
+    {
+        label: "Financeiro",
+        href: "/financeiro",
+        icon: <CircleDollarSign size={18} />,
+        tabId: "financeiro",
     },
     {
         label: "Jornada",

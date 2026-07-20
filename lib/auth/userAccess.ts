@@ -2,6 +2,7 @@
 
 export const APP_TAB_IDS = [
     "dashboard",
+    "financeiro",
     "conversas",
     "jornada",
     "eventos",
@@ -27,6 +28,7 @@ export type CurrentUserPermission = {
 
 export const APP_TAB_HREFS: Record<AppTabId, string> = {
     dashboard: "/",
+    financeiro: "/financeiro",
     conversas: "/conversas",
     jornada: "/jornada",
     eventos: "/eventos",
@@ -42,6 +44,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
 
 const APP_TAB_ROUTE_ORDER: AppTabId[] = [
     "dashboard",
+    "financeiro",
     "assistente",
     "jornada",
     "eventos",

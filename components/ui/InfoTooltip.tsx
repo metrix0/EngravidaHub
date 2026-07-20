@@ -18,6 +18,7 @@ type InfoTooltipProps = {
     children: ReactNode;
     text: string;
     portal?: boolean;
+    fitContent?: boolean;
     widthClassName?: string;
 };
 
@@ -31,11 +32,12 @@ const TOOLTIP_GAP = 8;
 const TOOLTIP_CLOSE_DELAY_MS = 160;
 
 export default function InfoTooltip({
-                                        children,
-                                        text,
-                                        portal = false,
-                                        widthClassName = "w-[320px]",
-                                    }: InfoTooltipProps) {
+    children,
+    text,
+    portal = false,
+    fitContent = false,
+    widthClassName,
+}: InfoTooltipProps) {
     const wrapperRef = useRef<HTMLSpanElement | null>(null);
     const tooltipRef = useRef<HTMLSpanElement | null>(null);
     const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,6 +156,9 @@ export default function InfoTooltip({
         center: "left-1/2 -translate-x-1/2",
         right: "right-0",
     }[align];
+    const resolvedWidthClassName =
+        widthClassName ??
+        (fitContent ? "w-max max-w-[320px]" : "w-[320px]");
 
     const tooltip = (
         <span
@@ -165,12 +170,12 @@ export default function InfoTooltip({
                 portal
                     ? `pointer-events-auto fixed z-[100] whitespace-pre-wrap rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-opacity duration-150 ${
                           open ? "opacity-100" : "opacity-0"
-                      } ${widthClassName}`
+                      } ${resolvedWidthClassName}`
                     : `absolute ${positionClass} ${alignClass} z-50 whitespace-pre-wrap rounded-xl border bg-white px-4 py-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg transition-all duration-150 ${
                           open
                               ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                               : "pointer-events-none -translate-y-1 scale-95 opacity-0"
-                      } ${widthClassName}`
+                      } ${resolvedWidthClassName}`
             }
             style={{
                 borderColor: "var(--color-border)",

@@ -5,6 +5,7 @@ import { supabase } from "@/lib";
 
 const VALID_TAB_IDS = new Set([
     "dashboard",
+    "financeiro",
     "conversas",
     "jornada",
     "eventos",

@@ -195,6 +195,42 @@ const TOOLS = [
     },
     {
         type: "function",
+        name: "get_financial_overview",
+        description:
+            "Consulta NFS-e do CliniSys e retorna faturamento autorizado, cancelamentos, ticket, pacientes, evolução e rankings por status, categoria, unidade, médico e origem. Use para qualquer pergunta financeira. Pode ser combinada com get_business_overview para cruzar faturamento e operação.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa os últimos 30 dias.",
+                },
+                date_to: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa hoje.",
+                },
+                unit_name: { type: ["string", "null"] },
+                doctor_name: { type: ["string", "null"] },
+                categories: {
+                    type: "array",
+                    items: { type: "string" },
+                    description:
+                        "Valores aceitos: ivf, freezing, storage, genetics, embryo_transfer, evaluation, exams, bank_donation e other.",
+                },
+            },
+            required: [
+                "date_from",
+                "date_to",
+                "unit_name",
+                "doctor_name",
+                "categories",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "get_business_overview",
         description:
             "Retorna visão macro de clientes, conversas, análises, agendamentos, threads abertas, mensagens ativas, follow-ups e unidades.",
@@ -262,7 +298,7 @@ export async function POST(request: Request) {
         }));
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-            const response: any = await openai.responses.create({
+            const response = await openai.responses.create({
                 model: MODEL,
                 store: false,
                 include: ["reasoning.encrypted_content"],
@@ -271,9 +307,9 @@ export async function POST(request: Request) {
                 tools: TOOLS,
                 tool_choice: "auto",
                 max_output_tokens: 2_500,
-            } as any);
+            });
 
-            const output = (response.output ?? []) as Array<
+            const output = (response.output ?? []) as unknown as Array<
                 Record<string, unknown>
             >;
             const functionCalls = output.filter(
@@ -435,32 +471,33 @@ Data e hora atuais em America/Sao_Paulo: ${now}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
-2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão ou operação. Nunca invente dados.
+2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento ou operação. Nunca invente dados.
 3. Para uma pessoa específica, use search_clients e depois get_client_context antes da resposta final.
 4. Em perguntas de agenda, conte as linhas retornadas de schedules como agendamentos. O campo status de schedules vem de agenda_chegou e representa comparecimento; não diga que um registro não é agendamento porque status é "Não". Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
+8. Para perguntas financeiras, use get_financial_overview. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Quando a pergunta cruzar financeiro e operação, combine get_financial_overview com get_business_overview ou as ferramentas de agenda.
 
 FORMATO DA RESPOSTA:
-8. Sempre comece com um título Markdown descritivo usando ##.
-9. Em respostas com várias unidades, cada unidade deve aparecer obrigatoriamente como subtítulo ### Nome da unidade. Nunca escreva o nome da unidade como uma linha solta.
-10. Para comparar unidade e benchmark, use uma tabela Markdown compacta antes da análise textual.
-11. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
-12. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
-13. Evite repetir o mesmo dado na tabela e no texto.
-14. Nunca mostre UUIDs, IDs internos, nomes de colunas, chaves técnicas ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano.
-15. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
+9. Sempre comece com um título Markdown descritivo usando ##.
+10. Em respostas com várias unidades, cada unidade deve aparecer obrigatoriamente como subtítulo ### Nome da unidade. Nunca escreva o nome da unidade como uma linha solta.
+11. Para comparar unidade e benchmark, use uma tabela Markdown compacta antes da análise textual.
+12. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
+13. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
+14. Evite repetir o mesmo dado na tabela e no texto.
+15. Nunca mostre UUIDs, IDs internos, nomes de colunas, chaves técnicas ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano.
+16. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
 
 CARDS:
-16. Cards são evidência, não decoração. Use normalmente um card quando houver uma entidade ou conversa diretamente relevante.
-17. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
-18. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
-19. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
-20. Para perguntas sobre uma pessoa específica, inclua o card do cliente.
-21. Não chame get_conversation_context repetidamente para aumentar o número de cards.
-22. O limite absoluto é dois cards: no máximo um de cliente e um de conversa.
-23. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
+17. Cards são evidência, não decoração. Use normalmente um card quando houver uma entidade ou conversa diretamente relevante.
+18. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
+19. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
+20. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
+21. Para perguntas sobre uma pessoa específica, inclua o card do cliente.
+22. Não chame get_conversation_context repetidamente para aumentar o número de cards.
+23. O limite absoluto é dois cards: no máximo um de cliente e um de conversa.
+24. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
 \`\`\`assistant-chart
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
 \`\`\`

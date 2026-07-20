@@ -8,21 +8,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
     try {
-        const authHeader = request.headers.get("authorization");
-
-        if (
-            process.env.CRON_SECRET &&
-            authHeader !== `Bearer ${process.env.CRON_SECRET}`
-        ) {
-            return NextResponse.json(
-                {
-                    ok: false,
-                    error: "Unauthorized",
-                },
-                { status: 401 }
-            );
-        }
-
         const url = new URL(request.url);
 
         const daysBack = Number(url.searchParams.get("daysBack") ?? 1);
