@@ -1151,36 +1151,42 @@ function HistoryTable({
                 width: "31%",
                 render: (item) => (
                     <HoverBadgeList
-                        items={item.recipients.map((recipient) => {
-                            const canOpen =
-                                recipient.responded &&
-                                recipient.response_target_type !== null &&
-                                recipient.response_target_id !== null;
-                            const statusDescription = recipient.responded
-                                ? "Respondeu ao disparo — clique para abrir a conversa"
-                                : recipient.status === "failed"
-                                  ? "Falha no envio"
-                                  : "Sem resposta nas 24 horas após o disparo";
-
-                            return {
-                                key: recipient.client_id,
-                                label: recipient.client_name,
-                                title: `${recipient.client_name} — ${statusDescription}`,
-                                ariaLabel: `${recipient.client_name}. ${statusDescription}`,
-                                className: recipient.responded
-                                    ? "bg-soft-green text-green"
+                        items={[...item.recipients]
+                            .sort(
+                                (first, second) =>
+                                    Number(second.responded) -
+                                    Number(first.responded),
+                            )
+                            .map((recipient) => {
+                                const canOpen =
+                                    recipient.responded &&
+                                    recipient.response_target_type !== null &&
+                                    recipient.response_target_id !== null;
+                                const statusDescription = recipient.responded
+                                    ? "Respondeu ao disparo — clique para abrir a conversa"
                                     : recipient.status === "failed"
-                                      ? "bg-red-soft text-red"
-                                      : "bg-slate-100 text-slate-600",
-                                onClick: canOpen
-                                    ? () =>
-                                          openFloatingConversation({
-                                              type: recipient.response_target_type!,
-                                              id: recipient.response_target_id!,
-                                          })
-                                    : undefined,
-                            };
-                        })}
+                                      ? "Falha no envio"
+                                      : "Sem resposta nas 24 horas após o disparo";
+
+                                return {
+                                    key: recipient.client_id,
+                                    label: recipient.client_name,
+                                    title: `${recipient.client_name} — ${statusDescription}`,
+                                    ariaLabel: `${recipient.client_name}. ${statusDescription}`,
+                                    className: recipient.responded
+                                        ? "bg-soft-green text-green"
+                                        : recipient.status === "failed"
+                                          ? "bg-red-soft text-red"
+                                          : "bg-slate-100 text-slate-600",
+                                    onClick: canOpen
+                                        ? () =>
+                                              openFloatingConversation({
+                                                  type: recipient.response_target_type!,
+                                                  id: recipient.response_target_id!,
+                                              })
+                                        : undefined,
+                                };
+                            })}
                         badgeClassName="rounded-full px-2.5 py-1 text-[11px] font-bold"
                         maxBadgeWidthClassName="max-w-[145px]"
                         expandedBadgeClassName="max-w-[260px]"

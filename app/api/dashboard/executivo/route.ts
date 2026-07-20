@@ -115,70 +115,59 @@ export async function GET(request: Request) {
         filters,
     );
 
-    const [
-        currentResult,
-        previousResult,
-        responseAnchorResult,
-        currentSatisfactionResult,
-        previousSatisfactionResult,
-    ] = await Promise.all([
-        supabase.rpc("dashboard_executive_metrics_v2", currentParams),
-        supabase.rpc("dashboard_executive_metrics_v2", previousParams),
-        supabase.rpc(
-            "dashboard_response_anchor_breakdown_v1",
-            currentParams,
-        ),
-        supabase.rpc(
-            "dashboard_clear_satisfaction_metric_v1",
-            currentParams,
-        ),
-        supabase.rpc(
-            "dashboard_clear_satisfaction_metric_v1",
-            previousParams,
-        ),
+    // v3 returns the canonical metrics, clear-satisfaction overrides, response
+    // anchors and per-unit satisfaction from one database scan per period.
+    // This replaces the previous N+1 RPC pattern without changing the payload
+    // shown by the dashboard.
+    const [currentResult, previousResult] = await Promise.all([
+        supabase
+            .rpc("dashboard_executive_metrics_v3", currentParams)
+            .abortSignal(request.signal),
+        supabase
+            .rpc("dashboard_executive_metrics_v3", previousParams)
+            .abortSignal(request.signal),
     ]);
 
-    if (
-        currentResult.error ||
-        previousResult.error ||
-        responseAnchorResult.error
-    ) {
-        const error =
-            currentResult.error ??
-            previousResult.error ??
-            responseAnchorResult.error;
+    if (currentResult.error) {
         console.error(
             "[dashboard/executivo] canonical metric RPC failed",
-            error,
+            currentResult.error,
         );
         return NextResponse.json(
-            { error: error?.message ?? "Falha ao carregar métricas." },
+            {
+                error:
+                    currentResult.error.message ??
+                    "Falha ao carregar métricas.",
+            },
             { status: 500 },
         );
     }
 
-    if (currentSatisfactionResult.error || previousSatisfactionResult.error) {
+    if (previousResult.error) {
         console.error(
-            "[dashboard/executivo] clear satisfaction RPC failed; using legacy metric",
-            currentSatisfactionResult.error ?? previousSatisfactionResult.error,
+            "[dashboard/executivo] previous metric RPC failed; hiding trends",
+            previousResult.error,
         );
     }
 
     const current = applyClearSatisfactionMetric(
         normalizeExecutivePayload(currentResult.data),
-        currentSatisfactionResult.error
-            ? null
-            : normalizeClearSatisfactionMetric(
-                  currentSatisfactionResult.data,
-              ),
+        normalizeClearSatisfactionMetric(
+            asObject(currentResult.data).clear_satisfaction_metric,
+        ),
     );
     const previous = applyClearSatisfactionMetric(
-        normalizeExecutivePayload(previousResult.data),
-        previousSatisfactionResult.error
+        normalizeExecutivePayload(
+            previousResult.error ? null : previousResult.data,
+        ),
+        previousResult.error
             ? null
             : normalizeClearSatisfactionMetric(
-                  previousSatisfactionResult.data,
+                  asObject(previousResult.data).clear_satisfaction_metric,
         ),
+    );
+    const unitSatisfaction = normalizeUnitSatisfaction(
+        asObject(currentResult.data).unit_clear_satisfaction,
     );
 
     const [
@@ -187,14 +176,12 @@ export async function GET(request: Request) {
         previousScheduleCount,
         currentConversationCount,
         previousConversationCount,
-        unitSatisfaction,
     ] = await Promise.all([
-        loadScheduleCounts(range, filters),
-        loadScheduleTotal(range, filters, "current"),
-        loadScheduleTotal(range, filters, "previous"),
-        loadRawConversationCount(range, filters, "current"),
-        loadRawConversationCount(range, filters, "previous"),
-        loadUnitSatisfaction(current.by_unit, currentParams),
+        loadScheduleCounts(range, filters, request.signal),
+        loadScheduleTotal(range, filters, "current", request.signal),
+        loadScheduleTotal(range, filters, "previous", request.signal),
+        loadRawConversationCount(range, filters, "current", request.signal),
+        loadRawConversationCount(range, filters, "previous", request.signal),
     ]);
     const currentWithScheduleRate = applyScheduleRateMetric(current, {
         scheduleCount: currentScheduleCount,
@@ -224,7 +211,7 @@ export async function GET(request: Request) {
         kpis: currentWithScheduleRate.kpis,
         previous_kpis: previousWithScheduleRate.kpis,
         response_anchor_breakdown: normalizeResponseAnchorBreakdown(
-            responseAnchorResult.data,
+            asObject(currentResult.data).response_anchor_breakdown,
         ),
         daily_evolution: current.daily_evolution,
         attendance_score: currentWithScheduleRate.attendance_score,
@@ -251,6 +238,7 @@ type UnitSatisfaction = {
 async function loadScheduleCounts(
     range: ReturnType<typeof resolveDashboardDateRange>,
     filters: ReturnType<typeof readDashboardFilters>,
+    signal: AbortSignal,
 ): Promise<ScheduleCount[]> {
     try {
         let selectedUnitNames: string[] | null = null;
@@ -259,7 +247,8 @@ async function loadScheduleCounts(
             const { data: units, error: unitsError } = await supabase
                 .from("units")
                 .select("name")
-                .in("id", filters.unitIds);
+                .in("id", filters.unitIds)
+                .abortSignal(signal);
 
             if (unitsError) throw unitsError;
             selectedUnitNames = (units ?? [])
@@ -284,7 +273,7 @@ async function loadScheduleCounts(
             query = query.in("unit_name", selectedUnitNames);
         }
 
-        const { data, error } = await query;
+        const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
 
         const counts = new Map<string, ScheduleCount>();
@@ -307,6 +296,7 @@ async function loadScheduleTotal(
     range: ReturnType<typeof resolveDashboardDateRange>,
     filters: ReturnType<typeof readDashboardFilters>,
     period: "current" | "previous",
+    signal: AbortSignal,
 ): Promise<number | null> {
     try {
         const startAt =
@@ -329,7 +319,8 @@ async function loadScheduleTotal(
             const { data: units, error: unitsError } = await supabase
                 .from("units")
                 .select("name")
-                .in("id", filters.unitIds);
+                .in("id", filters.unitIds)
+                .abortSignal(signal);
 
             if (unitsError) throw unitsError;
             selectedUnitNames = (units ?? [])
@@ -348,7 +339,7 @@ async function loadScheduleTotal(
             query = query.in("unit_name", selectedUnitNames);
         }
 
-        const { count, error } = await query;
+        const { count, error } = await query.abortSignal(signal);
         if (error) throw error;
         return count ?? 0;
     } catch (error) {
@@ -364,6 +355,7 @@ async function loadRawConversationCount(
     range: ReturnType<typeof resolveDashboardDateRange>,
     filters: ReturnType<typeof readDashboardFilters>,
     period: "current" | "previous",
+    signal: AbortSignal,
 ): Promise<number | null> {
     try {
         const startAt =
@@ -392,7 +384,7 @@ async function loadRawConversationCount(
             query = query.in("origin", filters.origins);
         }
 
-        const { count, error } = await query;
+        const { count, error } = await query.abortSignal(signal);
         if (error) throw error;
         return count ?? 0;
     } catch (error) {
@@ -444,45 +436,6 @@ function applyScheduleRateMetric(
     };
 }
 
-async function loadUnitSatisfaction(
-    units: ExecutiveMetricsPayload["by_unit"],
-    params: ReturnType<typeof executiveRpcParams>,
-) {
-    const entries = await Promise.all(
-        units
-            .filter((unit): unit is typeof unit & { unit_id: string } => Boolean(unit.unit_id))
-            .map(async (unit) => {
-                const { data, error } = await supabase.rpc(
-                    "dashboard_clear_satisfaction_metric_v1",
-                    { ...params, p_unit_ids: [unit.unit_id] },
-                );
-
-                if (error) {
-                    console.error(
-                        "[dashboard/executivo] unit satisfaction RPC failed",
-                        { unit_id: unit.unit_id, error },
-                    );
-                    return [unit.unit_id, null] as const;
-                }
-
-                const metric = normalizeClearSatisfactionMetric(data);
-                return [
-                    unit.unit_id,
-                    metric
-                        ? {
-                              satisfaction_observed:
-                                  metric.satisfaction_observed,
-                              satisfaction_rate:
-                                  metric.clear_satisfaction_rate,
-                          }
-                        : null,
-                ] as const;
-            }),
-    );
-
-    return new Map<string, UnitSatisfaction | null>(entries);
-}
-
 function mergeUnitMetrics(
     units: ExecutiveMetricsPayload["by_unit"],
     scheduleCounts: ScheduleCount[],
@@ -530,6 +483,31 @@ function mergeUnitMetrics(
     }
 
     return merged;
+}
+
+function normalizeUnitSatisfaction(value: unknown) {
+    const entries = arrayOrEmpty<unknown>(value).flatMap((item) => {
+        const row = asObject(item);
+        const unitId = typeof row.unit_id === "string" ? row.unit_id : null;
+
+        if (!unitId) return [];
+
+        return [[
+            unitId,
+            {
+                satisfaction_observed: numberOrZero(
+                    row,
+                    "satisfaction_observed",
+                ),
+                satisfaction_rate: nullableNumber(
+                    row,
+                    "clear_satisfaction_rate",
+                ),
+            },
+        ] as const];
+    });
+
+    return new Map<string, UnitSatisfaction | null>(entries);
 }
 
 function brazilDate(value: string) {

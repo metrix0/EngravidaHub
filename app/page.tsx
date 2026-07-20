@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     Calendar,
     Clock,
@@ -127,6 +127,7 @@ type ExecutiveDashboardData = {
 
 export default function ExecutiveDashboardPage() {
     const [data, setData] = useState<ExecutiveDashboardData | null>(null);
+    const hasDataRef = useRef(false);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
@@ -153,8 +154,10 @@ export default function ExecutiveDashboardPage() {
     }, []);
 
     useEffect(() => {
+        const controller = new AbortController();
+
         async function loadDashboard() {
-            if (data) setIsRefreshing(true);
+            if (hasDataRef.current) setIsRefreshing(true);
             else setLoading(true);
 
             try {
@@ -173,6 +176,10 @@ export default function ExecutiveDashboardPage() {
 
                 const response = await fetch(
                     `/api/dashboard/executivo?${params.toString()}`,
+                    {
+                        cache: "no-store",
+                        signal: controller.signal,
+                    },
                 );
                 const json = (await response.json()) as ExecutiveDashboardData & {
                     error?: string;
@@ -182,17 +189,30 @@ export default function ExecutiveDashboardPage() {
                     throw new Error(json.error ?? "Falha ao carregar dashboard.");
                 }
 
+                hasDataRef.current = true;
                 setData(json);
             } catch (error) {
+                if (controller.signal.aborted) return;
                 console.error("[dashboard] load failed", error);
-                setData(null);
             } finally {
-                setLoading(false);
-                setIsRefreshing(false);
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                    setIsRefreshing(false);
+                }
             }
         }
 
-        void loadDashboard();
+        // React Strict Mode runs effects twice in development. Debouncing and
+        // aborting the obsolete request prevents duplicate dashboard RPCs and
+        // also collapses rapid filter changes into one database load.
+        const debounceId = window.setTimeout(() => {
+            void loadDashboard();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
     }, [
         unitIds,
         attendantIds,
