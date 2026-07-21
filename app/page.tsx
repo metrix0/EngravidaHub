@@ -13,8 +13,11 @@ import {
 import {
     Area,
     AreaChart,
+    Bar,
+    BarChart,
     CartesianGrid,
     Cell,
+    LabelList,
     Line,
     Pie,
     PieChart,
@@ -42,88 +45,7 @@ import {
     SidePanel,
     Skeleton,
 } from "@/components";
-import type { FiltersResponse } from "@/types";
-
-
-type ExecutiveKpis = {
-    conversations_analyzed: number;
-    real_resolution_rate: number | null;
-    resolution_observed: number;
-    resolution_coverage_rate: number | null;
-    clear_satisfaction_rate: number | null;
-    satisfaction_observed: number;
-    satisfaction_coverage_rate: number | null;
-    scheduling_rate: number | null;
-    scheduling_eligible: number;
-    average_first_human_response_seconds: number | null;
-    raw_average_first_human_response_seconds: number | null;
-    median_first_human_response_seconds: number | null;
-    p90_first_human_response_seconds: number | null;
-    first_human_response_observed: number;
-    first_human_response_eligible: number;
-    first_human_response_included_in_average: number;
-    first_human_response_excluded_over_2h: number;
-    first_human_response_coverage_rate: number | null;
-};
-
-type ExecutiveDashboardData = {
-    filters: {
-        days: number;
-        start_date: string | null;
-        end_date: string | null;
-        unit_ids: string[];
-        service_ids: string[];
-        tunnel_values: string[];
-        origin_values: string[];
-        attendant_ids: string[];
-    };
-    response_anchor_breakdown: {
-        bot_handoff_to_attendant: number;
-        pending_client_to_attendant: number;
-    };
-    kpis: ExecutiveKpis;
-    previous_kpis: ExecutiveKpis;
-    daily_evolution: {
-        date: string;
-        date_iso?: string;
-        conversations: number;
-        resolution_rate: number | null;
-        resolution_observed: number;
-        satisfaction_rate: number | null;
-        satisfaction_observed: number;
-    }[];
-    attendance_score: {
-        overall_score: number | null;
-        resolution_score: number | null;
-        satisfaction_score: number | null;
-        response_speed_score: number | null;
-        attendant_quality_score: number | null;
-    };
-    dropoff_moments: {
-        moment: string;
-        label: string;
-        count: number;
-        percentage: number | null;
-    }[];
-    conversation_goals: {
-        goal: string;
-        label: string;
-        count: number;
-        percentage: number | null;
-    }[];
-    by_unit: {
-        unit_id: string | null;
-        unit_name: string;
-        conversations: number;
-        resolution_rate: number | null;
-        resolution_observed: number;
-        satisfaction_rate: number | null;
-        satisfaction_observed: number;
-        scheduling_rate: number | null;
-        scheduling_eligible: number;
-        appointments_count: number;
-    }[];
-};
+import type { ExecutiveDashboardData, FiltersResponse } from "@/types";
 
 export default function ExecutiveDashboardPage() {
     const [data, setData] = useState<ExecutiveDashboardData | null>(null);
@@ -373,6 +295,11 @@ export default function ExecutiveDashboardPage() {
                             <DropoffCard data={data} />
                         </section>
 
+                        <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+                            <ScheduleEvolutionCard data={data} />
+                            <ScheduleUnitDistributionCard data={data} />
+                        </section>
+
                         <section className="grid grid-cols-2 gap-5">
                             <ConversationGoalsCard data={data} />
                             <UnitViewCard data={data} />
@@ -433,6 +360,154 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
+        </Card>
+    );
+}
+
+function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
+    return (
+        <Card>
+            <div className="mb-5">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold">
+                        Agendamentos no período
+                    </h2>
+                    <InfoTooltip text="Cada barra azul é o total de consultas pela data marcada no CliniSys, já incluindo cancelamentos. A barra vermelha é a quantidade cancelada (status Desmarcou), sobreposta ao total na mesma escala.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+                    <LegendDot color="bg-blue-500" label="Agendamentos" />
+                    <LegendDot color="bg-rose-500" label="Cancelados" />
+                </div>
+            </div>
+
+            <div className="h-[290px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                        data={data.schedule_evolution}
+                        margin={{ top: 18, right: 8, bottom: 0, left: 0 }}
+                        barCategoryGap="24%"
+                    >
+                        <CartesianGrid
+                            strokeDasharray="4 4"
+                            stroke="#e2e8f0"
+                        />
+                        <XAxis
+                            dataKey="date"
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            minTickGap={24}
+                        />
+                        <YAxis
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            allowDecimals={false}
+                            domain={[
+                                0,
+                                (maximum: number) =>
+                                    Math.max(1, Math.ceil(maximum * 1.18)),
+                            ]}
+                        />
+                        <Tooltip
+                            content={<ScheduleEvolutionTooltip />}
+                            cursor={{ fill: "#f8fafc" }}
+                        />
+                        <Bar
+                            dataKey="total"
+                            fill="#1683ff"
+                            shape={<ScheduleOverlayBar />}
+                            isAnimationActive={false}
+                        />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+function ScheduleUnitDistributionCard({
+    data,
+}: {
+    data: ExecutiveDashboardData;
+}) {
+    return (
+        <Card>
+            <div className="mb-5">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold">
+                        Agendamentos por unidade
+                    </h2>
+                    <InfoTooltip text="Conta um registro por agendamento cuja data marcada está no período selecionado, agrupado pela unidade do CliniSys. Cancelados permanecem no total.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                    1 registro por agendamento · cancelados incluídos
+                </p>
+            </div>
+
+            {data.schedules_by_unit.length === 0 ? (
+                <div className="flex h-[290px] items-center justify-center text-sm text-slate-400">
+                    Nenhum agendamento no período.
+                </div>
+            ) : (
+                <div className="h-[335px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                            data={data.schedules_by_unit}
+                            layout="vertical"
+                            margin={{ left: 8, right: 42 }}
+                            barCategoryGap="24%"
+                        >
+                            <CartesianGrid
+                                strokeDasharray="4 4"
+                                stroke="#e2e8f0"
+                                horizontal={false}
+                            />
+                            <XAxis
+                                type="number"
+                                allowDecimals={false}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                                domain={[
+                                    0,
+                                    (maximum: number) =>
+                                        Math.max(
+                                            1,
+                                            Math.ceil(maximum * 1.18),
+                                        ),
+                                ]}
+                            />
+                            <YAxis
+                                type="category"
+                                dataKey="unit_name"
+                                width={148}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                            />
+                            <Tooltip
+                                content={<ScheduleUnitTooltip />}
+                                cursor={false}
+                            />
+                            <Bar
+                                dataKey="count"
+                                fill="#1683ff"
+                                radius={[0, 7, 7, 0]}
+                            >
+                                <LabelList
+                                    dataKey="count"
+                                    position="right"
+                                    fill="#334155"
+                                    fontSize={11}
+                                    fontWeight={700}
+                                    formatter={formatChartCount}
+                                />
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
         </Card>
     );
 }
@@ -636,6 +711,10 @@ function DashboardBodySkeleton() {
                     <div className="mt-7 space-y-6">{Array.from({ length: 4 }).map((_, index) => (<div key={index} className="grid grid-cols-[32px_minmax(0,1fr)_48px] items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><div><Skeleton className="h-4 w-[72%]" /><Skeleton className="mt-2 h-2 w-full rounded-full" /></div><Skeleton className="h-4 w-10" /></div>))}</div>
                 </Card>
             </section>
+            <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+                <Card><Skeleton className="h-6 w-[40%]" /><Skeleton className="mt-3 h-4 w-[62%]" /><Skeleton className="mt-5 h-[290px] w-full" /></Card>
+                <Card><Skeleton className="h-6 w-[48%]" /><Skeleton className="mt-3 h-4 w-[52%]" /><div className="mt-6 space-y-4">{Array.from({ length: 6 }).map((_, index) => (<div key={index} className="grid grid-cols-[100px_1fr] items-center gap-3"><Skeleton className="h-4 w-full" /><Skeleton className="h-5 w-full rounded" /></div>))}</div></Card>
+            </section>
             <section className="grid grid-cols-2 gap-5">
                 <Card><Skeleton className="mb-5 h-6 w-[45%]" /><div className="grid grid-cols-[180px_1fr] items-center gap-6"><Skeleton className="h-[170px] w-[170px] rounded-full" /><div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-4 w-full" />))}</div></div></Card>
                 <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-4 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-4 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 4 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
@@ -687,6 +766,171 @@ function DailyEvolutionTooltip({
             </div>
         </div>
     );
+}
+
+function ScheduleEvolutionTooltip({
+    active,
+    payload,
+    label,
+}: {
+    active?: boolean;
+    payload?: ChartTooltipPayloadItem[];
+    label?: string;
+}) {
+    if (!active || !payload?.length) return null;
+
+    const row = payload[0]?.payload ?? {};
+    const total = typeof row.total === "number" ? row.total : 0;
+    const cancelled =
+        typeof row.cancelled === "number" ? row.cancelled : 0;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="mb-3 text-sm font-semibold text-slate-800">
+                {label}
+            </div>
+            <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-6">
+                    <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+                        <span className="text-slate-600">Agendamentos</span>
+                    </div>
+                    <span className="font-semibold text-slate-800">
+                        {total.toLocaleString("pt-BR")}
+                    </span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                        <span className="text-slate-600">Cancelados</span>
+                    </div>
+                    <span className="font-semibold text-slate-800">
+                        {cancelled.toLocaleString("pt-BR")}
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ScheduleUnitTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: ChartTooltipPayloadItem[];
+}) {
+    if (!active || !payload?.length) return null;
+
+    const row = payload[0]?.payload ?? {};
+    const unitName =
+        typeof row.unit_name === "string" ? row.unit_name : "Unidade";
+    const count = typeof row.count === "number" ? row.count : 0;
+    const percentage =
+        typeof row.percentage === "number" ? row.percentage : null;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="text-sm font-semibold text-slate-800">
+                {unitName}
+            </div>
+            <div className="mt-2 text-sm text-slate-600">
+                {count.toLocaleString("pt-BR")} agendamentos
+                {percentage === null ? "" : ` · ${percentage}% do período`}
+            </div>
+        </div>
+    );
+}
+
+type ScheduleOverlayBarProps = {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    payload?: {
+        total?: number;
+        cancelled?: number;
+    };
+};
+
+function ScheduleOverlayBar({
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    payload,
+}: ScheduleOverlayBarProps) {
+    const total = Math.max(Number(payload?.total ?? 0), 0);
+    const cancelled = Math.min(
+        Math.max(Number(payload?.cancelled ?? 0), 0),
+        total,
+    );
+    const cancelledHeight =
+        total > 0 ? (height * cancelled) / total : 0;
+    const cancelledY = y + height - cancelledHeight;
+    const cancelledWidth = Math.max(8, Math.min(width * 0.56, 20));
+    const cancelledX = x + (width - cancelledWidth) / 2;
+    const cancelledLabelInside = cancelledHeight >= 16;
+    const labelsWouldOverlap =
+        cancelled > 0 &&
+        !cancelledLabelInside &&
+        Math.abs(cancelledY - y) < 12;
+    const totalLabelX = x + width / 2 - (labelsWouldOverlap ? 6 : 0);
+    const cancelledLabelX =
+        x + width / 2 + (labelsWouldOverlap ? 7 : 0);
+
+    return (
+        <g>
+            <rect
+                x={x}
+                y={y}
+                width={width}
+                height={height}
+                rx={6}
+                fill="#1683ff"
+            />
+            {cancelledHeight > 0 ? (
+                <rect
+                    x={cancelledX}
+                    y={cancelledY}
+                    width={cancelledWidth}
+                    height={cancelledHeight}
+                    rx={Math.min(5, cancelledHeight / 2)}
+                    fill="#f43f5e"
+                />
+            ) : null}
+            <text
+                x={totalLabelX}
+                y={y - 7}
+                textAnchor="middle"
+                fill="#334155"
+                fontSize={11}
+                fontWeight={700}
+            >
+                {total.toLocaleString("pt-BR")}
+            </text>
+            {cancelled > 0 ? (
+                <text
+                    x={cancelledLabelX}
+                    y={
+                        cancelledLabelInside
+                            ? cancelledY + 12
+                            : cancelledY - 4
+                    }
+                    textAnchor="middle"
+                    fill={cancelledLabelInside ? "#ffffff" : "#e11d48"}
+                    fontSize={10}
+                    fontWeight={700}
+                >
+                    {cancelled.toLocaleString("pt-BR")}
+                </text>
+            ) : null}
+        </g>
+    );
+}
+
+function formatChartCount(value: unknown) {
+    return Number(value ?? 0).toLocaleString("pt-BR");
 }
 
 function secondsToMinutes(value: number | null): number | null {

@@ -7,6 +7,11 @@ import {
     readDashboardFilters,
     resolveDashboardDateRange,
 } from "@/lib/dashboard/metrics";
+import {
+    normalizeScheduleStatus,
+    scheduleShowedUp,
+    type ScheduleStatusGroup,
+} from "@/lib/schedules/status";
 
 type ExecutiveKpis = {
     conversations_analyzed: number;
@@ -97,6 +102,35 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
         bot_handoff_to_attendant: number;
         pending_client_to_attendant: number;
     };
+    schedule_summary: ScheduleSummary;
+    schedule_evolution: ScheduleEvolutionPoint[];
+    schedules_by_unit: ScheduleUnitDistribution[];
+};
+
+type ScheduleSummary = {
+    total: number;
+    cancelled: number;
+    showed_up: number;
+    no_show: number;
+    rescheduled: number;
+    pending: number;
+    unknown: number;
+};
+
+type ScheduleEvolutionPoint = {
+    date: string;
+    date_iso: string;
+    total: number;
+    cancelled: number;
+    showed_up: number;
+    no_show: number;
+    rescheduled: number;
+};
+
+type ScheduleUnitDistribution = {
+    unit_name: string;
+    count: number;
+    percentage: number | null;
 };
 
 export async function GET(request: Request) {
@@ -170,19 +204,29 @@ export async function GET(request: Request) {
         asObject(currentResult.data).unit_clear_satisfaction,
     );
 
+    const selectedUnitNames = await loadSelectedUnitNames(
+        filters,
+        request.signal,
+    );
     const [
-        scheduleCounts,
-        currentScheduleCount,
+        scheduleAnalytics,
         previousScheduleCount,
         currentConversationCount,
         previousConversationCount,
     ] = await Promise.all([
-        loadScheduleCounts(range, filters, request.signal),
-        loadScheduleTotal(range, filters, "current", request.signal),
-        loadScheduleTotal(range, filters, "previous", request.signal),
+        loadScheduleAnalytics(range, selectedUnitNames, request.signal),
+        loadScheduleTotal(
+            range,
+            selectedUnitNames,
+            "previous",
+            request.signal,
+        ),
         loadRawConversationCount(range, filters, "current", request.signal),
         loadRawConversationCount(range, filters, "previous", request.signal),
     ]);
+    const currentScheduleCount = scheduleAnalytics.available
+        ? scheduleAnalytics.summary.total
+        : null;
     const currentWithScheduleRate = applyScheduleRateMetric(current, {
         scheduleCount: currentScheduleCount,
         conversationCount: currentConversationCount,
@@ -193,7 +237,7 @@ export async function GET(request: Request) {
     });
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
-        scheduleCounts,
+        scheduleAnalytics.byUnit,
         unitSatisfaction,
     );
 
@@ -214,6 +258,9 @@ export async function GET(request: Request) {
             asObject(currentResult.data).response_anchor_breakdown,
         ),
         daily_evolution: current.daily_evolution,
+        schedule_summary: scheduleAnalytics.summary,
+        schedule_evolution: scheduleAnalytics.evolution,
+        schedules_by_unit: scheduleAnalytics.byUnit,
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
@@ -225,76 +272,163 @@ export async function GET(request: Request) {
     });
 }
 
-type ScheduleCount = {
-    unit_name: string;
-    count: number;
-};
-
 type UnitSatisfaction = {
     satisfaction_observed: number;
     satisfaction_rate: number | null;
 };
 
-async function loadScheduleCounts(
-    range: ReturnType<typeof resolveDashboardDateRange>,
+type ScheduleAnalyticsRow = {
+    id: string;
+    scheduled_for: string;
+    unit_name: string | null;
+    status: string | null;
+};
+
+type ScheduleAnalyticsResult = {
+    available: boolean;
+    summary: ScheduleSummary;
+    evolution: ScheduleEvolutionPoint[];
+    byUnit: ScheduleUnitDistribution[];
+};
+
+const SCHEDULE_PAGE_SIZE = 1_000;
+const MAX_SCHEDULE_ANALYTICS_ROWS = 50_000;
+
+async function loadSelectedUnitNames(
     filters: ReturnType<typeof readDashboardFilters>,
     signal: AbortSignal,
-): Promise<ScheduleCount[]> {
+): Promise<string[] | null> {
+    if (filters.unitIds.length === 0) return null;
+
+    const { data, error } = await supabase
+        .from("units")
+        .select("name")
+        .in("id", filters.unitIds)
+        .abortSignal(signal);
+
+    if (error) {
+        console.error(
+            "[dashboard/executivo] failed to resolve schedule unit filters",
+            error,
+        );
+        return [];
+    }
+
+    return (data ?? [])
+        .map((unit) => unit.name?.trim())
+        .filter((name): name is string => Boolean(name));
+}
+
+async function loadScheduleAnalytics(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    selectedUnitNames: string[] | null,
+    signal: AbortSignal,
+): Promise<ScheduleAnalyticsResult> {
     try {
-        let selectedUnitNames: string[] | null = null;
-
-        if (filters.unitIds.length > 0) {
-            const { data: units, error: unitsError } = await supabase
-                .from("units")
-                .select("name")
-                .in("id", filters.unitIds)
-                .abortSignal(signal);
-
-            if (unitsError) throw unitsError;
-            selectedUnitNames = (units ?? [])
-                .map((unit) => unit.name?.trim())
-                .filter((name): name is string => Boolean(name));
-        }
-
         const startDate = range.startDate ?? brazilDate(range.startAt);
         const endDate = range.endDate ?? brazilDate(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
+        const empty = emptyScheduleAnalytics(startDate, endDate, true);
 
-        let query = supabase
-            .from("schedules")
-            .select("unit_name")
-            .gte("scheduled_for", startDate)
-            .lte("scheduled_for", endDate)
-            .limit(50_000);
+        if (selectedUnitNames?.length === 0) return empty;
 
-        if (selectedUnitNames) {
-            if (selectedUnitNames.length === 0) return [];
-            query = query.in("unit_name", selectedUnitNames);
+        const rows: ScheduleAnalyticsRow[] = [];
+
+        for (
+            let from = 0;
+            from < MAX_SCHEDULE_ANALYTICS_ROWS;
+            from += SCHEDULE_PAGE_SIZE
+        ) {
+            let query = supabase
+                .from("schedules")
+                .select("id, scheduled_for, unit_name, status")
+                .gte("scheduled_for", startDate)
+                .lte("scheduled_for", endDate)
+                .order("scheduled_for", { ascending: true })
+                .order("id", { ascending: true })
+                .range(from, from + SCHEDULE_PAGE_SIZE - 1);
+
+            if (selectedUnitNames) {
+                query = query.in("unit_name", selectedUnitNames);
+            }
+
+            const { data, error } = await query.abortSignal(signal);
+            if (error) throw error;
+
+            const page = (data ?? []) as ScheduleAnalyticsRow[];
+            rows.push(...page);
+            if (page.length < SCHEDULE_PAGE_SIZE) break;
         }
 
-        const { data, error } = await query.abortSignal(signal);
-        if (error) throw error;
+        const summary = emptyScheduleSummary();
+        const evolutionByDate = new Map(
+            buildDateRange(startDate, endDate).map((dateIso) => [
+                dateIso,
+                emptyScheduleEvolutionPoint(dateIso),
+            ]),
+        );
+        const units = new Map<string, { unit_name: string; count: number }>();
 
-        const counts = new Map<string, ScheduleCount>();
-        for (const row of data ?? []) {
+        for (const row of rows) {
+            const group = normalizeScheduleStatus(row.status);
+            summary.total += 1;
+            incrementScheduleSummary(summary, group);
+
+            const daily = evolutionByDate.get(row.scheduled_for);
+            if (daily) {
+                daily.total += 1;
+                if (group === "cancelled") daily.cancelled += 1;
+                if (scheduleShowedUp(group)) daily.showed_up += 1;
+                if (group === "no_show") daily.no_show += 1;
+                if (group === "rescheduled") daily.rescheduled += 1;
+            }
+
             const unitName = row.unit_name?.trim() || "Sem unidade";
             const key = normalizeUnitName(unitName);
-            const current = counts.get(key) ?? { unit_name: unitName, count: 0 };
+            const current = units.get(key) ?? { unit_name: unitName, count: 0 };
             current.count += 1;
-            counts.set(key, current);
+            units.set(key, current);
         }
 
-        return [...counts.values()];
+        const byUnit = [...units.values()]
+            .map((unit) => ({
+                ...unit,
+                percentage:
+                    summary.total > 0
+                        ? Number(
+                              ((unit.count / summary.total) * 100).toFixed(1),
+                          )
+                        : null,
+            }))
+            .sort(
+                (first, second) =>
+                    second.count - first.count ||
+                    first.unit_name.localeCompare(
+                        second.unit_name,
+                        "pt-BR",
+                    ),
+            );
+
+        return {
+            available: true,
+            summary,
+            evolution: [...evolutionByDate.values()],
+            byUnit,
+        };
     } catch (error) {
         console.error("[dashboard/executivo] failed to load schedules", error);
-        return [];
+        const startDate = range.startDate ?? brazilDate(range.startAt);
+        const endDate = range.endDate ?? brazilDate(
+            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        );
+        return emptyScheduleAnalytics(startDate, endDate, false);
     }
 }
 
 async function loadScheduleTotal(
     range: ReturnType<typeof resolveDashboardDateRange>,
-    filters: ReturnType<typeof readDashboardFilters>,
+    selectedUnitNames: string[] | null,
     period: "current" | "previous",
     signal: AbortSignal,
 ): Promise<number | null> {
@@ -312,21 +446,6 @@ async function loadScheduleTotal(
                 : brazilDate(
                       new Date(new Date(endAt).getTime() - 1).toISOString(),
                   );
-
-        let selectedUnitNames: string[] | null = null;
-
-        if (filters.unitIds.length > 0) {
-            const { data: units, error: unitsError } = await supabase
-                .from("units")
-                .select("name")
-                .in("id", filters.unitIds)
-                .abortSignal(signal);
-
-            if (unitsError) throw unitsError;
-            selectedUnitNames = (units ?? [])
-                .map((unit) => unit.name?.trim())
-                .filter((name): name is string => Boolean(name));
-        }
 
         let query = supabase
             .from("schedules")
@@ -438,7 +557,7 @@ function applyScheduleRateMetric(
 
 function mergeUnitMetrics(
     units: ExecutiveMetricsPayload["by_unit"],
-    scheduleCounts: ScheduleCount[],
+    scheduleCounts: ScheduleUnitDistribution[],
     unitSatisfaction: Map<string, UnitSatisfaction | null>,
 ) {
     const schedulesByName = new Map(
@@ -508,6 +627,73 @@ function normalizeUnitSatisfaction(value: unknown) {
     });
 
     return new Map<string, UnitSatisfaction | null>(entries);
+}
+
+function emptyScheduleSummary(): ScheduleSummary {
+    return {
+        total: 0,
+        cancelled: 0,
+        showed_up: 0,
+        no_show: 0,
+        rescheduled: 0,
+        pending: 0,
+        unknown: 0,
+    };
+}
+
+function incrementScheduleSummary(
+    summary: ScheduleSummary,
+    group: ScheduleStatusGroup,
+) {
+    if (group === "cancelled") summary.cancelled += 1;
+    if (scheduleShowedUp(group)) summary.showed_up += 1;
+    if (group === "no_show") summary.no_show += 1;
+    if (group === "rescheduled") summary.rescheduled += 1;
+    if (group === "pending") summary.pending += 1;
+    if (group === "unknown") summary.unknown += 1;
+}
+
+function emptyScheduleEvolutionPoint(
+    dateIso: string,
+): ScheduleEvolutionPoint {
+    const [, month, day] = dateIso.split("-");
+    return {
+        date: `${day}/${month}`,
+        date_iso: dateIso,
+        total: 0,
+        cancelled: 0,
+        showed_up: 0,
+        no_show: 0,
+        rescheduled: 0,
+    };
+}
+
+function emptyScheduleAnalytics(
+    startDate: string,
+    endDate: string,
+    available: boolean,
+): ScheduleAnalyticsResult {
+    return {
+        available,
+        summary: emptyScheduleSummary(),
+        evolution: buildDateRange(startDate, endDate).map(
+            emptyScheduleEvolutionPoint,
+        ),
+        byUnit: [],
+    };
+}
+
+function buildDateRange(startDate: string, endDate: string) {
+    const dates: string[] = [];
+    const cursor = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
+
+    while (cursor.getTime() <= end.getTime()) {
+        dates.push(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    return dates;
 }
 
 function brazilDate(value: string) {

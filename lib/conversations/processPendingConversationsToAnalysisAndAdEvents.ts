@@ -6,6 +6,10 @@ import { deriveAdEventsFromAnalysis } from "@/lib/ads/deriveAdEventsFromAnalysis
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
 import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
 import { getConversationEffectiveEndMessage } from "@/lib/conversations/conversationEffectiveEnd";
+import {
+    filterAnalyzableMessages,
+    getConversationAnalysisIneligibility,
+} from "@/lib/analysis/conversationEligibility";
 import type { AnalyzeConversationInput, Conversation, ConversationAnalysis, Message } from "@/types";
 
 const DEFAULT_CONCURRENCY = 2;
@@ -40,7 +44,22 @@ async function processConversation(conversation: Conversation) {
         const messages = await getMessages(conversation.id);
         if (!messages.length) throw new Error("Conversation has no messages");
 
-        const normalized = messages.map((message) => ({ ...message, sender_name: senderLabel(message) }));
+        const normalized = filterAnalyzableMessages(messages).map((message) => ({
+            ...message,
+            sender_name: senderLabel(message),
+        }));
+        const ineligibleReason = getConversationAnalysisIneligibility(normalized);
+        if (ineligibleReason) {
+            await failConversation(conversation.id, ineligibleReason);
+            return {
+                ok: false as const,
+                skipped: true as const,
+                conversation_id: conversation.id,
+                client_id: conversation.client_id,
+                error: ineligibleReason,
+            };
+        }
+
         const first = normalized[0];
         const last = normalized.at(-1)!;
         const effectiveEnd = getConversationEffectiveEndMessage(normalized);

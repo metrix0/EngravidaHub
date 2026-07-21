@@ -42,7 +42,7 @@ const TOOLS = [
         type: "function",
         name: "get_client_context",
         description:
-            "Carrega o perfil completo, próximos agendamentos, thread aberta e conversas recentes. Também gera o card clicável do cliente. Sempre use para perguntas sobre uma pessoa específica.",
+            "Carrega o perfil completo, próximos agendamentos ativos, histórico de situação da agenda, thread aberta e conversas recentes. Também gera o card clicável do cliente. Sempre use para perguntas sobre uma pessoa específica.",
         strict: true,
         parameters: {
             type: "object",
@@ -57,7 +57,7 @@ const TOOLS = [
         type: "function",
         name: "search_appointments",
         description:
-            "Busca prioritariamente os agendamentos importados da agenda do CliniSys (tabela schedules) por paciente, unidade, data e status. Use para confirmar agendas; a tabela appointments local é apenas complementar.",
+            "Busca agendamentos individuais importados do CliniSys por paciente, unidade, data e situação. Entende pendente, compareceu, atendido, cancelado, faltou e remarcado. Use para localizar consultas específicas; para totais e taxas, use get_schedule_overview.",
         strict: true,
         parameters: {
             type: "object",
@@ -76,7 +76,22 @@ const TOOLS = [
                 future_only: { type: "boolean" },
                 statuses: {
                     type: "array",
-                    items: { type: "string" },
+                    items: {
+                        type: "string",
+                        enum: [
+                            "all",
+                            "pending",
+                            "arrived",
+                            "in_service",
+                            "attended",
+                            "showed_up",
+                            "cancelled",
+                            "no_show",
+                            "rescheduled",
+                        ],
+                    },
+                    description:
+                        "Use showed_up para Compareceu; cancelled para Desmarcou; no_show para Faltou; pending para Não. all/scheduled não filtra por situação.",
                 },
                 limit: { type: "integer", minimum: 1, maximum: 50 },
             },
@@ -90,6 +105,29 @@ const TOOLS = [
                 "statuses",
                 "limit",
             ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_schedule_overview",
+        description:
+            "Retorna os agendamentos do CliniSys no período por situação, dia e unidade, incluindo cancelados, comparecimento, atendidos, faltas, remarcados, pendentes, taxa de comparecimento e taxa de cancelamento. Use para qualquer pergunta agregada sobre agenda.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa os últimos 30 dias.",
+                },
+                date_to: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa hoje.",
+                },
+                unit_name: { type: ["string", "null"] },
+            },
+            required: ["date_from", "date_to", "unit_name"],
             additionalProperties: false,
         },
     },
@@ -473,7 +511,7 @@ REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento ou operação. Nunca invente dados.
 3. Para uma pessoa específica, use search_clients e depois get_client_context antes da resposta final.
-4. Em perguntas de agenda, conte as linhas retornadas de schedules como agendamentos. O campo status de schedules vem de agenda_chegou e representa comparecimento; não diga que um registro não é agendamento porque status é "Não". Use datas absolutas.
+4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.

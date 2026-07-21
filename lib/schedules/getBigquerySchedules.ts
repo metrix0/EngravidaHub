@@ -2,6 +2,7 @@
 import { BigQuery } from "@google-cloud/bigquery";
 
 export type BigqueryScheduleRow = {
+    source_schedule_id: string | number | null;
     data: string | { value: string } | null;
     agendamento_criado_em: string | { value: string } | null;
     agenda_autor_original: string | null;
@@ -13,6 +14,12 @@ export type BigqueryScheduleRow = {
 };
 
 const BIGQUERY_LOCATION = "southamerica-east1";
+const BIGQUERY_DATASET = "datastudio";
+const BIGQUERY_SCHEDULE_VIEW = "view_agendamentos_uptodate";
+const STATUS_LOOKBACK_DAYS = 60;
+const STATUS_LOOKAHEAD_DAYS = 365;
+
+let scheduleIdColumnPromise: Promise<string | null> | null = null;
 
 export async function getBigquerySchedules({
                                                daysBack,
@@ -28,44 +35,69 @@ export async function getBigquerySchedules({
         credentials,
     });
 
+    scheduleIdColumnPromise ??= resolveScheduleIdColumn(bigquery);
+    const scheduleIdColumn = await scheduleIdColumnPromise;
+    const sourceIdExpression = scheduleIdColumn
+        ? `CAST(source.\`${scheduleIdColumn}\` AS STRING)`
+        : "CAST(NULL AS STRING)";
+
     const query = `
         WITH schedules AS (
             SELECT
-            DATE(agenda_data_us) as data,
-            DATE(
+            ${sourceIdExpression} AS source_schedule_id,
+            DATE(source.agenda_data_us) AS data,
             SAFE.PARSE_DATETIME(
-            '%d/%m/%Y %H:%M:%S',
-            NULLIF(TRIM(agenda_data_agendamento_original), '')
-            )
+                '%d/%m/%Y %H:%M:%S',
+                NULLIF(TRIM(source.agenda_data_agendamento_original), '')
             ) AS agendamento_criado_em,
-            agenda_autor_original,
-            agenda_paciente,
-            agenda_celular,
-            CASE agenda_centro_custos
-            WHEN 1 THEN 'Brasília'
-            WHEN 2 THEN 'Rio de Janeiro'
-            WHEN 3 THEN 'Recife'
-            WHEN 4 THEN 'São Paulo'
-            WHEN 5 THEN 'Salvador'
-            WHEN 6 THEN 'Campinas'
-            WHEN 7 THEN 'Manaus'
-            WHEN 9 THEN 'Juiz de Fora'
-            WHEN 10 THEN 'Bauru'
-            WHEN 11 THEN 'Vitória'
-            WHEN 12 THEN 'Belo Horizonte'
-            ELSE CAST(agenda_centro_custos AS STRING)
-        END AS unidade,
-    procedimentos_procedimento,
-    agenda_chegou
-  FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\`
-  WHERE agenda_oculto = 0
-  AND procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'
-)
+            source.agenda_autor_original,
+            source.agenda_paciente,
+            source.agenda_celular,
+            CASE source.agenda_centro_custos
+                WHEN 1 THEN 'Brasília'
+                WHEN 2 THEN 'Rio de Janeiro'
+                WHEN 3 THEN 'Recife'
+                WHEN 4 THEN 'São Paulo'
+                WHEN 5 THEN 'Salvador'
+                WHEN 6 THEN 'Campinas'
+                WHEN 7 THEN 'Manaus'
+                WHEN 9 THEN 'Juiz de Fora'
+                WHEN 10 THEN 'Bauru'
+                WHEN 11 THEN 'Vitória'
+                WHEN 12 THEN 'Belo Horizonte'
+                ELSE CAST(source.agenda_centro_custos AS STRING)
+            END AS unidade,
+            source.procedimentos_procedimento,
+            source.agenda_chegou
+        FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\` AS source
+        WHERE source.agenda_oculto = 0
+          AND source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'
+          AND (
+              DATE(
+                  SAFE.PARSE_DATETIME(
+                      '%d/%m/%Y %H:%M:%S',
+                      NULLIF(TRIM(source.agenda_data_agendamento_original), '')
+                  )
+              ) >= DATE_SUB(
+                  CURRENT_DATE('America/Sao_Paulo'),
+                  INTERVAL @daysBack DAY
+              )
+              OR DATE(source.agenda_data_us) BETWEEN
+                  DATE_SUB(
+                      CURRENT_DATE('America/Sao_Paulo'),
+                      INTERVAL @statusLookbackDays DAY
+                  )
+                  AND DATE_ADD(
+                      CURRENT_DATE('America/Sao_Paulo'),
+                      INTERVAL @statusLookaheadDays DAY
+                  )
+          )
+        )
 
         SELECT *
         FROM schedules
-        WHERE agendamento_criado_em >= DATE_SUB(CURRENT_DATE('America/Sao_Paulo'), INTERVAL @daysBack DAY)
-            LIMIT @limit
+        ORDER BY agendamento_criado_em DESC, data DESC
+        LIMIT @limit
     `;
 
     const [rows] = await bigquery.query({
@@ -74,6 +106,8 @@ export async function getBigquerySchedules({
         params: {
             daysBack,
             limit,
+            statusLookbackDays: STATUS_LOOKBACK_DAYS,
+            statusLookaheadDays: STATUS_LOOKAHEAD_DAYS,
         },
     });
 
@@ -81,10 +115,76 @@ export async function getBigquerySchedules({
         count: rows.length,
         daysBack,
         limit,
-        rows: rows.slice(0, 10),
+        status_lookback_days: STATUS_LOOKBACK_DAYS,
+        status_lookahead_days: STATUS_LOOKAHEAD_DAYS,
+        source_id_column: scheduleIdColumn,
     });
 
     return rows as BigqueryScheduleRow[];
+}
+
+async function resolveScheduleIdColumn(bigquery: BigQuery) {
+    const override = process.env.CLINISYS_SCHEDULE_ID_COLUMN?.trim();
+    if (override) return validateColumnName(override);
+
+    try {
+        const [metadata] = await bigquery
+            .dataset(BIGQUERY_DATASET)
+            .table(BIGQUERY_SCHEDULE_VIEW)
+            .getMetadata();
+        const fields = Array.isArray(metadata.schema?.fields)
+            ? metadata.schema.fields
+            : [];
+        const names: string[] = fields.flatMap((field: unknown) => {
+            if (!field || typeof field !== "object") return [];
+            const name = (field as { name?: unknown }).name;
+            return typeof name === "string" && name.trim()
+                ? [name.trim()]
+                : [];
+        });
+
+        const candidates = [
+            "agenda_id",
+            "id_agenda",
+            "agendamento_id",
+            "id_agendamento",
+            "agenda_codigo",
+            "codigo_agenda",
+            "agenda_cod",
+            "agenda_id_agendamento",
+            "agenda_uuid",
+            "agenda_chave",
+        ];
+        const byLowerName = new Map(
+            names.map((name) => [name.toLocaleLowerCase("pt-BR"), name]),
+        );
+
+        for (const candidate of candidates) {
+            const match = byLowerName.get(candidate);
+            if (match) return validateColumnName(match);
+        }
+
+        const heuristicMatch = names.find((name) =>
+            /^(?:(?:agenda|agendamento)_(?:id|codigo|cod|chave|uuid)|(?:id|codigo|cod|chave|uuid)_(?:agenda|agendamento))$/i.test(
+                name,
+            ),
+        );
+
+        return heuristicMatch ? validateColumnName(heuristicMatch) : null;
+    } catch (error) {
+        console.warn(
+            "[getBigquerySchedules] could not inspect schedule identifier column; using source_hash fallback",
+            error instanceof Error ? error.message : String(error),
+        );
+        return null;
+    }
+}
+
+function validateColumnName(value: string) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+        throw new Error(`Invalid CLINISYS_SCHEDULE_ID_COLUMN: ${value}`);
+    }
+    return value;
 }
 
 function getGoogleCredentials() {

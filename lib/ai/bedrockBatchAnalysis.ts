@@ -8,6 +8,10 @@ import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
 import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
 import { conversationAnalysisSchema } from "@/lib/ai/conversationAnalysisSchema";
 import { getConversationEffectiveEndMessage } from "@/lib/conversations/conversationEffectiveEnd";
+import {
+    filterAnalyzableMessages,
+    getConversationAnalysisIneligibility,
+} from "@/lib/analysis/conversationEligibility";
 import { awsFetch, requiredEnv } from "@/lib/aws/awsSigV4";
 import type {
     AnalyzeConversationInput,
@@ -26,6 +30,7 @@ const MIN_RECORDS_PER_JOB = 100;
 const MAX_RECORDS_PER_JOB = 100_000;
 const DEFAULT_MAX_RECORDS = 100_000;
 const DEFAULT_MAX_COMPLETION_TOKENS = 4_500;
+const CANDIDATE_SCAN_MULTIPLIER = 10;
 
 const ANALYSIS_JSON_SCHEMA = z.toJSONSchema(conversationAnalysisSchema, {
     target: "draft-2020-12",
@@ -37,6 +42,12 @@ type BatchJobSummary = {
     jobName: string;
     status: string;
     message?: string;
+    submitTime?: string;
+    lastModifiedTime?: string;
+    totalRecordCount?: number;
+    processedRecordCount?: number;
+    successRecordCount?: number;
+    errorRecordCount?: number;
     inputDataConfig?: {
         s3InputDataConfig?: { s3Uri?: string };
     };
@@ -65,13 +76,18 @@ export async function runBedrockBatchAnalysis({
 }: {
     limit?: number;
 } = {}) {
-    const collected = await collectFinishedJobs();
+    const jobs = await listOurJobs();
+    const collected = await collectFinishedJobs(jobs);
+    const activeJobs = jobs
+        .filter((job) => !isTerminalJob(job.status))
+        .map(summarizeJob);
 
     if (!batchEnabled()) {
         return {
             provider: "amazon-bedrock-batch",
             model: MODEL_ID,
             collected,
+            active_jobs: activeJobs,
             submitted: {
                 submitted: false,
                 records: 0,
@@ -88,17 +104,13 @@ export async function runBedrockBatchAnalysis({
         provider: "amazon-bedrock-batch",
         model: MODEL_ID,
         collected,
+        active_jobs: activeJobs,
         submitted,
     };
 }
 
-async function collectFinishedJobs() {
-    const jobs = await listOurJobs();
-    const finished = jobs.filter((job) =>
-        ["Completed", "PartiallyCompleted", "Failed", "Expired", "Stopped"].includes(
-            job.status,
-        ),
-    );
+async function collectFinishedJobs(jobs: BatchJobSummary[]) {
+    const finished = jobs.filter((job) => isTerminalJob(job.status));
 
     const results = [];
 
@@ -147,6 +159,7 @@ async function collectFinishedJobs() {
 
         let succeeded = 0;
         let failed = 0;
+        let ineligible = 0;
         const seenRecordIds = new Set<string>();
 
         for (const key of outputKeys) {
@@ -174,8 +187,9 @@ async function collectFinishedJobs() {
                     const content = record.modelOutput?.choices?.[0]?.message?.content;
                     if (!content) throw new Error("Bedrock record returned no message content");
 
-                    await persistCompletedAnalysis(conversationId, content);
-                    succeeded += 1;
+                    const result = await persistCompletedAnalysis(conversationId, content);
+                    if (result === "saved") succeeded += 1;
+                    else ineligible += 1;
                 } catch (error) {
                     failed += 1;
                     if (conversationId) {
@@ -206,6 +220,7 @@ async function collectFinishedJobs() {
             status: job.status,
             succeeded,
             failed,
+            ineligible,
             missing_restored: missing,
             processed_at: new Date().toISOString(),
         });
@@ -216,6 +231,7 @@ async function collectFinishedJobs() {
             status: job.status,
             succeeded,
             failed,
+            ineligible,
             missing_restored: missing,
         });
     }
@@ -224,24 +240,22 @@ async function collectFinishedJobs() {
 }
 
 async function submitPendingBatch(limit: number) {
-    const pending = await getPendingConversations(limit);
+    const candidateLimit = Math.min(
+        MAX_RECORDS_PER_JOB,
+        Math.max(limit, limit * CANDIDATE_SCAN_MULTIPLIER),
+    );
+    const pending = await getPendingConversations(candidateLimit);
     if (pending.length === 0) {
         return { submitted: false, records: 0, reason: "no_pending_conversations" };
     }
 
-    if (pending.length < MIN_RECORDS_PER_JOB) {
-        return {
-            submitted: false,
-            records: pending.length,
-            minimum_records: MIN_RECORDS_PER_JOB,
-            reason: "waiting_for_minimum_batch_size",
-        };
-    }
-
     const records: string[] = [];
     const claimedIds: string[] = [];
+    let ineligible = 0;
 
     for (const conversation of pending) {
+        if (records.length >= limit) break;
+
         const claimed = await claimConversation(conversation.id);
         if (!claimed) continue;
 
@@ -255,12 +269,22 @@ async function submitPendingBatch(limit: number) {
             );
             claimedIds.push(conversation.id);
         } catch (error) {
-            await restoreConversation(conversation.id, formatError(error));
+            if (error instanceof IneligibleConversationError) {
+                await markConversationIneligible(conversation.id, error.message);
+                ineligible += 1;
+            } else {
+                await restoreConversation(conversation.id, formatError(error));
+            }
         }
     }
 
     if (records.length === 0) {
-        return { submitted: false, records: 0, reason: "nothing_claimed" };
+        return {
+            submitted: false,
+            records: 0,
+            ineligible,
+            reason: ineligible > 0 ? "nothing_eligible" : "nothing_claimed",
+        };
     }
 
     if (records.length < MIN_RECORDS_PER_JOB) {
@@ -276,8 +300,9 @@ async function submitPendingBatch(limit: number) {
         return {
             submitted: false,
             records: records.length,
+            ineligible,
             minimum_records: MIN_RECORDS_PER_JOB,
-            reason: "waiting_for_minimum_batch_size_after_claim",
+            reason: "waiting_for_minimum_batch_size_after_eligibility",
         };
     }
 
@@ -298,6 +323,7 @@ async function submitPendingBatch(limit: number) {
         return {
             submitted: true,
             records: records.length,
+            ineligible,
             job_name: jobName,
             job_arn: response.jobArn,
             input: `s3://${bucketName()}/${inputKey}`,
@@ -323,14 +349,6 @@ function buildModelInput(input: AnalyzeConversationInput) {
         temperature: 0,
         reasoning_effort: "medium",
         max_completion_tokens: configuredMaxCompletionTokens(),
-        response_format: {
-            type: "json_schema",
-            json_schema: {
-                name: "conversation_analysis",
-                strict: true,
-                schema: ANALYSIS_JSON_SCHEMA,
-            },
-        },
         messages: [
             {
                 role: "system",
@@ -341,7 +359,8 @@ function buildModelInput(input: AnalyzeConversationInput) {
                 content: JSON.stringify(
                     {
                         instruction:
-                            "Analise integralmente a conversa e retorne somente o JSON final no schema informado.",
+                            "Analise integralmente a conversa e retorne somente JSON válido que corresponda exatamente a output_schema.",
+                        output_schema: ANALYSIS_JSON_SCHEMA,
                         metadata: {
                             conversation_id: input.conversation_id,
                             client_id: input.client_id,
@@ -364,7 +383,7 @@ function buildModelInput(input: AnalyzeConversationInput) {
 function analysisSystemPrompt() {
     return `Você analisa conversas completas de WhatsApp de uma clínica de fertilidade.
 
-Retorne SOMENTE JSON estrito no schema solicitado. Antes de decidir, forme internamente um registro factual de evidências baseado exclusivamente nos message_ids existentes.
+Retorne SOMENTE JSON estrito no output_schema fornecido. Antes de decidir, forme internamente um registro factual de evidências baseado exclusivamente nos message_ids existentes.
 
 REGRAS ABSOLUTAS
 - Leia a conversa inteira em ordem cronológica.
@@ -383,12 +402,20 @@ REGRAS ABSOLUTAS
 - Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.`;
 }
 
-async function persistCompletedAnalysis(conversationId: string, rawContent: string) {
+async function persistCompletedAnalysis(
+    conversationId: string,
+    rawContent: string,
+): Promise<"saved" | "ineligible"> {
     const conversation = await getConversation(conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}`);
 
     const messages = await getMessages(conversationId);
-    if (messages.length === 0) throw new Error("Conversation has no messages");
+    const normalizedMessages = normalizeMessagesForAnalysis(messages);
+    const ineligibleReason = getConversationAnalysisIneligibility(normalizedMessages);
+    if (ineligibleReason) {
+        await markConversationIneligible(conversationId, ineligibleReason);
+        return "ineligible";
+    }
 
     const content = extractJson(rawContent);
     const parsed = conversationAnalysisSchema.parse(JSON.parse(content));
@@ -402,12 +429,12 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         throw new Error("Bedrock returned a mismatched client_id");
     }
 
-    const effectiveEnd = getConversationEffectiveEndMessage(messages);
+    const effectiveEnd = getConversationEffectiveEndMessage(normalizedMessages);
     const normalizedAnalysis: ConversationAnalysis = {
         ...parsed,
         conversation_id: conversationId,
         client_id: conversation.client_id,
-        started_at: messages[0]!.sent_at,
+        started_at: normalizedMessages[0]!.sent_at,
         ended_at: effectiveEnd.sent_at,
         attendant_id: conversation.attendant_id,
         unit_id: conversation.unit_id,
@@ -425,12 +452,12 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         analysis_provider: "bedrock",
         analysis_model: MODEL_ID,
         analysis_prompt_version: "bedrock-batch-single-pass-v1",
-        analysis_message_count: messages.length,
+        analysis_message_count: normalizedMessages.length,
     };
 
     const analysis = applyDeterministicRefinements(
         normalizedAnalysis,
-        messages,
+        normalizedMessages,
         effectiveEnd.sent_at,
     );
 
@@ -440,30 +467,24 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         String(analysisId),
         analysis.started_at,
         analysis.ended_at,
-        String(messages.at(-1)?.text ?? ""),
+        String(normalizedMessages.at(-1)?.text ?? ""),
     );
 
     const events = deriveAdEventsFromAnalysis(analysis).filter(
         (event) => event.type === "lead",
     );
     await sendAdsSafely(conversation, analysis, events);
+    return "saved";
 }
 
 async function buildAnalysisInput(
     conversation: Conversation,
 ): Promise<AnalyzeConversationInput> {
     const messages = await getMessages(conversation.id);
-    if (messages.length === 0) throw new Error("Conversation has no messages");
+    const normalized = normalizeMessagesForAnalysis(messages);
+    const ineligibleReason = getConversationAnalysisIneligibility(normalized);
+    if (ineligibleReason) throw new IneligibleConversationError(ineligibleReason);
 
-    const normalized = messages
-        .filter((message) => !isInvisibleBlipControlText(message.text))
-        .map((message) => ({
-            ...message,
-            sender_name: senderLabel(message),
-        }));
-    if (normalized.length === 0) {
-        throw new Error("Conversation contains only internal Blip control events");
-    }
     const effectiveEnd = getConversationEffectiveEndMessage(normalized);
 
     return {
@@ -491,10 +512,19 @@ async function buildAnalysisInput(
     };
 }
 
-function isInvisibleBlipControlText(value: string) {
-    return /^\[Mensagem preservada:\s*(?:application\/vnd\.iris\.ticket\+json|application\/json)\]$/i.test(
-        value.trim(),
-    );
+function normalizeMessagesForAnalysis(messages: Message[]) {
+    return filterAnalyzableMessages(messages)
+        .map((message) => ({
+            ...message,
+            sender_name: senderLabel(message),
+        }));
+}
+
+class IneligibleConversationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "IneligibleConversationError";
+    }
 }
 
 async function getPendingConversations(limit: number) {
@@ -578,6 +608,8 @@ async function restoreConversation(conversationId: string, reason: string) {
         .from("conversations")
         .update({
             analysis_status: "pending",
+            analysis_claimed_at: null,
+            analysis_failed_at: null,
             analysis_error: reason.slice(0, 2_000),
             updated_at: new Date().toISOString(),
         })
@@ -588,6 +620,24 @@ async function restoreConversation(conversationId: string, reason: string) {
             conversation_id: conversationId,
             error: result.error.message,
         });
+    }
+}
+
+async function markConversationIneligible(conversationId: string, reason: string) {
+    const result = await supabase.rpc("fail_conversation_analysis", {
+        p_conversation_id: conversationId,
+        p_error: reason,
+    });
+
+    if (result.error) {
+        throw new Error(
+            `Failed to mark ineligible conversation ${conversationId}: ${result.error.message}`,
+        );
+    }
+    if (result.data !== true) {
+        throw new Error(
+            `Ineligible conversation ${conversationId} was not in a claimable processing state`,
+        );
     }
 }
 
@@ -870,6 +920,27 @@ async function listOurJobs() {
     return body.invocationJobSummaries ?? [];
 }
 
+function isTerminalJob(status: string) {
+    return ["Completed", "PartiallyCompleted", "Failed", "Expired", "Stopped"].includes(
+        status,
+    );
+}
+
+function summarizeJob(job: BatchJobSummary) {
+    return {
+        job_name: job.jobName,
+        job_arn: job.jobArn,
+        status: job.status,
+        message: job.message ?? null,
+        submitted_at: job.submitTime ?? null,
+        last_modified_at: job.lastModifiedTime ?? null,
+        total_records: job.totalRecordCount ?? null,
+        processed_records: job.processedRecordCount ?? null,
+        succeeded_records: job.successRecordCount ?? null,
+        failed_records: job.errorRecordCount ?? null,
+    };
+}
+
 async function createModelInvocationJob({
     jobName,
     inputKey,
@@ -903,14 +974,19 @@ async function createModelInvocationJob({
         service: "bedrock",
         region,
         method: "POST",
-        url: `https://bedrock.${region}.amazonaws.com/model-invocation-jobs`,
+        url: `https://bedrock.${region}.amazonaws.com/model-invocation-job`,
         body: payload,
         headers: { "content-type": "application/json" },
     });
-    return readJsonResponse<{ jobArn: string }>(
+    const result = await readJsonResponse<{ jobArn?: string }>(
         response,
         "create Bedrock batch job",
     );
+    const jobArn = result.jobArn?.trim();
+    if (!jobArn) {
+        throw new Error("create Bedrock batch job returned no jobArn");
+    }
+    return { jobArn };
 }
 
 async function cleanupJobObjects(

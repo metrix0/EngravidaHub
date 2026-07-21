@@ -54,6 +54,32 @@ export type ExecutiveDashboardData = {
         satisfaction_observed: number;
     }[];
 
+    schedule_summary: {
+        total: number;
+        cancelled: number;
+        showed_up: number;
+        no_show: number;
+        rescheduled: number;
+        pending: number;
+        unknown: number;
+    };
+
+    schedule_evolution: {
+        date: string;
+        date_iso: string;
+        total: number;
+        cancelled: number;
+        showed_up: number;
+        no_show: number;
+        rescheduled: number;
+    }[];
+
+    schedules_by_unit: {
+        unit_name: string;
+        count: number;
+        percentage: number | null;
+    }[];
+
     attendance_score: {
         overall_score: number | null;
         resolution_score: number | null;
@@ -86,5 +112,6 @@ export type ExecutiveDashboardData = {
         satisfaction_observed: number;
         scheduling_rate: number | null;
         scheduling_eligible: number;
+        appointments_count: number;
     }[];
 };

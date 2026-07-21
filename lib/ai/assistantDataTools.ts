@@ -8,6 +8,14 @@ import {
     findDoctorBySourceName,
     type DoctorReference,
 } from "@/lib/invoices/matchDoctor";
+import {
+    getScheduleStatusFlags,
+    getScheduleStatusLabel,
+    normalizeScheduleStatus,
+    resolveScheduleStatusFilters,
+    scheduleShowedUp,
+    type ScheduleStatusGroup,
+} from "@/lib/schedules/status";
 import type {
     AssistantCard,
     AssistantClientCardData,
@@ -59,16 +67,6 @@ type FinancialInvoiceRow = {
         | null;
 };
 
-const SCHEDULE_STATUS_ALIASES: Record<string, string[]> = {
-    // schedules are appointment records; status is the imported agenda_chegou
-    // attendance field, so "scheduled" must not filter out any appointment.
-    scheduled: [],
-    confirmed: ["Sim"],
-    completed: ["Atendido"],
-    cancelled: ["Desmarcou"],
-    no_show: ["Faltou"],
-};
-
 export async function executeAssistantDataTool(
     name: string,
     rawArguments: unknown,
@@ -82,6 +80,8 @@ export async function executeAssistantDataTool(
             return getClientContext(args);
         case "search_appointments":
             return searchAppointments(args);
+        case "get_schedule_overview":
+            return getScheduleOverview(args);
         case "search_conversations":
             return searchConversations(args);
         case "get_conversation_context":
@@ -203,6 +203,7 @@ async function getClientContext(args: JsonRecord): Promise<ToolExecution> {
             ok: true,
             client: context.client,
             upcoming_appointments: context.upcomingAppointments,
+            schedule_history: context.scheduleHistory,
             open_thread: context.openThread,
             recent_conversations: context.recentConversations,
         },
@@ -243,9 +244,7 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
         );
     }
 
-    const scheduleStatuses = statuses.flatMap((status) =>
-        SCHEDULE_STATUS_ALIASES[status] ?? [status],
-    );
+    const scheduleStatuses = resolveScheduleStatusFilters(statuses);
     if (scheduleStatuses.length > 0) {
         databaseQuery = databaseQuery.in(
             "status",
@@ -274,22 +273,27 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
     if (error) throw new Error(`Falha ao buscar agendamentos: ${error.message}`);
 
     const schedules = (data ?? []) as unknown as ScheduleSearchRow[];
-    const appointments = schedules.map((row) => ({
-        id: row.id,
-        client_id: row.client_id,
-        patient_name: row.patient_name,
-        patient_phone: row.phone,
-        scheduled_for: row.scheduled_for,
-        starts_at: `${row.scheduled_for}T00:00:00-03:00`,
-        ends_at: null,
-        status: row.status,
-        status_field: "agenda_chegou",
-        procedure_name: row.procedure_name,
-        attendant_name: row.attendant_name,
-        doctor: null,
-        unit: row.unit_name ? { name: row.unit_name } : null,
-        source: "schedules",
-    }));
+    const appointments = schedules.map((row) => {
+        const statusFlags = getScheduleStatusFlags(row.status);
+
+        return {
+            id: row.id,
+            client_id: row.client_id,
+            patient_name: row.patient_name,
+            patient_phone: row.phone,
+            scheduled_for: row.scheduled_for,
+            starts_at: `${row.scheduled_for}T00:00:00-03:00`,
+            ends_at: null,
+            status: row.status,
+            ...statusFlags,
+            status_field: "agenda_chegou",
+            procedure_name: row.procedure_name,
+            attendant_name: row.attendant_name,
+            doctor: null,
+            unit: row.unit_name ? { name: row.unit_name } : null,
+            source: "schedules",
+        };
+    });
 
     const uniqueClientIds: string[] = [
         ...new Set<string>(
@@ -312,6 +316,14 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
         starts_at: appointment.starts_at,
         ends_at: appointment.ends_at,
         status: appointment.status,
+        status_group: appointment.status_group,
+        status_label: appointment.status_label,
+        cancelled: appointment.cancelled,
+        showed_up: appointment.showed_up,
+        completed: appointment.completed,
+        no_show: appointment.no_show,
+        rescheduled: appointment.rescheduled,
+        pending: appointment.pending,
         status_field: appointment.status_field,
         procedure_name: appointment.procedure_name,
         attendant_name: appointment.attendant_name,
@@ -329,10 +341,244 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
             current_time: new Date().toISOString(),
             note: doctorName
                 ? "A agenda importada não possui campo de médico; a busca priorizou os registros da agenda do CliniSys."
-                : "O campo status da agenda é o campo agenda_chegou da fonte CliniSys e representa o comparecimento; cada linha retornada já é um registro de agendamento.",
+                : "O status vem de agenda_chegou: Não = pendente, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado.",
         },
         cards,
     };
+}
+
+type ScheduleOverviewRow = {
+    id: string;
+    scheduled_for: string;
+    unit_name: string | null;
+    status: string | null;
+};
+
+type ScheduleOverviewTotals = {
+    total: number;
+    pending: number;
+    arrived: number;
+    in_service: number;
+    attended: number;
+    showed_up: number;
+    cancelled: number;
+    no_show: number;
+    rescheduled: number;
+    unknown: number;
+};
+
+async function getScheduleOverview(
+    args: JsonRecord,
+): Promise<ToolExecution> {
+    const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
+    const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
+    const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
+    const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const requestedUnitName = stringArg(args, "unit_name");
+    const unit = requestedUnitName
+        ? await resolveSingleUnit(requestedUnitName)
+        : null;
+
+    if (requestedUnitName && !unit) {
+        return {
+            output: {
+                ok: true,
+                period: { date_from: dateFrom, date_to: dateTo },
+                totals: emptyScheduleOverviewTotals(),
+                note: `Unidade “${requestedUnitName}” não encontrada.`,
+            },
+            cards: [],
+        };
+    }
+
+    const rows = await loadScheduleOverviewRows({
+        dateFrom,
+        dateTo,
+        unitName: unit?.name ?? null,
+    });
+    const totals = emptyScheduleOverviewTotals();
+    const daily = new Map(
+        dateKeysBetween(dateFrom, dateTo).map((date) => [
+            date,
+            {
+                date,
+                total: 0,
+                showed_up: 0,
+                cancelled: 0,
+                no_show: 0,
+                rescheduled: 0,
+                pending: 0,
+            },
+        ]),
+    );
+    const byUnit = new Map<string, ScheduleOverviewTotals>();
+    const rawStatuses = new Map<string, number>();
+
+    for (const row of rows) {
+        const group = normalizeScheduleStatus(row.status);
+        incrementScheduleOverviewTotals(totals, group);
+
+        const day = daily.get(row.scheduled_for);
+        if (day) {
+            day.total += 1;
+            if (scheduleShowedUp(group)) day.showed_up += 1;
+            if (group === "cancelled") day.cancelled += 1;
+            if (group === "no_show") day.no_show += 1;
+            if (group === "rescheduled") day.rescheduled += 1;
+            if (group === "pending") day.pending += 1;
+        }
+
+        const unitName = row.unit_name?.trim() || "Sem unidade";
+        const unitTotals = byUnit.get(unitName) ?? emptyScheduleOverviewTotals();
+        incrementScheduleOverviewTotals(unitTotals, group);
+        byUnit.set(unitName, unitTotals);
+
+        const rawStatus = row.status?.trim() || "Sem status";
+        rawStatuses.set(rawStatus, (rawStatuses.get(rawStatus) ?? 0) + 1);
+    }
+
+    const attendanceObserved = totals.showed_up + totals.no_show;
+    const resolvedOutcomes =
+        totals.showed_up +
+        totals.no_show +
+        totals.cancelled +
+        totals.rescheduled;
+
+    return {
+        output: {
+            ok: true,
+            period: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                date_field: "scheduled_for",
+                timezone: TIME_ZONE,
+            },
+            unit: unit ? { name: unit.name } : null,
+            totals,
+            rates: {
+                attendance_rate_observed: rateOrNull(
+                    totals.showed_up,
+                    attendanceObserved,
+                ),
+                cancellation_rate_all_schedules: rateOrNull(
+                    totals.cancelled,
+                    totals.total,
+                ),
+                cancellation_rate_resolved_outcomes: rateOrNull(
+                    totals.cancelled,
+                    resolvedOutcomes,
+                ),
+                outcome_coverage_rate: rateOrNull(
+                    resolvedOutcomes,
+                    totals.total,
+                ),
+            },
+            status_distribution: [...rawStatuses.entries()]
+                .map(([status, count]) => ({ status, count }))
+                .sort((first, second) => second.count - first.count),
+            daily: [...daily.values()],
+            by_unit: [...byUnit.entries()]
+                .map(([unitName, values]) => ({
+                    unit_name: unitName,
+                    ...values,
+                    percentage: rateOrNull(values.total, totals.total),
+                }))
+                .sort(
+                    (first, second) =>
+                        second.total - first.total ||
+                        first.unit_name.localeCompare(
+                            second.unit_name,
+                            "pt-BR",
+                        ),
+                ),
+            metric_definitions: {
+                showed_up:
+                    "Compareceu: soma de Sim, Em Atendimento e Atendido.",
+                attended: "Atendimento concluído: status Atendido.",
+                cancelled: "Consulta cancelada: status Desmarcou.",
+                no_show: "Não compareceu: status Faltou.",
+                rescheduled: "Consulta remarcada: status Remarcou.",
+                pending:
+                    "Status Não: agenda pendente ou sem desfecho registrado; nunca significa automaticamente falta.",
+                attendance_rate_observed:
+                    "Compareceu dividido por Compareceu + Faltou; pendentes, cancelados e remarcados ficam fora.",
+                cancellation_rate_all_schedules:
+                    "Cancelados divididos por todos os agendamentos cuja data marcada está no período.",
+            },
+            truncated: rows.length >= MAX_ANALYTICS_ROWS,
+        },
+        cards: [],
+    };
+}
+
+async function loadScheduleOverviewRows({
+    dateFrom,
+    dateTo,
+    unitName,
+}: {
+    dateFrom: string;
+    dateTo: string;
+    unitName: string | null;
+}) {
+    const rows: ScheduleOverviewRow[] = [];
+
+    for (
+        let offset = 0;
+        offset < MAX_ANALYTICS_ROWS;
+        offset += ANALYTICS_PAGE_SIZE
+    ) {
+        let query = supabase
+            .from("schedules")
+            .select("id, scheduled_for, unit_name, status")
+            .gte("scheduled_for", dateFrom)
+            .lte("scheduled_for", dateTo)
+            .order("scheduled_for", { ascending: true })
+            .order("id", { ascending: true })
+            .range(offset, offset + ANALYTICS_PAGE_SIZE - 1);
+
+        if (unitName) query = query.ilike("unit_name", unitName);
+
+        const { data, error } = await query;
+        if (error) {
+            throw new Error(
+                `Falha ao carregar situação dos agendamentos: ${error.message}`,
+            );
+        }
+
+        const page = (data ?? []) as ScheduleOverviewRow[];
+        rows.push(...page);
+        if (page.length < ANALYTICS_PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+function emptyScheduleOverviewTotals(): ScheduleOverviewTotals {
+    return {
+        total: 0,
+        pending: 0,
+        arrived: 0,
+        in_service: 0,
+        attended: 0,
+        showed_up: 0,
+        cancelled: 0,
+        no_show: 0,
+        rescheduled: 0,
+        unknown: 0,
+    };
+}
+
+function incrementScheduleOverviewTotals(
+    totals: ScheduleOverviewTotals,
+    group: ScheduleStatusGroup,
+) {
+    totals.total += 1;
+    totals[group] += 1;
+    if (scheduleShowedUp(group)) totals.showed_up += 1;
+}
+
+function rateOrNull(value: number, total: number) {
+    return total > 0 ? Math.round((value / total) * 10_000) / 100 : null;
 }
 
 async function searchConversations(args: JsonRecord): Promise<ToolExecution> {
@@ -765,6 +1011,33 @@ async function getBusinessOverview(
         }));
 
     let unitPerformance: unknown[] = [];
+    let scheduleLifecycle: unknown = null;
+
+    try {
+        const overview = await getScheduleOverview({
+            date_from: dateFrom,
+            date_to: dateTo,
+            unit_name: null,
+        });
+        const overviewOutput = isRecord(overview.output)
+            ? overview.output
+            : {};
+
+        scheduleLifecycle = {
+            totals: overviewOutput.totals ?? null,
+            rates: overviewOutput.rates ?? null,
+            status_distribution:
+                overviewOutput.status_distribution ?? null,
+        };
+    } catch (error) {
+        warnings.push({
+            metric: "schedule_lifecycle",
+            error:
+                error instanceof Error && error.message.trim()
+                    ? error.message
+                    : "Não foi possível carregar cancelamentos e comparecimento.",
+        });
+    }
 
     try {
         const comparison = await compareUnitPerformance({
@@ -844,6 +1117,7 @@ async function getBusinessOverview(
                 currently_open_threads:
                     "Total atual de conversas abertas; não é limitado pelo período.",
             },
+            schedule_lifecycle: scheduleLifecycle,
             unit_performance: unitPerformance,
         },
         cards: [],
@@ -1384,6 +1658,7 @@ function emptyFinancialTotals() {
 type ClientContext = {
     client: unknown;
     upcomingAppointments: unknown[];
+    scheduleHistory: unknown[];
     openThread: unknown;
     recentConversations: unknown[];
     card: AssistantClientCardData;
@@ -1450,9 +1725,9 @@ async function loadClientContext(
                     attendant_name
                 `)
                 .eq("client_id", clientId)
-                .gte("scheduled_for", todayInBrazil())
-                .order("scheduled_for", { ascending: true })
-                .limit(20),
+                .gte("scheduled_for", dateDaysAgo(365))
+                .order("scheduled_for", { ascending: false })
+                .limit(50),
             supabase
                 .from("thread")
                 .select(`
@@ -1519,18 +1794,29 @@ async function loadClientContext(
     const unit = relationOne(clientRow.units);
     const stage = relationOne(clientRow.funnel_stages);
     const funnel = relationOne(stage?.funnels);
-    const upcomingAppointments = (schedulesResult.data ?? []).map((row) => {
+    const scheduleHistory = (schedulesResult.data ?? []).map((row) => {
         return {
             id: row.id,
             scheduled_for: row.scheduled_for,
             starts_at: `${row.scheduled_for}T00:00:00-03:00`,
             ends_at: null,
             status: row.status,
+            ...getScheduleStatusFlags(row.status),
             procedure_name: row.procedure_name,
             unit_name: row.unit_name ?? null,
             attendant_name: row.attendant_name ?? null,
         };
     });
+    const upcomingAppointments = scheduleHistory
+        .filter(
+            (appointment) =>
+                appointment.scheduled_for >= todayInBrazil() &&
+                !appointment.cancelled &&
+                !appointment.rescheduled,
+        )
+        .sort((first, second) =>
+            first.scheduled_for.localeCompare(second.scheduled_for),
+        );
     const nextAppointment = upcomingAppointments[0] ?? null;
 
     const card: AssistantClientCardData = {
@@ -1601,6 +1887,7 @@ async function loadClientContext(
             },
         },
         upcomingAppointments,
+        scheduleHistory,
         openThread: threadResult.data ?? null,
         recentConversations: (conversationResult.data ?? []).map((row) => ({
             id: row.id,
@@ -2072,9 +2359,29 @@ async function loadUnitAppointments(
 function summarizeAppointments(
     rows: Array<{ id: string; status: string | null; scheduled_for?: string }>,
 ) {
+    const totals = emptyScheduleOverviewTotals();
+    const byGroup = new Map<ScheduleStatusGroup, number>();
+
+    for (const row of rows) {
+        const group = normalizeScheduleStatus(row.status);
+        incrementScheduleOverviewTotals(totals, group);
+        byGroup.set(group, (byGroup.get(group) ?? 0) + 1);
+    }
+
     return {
-        total: rows.length,
-        by_status: topValues(rows.map((row) => row.status)),
+        ...totals,
+        attendance_rate_observed: rateOrNull(
+            totals.showed_up,
+            totals.showed_up + totals.no_show,
+        ),
+        cancellation_rate: rateOrNull(totals.cancelled, totals.total),
+        by_status: [...byGroup.entries()]
+            .map(([status, count]) => ({
+                status,
+                label: getScheduleStatusLabel(status),
+                count,
+            }))
+            .sort((first, second) => second.count - first.count),
     };
 }
 
@@ -2412,6 +2719,18 @@ function addDays(date: string, days: number) {
     const parsed = new Date(`${date}T12:00:00.000Z`);
     parsed.setUTCDate(parsed.getUTCDate() + days);
     return parsed.toISOString().slice(0, 10);
+}
+
+function dateKeysBetween(dateFrom: string, dateTo: string) {
+    const dates: string[] = [];
+    let current = dateFrom;
+
+    while (current <= dateTo) {
+        dates.push(current);
+        current = addDays(current, 1);
+    }
+
+    return dates;
 }
 
 function stringArg(args: JsonRecord, key: string) {

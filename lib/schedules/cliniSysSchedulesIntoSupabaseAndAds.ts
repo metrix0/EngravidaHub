@@ -10,6 +10,10 @@ import {
     getBigquerySchedules,
     type BigqueryScheduleRow,
 } from "@/lib/schedules/getBigquerySchedules";
+import {
+    normalizeScheduleStatus,
+    scheduleIsInactive,
+} from "@/lib/schedules/status";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
 
 const FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID =
@@ -18,6 +22,7 @@ const FIRST_REPRODUCTION_EVALUATION_STAGE_ID =
     "21111111-1111-1111-1111-111111111111";
 
 type NormalizedSchedule = {
+    source_external_id: string | null;
     source_hash: string;
     scheduled_for: string;
     created_in_source_at: string | null;
@@ -28,6 +33,29 @@ type NormalizedSchedule = {
     attendant_name: string | null;
     procedure_name: string | null;
     status: string | null;
+};
+
+type ExistingSchedule = {
+    id: string;
+    source_hash: string;
+    source_external_id: string | null;
+    client_id: string | null;
+    scheduled_for: string;
+    created_in_source_at: string | null;
+    patient_name: string | null;
+    phone: string | null;
+    normalized_phone: string | null;
+    unit_name: string | null;
+    attendant_name: string | null;
+    procedure_name: string | null;
+    status: string | null;
+};
+
+type ExistingScheduleIndex = {
+    rows: ExistingSchedule[];
+    byExternalId: Map<string, ExistingSchedule>;
+    byHash: Map<string, ExistingSchedule>;
+    byFallbackKey: Map<string, ExistingSchedule[]>;
 };
 
 type ClientForSchedule = {
@@ -58,11 +86,14 @@ export async function syncBigquerySchedules({
         .map(normalizeBigquerySchedule)
         .filter((schedule): schedule is NormalizedSchedule => Boolean(schedule));
 
-    const dedupedSchedules = Array.from(
-        new Map(
-            schedules.map((schedule) => [schedule.source_hash, schedule]),
-        ).values(),
-    );
+    const dedupedByIdentity = new Map<string, NormalizedSchedule>();
+    for (const schedule of schedules) {
+        const key = schedule.source_external_id
+            ? `external:${schedule.source_external_id}`
+            : `hash:${schedule.source_hash}`;
+        if (!dedupedByIdentity.has(key)) dedupedByIdentity.set(key, schedule);
+    }
+    const dedupedSchedules = [...dedupedByIdentity.values()];
 
     console.log("[syncBigquerySchedules] DEDUPED schedules from BigQuery", {
         before: schedules.length,
@@ -70,23 +101,62 @@ export async function syncBigquerySchedules({
         removed: schedules.length - dedupedSchedules.length,
     });
 
-    const existingHashes = await getExistingScheduleHashes(
-        dedupedSchedules.map((schedule) => schedule.source_hash),
-    );
+    const existing = await getExistingSchedules(dedupedSchedules);
+    const newSchedules: NormalizedSchedule[] = [];
+    const changedSchedules: Array<{
+        existing: ExistingSchedule;
+        schedule: NormalizedSchedule;
+        persistedSourceHash: string;
+    }> = [];
+    let unchangedSchedules = 0;
+    let statusUpdated = 0;
 
-    const newSchedules = dedupedSchedules.filter(
-        (schedule) => !existingHashes.has(schedule.source_hash),
-    );
+    for (const schedule of dedupedSchedules) {
+        const existingSchedule = findExistingSchedule(existing, schedule);
 
-    console.log("[syncBigquerySchedules] NEW schedules after duplicate check", {
+        if (!existingSchedule) {
+            newSchedules.push(schedule);
+            continue;
+        }
+
+        const hashOwner = existing.byHash.get(schedule.source_hash);
+        const persistedSourceHash =
+            hashOwner && hashOwner.id !== existingSchedule.id
+                ? existingSchedule.source_hash
+                : schedule.source_hash;
+
+        if (
+            hasScheduleChanged(
+                existingSchedule,
+                schedule,
+                persistedSourceHash,
+            )
+        ) {
+            if (existingSchedule.status !== schedule.status) statusUpdated += 1;
+            changedSchedules.push({
+                existing: existingSchedule,
+                schedule,
+                persistedSourceHash,
+            });
+        } else {
+            unchangedSchedules += 1;
+        }
+    }
+
+    console.log("[syncBigquerySchedules] schedule sync plan", {
         total_normalized: schedules.length,
         total_deduped: dedupedSchedules.length,
-        existing: existingHashes.size,
+        existing: existing.rows.length,
         new: newSchedules.length,
+        updated: changedSchedules.length,
+        status_updated: statusUpdated,
+        unchanged: unchangedSchedules,
     });
 
+    await updateExistingSchedules(changedSchedules);
+
     const results = [];
-    let savedToSupabase = 0;
+    let insertedToSupabase = 0;
     let metaSent = 0;
     let googleSent = 0;
     let fivFunnelStageUpdated = 0;
@@ -97,6 +167,8 @@ export async function syncBigquerySchedules({
         const { data: insertedSchedule, error: scheduleError } = await supabase
             .from("schedules")
             .insert({
+                source: "clinisys",
+                source_external_id: schedule.source_external_id,
                 source_hash: schedule.source_hash,
                 client_id: client.id,
                 scheduled_for: schedule.scheduled_for,
@@ -108,50 +180,69 @@ export async function syncBigquerySchedules({
                 attendant_name: schedule.attendant_name,
                 procedure_name: schedule.procedure_name,
                 status: schedule.status,
+                updated_at: new Date().toISOString(),
             })
             .select("id")
             .single();
 
         if (scheduleError) throw scheduleError;
-        savedToSupabase += 1;
+        insertedToSupabase += 1;
 
-        const funnelMove =
-            await moveClientToFirstReproductionEvaluationStageIfEmpty({
-                client,
-                schedule,
-            });
+        const inactive = scheduleIsInactive(
+            normalizeScheduleStatus(schedule.status),
+        );
+        const funnelMove = inactive
+            ? {
+                  updated: false,
+                  skipped_reason: "inactive_schedule_status" as const,
+              }
+            : await moveClientToFirstReproductionEvaluationStageIfEmpty({
+                  client,
+                  schedule,
+              });
 
         if (funnelMove.updated) fivFunnelStageUpdated += 1;
 
-        const eventTime = getScheduleEventTime(schedule.created_in_source_at);
-        const event: DerivedAdEvent = {
-            type: "schedule",
-            meta_event_name: "Schedule",
-            google_conversion_name: "book_appointment",
-            occurred_at: eventTime,
-            confidence: 0.95,
+        let meta: unknown = {
+            ok: true,
+            skipped: true,
+            reason: "inactive_schedule_status",
         };
+        let google: unknown = meta;
 
-        const meta = await sendMetaEvents({
-            events: [event],
-            phone: client.phone ?? schedule.phone,
-            email: client.email,
-            schedule_id: insertedSchedule.id,
-            client_id: client.id,
-        });
+        if (!inactive) {
+            const eventTime = getScheduleEventTime(
+                schedule.created_in_source_at,
+            );
+            const event: DerivedAdEvent = {
+                type: "schedule",
+                meta_event_name: "Schedule",
+                google_conversion_name: "book_appointment",
+                occurred_at: eventTime,
+                confidence: 0.95,
+            };
 
-        if (meta.ok && !meta.skipped) metaSent += 1;
+            meta = await sendMetaEvents({
+                events: [event],
+                phone: client.phone ?? schedule.phone,
+                email: client.email,
+                schedule_id: insertedSchedule.id,
+                client_id: client.id,
+            });
 
-        const google = await sendGoogleEvents({
-            events: [event],
-            phone: client.phone ?? schedule.phone,
-            email: client.email,
-            name: client.name ?? schedule.patient_name,
-            schedule_id: insertedSchedule.id,
-            client_id: client.id,
-        });
+            if (isSuccessfulDelivery(meta)) metaSent += 1;
 
-        if (google.ok && !google.skipped) googleSent += 1;
+            google = await sendGoogleEvents({
+                events: [event],
+                phone: client.phone ?? schedule.phone,
+                email: client.email,
+                name: client.name ?? schedule.patient_name,
+                schedule_id: insertedSchedule.id,
+                client_id: client.id,
+            });
+
+            if (isSuccessfulDelivery(google)) googleSent += 1;
+        }
 
         // Meta and Google delivery state is stored only in public.ad_events.
         results.push({
@@ -164,7 +255,12 @@ export async function syncBigquerySchedules({
         });
     }
 
-    console.log(`[syncBigquerySchedules] SAVED ${savedToSupabase} TO SUPABASE`);
+    console.log("[syncBigquerySchedules] SAVED schedules to Supabase", {
+        inserted: insertedToSupabase,
+        updated: changedSchedules.length,
+        status_updated: statusUpdated,
+        unchanged: unchangedSchedules,
+    });
     console.log("[syncBigquerySchedules] UPDATED FIV funnel stages", {
         fiv_funnel_stage_updated: fivFunnelStageUpdated,
     });
@@ -177,9 +273,13 @@ export async function syncBigquerySchedules({
         ok: true,
         fetched: rows.length,
         normalized: schedules.length,
-        existing: existingHashes.size,
+        existing: existing.rows.length,
         inserted: newSchedules.length,
-        saved_to_supabase: savedToSupabase,
+        updated: changedSchedules.length,
+        status_updated: statusUpdated,
+        unchanged: unchangedSchedules,
+        saved_to_supabase:
+            insertedToSupabase + changedSchedules.length,
         fiv_funnel_stage_updated: fivFunnelStageUpdated,
         meta_sent: metaSent,
         google_sent: googleSent,
@@ -201,6 +301,7 @@ function normalizeBigquerySchedule(
     const procedureName = cleanText(row.procedimentos_procedimento);
     const attendantName = cleanText(row.agenda_autor_original);
     const status = cleanText(row.agenda_chegou);
+    const sourceExternalId = cleanSourceId(row.source_schedule_id);
 
     const sourceHash = createScheduleHash({
         scheduled_for: scheduledFor,
@@ -212,6 +313,7 @@ function normalizeBigquerySchedule(
     });
 
     return {
+        source_external_id: sourceExternalId,
         source_hash: sourceHash,
         scheduled_for: scheduledFor,
         created_in_source_at: createdInSourceAt,
@@ -225,22 +327,198 @@ function normalizeBigquerySchedule(
     };
 }
 
-async function getExistingScheduleHashes(hashes: string[]) {
-    const existing = new Set<string>();
+async function getExistingSchedules(
+    schedules: NormalizedSchedule[],
+): Promise<ExistingScheduleIndex> {
+    const byId = new Map<string, ExistingSchedule>();
+    const externalIds = schedules
+        .map((schedule) => schedule.source_external_id)
+        .filter((value): value is string => Boolean(value));
+    const hashes = schedules.map((schedule) => schedule.source_hash);
 
-    for (const batch of chunk(hashes, 500)) {
+    for (const batch of chunk([...new Set(externalIds)], 300)) {
         if (batch.length === 0) continue;
 
         const { data, error } = await supabase
             .from("schedules")
-            .select("source_hash")
+            .select(EXISTING_SCHEDULE_SELECT)
+            .eq("source", "clinisys")
+            .in("source_external_id", batch);
+
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const schedule = row as unknown as ExistingSchedule;
+            byId.set(schedule.id, schedule);
+        }
+    }
+
+    for (const batch of chunk([...new Set(hashes)], 300)) {
+        if (batch.length === 0) continue;
+
+        const { data, error } = await supabase
+            .from("schedules")
+            .select(EXISTING_SCHEDULE_SELECT)
             .in("source_hash", batch);
 
         if (error) throw error;
-        for (const row of data ?? []) existing.add(row.source_hash);
+        for (const row of data ?? []) {
+            const schedule = row as unknown as ExistingSchedule;
+            byId.set(schedule.id, schedule);
+        }
     }
 
-    return existing;
+    // This fallback is used only when the BigQuery view does not expose a
+    // permanent appointment ID. It safely matches a mutable date/status row
+    // only when the client + creation date + procedure combination is unique.
+    const fallbackKeys = new Set(
+        schedules
+            .map(createScheduleFallbackKey)
+            .filter((value): value is string => Boolean(value)),
+    );
+    const fallbackCreatedDates = [
+        ...new Set(
+            [...fallbackKeys]
+                .map((key) => key.split("|")[0])
+                .filter(Boolean),
+        ),
+    ];
+
+    for (const createdDates of chunk(fallbackCreatedDates, 100)) {
+        if (createdDates.length === 0) continue;
+
+        const { data, error } = await supabase
+            .from("schedules")
+            .select(EXISTING_SCHEDULE_SELECT)
+            .eq("source", "clinisys")
+            .in("created_in_source_at", createdDates)
+            .limit(5_000);
+
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const schedule = row as unknown as ExistingSchedule;
+            const key = createScheduleFallbackKey(schedule);
+            if (key && fallbackKeys.has(key)) {
+                byId.set(schedule.id, schedule);
+            }
+        }
+    }
+
+    const rows = [...byId.values()];
+    const byExternalId = new Map<string, ExistingSchedule>();
+    const byHash = new Map<string, ExistingSchedule>();
+    const byFallbackKey = new Map<string, ExistingSchedule[]>();
+
+    for (const row of rows) {
+        if (row.source_external_id) {
+            byExternalId.set(row.source_external_id, row);
+        }
+        byHash.set(row.source_hash, row);
+
+        const fallbackKey = createScheduleFallbackKey(row);
+        if (fallbackKey) {
+            const matches = byFallbackKey.get(fallbackKey) ?? [];
+            matches.push(row);
+            byFallbackKey.set(fallbackKey, matches);
+        }
+    }
+
+    return { rows, byExternalId, byHash, byFallbackKey };
+}
+
+const EXISTING_SCHEDULE_SELECT = [
+    "id",
+    "source_hash",
+    "source_external_id",
+    "client_id",
+    "scheduled_for",
+    "created_in_source_at",
+    "patient_name",
+    "phone",
+    "normalized_phone",
+    "unit_name",
+    "attendant_name",
+    "procedure_name",
+    "status",
+].join(",");
+
+function findExistingSchedule(
+    index: ExistingScheduleIndex,
+    schedule: NormalizedSchedule,
+) {
+    if (schedule.source_external_id) {
+        const byExternalId = index.byExternalId.get(
+            schedule.source_external_id,
+        );
+        if (byExternalId) return byExternalId;
+    }
+
+    const byHash = index.byHash.get(schedule.source_hash);
+    if (byHash) return byHash;
+
+    const fallbackKey = createScheduleFallbackKey(schedule);
+    if (!fallbackKey) return null;
+
+    const fallbackMatches = index.byFallbackKey.get(fallbackKey) ?? [];
+    return fallbackMatches.length === 1 ? fallbackMatches[0] : null;
+}
+
+function hasScheduleChanged(
+    existing: ExistingSchedule,
+    schedule: NormalizedSchedule,
+    persistedSourceHash: string,
+) {
+    return (
+        existing.source_hash !== persistedSourceHash ||
+        existing.source_external_id !== schedule.source_external_id ||
+        existing.scheduled_for !== schedule.scheduled_for ||
+        existing.created_in_source_at !== schedule.created_in_source_at ||
+        existing.patient_name !== schedule.patient_name ||
+        existing.phone !== schedule.phone ||
+        existing.normalized_phone !== schedule.normalized_phone ||
+        existing.unit_name !== schedule.unit_name ||
+        existing.attendant_name !== schedule.attendant_name ||
+        existing.procedure_name !== schedule.procedure_name ||
+        existing.status !== schedule.status
+    );
+}
+
+async function updateExistingSchedules(
+    changes: Array<{
+        existing: ExistingSchedule;
+        schedule: NormalizedSchedule;
+        persistedSourceHash: string;
+    }>,
+) {
+    for (const batch of chunk(changes, 300)) {
+        if (batch.length === 0) continue;
+
+        const now = new Date().toISOString();
+        const payload = batch.map(
+            ({ existing, schedule, persistedSourceHash }) => ({
+                id: existing.id,
+                source: "clinisys",
+                source_external_id: schedule.source_external_id,
+                source_hash: persistedSourceHash,
+                client_id: existing.client_id,
+                scheduled_for: schedule.scheduled_for,
+                created_in_source_at: schedule.created_in_source_at,
+                patient_name: schedule.patient_name,
+                phone: schedule.phone,
+                normalized_phone: schedule.normalized_phone,
+                unit_name: schedule.unit_name,
+                attendant_name: schedule.attendant_name,
+                procedure_name: schedule.procedure_name,
+                status: schedule.status,
+                updated_at: now,
+            }),
+        );
+
+        const { error } = await supabase
+            .from("schedules")
+            .upsert(payload, { onConflict: "id" });
+
+        if (error) throw error;
+    }
 }
 
 async function findOrCreateClientFromSchedule(
@@ -419,6 +697,34 @@ function cleanText(value: string | null) {
     return cleaned || null;
 }
 
+function cleanSourceId(value: string | number | null) {
+    if (value === null || value === undefined) return null;
+    const cleaned = String(value).trim();
+    return cleaned || null;
+}
+
+function createScheduleFallbackKey(
+    schedule: Pick<
+        NormalizedSchedule,
+        | "created_in_source_at"
+        | "normalized_phone"
+        | "patient_name"
+        | "procedure_name"
+    >,
+) {
+    if (!schedule.created_in_source_at) return null;
+
+    const identity =
+        schedule.normalized_phone ?? normalizeHashText(schedule.patient_name);
+    if (!identity) return null;
+
+    return [
+        schedule.created_in_source_at,
+        identity,
+        normalizeHashText(schedule.procedure_name),
+    ].join("|");
+}
+
 function normalizeHashText(value: string | null) {
     return (value ?? "")
         .trim()
@@ -456,6 +762,12 @@ function getScheduleEventTime(date: string | null) {
     const today = getTodayInSaoPaulo();
     if (!date || date === today) return new Date().toISOString();
     return new Date(`${date}T12:00:00-03:00`).toISOString();
+}
+
+function isSuccessfulDelivery(value: unknown) {
+    if (!value || typeof value !== "object") return false;
+    const result = value as { ok?: unknown; skipped?: unknown };
+    return result.ok === true && result.skipped !== true;
 }
 
 function getTodayInSaoPaulo() {

@@ -51,6 +51,7 @@ type PanelData = {
         attendant_chat_name: string | null;
         tunnel: string | null;
         origin: string | null;
+        analysis_status: "pending" | "processing" | "completed" | "failed";
     };
     client: {
         id: string;
@@ -147,7 +148,9 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
     if (!activeConversationId) return null;
 
     const clientName = data?.client.name ?? "Cliente sem nome";
-    const result = getResult(data?.analysis?.resolution_result);
+    const result = data?.analysis
+        ? getResult(data.analysis.resolution_result)
+        : null;
 
     function handleClose() {
         setPanelOpen(false);
@@ -209,9 +212,15 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                                 <ChevronRight size={18} className="shrink-0 text-slate-400" />
                             </button>
 
-                            <span title={`Resolução ${result}`}>
-                                <Badge value={result} />
-                            </span>
+                            {result ? (
+                                <span title={`Resolução ${result}`}>
+                                    <Badge value={result} />
+                                </span>
+                            ) : (
+                                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                                    Não analisada
+                                </span>
+                            )}
                         </div>
 
                         <div className="grid grid-cols-3 gap-4 text-xs">
@@ -223,7 +232,11 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                             <InfoItem
                                 icon={<Target size={18} />}
                                 label="Resolução"
-                                value={`${data.analysis?.resolution_score ?? 0}%`}
+                                value={
+                                    data.analysis?.resolution_score == null
+                                        ? "—"
+                                        : `${data.analysis.resolution_score}%`
+                                }
                             />
                             <InfoItem
                                 icon={<Clock size={18} />}
@@ -260,7 +273,12 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                 ) : (
                     <>
                         {tab === "messages" && <MessagesTab messages={data.messages} />}
-                        {tab === "analysis" && <AnalysisTab analysis={data.analysis} />}
+                        {tab === "analysis" && (
+                            <AnalysisTab
+                                analysis={data.analysis}
+                                analysisStatus={data.conversation.analysis_status}
+                            />
+                        )}
                         {tab === "events" && <EventsTab analysis={data.analysis} />}
                         {tab === "details" && <DetailsTab data={data} />}
                     </>
@@ -341,9 +359,23 @@ function MessagesTab({ messages }: { messages: PanelMessage[] }) {
     );
 }
 
-function AnalysisTab({ analysis }: { analysis: any | null }) {
+function AnalysisTab({
+    analysis,
+    analysisStatus,
+}: {
+    analysis: any | null;
+    analysisStatus: PanelData["conversation"]["analysis_status"];
+}) {
     if (!analysis) {
-        return <EmptyPanelMessage text="Essa conversa ainda não possui análise." />;
+        return (
+            <EmptyPanelMessage
+                text={
+                    analysisStatus === "processing"
+                        ? "Análise em processamento."
+                        : "Essa conversa ainda não foi analisada."
+                }
+            />
+        );
     }
 
     const hasDropoffDetails = Boolean(
