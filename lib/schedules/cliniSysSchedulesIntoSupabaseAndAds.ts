@@ -20,10 +20,14 @@ const FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID =
     "22222222-2222-2222-2222-222222222222";
 const FIRST_REPRODUCTION_EVALUATION_STAGE_ID =
     "21111111-1111-1111-1111-111111111111";
+const SUPABASE_IN_FILTER_BATCH_SIZE = 100;
+const CLINISYS_SCHEDULE_SOURCE = "bigquery";
+const CLINISYS_SCHEDULE_SOURCES = ["bigquery", "clinisys"];
 
 type NormalizedSchedule = {
     source_external_id: string | null;
     source_hash: string;
+    legacy_source_hash: string;
     scheduled_for: string;
     created_in_source_at: string | null;
     patient_name: string | null;
@@ -68,8 +72,8 @@ type ClientForSchedule = {
 };
 
 export async function syncBigquerySchedules({
-    daysBack = 60,
-    limit = 5000,
+    daysBack = 1,
+    limit = 9999,
 }: {
     daysBack?: number;
     limit?: number;
@@ -111,13 +115,33 @@ export async function syncBigquerySchedules({
     let unchangedSchedules = 0;
     let statusUpdated = 0;
 
-    for (const schedule of dedupedSchedules) {
-        const existingSchedule = findExistingSchedule(existing, schedule);
+    const schedulesInMatchOrder = [...dedupedSchedules].sort((left, right) => {
+        const leftHasExactMatch = Boolean(
+            left.source_external_id &&
+                existing.byExternalId.has(left.source_external_id),
+        );
+        const rightHasExactMatch = Boolean(
+            right.source_external_id &&
+                existing.byExternalId.has(right.source_external_id),
+        );
+        return Number(rightHasExactMatch) - Number(leftHasExactMatch);
+    });
+    const claimedExistingIds = new Set<string>();
+    let existingMatchCollisions = 0;
+
+    for (const schedule of schedulesInMatchOrder) {
+        const match = findExistingSchedule(existing, schedule);
+        const existingSchedule =
+            match && !claimedExistingIds.has(match.id) ? match : null;
+
+        if (match && !existingSchedule) existingMatchCollisions += 1;
 
         if (!existingSchedule) {
             newSchedules.push(schedule);
             continue;
         }
+
+        claimedExistingIds.add(existingSchedule.id);
 
         const hashOwner = existing.byHash.get(schedule.source_hash);
         const persistedSourceHash =
@@ -151,6 +175,7 @@ export async function syncBigquerySchedules({
         updated: changedSchedules.length,
         status_updated: statusUpdated,
         unchanged: unchangedSchedules,
+        existing_match_collisions: existingMatchCollisions,
     });
 
     await updateExistingSchedules(changedSchedules);
@@ -167,7 +192,7 @@ export async function syncBigquerySchedules({
         const { data: insertedSchedule, error: scheduleError } = await supabase
             .from("schedules")
             .insert({
-                source: "clinisys",
+                source: CLINISYS_SCHEDULE_SOURCE,
                 source_external_id: schedule.source_external_id,
                 source_hash: schedule.source_hash,
                 client_id: client.id,
@@ -260,6 +285,7 @@ export async function syncBigquerySchedules({
         updated: changedSchedules.length,
         status_updated: statusUpdated,
         unchanged: unchangedSchedules,
+        existing_match_collisions: existingMatchCollisions,
     });
     console.log("[syncBigquerySchedules] UPDATED FIV funnel stages", {
         fiv_funnel_stage_updated: fivFunnelStageUpdated,
@@ -303,7 +329,7 @@ function normalizeBigquerySchedule(
     const status = cleanText(row.agenda_chegou);
     const sourceExternalId = cleanSourceId(row.source_schedule_id);
 
-    const sourceHash = createScheduleHash({
+    const legacySourceHash = createScheduleHash({
         scheduled_for: scheduledFor,
         created_in_source_at: createdInSourceAt,
         normalized_phone: normalizedPhone,
@@ -311,10 +337,14 @@ function normalizeBigquerySchedule(
         unit_name: unitName,
         procedure_name: procedureName,
     });
+    const sourceHash = sourceExternalId
+        ? createExternalScheduleHash(sourceExternalId)
+        : legacySourceHash;
 
     return {
         source_external_id: sourceExternalId,
         source_hash: sourceHash,
+        legacy_source_hash: legacySourceHash,
         scheduled_for: scheduledFor,
         created_in_source_at: createdInSourceAt,
         patient_name: patientName,
@@ -334,15 +364,24 @@ async function getExistingSchedules(
     const externalIds = schedules
         .map((schedule) => schedule.source_external_id)
         .filter((value): value is string => Boolean(value));
-    const hashes = schedules.map((schedule) => schedule.source_hash);
+    const hashes = schedules.flatMap((schedule) => [
+        schedule.source_hash,
+        schedule.legacy_source_hash,
+    ]);
 
-    for (const batch of chunk([...new Set(externalIds)], 300)) {
+    // PostgREST serializes `.in(...)` values into the request URL and also
+    // returns that URL in response headers. Keep batches small enough for
+    // Node/Undici's header limit; 300 SHA-256 values exceeds 20 KB.
+    for (const batch of chunk(
+        [...new Set(externalIds)],
+        SUPABASE_IN_FILTER_BATCH_SIZE,
+    )) {
         if (batch.length === 0) continue;
 
         const { data, error } = await supabase
             .from("schedules")
             .select(EXISTING_SCHEDULE_SELECT)
-            .eq("source", "clinisys")
+            .in("source", CLINISYS_SCHEDULE_SOURCES)
             .in("source_external_id", batch);
 
         if (error) throw error;
@@ -352,7 +391,10 @@ async function getExistingSchedules(
         }
     }
 
-    for (const batch of chunk([...new Set(hashes)], 300)) {
+    for (const batch of chunk(
+        [...new Set(hashes)],
+        SUPABASE_IN_FILTER_BATCH_SIZE,
+    )) {
         if (batch.length === 0) continue;
 
         const { data, error } = await supabase
@@ -383,13 +425,16 @@ async function getExistingSchedules(
         ),
     ];
 
-    for (const createdDates of chunk(fallbackCreatedDates, 100)) {
+    for (const createdDates of chunk(
+        fallbackCreatedDates,
+        SUPABASE_IN_FILTER_BATCH_SIZE,
+    )) {
         if (createdDates.length === 0) continue;
 
         const { data, error } = await supabase
             .from("schedules")
             .select(EXISTING_SCHEDULE_SELECT)
-            .eq("source", "clinisys")
+            .in("source", CLINISYS_SCHEDULE_SOURCES)
             .in("created_in_source_at", createdDates)
             .limit(5_000);
 
@@ -452,14 +497,29 @@ function findExistingSchedule(
         if (byExternalId) return byExternalId;
     }
 
-    const byHash = index.byHash.get(schedule.source_hash);
-    if (byHash) return byHash;
+    const byHash =
+        index.byHash.get(schedule.source_hash) ??
+        index.byHash.get(schedule.legacy_source_hash);
+    if (byHash && canUseLegacyScheduleMatch(byHash, schedule)) return byHash;
 
     const fallbackKey = createScheduleFallbackKey(schedule);
     if (!fallbackKey) return null;
 
-    const fallbackMatches = index.byFallbackKey.get(fallbackKey) ?? [];
+    const fallbackMatches = (
+        index.byFallbackKey.get(fallbackKey) ?? []
+    ).filter((row) => canUseLegacyScheduleMatch(row, schedule));
     return fallbackMatches.length === 1 ? fallbackMatches[0] : null;
+}
+
+function canUseLegacyScheduleMatch(
+    existing: ExistingSchedule,
+    schedule: NormalizedSchedule,
+) {
+    return (
+        !existing.source_external_id ||
+        !schedule.source_external_id ||
+        existing.source_external_id === schedule.source_external_id
+    );
 }
 
 function hasScheduleChanged(
@@ -496,7 +556,7 @@ async function updateExistingSchedules(
         const payload = batch.map(
             ({ existing, schedule, persistedSourceHash }) => ({
                 id: existing.id,
-                source: "clinisys",
+                source: CLINISYS_SCHEDULE_SOURCE,
                 source_external_id: schedule.source_external_id,
                 source_hash: persistedSourceHash,
                 client_id: existing.client_id,
@@ -683,6 +743,13 @@ function createScheduleHash({
                 normalizeHashText(procedure_name),
             ].join("|"),
         )
+        .digest("hex");
+}
+
+function createExternalScheduleHash(sourceExternalId: string) {
+    return crypto
+        .createHash("sha256")
+        .update(`${CLINISYS_SCHEDULE_SOURCE}|agenda_id|${sourceExternalId}`)
         .digest("hex");
 }
 

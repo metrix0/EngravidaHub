@@ -372,8 +372,17 @@ async function getScheduleOverview(
 ): Promise<ToolExecution> {
     const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
     const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
-    const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
-    const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const requestedDateFrom =
+        requestedFrom <= requestedTo ? requestedFrom : requestedTo;
+    const requestedDateTo =
+        requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const today = todayInBrazil();
+    const includeFuture = booleanArg(args, "include_future", false);
+    const crossesToday =
+        requestedDateFrom <= today && requestedDateTo > today;
+    const dateFrom = requestedDateFrom;
+    const dateTo =
+        crossesToday && !includeFuture ? today : requestedDateTo;
     const requestedUnitName = stringArg(args, "unit_name");
     const unit = requestedUnitName
         ? await resolveSingleUnit(requestedUnitName)
@@ -383,7 +392,12 @@ async function getScheduleOverview(
         return {
             output: {
                 ok: true,
-                period: { date_from: dateFrom, date_to: dateTo },
+                period: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    requested_date_to: requestedDateTo,
+                    future_included: dateTo > today,
+                },
                 totals: emptyScheduleOverviewTotals(),
                 note: `Unidade “${requestedUnitName}” não encontrada.`,
             },
@@ -397,6 +411,7 @@ async function getScheduleOverview(
         unitName: unit?.name ?? null,
     });
     const totals = emptyScheduleOverviewTotals();
+    const outcomeEligibleTotals = emptyScheduleOverviewTotals();
     const daily = new Map(
         dateKeysBetween(dateFrom, dateTo).map((date) => [
             date,
@@ -417,6 +432,9 @@ async function getScheduleOverview(
     for (const row of rows) {
         const group = normalizeScheduleStatus(row.status);
         incrementScheduleOverviewTotals(totals, group);
+        if (row.scheduled_for <= today) {
+            incrementScheduleOverviewTotals(outcomeEligibleTotals, group);
+        }
 
         const day = daily.get(row.scheduled_for);
         if (day) {
@@ -437,12 +455,13 @@ async function getScheduleOverview(
         rawStatuses.set(rawStatus, (rawStatuses.get(rawStatus) ?? 0) + 1);
     }
 
-    const attendanceObserved = totals.showed_up + totals.no_show;
+    const attendanceObserved =
+        outcomeEligibleTotals.showed_up + outcomeEligibleTotals.no_show;
     const resolvedOutcomes =
-        totals.showed_up +
-        totals.no_show +
-        totals.cancelled +
-        totals.rescheduled;
+        outcomeEligibleTotals.showed_up +
+        outcomeEligibleTotals.no_show +
+        outcomeEligibleTotals.cancelled +
+        outcomeEligibleTotals.rescheduled;
 
     return {
         output: {
@@ -450,6 +469,8 @@ async function getScheduleOverview(
             period: {
                 date_from: dateFrom,
                 date_to: dateTo,
+                requested_date_to: requestedDateTo,
+                future_included: dateTo > today,
                 date_field: "scheduled_for",
                 timezone: TIME_ZONE,
             },
@@ -457,21 +478,32 @@ async function getScheduleOverview(
             totals,
             rates: {
                 attendance_rate_observed: rateOrNull(
-                    totals.showed_up,
+                    outcomeEligibleTotals.showed_up,
                     attendanceObserved,
                 ),
                 cancellation_rate_all_schedules: rateOrNull(
-                    totals.cancelled,
-                    totals.total,
+                    outcomeEligibleTotals.cancelled,
+                    outcomeEligibleTotals.total,
                 ),
                 cancellation_rate_resolved_outcomes: rateOrNull(
-                    totals.cancelled,
+                    outcomeEligibleTotals.cancelled,
                     resolvedOutcomes,
                 ),
                 outcome_coverage_rate: rateOrNull(
                     resolvedOutcomes,
-                    totals.total,
+                    outcomeEligibleTotals.total,
                 ),
+            },
+            rates_basis: {
+                through_date:
+                    dateFrom > today
+                        ? null
+                        : dateTo < today
+                          ? dateTo
+                          : today,
+                schedules: outcomeEligibleTotals.total,
+                future_schedules_excluded:
+                    totals.total - outcomeEligibleTotals.total,
             },
             status_distribution: [...rawStatuses.entries()]
                 .map(([status, count]) => ({ status, count }))
@@ -503,7 +535,9 @@ async function getScheduleOverview(
                 attendance_rate_observed:
                     "Compareceu dividido por Compareceu + Faltou; pendentes, cancelados e remarcados ficam fora.",
                 cancellation_rate_all_schedules:
-                    "Cancelados divididos por todos os agendamentos cuja data marcada está no período.",
+                    "Cancelados divididos pelos agendamentos não futuros do período.",
+                outcome_coverage_rate:
+                    "Desfechos divididos somente pelos agendamentos não futuros; datas futuras ficam fora.",
             },
             truncated: rows.length >= MAX_ANALYTICS_ROWS,
         },

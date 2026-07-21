@@ -372,13 +372,14 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                     <h2 className="text-lg font-bold">
                         Agendamentos no período
                     </h2>
-                    <InfoTooltip text="Cada barra azul é o total de consultas pela data marcada no CliniSys, já incluindo cancelamentos. A barra vermelha é a quantidade cancelada (status Desmarcou), sobreposta ao total na mesma escala.">
+                    <InfoTooltip text="Cada barra azul é o total de consultas pela data marcada no CliniSys, incluindo canceladas e reagendadas. As barras menores mostram canceladas (vermelho) e reagendadas (amarelo), sobrepostas ao total na mesma escala.">
                         <HelpCircle size={16} className="text-slate-400" />
                     </InfoTooltip>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
                     <LegendDot color="bg-blue-500" label="Agendamentos" />
                     <LegendDot color="bg-rose-500" label="Cancelados" />
+                    <LegendDot color="bg-amber-500" label="Reagendados" />
                 </div>
             </div>
 
@@ -783,6 +784,8 @@ function ScheduleEvolutionTooltip({
     const total = typeof row.total === "number" ? row.total : 0;
     const cancelled =
         typeof row.cancelled === "number" ? row.cancelled : 0;
+    const rescheduled =
+        typeof row.rescheduled === "number" ? row.rescheduled : 0;
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
@@ -806,6 +809,15 @@ function ScheduleEvolutionTooltip({
                     </div>
                     <span className="font-semibold text-slate-800">
                         {cancelled.toLocaleString("pt-BR")}
+                    </span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                        <span className="text-slate-600">Reagendados</span>
+                    </div>
+                    <span className="font-semibold text-slate-800">
+                        {rescheduled.toLocaleString("pt-BR")}
                     </span>
                 </div>
             </div>
@@ -850,6 +862,7 @@ type ScheduleOverlayBarProps = {
     payload?: {
         total?: number;
         cancelled?: number;
+        rescheduled?: number;
     };
 };
 
@@ -865,11 +878,42 @@ function ScheduleOverlayBar({
         Math.max(Number(payload?.cancelled ?? 0), 0),
         total,
     );
+    const rescheduled = Math.min(
+        Math.max(Number(payload?.rescheduled ?? 0), 0),
+        total,
+    );
     const cancelledHeight =
         total > 0 ? (height * cancelled) / total : 0;
+    const rescheduledHeight =
+        total > 0 ? (height * rescheduled) / total : 0;
     const cancelledY = y + height - cancelledHeight;
-    const cancelledWidth = Math.max(8, Math.min(width * 0.56, 20));
-    const cancelledX = x + (width - cancelledWidth) / 2;
+    const rescheduledY = y + height - rescheduledHeight;
+    const compactOverlays = width < 12;
+    const overlayGap = Math.max(1, Math.min(width * 0.08, 3));
+    const regularOverlayWidth = Math.max(2, Math.min(width * 0.32, 10));
+    const regularOverlaysWidth = regularOverlayWidth * 2 + overlayGap;
+    const cancelledWidth = compactOverlays
+        ? Math.max(1, width * 0.7)
+        : regularOverlayWidth;
+    const rescheduledWidth = compactOverlays
+        ? Math.max(1, width * 0.36)
+        : regularOverlayWidth;
+    const cancelledX = compactOverlays
+        ? x + (width - cancelledWidth) / 2
+        : x + (width - regularOverlaysWidth) / 2;
+    const rescheduledX = compactOverlays
+        ? x + (width - rescheduledWidth) / 2
+        : cancelledX + regularOverlayWidth + overlayGap;
+    const cancelledRadius = Math.min(
+        1.5,
+        cancelledWidth / 4,
+        cancelledHeight / 2,
+    );
+    const rescheduledRadius = Math.min(
+        1.5,
+        rescheduledWidth / 4,
+        rescheduledHeight / 2,
+    );
 
     return (
         <g>
@@ -887,8 +931,18 @@ function ScheduleOverlayBar({
                     y={cancelledY}
                     width={cancelledWidth}
                     height={cancelledHeight}
-                    rx={Math.min(5, cancelledHeight / 2)}
+                    rx={cancelledRadius}
                     fill="#f43f5e"
+                />
+            ) : null}
+            {rescheduledHeight > 0 ? (
+                <rect
+                    x={rescheduledX}
+                    y={rescheduledY}
+                    width={rescheduledWidth}
+                    height={rescheduledHeight}
+                    rx={rescheduledRadius}
+                    fill="#f59e0b"
                 />
             ) : null}
             <text

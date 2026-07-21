@@ -16,8 +16,6 @@ export type BigqueryScheduleRow = {
 const BIGQUERY_LOCATION = "southamerica-east1";
 const BIGQUERY_DATASET = "datastudio";
 const BIGQUERY_SCHEDULE_VIEW = "view_agendamentos_uptodate";
-const STATUS_LOOKBACK_DAYS = 60;
-const STATUS_LOOKAHEAD_DAYS = 365;
 
 let scheduleIdColumnPromise: Promise<string | null> | null = null;
 
@@ -72,25 +70,14 @@ export async function getBigquerySchedules({
         FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\` AS source
         WHERE source.agenda_oculto = 0
           AND source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'
-          AND (
-              DATE(
-                  SAFE.PARSE_DATETIME(
-                      '%d/%m/%Y %H:%M:%S',
-                      NULLIF(TRIM(source.agenda_data_agendamento_original), '')
-                  )
-              ) >= DATE_SUB(
-                  CURRENT_DATE('America/Sao_Paulo'),
-                  INTERVAL @daysBack DAY
+          AND DATE(
+              SAFE.PARSE_DATETIME(
+                  '%d/%m/%Y %H:%M:%S',
+                  NULLIF(TRIM(source.agenda_data_agendamento_original), '')
               )
-              OR DATE(source.agenda_data_us) BETWEEN
-                  DATE_SUB(
-                      CURRENT_DATE('America/Sao_Paulo'),
-                      INTERVAL @statusLookbackDays DAY
-                  )
-                  AND DATE_ADD(
-                      CURRENT_DATE('America/Sao_Paulo'),
-                      INTERVAL @statusLookaheadDays DAY
-                  )
+          ) >= DATE_SUB(
+              CURRENT_DATE('America/Sao_Paulo'),
+              INTERVAL @daysBack DAY
           )
         )
 
@@ -106,8 +93,6 @@ export async function getBigquerySchedules({
         params: {
             daysBack,
             limit,
-            statusLookbackDays: STATUS_LOOKBACK_DAYS,
-            statusLookaheadDays: STATUS_LOOKAHEAD_DAYS,
         },
     });
 
@@ -115,8 +100,6 @@ export async function getBigquerySchedules({
         count: rows.length,
         daysBack,
         limit,
-        status_lookback_days: STATUS_LOOKBACK_DAYS,
-        status_lookahead_days: STATUS_LOOKAHEAD_DAYS,
         source_id_column: scheduleIdColumn,
     });
 

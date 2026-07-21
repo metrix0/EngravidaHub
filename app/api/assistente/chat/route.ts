@@ -123,11 +123,22 @@ const TOOLS = [
                 },
                 date_to: {
                     type: ["string", "null"],
-                    description: "YYYY-MM-DD; null usa hoje.",
+                    description:
+                        "YYYY-MM-DD; no mês atual use hoje, salvo pedido explícito de datas futuras.",
                 },
                 unit_name: { type: ["string", "null"] },
+                include_future: {
+                    type: "boolean",
+                    description:
+                        "true somente quando o usuário pedir próximos, futuros ou o mês completo incluindo datas futuras.",
+                },
             },
-            required: ["date_from", "date_to", "unit_name"],
+            required: [
+                "date_from",
+                "date_to",
+                "unit_name",
+                "include_future",
+            ],
             additionalProperties: false,
         },
     },
@@ -511,7 +522,7 @@ REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento ou operação. Nunca invente dados.
 3. Para uma pessoa específica, use search_clients e depois get_client_context antes da resposta final.
-4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
+4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
