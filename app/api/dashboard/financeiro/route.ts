@@ -560,6 +560,12 @@ function buildCrmMetrics(
     });
     const attributedRevenue = sumAmounts(attributed);
     const origins = new Map<string, InvoiceRow[]>();
+    const unattributed = authorized.filter((invoice) => {
+        const origin = invoice.client_id
+            ? clientsById.get(invoice.client_id)?.last_origin
+            : null;
+        return !origin?.trim();
+    });
 
     for (const invoice of attributed) {
         const origin = invoice.client_id
@@ -598,14 +604,19 @@ function buildCrmMetrics(
             billedScheduledClients,
             scheduledClientIds.size,
         ),
-        by_origin: [...origins.entries()]
+        by_origin: [
+            ...origins.entries(),
+            ...(unattributed.length > 0
+                ? [["Sem origem atribuída", unattributed] as const]
+                : []),
+        ]
             .map(([origin, rows]) => {
                 const revenue = sumAmounts(rows);
                 return {
                     origin,
                     invoices: rows.length,
                     revenue: roundMoney(revenue),
-                    percentage: percentage(revenue, attributedRevenue),
+                    percentage: percentage(revenue, totalRevenue),
                 };
             })
             .sort((first, second) => second.revenue - first.revenue)

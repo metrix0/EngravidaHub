@@ -4,7 +4,10 @@ import { NextResponse } from "next/server";
 import { runBedrockBatchAnalysis } from "@/lib/ai/bedrockBatchAnalysis";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
-import { runClientClosingTagBackfill } from "@/lib/conversations/matchConversationsSheetAttribution";
+import {
+    matchConversationsSheetAttribution,
+    runClientClosingTagBackfill,
+} from "@/lib/conversations/matchConversationsSheetAttribution";
 
 export const maxDuration = 300;
 
@@ -93,6 +96,30 @@ export async function GET(request: Request) {
             }),
         );
 
+        let sheetAttributionMatch = null;
+        const createdConversationIds = createdConversations.map(
+            (conversation) => conversation.conversation_id,
+        );
+
+        if (createdConversationIds.length > 0) {
+            try {
+                sheetAttributionMatch = await runLoggedStage(
+                    "sheet_attribution",
+                    () =>
+                        matchConversationsSheetAttribution({
+                            limit: createdConversationIds.length,
+                            conversationIds: createdConversationIds,
+                        }),
+                    (result) => ({ result }),
+                );
+            } catch (error) {
+                console.error(
+                    "[/api/analyze] sheet attribution failed; analysis will continue",
+                    serializeError(error),
+                );
+            }
+        }
+
         const senderNameMatch = await runLoggedStage(
             "sender_name_match",
             () => matchMessagesSenderName({ limit }),
@@ -110,6 +137,7 @@ export async function GET(request: Request) {
 
         console.log("[/api/analyze] daily Bedrock batch pipeline finished", {
             conversations_created: createdConversations.length,
+            sheet_attribution: sheetAttributionMatch,
             sender_names_ready: senderNameMatch.ready_conversation_ids.length,
             bedrock_batch: bedrockBatch,
         });
@@ -117,6 +145,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
             ok: true,
             closing_tag_backfill: closingTagBackfill,
+            sheet_attribution: sheetAttributionMatch,
             sender_name_match: senderNameMatch,
             bedrock_batch: bedrockBatch,
         });

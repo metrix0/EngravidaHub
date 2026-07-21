@@ -586,8 +586,8 @@ function CrmCard({ data }: { data: FinancialDashboardData }) {
     return (
         <Card>
             <CardTitle
-                title="Conexão com o CRM"
-                tooltip="O vínculo usa o telefone do paciente no CliniSys para localizar o cliente no Hub. Com origem mede a parcela do faturamento autorizado atribuída ao último canal conhecido. Agenda + fatura mede clientes agendados que também tiveram uma NFS-e autorizada no mesmo período."
+                title="Faturamento por Origem"
+                tooltip="Receita vinculada: fatura ligada ao cliente. Agenda + fatura: cliente com os dois no período."
                 subtitle="Quanto do faturamento pode ser relacionado à jornada comercial"
             />
 

@@ -870,14 +870,6 @@ function ScheduleOverlayBar({
     const cancelledY = y + height - cancelledHeight;
     const cancelledWidth = Math.max(8, Math.min(width * 0.56, 20));
     const cancelledX = x + (width - cancelledWidth) / 2;
-    const cancelledLabelInside = cancelledHeight >= 16;
-    const labelsWouldOverlap =
-        cancelled > 0 &&
-        !cancelledLabelInside &&
-        Math.abs(cancelledY - y) < 12;
-    const totalLabelX = x + width / 2 - (labelsWouldOverlap ? 6 : 0);
-    const cancelledLabelX =
-        x + width / 2 + (labelsWouldOverlap ? 7 : 0);
 
     return (
         <g>
@@ -900,7 +892,7 @@ function ScheduleOverlayBar({
                 />
             ) : null}
             <text
-                x={totalLabelX}
+                x={x + width / 2}
                 y={y - 7}
                 textAnchor="middle"
                 fill="#334155"
@@ -909,22 +901,6 @@ function ScheduleOverlayBar({
             >
                 {total.toLocaleString("pt-BR")}
             </text>
-            {cancelled > 0 ? (
-                <text
-                    x={cancelledLabelX}
-                    y={
-                        cancelledLabelInside
-                            ? cancelledY + 12
-                            : cancelledY - 4
-                    }
-                    textAnchor="middle"
-                    fill={cancelledLabelInside ? "#ffffff" : "#e11d48"}
-                    fontSize={10}
-                    fontWeight={700}
-                >
-                    {cancelled.toLocaleString("pt-BR")}
-                </text>
-            ) : null}
         </g>
     );
 }

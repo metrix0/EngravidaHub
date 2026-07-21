@@ -1493,14 +1493,15 @@ function financialOriginBreakdown(rows: FinancialInvoiceRow[]) {
     const groups = new Map<string, FinancialInvoiceRow[]>();
 
     for (const invoice of rows) {
-        const origin = relationOne(invoice.clients)?.last_origin?.trim();
-        if (!origin) continue;
+        const origin =
+            relationOne(invoice.clients)?.last_origin?.trim() ||
+            "Sem origem atribuída";
         const group = groups.get(origin) ?? [];
         group.push(invoice);
         groups.set(origin, group);
     }
 
-    const attributedRevenue = financialSum([...groups.values()].flat());
+    const totalRevenue = financialSum(rows);
     return [...groups.entries()]
         .map(([origin, invoices]) => {
             const revenue = financialSum(invoices);
@@ -1508,7 +1509,7 @@ function financialOriginBreakdown(rows: FinancialInvoiceRow[]) {
                 origin,
                 invoices: invoices.length,
                 revenue: financialMoney(revenue),
-                percentage: financialPercentage(revenue, attributedRevenue),
+                percentage: financialPercentage(revenue, totalRevenue),
             };
         })
         .sort((first, second) => second.revenue - first.revenue)

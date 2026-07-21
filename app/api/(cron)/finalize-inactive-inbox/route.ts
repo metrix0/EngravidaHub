@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { matchConversationsSheetAttribution } from "@/lib/conversations/matchConversationsSheetAttribution";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 
 export const dynamic = "force-dynamic";
@@ -150,6 +151,33 @@ export async function GET(request: Request) {
         const conversationIdsDeferred = Array.from(
             new Set([...finalizedConversationIds, ...legacyConversationIds]),
         );
+        let sheetAttributionMatch: Awaited<
+            ReturnType<typeof matchConversationsSheetAttribution>
+        > | null = null;
+        let sheetAttributionError: string | null = null;
+
+        if (conversationIdsDeferred.length > 0) {
+            try {
+                sheetAttributionMatch =
+                    await matchConversationsSheetAttribution({
+                        limit: conversationIdsDeferred.length,
+                        conversationIds: conversationIdsDeferred,
+                    });
+            } catch (error) {
+                sheetAttributionError =
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to match sheet tunnel/origin";
+                console.error(
+                    "[finalize-inactive-inbox] sheet attribution failed; finalization will continue",
+                    {
+                        request_id: requestId,
+                        conversations: conversationIdsDeferred.length,
+                        error: sheetAttributionError,
+                    },
+                );
+            }
+        }
 
         return NextResponse.json({
             ok: true,
@@ -165,6 +193,8 @@ export async function GET(request: Request) {
             legacy_conversations_created: legacyConversationIds.length,
             legacy_conversation_ids: legacyConversationIds,
             legacy_error: legacyError,
+            sheet_attribution_match: sheetAttributionMatch,
+            sheet_attribution_error: sheetAttributionError,
             conversation_ids_deferred_to_bedrock_batch: conversationIdsDeferred,
             analysis_deferred: true,
             analysis_provider: "amazon-bedrock-batch",
