@@ -17,7 +17,6 @@ import {
     BarChart,
     CartesianGrid,
     Cell,
-    LabelList,
     Line,
     Pie,
     PieChart,
@@ -295,9 +294,8 @@ export default function ExecutiveDashboardPage() {
                             <DropoffCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+                        <section className="mb-6">
                             <ScheduleEvolutionCard data={data} />
-                            <ScheduleUnitDistributionCard data={data} />
                         </section>
 
                         <section className="grid grid-cols-2 gap-5">
@@ -427,92 +425,6 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
     );
 }
 
-function ScheduleUnitDistributionCard({
-    data,
-}: {
-    data: ExecutiveDashboardData;
-}) {
-    return (
-        <Card>
-            <div className="mb-5">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold">
-                        Agendamentos por unidade
-                    </h2>
-                    <InfoTooltip text="Conta um registro por agendamento cuja data marcada está no período selecionado, agrupado pela unidade do CliniSys. Cancelados permanecem no total.">
-                        <HelpCircle size={16} className="text-slate-400" />
-                    </InfoTooltip>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                    1 registro por agendamento · cancelados incluídos
-                </p>
-            </div>
-
-            {data.schedules_by_unit.length === 0 ? (
-                <div className="flex h-[290px] items-center justify-center text-sm text-slate-400">
-                    Nenhum agendamento no período.
-                </div>
-            ) : (
-                <div className="h-[335px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                            data={data.schedules_by_unit}
-                            layout="vertical"
-                            margin={{ left: 8, right: 42 }}
-                            barCategoryGap="24%"
-                        >
-                            <CartesianGrid
-                                strokeDasharray="4 4"
-                                stroke="#e2e8f0"
-                                horizontal={false}
-                            />
-                            <XAxis
-                                type="number"
-                                allowDecimals={false}
-                                tick={{ fontSize: 11 }}
-                                stroke="#94a3b8"
-                                domain={[
-                                    0,
-                                    (maximum: number) =>
-                                        Math.max(
-                                            1,
-                                            Math.ceil(maximum * 1.18),
-                                        ),
-                                ]}
-                            />
-                            <YAxis
-                                type="category"
-                                dataKey="unit_name"
-                                width={148}
-                                tick={{ fontSize: 11 }}
-                                stroke="#94a3b8"
-                            />
-                            <Tooltip
-                                content={<ScheduleUnitTooltip />}
-                                cursor={false}
-                            />
-                            <Bar
-                                dataKey="count"
-                                fill="#1683ff"
-                                radius={[0, 7, 7, 0]}
-                            >
-                                <LabelList
-                                    dataKey="count"
-                                    position="right"
-                                    fill="#334155"
-                                    fontSize={11}
-                                    fontWeight={700}
-                                    formatter={formatChartCount}
-                                />
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            )}
-        </Card>
-    );
-}
-
 function DropoffCard({ data }: { data: ExecutiveDashboardData }) {
     return (
         <Card>
@@ -615,23 +527,24 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
         <Card>
             <div className="mb-5 flex items-center gap-2">
                 <h2 className="text-lg font-bold">Visão por unidade</h2>
-                <InfoTooltip text="Cada taxa usa a mesma definição e o mesmo denominador elegível do KPI principal. Passe o mouse para ver a base.">
+                <InfoTooltip text="No-show = Faltou ÷ (Compareceu + Faltou). Pendentes, cancelados e remarcados ficam fora dessa taxa.">
                     <HelpCircle size={16} className="text-slate-400" />
                 </InfoTooltip>
             </div>
 
             <div className="overflow-hidden rounded-xl">
-                <div className="grid grid-cols-4 bg-slate-50 px-2 py-3 text-xs font-bold text-slate-500">
+                <div className="grid grid-cols-5 bg-slate-50 px-2 py-3 text-xs font-bold text-slate-500">
                     <div>Unidade</div>
                     <div>Resolução</div>
                     <div>Satisfação</div>
                     <div>Agendamentos</div>
+                    <div>No-show</div>
                 </div>
 
                 {data.by_unit.map((unit) => (
                     <div
                         key={unit.unit_id ?? unit.unit_name}
-                        className="grid grid-cols-4 border-t border-slate-100 px-2 py-3 text-sm"
+                        className="grid grid-cols-5 border-t border-slate-100 px-2 py-3 text-sm"
                     >
                         <div className="font-medium text-slate-600">{unit.unit_name}</div>
                         <div title={`Base observável: ${unit.resolution_observed}`}>
@@ -645,10 +558,38 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                                 {unit.appointments_count.toLocaleString("pt-BR")}
                             </span>
                         </div>
+                        <div
+                            title={`Faltas: ${unit.no_show} · base observada: ${unit.outcomes_observed}`}
+                        >
+                            <NoShowValue value={unit.no_show_rate} />
+                        </div>
                     </div>
                 ))}
             </div>
         </Card>
+    );
+}
+
+function NoShowValue({ value }: { value: number | null }) {
+    if (value === null) {
+        return (
+            <span className="font-bold text-slate-400" title="Sem desfecho observável">
+                —
+            </span>
+        );
+    }
+
+    const color =
+        value <= 5
+            ? "var(--color-green)"
+            : value <= 10
+              ? "var(--color-orange)"
+              : "var(--color-brand)";
+
+    return (
+        <span className="font-bold" style={{ color }}>
+            {value}%
+        </span>
     );
 }
 
@@ -712,13 +653,12 @@ function DashboardBodySkeleton() {
                     <div className="mt-7 space-y-6">{Array.from({ length: 4 }).map((_, index) => (<div key={index} className="grid grid-cols-[32px_minmax(0,1fr)_48px] items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><div><Skeleton className="h-4 w-[72%]" /><Skeleton className="mt-2 h-2 w-full rounded-full" /></div><Skeleton className="h-4 w-10" /></div>))}</div>
                 </Card>
             </section>
-            <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+            <section className="mb-6">
                 <Card><Skeleton className="h-6 w-[40%]" /><Skeleton className="mt-3 h-4 w-[62%]" /><Skeleton className="mt-5 h-[290px] w-full" /></Card>
-                <Card><Skeleton className="h-6 w-[48%]" /><Skeleton className="mt-3 h-4 w-[52%]" /><div className="mt-6 space-y-4">{Array.from({ length: 6 }).map((_, index) => (<div key={index} className="grid grid-cols-[100px_1fr] items-center gap-3"><Skeleton className="h-4 w-full" /><Skeleton className="h-5 w-full rounded" /></div>))}</div></Card>
             </section>
             <section className="grid grid-cols-2 gap-5">
                 <Card><Skeleton className="mb-5 h-6 w-[45%]" /><div className="grid grid-cols-[180px_1fr] items-center gap-6"><Skeleton className="h-[170px] w-[170px] rounded-full" /><div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-4 w-full" />))}</div></div></Card>
-                <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-4 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-4 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 4 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
+                <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-5 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 5 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-5 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 5 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
             </section>
         </>
     );
@@ -820,35 +760,6 @@ function ScheduleEvolutionTooltip({
                         {rescheduled.toLocaleString("pt-BR")}
                     </span>
                 </div>
-            </div>
-        </div>
-    );
-}
-
-function ScheduleUnitTooltip({
-    active,
-    payload,
-}: {
-    active?: boolean;
-    payload?: ChartTooltipPayloadItem[];
-}) {
-    if (!active || !payload?.length) return null;
-
-    const row = payload[0]?.payload ?? {};
-    const unitName =
-        typeof row.unit_name === "string" ? row.unit_name : "Unidade";
-    const count = typeof row.count === "number" ? row.count : 0;
-    const percentage =
-        typeof row.percentage === "number" ? row.percentage : null;
-
-    return (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
-            <div className="text-sm font-semibold text-slate-800">
-                {unitName}
-            </div>
-            <div className="mt-2 text-sm text-slate-600">
-                {count.toLocaleString("pt-BR")} agendamentos
-                {percentage === null ? "" : ` · ${percentage}% do período`}
             </div>
         </div>
     );
@@ -957,10 +868,6 @@ function ScheduleOverlayBar({
             </text>
         </g>
     );
-}
-
-function formatChartCount(value: unknown) {
-    return Number(value ?? 0).toLocaleString("pt-BR");
 }
 
 function secondsToMinutes(value: number | null): number | null {

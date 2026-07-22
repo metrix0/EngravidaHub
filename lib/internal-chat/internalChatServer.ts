@@ -2,6 +2,7 @@
 import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib";
+import { listAuthUsers } from "@/lib/supabase/authAdmin";
 import type {
   InternalChatUser,
   InternalGroupSummary,
@@ -63,7 +64,13 @@ export async function getInternalChatUsers({
     queuesResult,
     presenceResult,
   ] = await Promise.all([
-    supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    listAuthUsers().catch((error) => {
+      console.error(
+        "[internal-chat] auth user list unavailable; using database fallback",
+        error,
+      );
+      return [] as User[];
+    }),
     supabase.from("user_permissions").select("auth_user_id, preset, active"),
     supabase
       .from("attendants")
@@ -72,7 +79,6 @@ export async function getInternalChatUsers({
     supabase.from("user_presence").select("auth_user_id, last_seen_at"),
   ]);
 
-  if (authUsersResult.error) throw authUsersResult.error;
   if (permissionsResult.error) throw permissionsResult.error;
   if (attendantsResult.error) throw attendantsResult.error;
   if (queuesResult.error) throw queuesResult.error;
@@ -98,15 +104,24 @@ export async function getInternalChatUsers({
       row,
     ]),
   );
+  const authUsers = new Map(
+    authUsersResult.map((user) => [user.id, user] as const),
+  );
+  const userIds = new Set([
+    ...authUsers.keys(),
+    ...permissions.keys(),
+    ...attendants.keys(),
+  ]);
 
   const now = Date.now();
 
-  return (authUsersResult.data.users as User[])
-    .filter((user) => user.id !== excludeUserId)
-    .map((user) => {
-      const permission = permissions.get(user.id) ?? null;
-      const attendant = attendants.get(user.id) ?? null;
-      const presence = presences.get(user.id) ?? null;
+  return [...userIds]
+    .filter((userId) => userId !== excludeUserId)
+    .map((userId) => {
+      const authUser = authUsers.get(userId) ?? null;
+      const permission = permissions.get(userId) ?? null;
+      const attendant = attendants.get(userId) ?? null;
+      const presence = presences.get(userId) ?? null;
       const lastSeenAt = presence?.last_seen_at ?? null;
       const heartbeatOnline = Boolean(
         lastSeenAt && now - new Date(lastSeenAt).getTime() <= ONLINE_WINDOW_MS,
@@ -116,9 +131,11 @@ export async function getInternalChatUsers({
       const online = attendant ? Boolean(attendant.is_online) : heartbeatOnline;
 
       return {
-        id: user.id,
-        email: user.email ?? null,
-        name: attendant?.name ?? getAuthUserName(user),
+        id: userId,
+        email: authUser?.email ?? null,
+        name:
+          attendant?.name ??
+          (authUser ? getAuthUserName(authUser) : "Usuário"),
         preset: permission?.preset ?? null,
         attendant_name: attendant?.name ?? null,
         queue_name: attendant?.queue_id

@@ -78,6 +78,9 @@ export type ExecutiveDashboardData = {
         unit_name: string;
         count: number;
         percentage: number | null;
+        no_show: number;
+        outcomes_observed: number;
+        no_show_rate: number | null;
     }[];
 
     attendance_score: {
@@ -113,5 +116,8 @@ export type ExecutiveDashboardData = {
         scheduling_rate: number | null;
         scheduling_eligible: number;
         appointments_count: number;
+        no_show_rate: number | null;
+        no_show: number;
+        outcomes_observed: number;
     }[];
 };

@@ -19,6 +19,7 @@ import {
 import type {
     FinancialDashboardData,
     FinancialKpis,
+    PaidMediaKpis,
 } from "@/types";
 
 const PAGE_SIZE = 1_000;
@@ -56,6 +57,32 @@ type ClientAttributionRow = {
     id: string;
     last_origin: string | null;
     last_tunnel: string | null;
+    utm_source: string | null;
+    utm_medium: string | null;
+    utm_campaign: string | null;
+    gclid: string | null;
+    gbraid: string | null;
+    wbraid: string | null;
+    fbclid: string | null;
+    fbc: string | null;
+    ctwa_clid: string | null;
+};
+
+type AdMetricRow = {
+    platform: "google_ads" | "meta_ads";
+    account_id: string;
+    account_name: string;
+    campaign_id: string;
+    campaign_name: string;
+    metric_date: string;
+    currency_code: string;
+    impressions: number | string;
+    clicks: number | string;
+    spend: number | string;
+    reported_conversions: number | string;
+    reported_conversion_value: number | string;
+    reported_conversion_type: string | null;
+    synced_at: string;
 };
 
 type FinancialFilters = {
@@ -77,35 +104,81 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const range = resolveDashboardDateRange(searchParams);
         const filters = readFinancialFilters(searchParams);
-        const [units, doctors, currentInvoices, previousInvoices, lastSyncedAt] =
-            await Promise.all([
-                loadUnits(),
-                loadDoctors(),
-                loadInvoices(range.startAt, range.endAt, filters),
-                loadInvoices(
-                    range.previousStartAt,
-                    range.previousEndAt,
-                    filters,
-                ),
-                loadLastSyncedAt(),
-            ]);
+        const [
+            units,
+            doctors,
+            currentInvoices,
+            previousInvoices,
+            currentAdMetrics,
+            previousAdMetrics,
+            lastSyncedAt,
+            lastAdsSyncedAt,
+        ] = await Promise.all([
+            loadUnits(),
+            loadDoctors(),
+            loadInvoices(range.startAt, range.endAt, filters),
+            loadInvoices(
+                range.previousStartAt,
+                range.previousEndAt,
+                filters,
+            ),
+            loadAdMetrics(range.startAt, range.endAt),
+            loadAdMetrics(range.previousStartAt, range.previousEndAt),
+            loadLastSyncedAt(),
+            loadLastAdsSyncedAt(),
+        ]);
 
         const selectedUnitNames = selectedNames(units, filters.unitIds);
-        const schedules = await loadSchedules(
-            range.startAt,
-            range.endAt,
-            selectedUnitNames,
-        );
+        const comparisonAvailable =
+            filters.unitIds.length === 0 && filters.categories.length === 0;
+        const [schedules, previousSchedules] = await Promise.all([
+            loadSchedules(
+                range.startAt,
+                range.endAt,
+                selectedUnitNames,
+            ),
+            comparisonAvailable && previousAdMetrics.length > 0
+                ? loadSchedules(
+                      range.previousStartAt,
+                      range.previousEndAt,
+                      selectedUnitNames,
+                  )
+                : Promise.resolve([]),
+        ]);
         const clientIds = Array.from(
             new Set(
-                currentInvoices
-                    .map((invoice) => invoice.client_id)
+                [
+                    ...currentInvoices.map((invoice) => invoice.client_id),
+                    ...previousInvoices.map((invoice) => invoice.client_id),
+                    ...schedules.map((schedule) => schedule.client_id),
+                    ...previousSchedules.map(
+                        (schedule) => schedule.client_id,
+                    ),
+                ]
                     .filter((id): id is string => Boolean(id)),
             ),
         );
         const clients = await loadClients(clientIds);
         const currentKpis = buildKpis(currentInvoices);
         const previousKpis = buildKpis(previousInvoices);
+        const currentAds = buildPaidMediaMetrics({
+            adMetrics: currentAdMetrics,
+            invoices: currentInvoices,
+            schedules,
+            clients,
+            startAt: range.startAt,
+            endAt: range.endAt,
+            comparisonAvailable,
+        });
+        const previousAds = buildPaidMediaMetrics({
+            adMetrics: previousAdMetrics,
+            invoices: previousInvoices,
+            schedules: previousSchedules,
+            clients,
+            startAt: range.previousStartAt,
+            endAt: range.previousEndAt,
+            comparisonAvailable,
+        });
 
         const response: FinancialDashboardData = {
             filters: {
@@ -128,6 +201,16 @@ export async function GET(request: Request) {
             by_unit: buildUnitBreakdown(currentInvoices, schedules, units),
             by_doctor: buildDoctorBreakdown(currentInvoices, doctors),
             crm: buildCrmMetrics(currentInvoices, schedules, clients),
+            ads: {
+                has_data: currentAdMetrics.length > 0,
+                comparison_available: comparisonAvailable,
+                kpis: currentAds.kpis,
+                previous_kpis: previousAds.kpis,
+                evolution: currentAds.evolution,
+                by_platform: currentAds.byPlatform,
+                top_campaigns: currentAds.topCampaigns,
+                last_synced_at: lastAdsSyncedAt,
+            },
             audit: {
                 invoices_in_period: currentInvoices.length,
                 authorized_invoices: currentKpis.authorized_invoices,
@@ -278,7 +361,9 @@ async function loadClients(clientIds: string[]) {
 
         const { data, error } = await supabase
             .from("clients")
-            .select("id, last_origin, last_tunnel")
+            .select(
+                "id, last_origin, last_tunnel, utm_source, utm_medium, utm_campaign, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid",
+            )
             .in("id", ids);
 
         if (error) throw error;
@@ -298,6 +383,63 @@ async function loadLastSyncedAt() {
 
     if (error) throw error;
     return typeof data?.updated_at === "string" ? data.updated_at : null;
+}
+
+async function loadAdMetrics(startAt: string, endAt: string) {
+    const rows: AdMetricRow[] = [];
+    const startDate = saoPauloDate(startAt);
+    const endDate = saoPauloDate(
+        new Date(new Date(endAt).getTime() - 1).toISOString(),
+    );
+
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("ad_daily_metrics")
+            .select(
+                "platform, account_id, account_name, campaign_id, campaign_name, metric_date, currency_code, impressions, clicks, spend, reported_conversions, reported_conversion_value, reported_conversion_type, synced_at",
+            )
+            .gte("metric_date", startDate)
+            .lte("metric_date", endDate)
+            .order("metric_date", { ascending: true })
+            .order("platform", { ascending: true })
+            .order("account_id", { ascending: true })
+            .order("campaign_id", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) {
+            if (isMissingAdsTable(error)) return [];
+            throw error;
+        }
+
+        const page = (data ?? []) as AdMetricRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadLastAdsSyncedAt() {
+    const { data, error } = await supabase
+        .from("ad_daily_metrics")
+        .select("synced_at")
+        .order("synced_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        if (isMissingAdsTable(error)) return null;
+        throw error;
+    }
+    return typeof data?.synced_at === "string" ? data.synced_at : null;
+}
+
+function isMissingAdsTable(error: { code?: string; message?: string }) {
+    return (
+        error.code === "42P01" ||
+        error.code === "PGRST205" ||
+        Boolean(error.message?.includes("ad_daily_metrics"))
+    );
 }
 
 function buildKpis(invoices: InvoiceRow[]): FinancialKpis {
@@ -624,6 +766,383 @@ function buildCrmMetrics(
     };
 }
 
+function buildPaidMediaMetrics({
+    adMetrics,
+    invoices,
+    schedules,
+    clients,
+    startAt,
+    endAt,
+    comparisonAvailable,
+}: {
+    adMetrics: AdMetricRow[];
+    invoices: InvoiceRow[];
+    schedules: ScheduleRow[];
+    clients: ClientAttributionRow[];
+    startAt: string;
+    endAt: string;
+    comparisonAvailable: boolean;
+}) {
+    const durationDays = Math.ceil(
+        (new Date(endAt).getTime() - new Date(startAt).getTime()) /
+            (24 * 60 * 60 * 1_000),
+    );
+    const resolution =
+        durationDays <= 45 ? "day" : durationDays <= 180 ? "week" : "month";
+    const clientsById = new Map(clients.map((client) => [client.id, client]));
+    const outcomes = new Map<
+        AdMetricRow["platform"],
+        {
+            revenue: number;
+            schedules: number;
+            billedPatients: Set<string>;
+            revenueByPeriod: Map<string, number>;
+        }
+    >([
+        [
+            "google_ads",
+            {
+                revenue: 0,
+                schedules: 0,
+                billedPatients: new Set<string>(),
+                revenueByPeriod: new Map<string, number>(),
+            },
+        ],
+        [
+            "meta_ads",
+            {
+                revenue: 0,
+                schedules: 0,
+                billedPatients: new Set<string>(),
+                revenueByPeriod: new Map<string, number>(),
+            },
+        ],
+    ]);
+
+    if (comparisonAvailable) {
+        for (const invoice of invoices) {
+            if (
+                statusGroup(invoice.status) !== "authorized" ||
+                !invoice.client_id
+            ) {
+                continue;
+            }
+
+            const platform = resolveClientAdPlatform(
+                clientsById.get(invoice.client_id),
+            );
+            if (!platform) continue;
+
+            const outcome = outcomes.get(platform)!;
+            const revenue = numeric(invoice.amount);
+            const period = periodKey(invoice.issued_at, resolution);
+            outcome.revenue += revenue;
+            outcome.billedPatients.add(invoice.client_id);
+            outcome.revenueByPeriod.set(
+                period,
+                (outcome.revenueByPeriod.get(period) ?? 0) + revenue,
+            );
+        }
+
+        for (const schedule of schedules) {
+            if (!schedule.client_id) continue;
+            const platform = resolveClientAdPlatform(
+                clientsById.get(schedule.client_id),
+            );
+            if (platform) outcomes.get(platform)!.schedules += 1;
+        }
+    }
+
+    const totalOutcome = {
+        revenue: [...outcomes.values()].reduce(
+            (total, outcome) => total + outcome.revenue,
+            0,
+        ),
+        schedules: [...outcomes.values()].reduce(
+            (total, outcome) => total + outcome.schedules,
+            0,
+        ),
+        billedPatients: new Set(
+            [...outcomes.values()].flatMap((outcome) => [
+                ...outcome.billedPatients,
+            ]),
+        ),
+    };
+    const kpis = summarizePaidMedia(
+        adMetrics,
+        totalOutcome,
+        comparisonAvailable,
+    );
+    const byPlatform = (["google_ads", "meta_ads"] as const)
+        .map((platform) => {
+            const metrics = adMetrics.filter(
+                (metric) => metric.platform === platform,
+            );
+            const outcome = outcomes.get(platform)!;
+            const summary = summarizePaidMedia(
+                metrics,
+                outcome,
+                comparisonAvailable,
+            );
+
+            return {
+                platform,
+                label: adPlatformLabel(platform),
+                ...summary,
+            };
+        })
+        .filter(
+            (item) =>
+                item.spend > 0 ||
+                item.impressions > 0 ||
+                item.clicks > 0 ||
+                item.reported_conversions > 0,
+        );
+    const evolutionBuckets = new Map<
+        string,
+        {
+            spend: number;
+            google_spend: number;
+            meta_spend: number;
+            attributed_revenue: number;
+        }
+    >();
+
+    for (const metric of adMetrics) {
+        const period = periodKey(
+            `${metric.metric_date}T12:00:00Z`,
+            resolution,
+        );
+        const bucket = evolutionBuckets.get(period) ?? {
+            spend: 0,
+            google_spend: 0,
+            meta_spend: 0,
+            attributed_revenue: 0,
+        };
+        const spend = numeric(metric.spend);
+        bucket.spend += spend;
+        if (metric.platform === "google_ads") bucket.google_spend += spend;
+        if (metric.platform === "meta_ads") bucket.meta_spend += spend;
+        evolutionBuckets.set(period, bucket);
+    }
+
+    if (comparisonAvailable) {
+        for (const outcome of outcomes.values()) {
+            for (const [period, revenue] of outcome.revenueByPeriod) {
+                const bucket = evolutionBuckets.get(period) ?? {
+                    spend: 0,
+                    google_spend: 0,
+                    meta_spend: 0,
+                    attributed_revenue: 0,
+                };
+                bucket.attributed_revenue += revenue;
+                evolutionBuckets.set(period, bucket);
+            }
+        }
+    }
+
+    return {
+        kpis,
+        evolution: [...evolutionBuckets.entries()]
+            .sort(([first], [second]) => first.localeCompare(second))
+            .map(([period, values]) => ({
+                period,
+                label: periodLabel(period, resolution),
+                spend: roundMoney(values.spend),
+                google_spend: roundMoney(values.google_spend),
+                meta_spend: roundMoney(values.meta_spend),
+                attributed_revenue: comparisonAvailable
+                    ? roundMoney(values.attributed_revenue)
+                    : null,
+            })),
+        byPlatform,
+        topCampaigns: buildTopAdCampaigns(adMetrics),
+    };
+}
+
+function summarizePaidMedia(
+    metrics: AdMetricRow[],
+    outcome: {
+        revenue: number;
+        schedules: number;
+        billedPatients: Set<string>;
+    },
+    comparisonAvailable: boolean,
+): PaidMediaKpis {
+    const spend = metrics.reduce(
+        (total, metric) => total + numeric(metric.spend),
+        0,
+    );
+    const impressions = metrics.reduce(
+        (total, metric) => total + numeric(metric.impressions),
+        0,
+    );
+    const clicks = metrics.reduce(
+        (total, metric) => total + numeric(metric.clicks),
+        0,
+    );
+    const reportedConversions = metrics.reduce(
+        (total, metric) =>
+            total + numeric(metric.reported_conversions),
+        0,
+    );
+    const attributedRevenue = comparisonAvailable
+        ? roundMoney(outcome.revenue)
+        : null;
+    const scheduleCount = comparisonAvailable ? outcome.schedules : null;
+    const billedPatients = comparisonAvailable
+        ? outcome.billedPatients.size
+        : null;
+
+    return {
+        spend: roundMoney(spend),
+        attributed_revenue: attributedRevenue,
+        return_on_spend:
+            attributedRevenue !== null
+                ? ratio(attributedRevenue, spend)
+                : null,
+        schedules: scheduleCount,
+        billed_patients: billedPatients,
+        cost_per_schedule:
+            scheduleCount !== null ? moneyPer(spend, scheduleCount) : null,
+        cost_per_billed_patient:
+            billedPatients !== null ? moneyPer(spend, billedPatients) : null,
+        impressions: Math.trunc(impressions),
+        clicks: Math.trunc(clicks),
+        click_through_rate: percentage(clicks, impressions),
+        cost_per_click: moneyPer(spend, clicks),
+        reported_conversions: roundMetric(reportedConversions),
+        cost_per_reported_conversion: moneyPer(
+            spend,
+            reportedConversions,
+        ),
+    };
+}
+
+function buildTopAdCampaigns(
+    metrics: AdMetricRow[],
+): FinancialDashboardData["ads"]["top_campaigns"] {
+    const campaigns = new Map<
+        string,
+        {
+            platform: AdMetricRow["platform"];
+            account_id: string;
+            account_name: string;
+            campaign_id: string;
+            campaign_name: string;
+            spend: number;
+            impressions: number;
+            clicks: number;
+            reported_conversions: number;
+        }
+    >();
+
+    for (const metric of metrics) {
+        const key = [
+            metric.platform,
+            metric.account_id,
+            metric.campaign_id,
+        ].join(":");
+        const campaign = campaigns.get(key) ?? {
+            platform: metric.platform,
+            account_id: metric.account_id,
+            account_name: metric.account_name,
+            campaign_id: metric.campaign_id,
+            campaign_name: metric.campaign_name,
+            spend: 0,
+            impressions: 0,
+            clicks: 0,
+            reported_conversions: 0,
+        };
+        campaign.account_name = metric.account_name;
+        campaign.campaign_name = metric.campaign_name;
+        campaign.spend += numeric(metric.spend);
+        campaign.impressions += numeric(metric.impressions);
+        campaign.clicks += numeric(metric.clicks);
+        campaign.reported_conversions += numeric(
+            metric.reported_conversions,
+        );
+        campaigns.set(key, campaign);
+    }
+
+    return [...campaigns.values()]
+        .map((campaign) => ({
+            platform: campaign.platform,
+            platform_label: adPlatformLabel(campaign.platform),
+            account_id: campaign.account_id,
+            account_name: campaign.account_name,
+            campaign_id: campaign.campaign_id,
+            campaign_name: campaign.campaign_name,
+            spend: roundMoney(campaign.spend),
+            impressions: Math.trunc(campaign.impressions),
+            clicks: Math.trunc(campaign.clicks),
+            click_through_rate: percentage(
+                campaign.clicks,
+                campaign.impressions,
+            ),
+            cost_per_click: moneyPer(campaign.spend, campaign.clicks),
+            reported_conversions: roundMetric(
+                campaign.reported_conversions,
+            ),
+            cost_per_reported_conversion: moneyPer(
+                campaign.spend,
+                campaign.reported_conversions,
+            ),
+        }))
+        .sort(
+            (first, second) =>
+                second.spend - first.spend ||
+                second.reported_conversions - first.reported_conversions,
+        )
+        .slice(0, 10);
+}
+
+function resolveClientAdPlatform(
+    client: ClientAttributionRow | undefined,
+): AdMetricRow["platform"] | null {
+    if (!client) return null;
+
+    const source = normalizeText(client.utm_source ?? "");
+    const origin = normalizeText(client.last_origin ?? "");
+    const sourcePlatform = adPlatformFromText(source);
+    if (sourcePlatform) return sourcePlatform;
+
+    const originPlatform = adPlatformFromText(origin);
+    if (originPlatform) return originPlatform;
+
+    const hasGoogleClick = Boolean(
+        client.gclid || client.gbraid || client.wbraid,
+    );
+    const hasMetaClick = Boolean(
+        client.fbclid || client.fbc || client.ctwa_clid,
+    );
+
+    if (hasGoogleClick && !hasMetaClick) return "google_ads";
+    if (hasMetaClick && !hasGoogleClick) return "meta_ads";
+    return null;
+}
+
+function adPlatformFromText(value: string): AdMetricRow["platform"] | null {
+    if (!value) return null;
+    if (
+        /(^|\W)(google|google ads|adwords|gads|youtube)(\W|$)/.test(value)
+    ) {
+        return "google_ads";
+    }
+    if (
+        /(^|\W)(meta|meta ads|facebook|facebook ads|instagram|fb|ig)(\W|$)/.test(
+            value,
+        )
+    ) {
+        return "meta_ads";
+    }
+    return null;
+}
+
+function adPlatformLabel(platform: AdMetricRow["platform"]) {
+    return platform === "google_ads" ? "Google Ads" : "Meta Ads";
+}
+
 function statusGroup(
     status: string,
 ): FinancialDashboardData["by_status"][number]["status"] {
@@ -712,6 +1231,20 @@ function averageMoney(total: number, count: number) {
 
 function roundMoney(value: number) {
     return Number(value.toFixed(2));
+}
+
+function roundMetric(value: number) {
+    return Number(value.toFixed(4));
+}
+
+function ratio(value: number, total: number) {
+    if (total <= 0) return null;
+    return Number((value / total).toFixed(2));
+}
+
+function moneyPer(value: number, total: number) {
+    if (total <= 0) return null;
+    return roundMoney(value / total);
 }
 
 function normalizeText(value: string) {

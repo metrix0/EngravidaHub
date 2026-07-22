@@ -1,8 +1,19 @@
 // app/jornada/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+    ArrowRight,
+    BadgeCheck,
+    CalendarCheck2,
+    CircleDollarSign,
+    HelpCircle,
+    MessageCircle,
+    MousePointerClick,
+    ReceiptText,
+    UserCheck,
+} from "lucide-react";
+import { FaGoogle, FaMeta } from "react-icons/fa6";
 import {
     Bar,
     BarChart,
@@ -35,6 +46,7 @@ import {
 import type { FiltersResponse } from "@/types";
 
 type JourneyDashboardData = {
+    full_pipeline: FullJourneyPipeline;
     journey_funnel: {
         key: string;
         name: string;
@@ -69,7 +81,74 @@ type JourneyDashboardData = {
     } | null;
 };
 
+type PipelineStageKey =
+    | "paid_impressions"
+    | "paid_clicks"
+    | "whatsapp"
+    | "scheduled"
+    | "attended"
+    | "invoiced"
+    | "authorized";
+
+type FullJourneyPipeline = {
+    available: boolean;
+    ads_available: boolean;
+    ads_scope_global: boolean;
+    filters_applied: boolean;
+    currency_code: string;
+    stages: {
+        key: PipelineStageKey;
+        label: string;
+        value: number;
+        secondary_value: number | null;
+        secondary_kind: "count" | "currency" | null;
+        secondary_label: string | null;
+    }[];
+    transitions: {
+        key: string;
+        label: string;
+        rate: number | null;
+        from_value: number;
+        to_value: number;
+        lost: number | null;
+        estimated: boolean;
+    }[];
+    audit: {
+        whatsapp_conversations: number;
+        whatsapp_clients: number;
+        whatsapp_origins: {
+            origin: string;
+            conversations: number;
+            clients: number;
+        }[];
+        cohort_start_date: string;
+        cohort_end_date: string;
+        matured_through: string;
+        error: string | null;
+    };
+};
+
+const EMPTY_PIPELINE: FullJourneyPipeline = {
+    available: false,
+    ads_available: false,
+    ads_scope_global: true,
+    filters_applied: false,
+    currency_code: "BRL",
+    stages: [],
+    transitions: [],
+    audit: {
+        whatsapp_conversations: 0,
+        whatsapp_clients: 0,
+        whatsapp_origins: [],
+        cohort_start_date: "",
+        cohort_end_date: "",
+        matured_through: "",
+        error: null,
+    },
+};
+
 const EMPTY_DATA: JourneyDashboardData = {
+    full_pipeline: EMPTY_PIPELINE,
     journey_funnel: [],
     dropoff_moments: [],
     intent_paths: [],
@@ -80,6 +159,7 @@ const EMPTY_DATA: JourneyDashboardData = {
 export default function JourneyPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [data, setData] = useState<JourneyDashboardData | null>(null);
+    const hasDataRef = useRef(false);
     const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
@@ -111,7 +191,7 @@ export default function JourneyPage() {
 
     useEffect(() => {
         async function loadData() {
-            if (data) setIsRefreshing(true);
+            if (hasDataRef.current) setIsRefreshing(true);
             else setLoadingData(true);
 
             try {
@@ -140,6 +220,12 @@ export default function JourneyPage() {
                 }
 
                 setData({
+                    full_pipeline:
+                        json.full_pipeline &&
+                        Array.isArray(json.full_pipeline.stages) &&
+                        Array.isArray(json.full_pipeline.transitions)
+                            ? json.full_pipeline
+                            : EMPTY_PIPELINE,
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
                         : [],
@@ -154,6 +240,7 @@ export default function JourneyPage() {
                         : [],
                     audit: json.audit ?? null,
                 });
+                hasDataRef.current = true;
             } finally {
                 setLoadingData(false);
                 setIsRefreshing(false);
@@ -174,7 +261,7 @@ export default function JourneyPage() {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-8 py-8">
                     <JourneySkeleton />
                 </section>
             </main>
@@ -185,7 +272,7 @@ export default function JourneyPage() {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="flex-1 px-8 py-8">Nenhum dado encontrado.</section>
+                <section className="min-w-0 flex-1 px-8 py-8">Nenhum dado encontrado.</section>
             </main>
         );
     }
@@ -195,7 +282,7 @@ export default function JourneyPage() {
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
                     title="Jornada"
                     description="Entenda o caminho dos clientes ao longo do atendimento"
@@ -234,10 +321,324 @@ export default function JourneyPage() {
                             <IntentPathsCard data={current} />
                             <ObjectionsCard data={current} />
                         </section>
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <FullJourneyPipelineCard data={current} />
+                        </section>
                     </div>
                 )}
             </section>
         </main>
+    );
+}
+
+const PIPELINE_STAGE_STYLE: Record<
+    PipelineStageKey,
+    { accent: string; soft: string; eyebrow: string }
+> = {
+    paid_impressions: {
+        accent: "#0866ff",
+        soft: "#eaf2ff",
+        eyebrow: "Aquisição",
+    },
+    paid_clicks: {
+        accent: "#1683ff",
+        soft: "#e5f1ff",
+        eyebrow: "Aquisição",
+    },
+    whatsapp: {
+        accent: "#16a66a",
+        soft: "#e8fbf1",
+        eyebrow: "Entrada",
+    },
+    scheduled: {
+        accent: "#8b5cf6",
+        soft: "#f1ebff",
+        eyebrow: "Conversão",
+    },
+    attended: {
+        accent: "#0f9f94",
+        soft: "#e6f8f6",
+        eyebrow: "Clínica",
+    },
+    invoiced: {
+        accent: "#d98916",
+        soft: "#fff3df",
+        eyebrow: "Receita",
+    },
+    authorized: {
+        accent: "#0f9f61",
+        soft: "#e6f8ef",
+        eyebrow: "Receita",
+    },
+};
+
+function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
+    const pipeline = data.full_pipeline;
+    const clinicalTransitions = pipeline.transitions.filter(
+        (transition) =>
+            !transition.estimated &&
+            transition.key !== "paid_ctr" &&
+            transition.rate !== null,
+    );
+    const bottleneck = clinicalTransitions.reduce<
+        FullJourneyPipeline["transitions"][number] | null
+    >((current, transition) => {
+        if (!current) return transition;
+        return (transition.rate ?? Infinity) < (current.rate ?? Infinity)
+            ? transition
+            : current;
+    }, null);
+    const whatsappStage = pipeline.stages.find(
+        (stage) => stage.key === "whatsapp",
+    );
+    const authorizedStage = pipeline.stages.find(
+        (stage) => stage.key === "authorized",
+    );
+    const endToEndRate = calculateRate(
+        authorizedStage?.value ?? 0,
+        whatsappStage?.value ?? 0,
+    );
+
+    return (
+        <Card className="min-w-0 overflow-hidden p-0">
+            <div className="border-b border-slate-100 bg-white px-6 py-5">
+                <div className="flex items-start justify-between gap-6">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-xl font-bold text-slate-900">
+                                Pipeline completo da jornada
+                            </h2>
+                            <InfoTooltip text="Meta + Google usam impressões e cliques agregados. O WhatsApp vem da tag Origem da conversa ou do cliente; daí em diante, cada cliente conta uma vez e só avança em ordem cronológica.">
+                                <HelpCircle size={16} className="text-slate-400" />
+                            </InfoTooltip>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Da impressão ao faturamento liberado · coorte iniciada no período
+                        </p>
+                    </div>
+
+                    <div className="hidden shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-right lg:block">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                            Conversão ponta a ponta
+                        </div>
+                        <div className="mt-0.5 text-2xl font-black text-slate-900">
+                            {formatRate(endToEndRate)}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                            WhatsApp → liberado
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {pipeline.audit.error ? (
+                <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
+                    A jornada completa não pôde ser carregada: {pipeline.audit.error}
+                </div>
+            ) : null}
+
+            {!pipeline.ads_available ? (
+                <div className="border-b border-amber-100 bg-amber-50 px-6 py-3 text-sm text-amber-800">
+                    Sem dados de Meta ou Google Ads neste período. As etapas do WhatsApp em diante continuam válidas.
+                </div>
+            ) : null}
+
+            {pipeline.filters_applied ? (
+                <div className="border-b border-blue-100 bg-blue-50 px-6 py-3 text-xs text-blue-800">
+                    Impressões e cliques permanecem globais de Meta + Google; os filtros selecionados valem do WhatsApp em diante.
+                </div>
+            ) : null}
+
+            <div className="px-6 py-6">
+                {pipeline.stages.length === 0 ? (
+                    <EmptyCardMessage message="Nenhum dado rastreável no período." />
+                ) : (
+                    <div className="w-full overflow-x-auto pb-4">
+                        <div className="flex min-w-max items-stretch">
+                            {pipeline.stages.map((stage, index) => {
+                                const transition = pipeline.transitions[index];
+                                return (
+                                    <div
+                                        key={stage.key}
+                                        className="flex shrink-0 items-stretch"
+                                    >
+                                        <PipelineStageCard stage={stage} />
+                                        {transition ? (
+                                            <PipelineTransitionCard
+                                                transition={transition}
+                                            />
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                <div className="mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
+                    <PipelineInsight
+                        label="Maior gargalo clínico"
+                        value={
+                            bottleneck
+                                ? formatRate(bottleneck.rate)
+                                : "—"
+                        }
+                        detail={
+                            bottleneck
+                                ? `${bottleneck.label}${
+                                      bottleneck.lost === null
+                                          ? ""
+                                          : ` · ${bottleneck.lost} clientes não avançaram`
+                                  }`
+                                : "Sem base suficiente"
+                        }
+                    />
+                    <PipelineInsight
+                        label="Coorte rastreável"
+                        value={`${(
+                            whatsappStage?.value ?? 0
+                        ).toLocaleString("pt-BR")} clientes`}
+                        detail={formatWhatsappOrigins(pipeline)}
+                    />
+                    <PipelineInsight
+                        label="Receita liberada"
+                        value={formatPipelineCurrency(
+                            authorizedStage?.secondary_value ?? 0,
+                            pipeline.currency_code,
+                        )}
+                        detail={`Desfechos observados até ${formatPipelineDate(
+                            pipeline.audit.matured_through,
+                        )}`}
+                    />
+                </div>
+
+                <p className="mt-4 text-[11px] leading-5 text-slate-400">
+                    Clique → WhatsApp é uma taxa aproximada: Meta + Google fornecem eventos agregados, enquanto WhatsApp conta clientes únicos pelas tags de Origem atribuídas a essas plataformas. As demais taxas usam a mesma coorte e respeitam a ordem cronológica.
+                </p>
+            </div>
+        </Card>
+    );
+}
+
+function PipelineStageCard({
+    stage,
+}: {
+    stage: FullJourneyPipeline["stages"][number];
+}) {
+    const style = PIPELINE_STAGE_STYLE[stage.key];
+
+    return (
+        <div
+            className="relative flex min-h-[190px] w-[168px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+            title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}`}
+        >
+            <span
+                className="absolute inset-x-0 top-0 h-1"
+                style={{ backgroundColor: style.accent }}
+            />
+            <div className="flex items-start justify-between gap-3">
+                <span
+                    className="flex h-10 w-10 items-center justify-center rounded-xl"
+                    style={{ backgroundColor: style.soft, color: style.accent }}
+                >
+                    <PipelineStageIcon stageKey={stage.key} />
+                </span>
+                <span
+                    className="rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
+                    style={{ backgroundColor: style.soft, color: style.accent }}
+                >
+                    {style.eyebrow}
+                </span>
+            </div>
+
+            <div className="mt-5 text-xs font-semibold text-slate-500">
+                {stage.label}
+            </div>
+            <div className="mt-1 text-[28px] font-black tracking-tight text-slate-900">
+                {stage.value.toLocaleString("pt-BR")}
+            </div>
+            <div className="mt-auto min-h-5 pt-3 text-[11px] font-medium text-slate-500">
+                {formatPipelineSecondary(stage)}
+            </div>
+        </div>
+    );
+}
+
+function PipelineTransitionCard({
+    transition,
+}: {
+    transition: FullJourneyPipeline["transitions"][number];
+}) {
+    return (
+        <div className="flex w-[118px] flex-col items-center justify-center px-2 text-center">
+            <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-black ${
+                    transition.rate === null
+                        ? "border-slate-200 bg-slate-50 text-slate-400"
+                        : "border-blue-100 bg-blue-50 text-blue-700"
+                }`}
+                title={
+                    transition.estimated
+                        ? "Aproximada: compara cliques agregados com clientes únicos."
+                        : undefined
+                }
+            >
+                {transition.estimated && transition.rate !== null ? "~" : ""}
+                {formatRate(transition.rate)}
+            </span>
+            <div className="my-3 flex w-full items-center">
+                <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-blue-300" />
+                <ArrowRight size={15} className="shrink-0 text-blue-400" />
+            </div>
+            <span className="min-h-8 text-[10px] font-bold leading-4 text-slate-500">
+                {transition.label}
+            </span>
+            <span className="mt-1 h-4 text-[10px] text-slate-400">
+                {transition.lost === null
+                    ? transition.estimated
+                        ? "bases distintas"
+                        : ""
+                    : `−${transition.lost} clientes`}
+            </span>
+        </div>
+    );
+}
+
+function PipelineStageIcon({ stageKey }: { stageKey: PipelineStageKey }) {
+    if (stageKey === "paid_impressions") {
+        return (
+            <span className="flex items-center gap-1">
+                <FaMeta size={14} />
+                <FaGoogle size={14} />
+            </span>
+        );
+    }
+    if (stageKey === "paid_clicks") return <MousePointerClick size={20} />;
+    if (stageKey === "whatsapp") return <MessageCircle size={20} />;
+    if (stageKey === "scheduled") return <CalendarCheck2 size={20} />;
+    if (stageKey === "attended") return <UserCheck size={20} />;
+    if (stageKey === "invoiced") return <ReceiptText size={20} />;
+    if (stageKey === "authorized") return <BadgeCheck size={20} />;
+    return <CircleDollarSign size={20} />;
+}
+
+function PipelineInsight({
+    label,
+    value,
+    detail,
+}: {
+    label: string;
+    value: string;
+    detail: string;
+}) {
+    return (
+        <div className="rounded-xl bg-slate-50 px-4 py-3">
+            <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
+                {label}
+            </div>
+            <div className="mt-1 text-lg font-black text-slate-800">{value}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">{detail}</div>
+        </div>
     );
 }
 
@@ -479,6 +880,29 @@ function JourneyBodySkeleton() {
                 <Card><Skeleton className="mb-6 h-6 w-[45%]" /><Skeleton className="h-[260px] w-full" /></Card>
                 <Card><Skeleton className="mb-6 h-6 w-[45%]" /><div className="space-y-5">{Array.from({ length: 5 }).map((_, index) => (<Skeleton key={index} className="h-8 w-full" />))}</div></Card>
             </section>
+            <section className="mb-6 min-w-0">
+                <Card className="min-w-0 overflow-hidden">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <Skeleton className="h-7 w-[330px]" />
+                            <Skeleton className="mt-3 h-4 w-[420px]" />
+                        </div>
+                        <Skeleton className="h-16 w-[170px] rounded-xl" />
+                    </div>
+                    <div className="mt-7 overflow-x-auto pb-4">
+                        <div className="flex min-w-max gap-4">
+                                {Array.from({ length: 5 }).map((_, index) => (
+                                    <div key={index} className="flex shrink-0 items-center gap-4">
+                                        <Skeleton className="h-[190px] w-[168px] rounded-2xl" />
+                                        {index < 4 ? (
+                                            <Skeleton className="h-10 w-[90px]" />
+                                        ) : null}
+                                    </div>
+                                ))}
+                        </div>
+                    </div>
+                </Card>
+            </section>
         </>
     );
 }
@@ -501,4 +925,60 @@ function IntentPathsTooltip({ active, payload, label }: { active?: boolean; payl
 
 function formatRate(value: number | null): string {
     return value === null ? "—" : `${value}%`;
+}
+
+function calculateRate(value: number, total: number) {
+    if (total <= 0) return null;
+    return Number(((value / total) * 100).toFixed(1));
+}
+
+function formatPipelineSecondary(
+    stage: FullJourneyPipeline["stages"][number],
+) {
+    if (stage.secondary_value === null || !stage.secondary_kind) {
+        return stage.key === "paid_impressions"
+            ? "exibições no período"
+            : stage.key === "paid_clicks"
+              ? "interações no anúncio"
+              : stage.key === "scheduled"
+                ? "clientes únicos"
+                : stage.key === "attended"
+                  ? "clientes únicos"
+                  : "";
+    }
+
+    const value =
+        stage.secondary_kind === "currency"
+            ? formatPipelineCurrency(stage.secondary_value, "BRL")
+            : stage.secondary_value.toLocaleString("pt-BR");
+    return `${value}${stage.secondary_label ? ` ${stage.secondary_label}` : ""}`;
+}
+
+function formatPipelineCurrency(value: number, currencyCode: string) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: currencyCode || "BRL",
+        notation: Math.abs(value) >= 100_000 ? "compact" : "standard",
+        maximumFractionDigits: Math.abs(value) >= 100_000 ? 1 : 2,
+    }).format(value);
+}
+
+function formatPipelineDate(value: string) {
+    if (!value) return "—";
+    const [year, month, day] = value.split("-");
+    return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function formatWhatsappOrigins(pipeline: FullJourneyPipeline) {
+    const topOrigins = pipeline.audit.whatsapp_origins
+        .slice(0, 2)
+        .map(
+            (origin) =>
+                `${origin.origin}: ${origin.clients.toLocaleString("pt-BR")}`,
+        );
+
+    if (topOrigins.length > 0) return topOrigins.join(" · ");
+    return `${pipeline.audit.whatsapp_conversations.toLocaleString(
+        "pt-BR",
+    )} conversas com Origem atribuída`;
 }

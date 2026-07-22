@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { listAuthUsers } from "@/lib/supabase/authAdmin";
 import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
 
 const NO_PRESET_ID = "__none__";
@@ -91,7 +92,7 @@ export async function GET() {
             groupsResult,
             groupMembersResult,
         ] = await Promise.all([
-            supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+            listAuthUsers(),
             supabase.from("user_permissions").select("*"),
             supabase
                 .from("attendants")
@@ -143,7 +144,6 @@ export async function GET() {
         ]);
 
         const errors = [
-            authUsersResult.error,
             permissionsResult.error,
             attendantsResult.error,
             queuesResult.error,
@@ -215,7 +215,7 @@ export async function GET() {
         const group_memberships =
             (groupMembersResult.data ?? []) as InternalGroupMemberRow[];
 
-        const users = authUsersResult.data.users.map((user) => {
+        const users = authUsersResult.map((user) => {
             const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
             const rawName =
                 getMetadataString(metadata, "name") ??

@@ -10,6 +10,22 @@ export type FinancialKpis = {
     cancellation_rate: number | null;
 };
 
+export type PaidMediaKpis = {
+    spend: number;
+    attributed_revenue: number | null;
+    return_on_spend: number | null;
+    schedules: number | null;
+    billed_patients: number | null;
+    cost_per_schedule: number | null;
+    cost_per_billed_patient: number | null;
+    impressions: number;
+    clicks: number;
+    click_through_rate: number | null;
+    cost_per_click: number | null;
+    reported_conversions: number;
+    cost_per_reported_conversion: number | null;
+};
+
 export type FinancialDashboardData = {
     filters: {
         start_date: string | null;
@@ -77,6 +93,53 @@ export type FinancialDashboardData = {
             revenue: number;
             percentage: number | null;
         }[];
+    };
+    ads: {
+        has_data: boolean;
+        comparison_available: boolean;
+        kpis: PaidMediaKpis;
+        previous_kpis: PaidMediaKpis;
+        evolution: {
+            period: string;
+            label: string;
+            spend: number;
+            google_spend: number;
+            meta_spend: number;
+            attributed_revenue: number | null;
+        }[];
+        by_platform: {
+            platform: "google_ads" | "meta_ads";
+            label: string;
+            spend: number;
+            attributed_revenue: number | null;
+            return_on_spend: number | null;
+            impressions: number;
+            clicks: number;
+            click_through_rate: number | null;
+            cost_per_click: number | null;
+            reported_conversions: number;
+            cost_per_reported_conversion: number | null;
+            schedules: number | null;
+            billed_patients: number | null;
+            cost_per_schedule: number | null;
+            cost_per_billed_patient: number | null;
+        }[];
+        top_campaigns: {
+            platform: "google_ads" | "meta_ads";
+            platform_label: string;
+            account_id: string;
+            account_name: string;
+            campaign_id: string;
+            campaign_name: string;
+            spend: number;
+            impressions: number;
+            clicks: number;
+            click_through_rate: number | null;
+            cost_per_click: number | null;
+            reported_conversions: number;
+            cost_per_reported_conversion: number | null;
+        }[];
+        last_synced_at: string | null;
     };
     audit: {
         invoices_in_period: number;

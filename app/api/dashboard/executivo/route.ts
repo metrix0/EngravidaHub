@@ -131,6 +131,9 @@ type ScheduleUnitDistribution = {
     unit_name: string;
     count: number;
     percentage: number | null;
+    no_show: number;
+    outcomes_observed: number;
+    no_show_rate: number | null;
 };
 
 export async function GET(request: Request) {
@@ -368,7 +371,15 @@ async function loadScheduleAnalytics(
                 emptyScheduleEvolutionPoint(dateIso),
             ]),
         );
-        const units = new Map<string, { unit_name: string; count: number }>();
+        const units = new Map<
+            string,
+            {
+                unit_name: string;
+                count: number;
+                no_show: number;
+                showed_up: number;
+            }
+        >();
 
         for (const row of rows) {
             const group = normalizeScheduleStatus(row.status);
@@ -386,21 +397,46 @@ async function loadScheduleAnalytics(
 
             const unitName = row.unit_name?.trim() || "Sem unidade";
             const key = normalizeUnitName(unitName);
-            const current = units.get(key) ?? { unit_name: unitName, count: 0 };
+            const current = units.get(key) ?? {
+                unit_name: unitName,
+                count: 0,
+                no_show: 0,
+                showed_up: 0,
+            };
             current.count += 1;
+            if (group === "no_show") current.no_show += 1;
+            if (scheduleShowedUp(group)) current.showed_up += 1;
             units.set(key, current);
         }
 
         const byUnit = [...units.values()]
-            .map((unit) => ({
-                ...unit,
-                percentage:
-                    summary.total > 0
-                        ? Number(
-                              ((unit.count / summary.total) * 100).toFixed(1),
-                          )
-                        : null,
-            }))
+            .map((unit) => {
+                const outcomesObserved = unit.showed_up + unit.no_show;
+
+                return {
+                    unit_name: unit.unit_name,
+                    count: unit.count,
+                    percentage:
+                        summary.total > 0
+                            ? Number(
+                                  ((unit.count / summary.total) * 100).toFixed(
+                                      1,
+                                  ),
+                              )
+                            : null,
+                    no_show: unit.no_show,
+                    outcomes_observed: outcomesObserved,
+                    no_show_rate:
+                        outcomesObserved > 0
+                            ? Number(
+                                  (
+                                      (unit.no_show / outcomesObserved) *
+                                      100
+                                  ).toFixed(1),
+                              )
+                            : null,
+                };
+            })
             .sort(
                 (first, second) =>
                     second.count - first.count ||
@@ -561,7 +597,7 @@ function mergeUnitMetrics(
     unitSatisfaction: Map<string, UnitSatisfaction | null>,
 ) {
     const schedulesByName = new Map(
-        scheduleCounts.map((item) => [normalizeUnitName(item.unit_name), item.count]),
+        scheduleCounts.map((item) => [normalizeUnitName(item.unit_name), item]),
     );
     const seenNames = new Set<string>();
 
@@ -571,6 +607,7 @@ function mergeUnitMetrics(
         const satisfaction = unit.unit_id
             ? unitSatisfaction.get(unit.unit_id)
             : null;
+        const schedules = schedulesByName.get(nameKey) ?? null;
 
         return {
             ...unit,
@@ -579,7 +616,10 @@ function mergeUnitMetrics(
             satisfaction_observed:
                 satisfaction?.satisfaction_observed ??
                 unit.satisfaction_observed,
-            appointments_count: schedulesByName.get(nameKey) ?? 0,
+            appointments_count: schedules?.count ?? 0,
+            no_show_rate: schedules?.no_show_rate ?? null,
+            no_show: schedules?.no_show ?? 0,
+            outcomes_observed: schedules?.outcomes_observed ?? 0,
         };
     });
 
@@ -598,6 +638,9 @@ function mergeUnitMetrics(
             scheduling_rate: null,
             scheduling_eligible: 0,
             appointments_count: schedule.count,
+            no_show_rate: schedule.no_show_rate,
+            no_show: schedule.no_show,
+            outcomes_observed: schedule.outcomes_observed,
         });
     }
 
