@@ -4,6 +4,8 @@ import { BigQuery } from "@google-cloud/bigquery";
 const BIGQUERY_DATASET = "datastudio";
 const INVOICES_TABLE = "view_faturas_nfs";
 const PATIENTS_TABLE = "view_pacientes";
+const BIGQUERY_LOCATION = "southamerica-east1";
+const PREFILTER_OVERLAP_DAYS = 2;
 
 type BigQueryRow = Record<string, unknown>;
 
@@ -32,18 +34,24 @@ export async function getBigqueryInvoices({
         projectId: credentials.project_id,
         credentials,
     });
-    const dataset = bigquery.dataset(BIGQUERY_DATASET);
-
-    const [[rawInvoiceRows], [rawPatientRows]] = await Promise.all([
-        dataset.table(INVOICES_TABLE).getRows({ autoPaginate: true }),
-        dataset.table(PATIENTS_TABLE).getRows({ autoPaginate: true }),
-    ]);
-
-    const invoiceRows = rawInvoiceRows as BigQueryRow[];
-    const patientRows = rawPatientRows as BigQueryRow[];
-    const patientsByCode = buildPatientsByCode(patientRows);
-    const latestInvoices = consolidateLatestInvoiceRows(invoiceRows);
     const cutoff = startOfSaoPauloDay(daysBack);
+    const prefilterCutoff = new Date(
+        cutoff - PREFILTER_OVERLAP_DAYS * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const [rawInvoiceRows] = await bigquery.query({
+        query: buildInvoiceQuery(credentials.project_id),
+        location: BIGQUERY_LOCATION,
+        params: { prefilterCutoff },
+    });
+    const invoiceRows = rawInvoiceRows as BigQueryRow[];
+    const latestInvoices = consolidateLatestInvoiceRows(invoiceRows);
+    const patientCodes = collectPatientCodes([...latestInvoices.values()]);
+    const patientRows = await loadPatientRows(
+        bigquery,
+        credentials.project_id,
+        patientCodes,
+    );
+    const patientsByCode = buildPatientsByCode(patientRows);
 
     const invoices = [...latestInvoices.values()]
         .map((row) => normalizeInvoice(row, patientsByCode))
@@ -54,16 +62,122 @@ export async function getBigqueryInvoices({
         )
         .slice(0, limit);
 
-    console.log("[getBigqueryInvoices] BigQuery tables loaded", {
+    console.log("[getBigqueryInvoices] filtered BigQuery rows loaded", {
         invoice_rows: invoiceRows.length,
         patient_rows: patientRows.length,
+        patient_codes: patientCodes.length,
         consolidated_invoices: latestInvoices.size,
         selected_invoices: invoices.length,
         days_back: daysBack,
         limit,
+        prefilter_overlap_days: PREFILTER_OVERLAP_DAYS,
     });
 
     return invoices;
+}
+
+function buildInvoiceQuery(projectId: string) {
+    const invoicesTable = qualifiedTableName(
+        projectId,
+        BIGQUERY_DATASET,
+        INVOICES_TABLE,
+    );
+
+    return `
+        WITH invoice_candidates AS (
+            SELECT
+                source.id_fatura,
+                source.data_emissao,
+                source.valor,
+                source.descricao,
+                source.status,
+                source.centro_custos,
+                source.medico,
+                source.pacientes_codigo,
+                source.paciente_cpf,
+                source.paciente_nome,
+                source.nfe_numero,
+                SAFE_CAST(
+                    CAST(source.data_emissao AS STRING) AS TIMESTAMP
+                ) AS engravida_issued_at
+            FROM ${invoicesTable} AS source
+        )
+
+        SELECT * EXCEPT (engravida_issued_at)
+        FROM invoice_candidates
+        WHERE engravida_issued_at IS NULL
+           OR engravida_issued_at >= TIMESTAMP(@prefilterCutoff)
+    `;
+}
+
+async function loadPatientRows(
+    bigquery: BigQuery,
+    projectId: string,
+    patientCodes: number[],
+) {
+    if (patientCodes.length === 0) return [];
+
+    const patientsTable = qualifiedTableName(
+        projectId,
+        BIGQUERY_DATASET,
+        PATIENTS_TABLE,
+    );
+    const query = `
+        SELECT
+            source.codigo,
+            source.inativo,
+            source.esposa_cpf,
+            source.marido_cpf,
+            source.esposa_nome,
+            source.esposa_nome_social,
+            source.marido_nome,
+            source.marido_nome_social,
+            source.esposa_celular,
+            source.marido_celular,
+            source.telefone
+        FROM ${patientsTable} AS source
+        WHERE SAFE_CAST(
+            TRUNC(
+                SAFE_CAST(CAST(source.codigo AS STRING) AS FLOAT64)
+            ) AS INT64
+        ) IN UNNEST(@patientCodes)
+    `;
+    const [rows] = await bigquery.query({
+        query,
+        location: BIGQUERY_LOCATION,
+        params: { patientCodes },
+    });
+
+    return rows as BigQueryRow[];
+}
+
+function collectPatientCodes(rows: BigQueryRow[]) {
+    return [
+        ...new Set(
+            rows.flatMap((row) => {
+                const patientCode = integerValue(row.pacientes_codigo);
+                return patientCode === null ? [] : [patientCode];
+            }),
+        ),
+    ];
+}
+
+function qualifiedTableName(
+    projectId: string,
+    dataset: string,
+    table: string,
+) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9.:-]*$/.test(projectId)) {
+        throw new Error("Invalid Google Cloud project ID");
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(dataset)) {
+        throw new Error("Invalid BigQuery dataset name");
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+        throw new Error("Invalid BigQuery table name");
+    }
+
+    return `\`${projectId}.${dataset}.${table}\``;
 }
 
 function buildPatientsByCode(rows: BigQueryRow[]) {

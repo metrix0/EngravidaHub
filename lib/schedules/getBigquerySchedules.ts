@@ -40,7 +40,7 @@ export async function getBigquerySchedules({
         : "CAST(NULL AS STRING)";
 
     const query = `
-        WITH schedules AS (
+        WITH schedule_source AS (
             SELECT
             ${sourceIdExpression} AS source_schedule_id,
             DATE(source.agenda_data_us) AS data,
@@ -70,19 +70,20 @@ export async function getBigquerySchedules({
         FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\` AS source
         WHERE source.agenda_oculto = 0
           AND source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'
-          AND DATE(
-              SAFE.PARSE_DATETIME(
-                  '%d/%m/%Y %H:%M:%S',
-                  NULLIF(TRIM(source.agenda_data_agendamento_original), '')
-              )
-          ) >= DATE_SUB(
-              CURRENT_DATE('America/Sao_Paulo'),
-              INTERVAL @daysBack DAY
-          )
         )
 
         SELECT *
-        FROM schedules
+        FROM schedule_source
+        WHERE DATE(agendamento_criado_em) >= DATE_SUB(
+                  CURRENT_DATE('America/Sao_Paulo'),
+                  INTERVAL @daysBack DAY
+              )
+           OR data BETWEEN
+              DATE_SUB(
+                  CURRENT_DATE('America/Sao_Paulo'),
+                  INTERVAL @daysBack DAY
+              )
+              AND CURRENT_DATE('America/Sao_Paulo')
         ORDER BY agendamento_criado_em DESC, data DESC
         LIMIT @limit
     `;
@@ -100,6 +101,7 @@ export async function getBigquerySchedules({
         count: rows.length,
         daysBack,
         limit,
+        date_filter: "created_or_scheduled_through_today",
         source_id_column: scheduleIdColumn,
     });
 
