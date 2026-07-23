@@ -22,9 +22,13 @@ let scheduleIdColumnPromise: Promise<string | null> | null = null;
 export async function getBigquerySchedules({
                                                daysBack,
                                                limit,
+                                               daysForward = 0,
+                                               scope = "initial_evaluation",
                                            }: {
     daysBack: number;
     limit: number;
+    daysForward?: number;
+    scope?: "initial_evaluation" | "funnel";
 }) {
     const credentials = getGoogleCredentials();
 
@@ -38,12 +42,16 @@ export async function getBigquerySchedules({
     const sourceIdExpression = scheduleIdColumn
         ? `CAST(source.\`${scheduleIdColumn}\` AS STRING)`
         : "CAST(NULL AS STRING)";
+    const procedureFilter =
+        scope === "initial_evaluation"
+            ? "AND source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'"
+            : "AND NULLIF(TRIM(source.procedimentos_procedimento), '') IS NOT NULL";
 
     const query = `
         WITH schedule_source AS (
             SELECT
             ${sourceIdExpression} AS source_schedule_id,
-            DATE(source.agenda_data_us) AS data,
+            SAFE_CAST(source.agenda_data_us AS DATE) AS data,
             SAFE.PARSE_DATETIME(
                 '%d/%m/%Y %H:%M:%S',
                 NULLIF(TRIM(source.agenda_data_agendamento_original), '')
@@ -69,7 +77,7 @@ export async function getBigquerySchedules({
             source.agenda_chegou
         FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\` AS source
         WHERE source.agenda_oculto = 0
-          AND source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%'
+          ${procedureFilter}
         )
 
         SELECT *
@@ -83,7 +91,10 @@ export async function getBigquerySchedules({
                   CURRENT_DATE('America/Sao_Paulo'),
                   INTERVAL @daysBack DAY
               )
-              AND CURRENT_DATE('America/Sao_Paulo')
+              AND DATE_ADD(
+                  CURRENT_DATE('America/Sao_Paulo'),
+                  INTERVAL @daysForward DAY
+              )
         ORDER BY agendamento_criado_em DESC, data DESC
         LIMIT @limit
     `;
@@ -93,6 +104,7 @@ export async function getBigquerySchedules({
         location: BIGQUERY_LOCATION,
         params: {
             daysBack,
+            daysForward,
             limit,
         },
     });
@@ -100,8 +112,10 @@ export async function getBigquerySchedules({
     console.log("[getBigquerySchedules] raw BigQuery rows", {
         count: rows.length,
         daysBack,
+        daysForward,
         limit,
-        date_filter: "created_or_scheduled_through_today",
+        scope,
+        date_filter: "created_or_scheduled_window",
         source_id_column: scheduleIdColumn,
     });
 

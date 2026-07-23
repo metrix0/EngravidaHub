@@ -3,10 +3,13 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
+    CalendarDays,
     CalendarCheck,
+    CircleAlert,
     ExternalLink,
     Trash2,
     TrendingUp,
+    UserCheck,
     Users,
 } from "lucide-react";
 
@@ -33,8 +36,16 @@ import {
 } from "@/components/ui/CalendarButton";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import ClientPanel from "@/components/clientes/ClientPanel";
+import SchedulingPanel from "@/components/inbox/SchedulingPanel";
+import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import { Modal } from "@/components/ui/Modal";
 import type { FiltersResponse } from "@/types";
+import type {
+    AppointmentStatus,
+    CalendarAppointment,
+    SchedulingDoctorOption,
+    SchedulingUnitOption,
+} from "@/types/scheduling";
 
 type Funnel = {
     id: string;
@@ -77,6 +88,17 @@ type FunnelStage = {
     color: string | null;
 };
 
+type FunnelScheduleSummary = {
+    id: string;
+    scheduled_for: string;
+    procedure_name: string | null;
+    status: string | null;
+    status_group: string;
+    event_kind: "evaluation" | "procedure" | null;
+    attention: boolean;
+    attention_label: "Cancelou" | "Faltou" | null;
+};
+
 type Client = {
     id: string;
     name: string | null;
@@ -89,13 +111,15 @@ type Client = {
     utm_medium: string | null;
     utm_campaign: string | null;
     updated_at: string;
+    schedule_summary: FunnelScheduleSummary | null;
+    appointment: CalendarAppointment | null;
 };
 
 type FunnelKpis = {
-    funnel_entries: number;
-    evaluations_done: number;
+    evaluations_scheduled: number;
+    evaluation_show_rate: number;
     procedures_scheduled: number;
-    procedure_conversion_rate: number;
+    procedure_show_rate: number;
 };
 
 type FunnelResponse = {
@@ -110,10 +134,10 @@ type FunnelResponse = {
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 
 const EMPTY_FUNNEL_KPIS: FunnelKpis = {
-    funnel_entries: 0,
-    evaluations_done: 0,
+    evaluations_scheduled: 0,
+    evaluation_show_rate: 0,
     procedures_scheduled: 0,
-    procedure_conversion_rate: 0,
+    procedure_show_rate: 0,
 };
 
 export default function FunnelPage() {
@@ -135,6 +159,16 @@ export default function FunnelPage() {
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+    const [selectedAppointment, setSelectedAppointment] =
+        useState<CalendarAppointment | null>(null);
+    const [schedulingClientId, setSchedulingClientId] =
+        useState<string | null>(null);
+    const [schedulingUnits, setSchedulingUnits] = useState<
+        SchedulingUnitOption[]
+    >([]);
+    const [schedulingDoctors, setSchedulingDoctors] = useState<
+        SchedulingDoctorOption[]
+    >([]);
     const [availableClients, setAvailableClients] = useState<AvailableClient[]>([]);
     const [availableStages, setAvailableStages] = useState<FunnelStage[]>([]);
     const [availableClientsLoading, setAvailableClientsLoading] = useState(false);
@@ -234,8 +268,7 @@ export default function FunnelPage() {
         [
             period,
             unitIds,
-            selectedRange.start,
-            selectedRange.end,
+            selectedRange,
             selectedFunnelId,
         ]
     );
@@ -282,9 +315,9 @@ export default function FunnelPage() {
         const grouped: Record<string, Client[]> = {};
 
         for (const stage of visibleStages) {
-            grouped[stage.id] = filteredClients.filter(
-                (client) => client.funnel_stage_id === stage.id
-            );
+            grouped[stage.id] = filteredClients
+                .filter((client) => client.funnel_stage_id === stage.id)
+                .sort(sortFunnelClients);
         }
 
         return grouped;
@@ -325,54 +358,18 @@ export default function FunnelPage() {
     );
 
     const totalClients = filteredClients.length;
+    const schedulingClient = schedulingClientId
+        ? clients.find((client) => client.id === schedulingClientId) ?? null
+        : null;
+    const schedulingInitialSchedule = useMemo(() => {
+        const schedule = schedulingClient?.schedule_summary;
+        if (!schedule) return null;
 
-    function getStageNameById(stageId: string | null) {
-        if (!stageId) return "";
-
-        return normalize(stages.find((stage) => stage.id === stageId)?.name ?? "");
-    }
-
-    function calculateProcedureConversionRate(nextKpis: FunnelKpis) {
-        if (nextKpis.evaluations_done === 0) return 0;
-
-        return Math.round(
-            (nextKpis.procedures_scheduled / nextKpis.evaluations_done) * 1000
-        ) / 10;
-    }
-
-    function incrementLiveKpis({
-                                   fromStageId,
-                                   toStageId,
-                               }: {
-        fromStageId: string | null;
-        toStageId: string | null;
-    }) {
-        const fromStageName = getStageNameById(fromStageId);
-        const toStageName = getStageNameById(toStageId);
-
-        setKpis((current) => {
-            const next = { ...current };
-
-            if (!fromStageId && toStageId) {
-                next.funnel_entries += 1;
-            }
-
-            if (toStageName.includes("avaliacao realizada")) {
-                next.evaluations_done += 1;
-            }
-
-            if (
-                fromStageName.includes("avaliacao realizada") &&
-                toStageName.includes("procedimento agendado")
-            ) {
-                next.procedures_scheduled += 1;
-            }
-
-            next.procedure_conversion_rate = calculateProcedureConversionRate(next);
-
-            return next;
-        });
-    }
+        return {
+            scheduledFor: schedule.scheduled_for,
+            procedureName: schedule.procedure_name,
+        };
+    }, [schedulingClient?.schedule_summary]);
 
     const toggleSelectedClient = useCallback((clientId: string) => {
         setSelectedClientIds((current) =>
@@ -431,6 +428,8 @@ export default function FunnelPage() {
                 ...client,
                 funnel_stage_id: firstStageInSelectedFunnel.id,
                 updated_at: new Date().toISOString(),
+                schedule_summary: null,
+                appointment: null,
             };
 
             setAvailableClients((current) =>
@@ -449,10 +448,6 @@ export default function FunnelPage() {
                 return [updatedClient, ...current];
             });
 
-            incrementLiveKpis({
-                fromStageId: client.funnel_stage_id,
-                toStageId: firstStageInSelectedFunnel.id,
-            });
         }
 
         setAddingManyClients(false);
@@ -529,10 +524,6 @@ export default function FunnelPage() {
             )
         );
 
-        incrementLiveKpis({
-            fromStageId,
-            toStageId,
-        });
 
         const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
@@ -560,6 +551,100 @@ export default function FunnelPage() {
 
     function openClientProfile(clientId: string) {
         setSelectedClientId(clientId);
+    }
+
+    async function openClientSchedule(clientId: string) {
+        const client = clients.find((item) => item.id === clientId);
+        if (!client) return;
+
+        if (!client.appointment) {
+            setSchedulingClientId(clientId);
+            return;
+        }
+
+        if (schedulingUnits.length === 0 || schedulingDoctors.length === 0) {
+            try {
+                const response = await fetch("/api/scheduling/options", {
+                    cache: "no-store",
+                });
+                const json = await response.json();
+                if (!response.ok) {
+                    throw new Error(
+                        json?.error ??
+                            "Não foi possível carregar as opções do agendamento.",
+                    );
+                }
+
+                setSchedulingUnits(json.units ?? []);
+                setSchedulingDoctors(json.doctors ?? []);
+            } catch (optionsError) {
+                window.alert(
+                    optionsError instanceof Error
+                        ? optionsError.message
+                        : "Não foi possível abrir o agendamento.",
+                );
+                return;
+            }
+        }
+
+        setSelectedAppointment(client.appointment);
+    }
+
+    async function saveAppointment(
+        appointment: CalendarAppointment,
+        input: {
+            startsAt: string;
+            endsAt: string;
+            unitId: string;
+            doctorId: string;
+            status: AppointmentStatus;
+            procedureName: string;
+            notes: string;
+        },
+    ) {
+        const response = await fetch(
+            `/api/scheduling/appointments/${appointment.id}`,
+            {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(input),
+            },
+        );
+        const json = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                json?.error ?? "Não foi possível atualizar o agendamento.",
+            );
+        }
+
+        const saved = json.appointment as CalendarAppointment;
+        setSelectedAppointment(saved);
+        setClients((current) =>
+            current.map((client) =>
+                client.id === saved.client_id
+                    ? { ...client, appointment: saved }
+                    : client,
+            ),
+        );
+        await loadFunnelData({ showLoading: false });
+    }
+
+    async function deleteAppointment(appointment: CalendarAppointment) {
+        const response = await fetch(
+            `/api/scheduling/appointments/${appointment.id}`,
+            { method: "DELETE" },
+        );
+        const json = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                json?.error ?? "Não foi possível excluir o agendamento.",
+            );
+        }
+
+        setSelectedAppointment(null);
+        await loadFunnelData({ showLoading: false });
     }
 
     async function removeClientFromFunnel(clientId: string) {
@@ -647,6 +732,8 @@ export default function FunnelPage() {
             ...client,
             funnel_stage_id: firstStageInSelectedFunnel.id,
             updated_at: new Date().toISOString(),
+            schedule_summary: null,
+            appointment: null,
         };
 
         setAvailableClients((current) =>
@@ -665,10 +752,6 @@ export default function FunnelPage() {
             return [updatedClient, ...current];
         });
 
-        incrementLiveKpis({
-            fromStageId: client.funnel_stage_id,
-            toStageId: firstStageInSelectedFunnel.id,
-        });
 
         setAddingClientId(null);
         closeAddClientModal();
@@ -794,32 +877,22 @@ export default function FunnelPage() {
                     <HorizontalScroller scrollAmount={400}>
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<Users size={26} />}
-                                label="Entradas no funil"
-                                currentValue={kpis.funnel_entries}
-                                previousValue={previousKpis.funnel_entries}
+                                icon={<CalendarCheck size={26} />}
+                                label="Avaliações agendadas"
+                                currentValue={kpis.evaluations_scheduled}
+                                previousValue={previousKpis.evaluations_scheduled}
                                 color="purple"
                             />
                         </div>
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<CalendarCheck size={26} />}
-                                label="Avaliações realizadas"
-                                currentValue={kpis.evaluations_done}
-                                previousValue={previousKpis.evaluations_done}
-                                color="green"
-                            />
-                        </div>
-
-                        <div className="min-w-[310px]">
-                            <KpiCard
-                                icon={<TrendingUp size={26} />}
-                                label="Conversão p/ procedimento"
-                                currentValue={kpis.procedure_conversion_rate}
-                                previousValue={previousKpis.procedure_conversion_rate}
+                                icon={<UserCheck size={26} />}
+                                label="Comparecimento avaliação"
+                                currentValue={kpis.evaluation_show_rate}
+                                previousValue={previousKpis.evaluation_show_rate}
                                 suffix="%"
-                                color="pink"
+                                color="green"
                             />
                         </div>
 
@@ -829,6 +902,17 @@ export default function FunnelPage() {
                                 label="Procedimentos agendados"
                                 currentValue={kpis.procedures_scheduled}
                                 previousValue={previousKpis.procedures_scheduled}
+                                color="pink"
+                            />
+                        </div>
+
+                        <div className="min-w-[310px]">
+                            <KpiCard
+                                icon={<Users size={26} />}
+                                label="Comparecimento procedimento"
+                                currentValue={kpis.procedure_show_rate}
+                                previousValue={previousKpis.procedure_show_rate}
+                                suffix="%"
                                 color="blue"
                             />
                         </div>
@@ -891,6 +975,7 @@ export default function FunnelPage() {
                                         onMoveClient={moveClient}
                                         onRemoveClient={removeClientFromFunnel}
                                         onOpenClientProfile={openClientProfile}
+                                        onOpenClientSchedule={openClientSchedule}
                                     />
                                 );
                             })}
@@ -924,6 +1009,27 @@ export default function FunnelPage() {
                 clientId={selectedClientId}
                 onClose={() => setSelectedClientId(null)}
             />
+
+            <SchedulingPanel
+                open={Boolean(schedulingClientId)}
+                clientId={schedulingClientId}
+                initialSchedule={schedulingInitialSchedule}
+                onClose={() => setSchedulingClientId(null)}
+                onCreated={async () => {
+                    setSchedulingClientId(null);
+                    await loadFunnelData({ showLoading: false });
+                }}
+                onOpenClientProfile={openClientProfile}
+            />
+
+            <AppointmentDetailsPanel
+                appointment={selectedAppointment}
+                units={schedulingUnits}
+                doctors={schedulingDoctors}
+                onClose={() => setSelectedAppointment(null)}
+                onSave={saveAppointment}
+                onDelete={deleteAppointment}
+            />
         </main>
     );
 }
@@ -934,12 +1040,14 @@ function FunnelColumn({
                             onMoveClient,
                             onRemoveClient,
                             onOpenClientProfile,
+                            onOpenClientSchedule,
                         }: {
     stage: FunnelStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
+    onOpenClientSchedule: (clientId: string) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -979,6 +1087,7 @@ function FunnelColumn({
                         client={client}
                         onRemoveClient={onRemoveClient}
                         onOpenClientProfile={onOpenClientProfile}
+                        onOpenClientSchedule={onOpenClientSchedule}
                     />
                 ))}
             </div>
@@ -1002,17 +1111,30 @@ function FunnelClientCard({
                                 client,
                                 onRemoveClient,
                                 onOpenClientProfile,
+                                onOpenClientSchedule,
                             }: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
+    onOpenClientSchedule: (clientId: string) => void;
 }) {
+    const schedule = client.schedule_summary;
+
     return (
-        <Card className="group relative rounded-xl p-3">
-            <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+        <Card
+            className={[
+                "group relative overflow-hidden rounded-xl p-3",
+                schedule?.attention ? "ring-2 ring-red-200" : "",
+            ].join(" ")}
+        >
+            {schedule?.attention && (
+                <span className="absolute inset-y-0 left-0 w-1 bg-red" />
+            )}
+
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                 <button
                     type="button"
-                    title="Remover do funnel"
+                    title="Remover do funil"
                     onClick={(event) => {
                         event.stopPropagation();
                         onRemoveClient(client.id);
@@ -1020,6 +1142,22 @@ function FunnelClientCard({
                     className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-red-50 text-slate-500 shadow-sm transition hover:bg-soft-red hover:text-red"
                 >
                     <Trash2 size={14} />
+                </button>
+
+                <button
+                    type="button"
+                    title={
+                        client.appointment
+                            ? "Editar agendamento"
+                            : "Agendar cliente"
+                    }
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenClientSchedule(client.id);
+                    }}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-blue-50 text-slate-500 shadow-sm transition hover:bg-blue-100 hover:text-blue-700"
+                >
+                    <CalendarDays size={14} />
                 </button>
 
                 <button
@@ -1044,7 +1182,7 @@ function FunnelClientCard({
             >
                 <InitialsAvatar name={client.name ?? "Cliente"} />
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 pr-1">
                     <div className="truncate text-sm font-bold text-text">
                         {client.name ?? "Cliente sem nome"}
                     </div>
@@ -1053,17 +1191,72 @@ function FunnelClientCard({
                         {client.phone ?? "Sem telefone"}
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between gap-2 truncate">
-                        <Badge value={client.utm_source} none={""} />
+                    {schedule?.attention_label && (
+                        <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
+                            <CircleAlert size={11} />
+                            {schedule.attention_label}
+                        </div>
+                    )}
 
-                        <span className="text-[11px] font-medium text-muted">
-                            {timeAgo(client.last_interaction_at)}
+                    <div
+                        className="mt-3 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-muted"
+                        title={
+                            schedule
+                                ? `${schedule.procedure_name ?? "Agendamento"} · ${
+                                      schedule.status ?? "Sem status"
+                                  }`
+                                : "Nenhum agendamento ligado ao cliente"
+                        }
+                    >
+                        <CalendarDays size={12} className="shrink-0" />
+                        <span className="truncate">
+                            {schedule
+                                ? formatScheduleDate(schedule.scheduled_for)
+                                : "Sem agendamento"}
                         </span>
                     </div>
                 </div>
             </div>
         </Card>
     );
+}
+
+function sortFunnelClients(left: Client, right: Client) {
+    const attentionDifference =
+        Number(Boolean(right.schedule_summary?.attention)) -
+        Number(Boolean(left.schedule_summary?.attention));
+    if (attentionDifference !== 0) return attentionDifference;
+
+    const leftDistance = scheduleDistanceFromToday(
+        left.schedule_summary?.scheduled_for,
+    );
+    const rightDistance = scheduleDistanceFromToday(
+        right.schedule_summary?.scheduled_for,
+    );
+    if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+
+    return (
+        dateOnlyTime(right.schedule_summary?.scheduled_for) -
+        dateOnlyTime(left.schedule_summary?.scheduled_for)
+    );
+}
+
+function scheduleDistanceFromToday(value: string | null | undefined) {
+    if (!value) return Number.POSITIVE_INFINITY;
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    return Math.abs(dateOnlyTime(value) - today.getTime());
+}
+
+function dateOnlyTime(value: string | null | undefined) {
+    if (!value) return 0;
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+    return new Date(year, month - 1, day, 12).getTime();
+}
+
+function formatScheduleDate(value: string) {
+    const [year, month, day] = value.slice(0, 10).split("-");
+    return `${day}/${month}/${year}`;
 }
 
 function timeAgo(date: string) {
@@ -1075,13 +1268,6 @@ function timeAgo(date: string) {
     if (minutes < 60) return `${Math.max(minutes, 1)} min`;
     if (hours < 24) return `${hours} h`;
     return `${days} dia${days > 1 ? "s" : ""}`;
-}
-
-function normalize(value: string) {
-    return value
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{Diacritic}/gu, "");
 }
 
 function AddClientToFunnelModal({

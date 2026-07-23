@@ -38,9 +38,15 @@ export const DEFAULT_CALENDAR_PRESETS: CalendarPreset[] = [
         endOffsetDays: 0,
     },
     {
-        label: "90 dias",
-        value: "90",
-        startOffsetDays: -89,
+        label: "Mês atual",
+        value: "current_month",
+        startOffsetDays: 0,
+        endOffsetDays: 0,
+    },
+    {
+        label: "Mês anterior",
+        value: "previous_month",
+        startOffsetDays: 0,
         endOffsetDays: 0,
     },
 ];
@@ -58,10 +64,40 @@ export function getDateStringWithOffset(offsetDays: number) {
 }
 
 export function getDateRangeFromPreset(preset: CalendarPreset): DateRange {
+    const today = new Date();
+
+    if (preset.value === "current_month") {
+        return {
+            start: formatLocalDate(
+                new Date(today.getFullYear(), today.getMonth(), 1),
+            ),
+            end: formatLocalDate(today),
+        };
+    }
+
+    if (preset.value === "previous_month") {
+        return {
+            start: formatLocalDate(
+                new Date(today.getFullYear(), today.getMonth() - 1, 1),
+            ),
+            end: formatLocalDate(
+                new Date(today.getFullYear(), today.getMonth(), 0),
+            ),
+        };
+    }
+
     return {
         start: getDateStringWithOffset(preset.startOffsetDays),
         end: getDateStringWithOffset(preset.endOffsetDays),
     };
+}
+
+function formatLocalDate(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
 }
 
 export function applyCalendarDateParams({

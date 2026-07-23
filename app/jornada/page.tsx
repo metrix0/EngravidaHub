@@ -402,32 +402,18 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
     return (
         <Card className="min-w-0 overflow-hidden p-0">
             <div className="border-b border-slate-100 bg-white px-6 py-5">
-                <div className="flex items-start justify-between gap-6">
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-slate-900">
-                                Pipeline completo da jornada
-                            </h2>
-                            <InfoTooltip text="Meta + Google usam impressões e cliques agregados. O WhatsApp vem da tag Origem da conversa ou do cliente; daí em diante, cada cliente conta uma vez e só avança em ordem cronológica.">
-                                <HelpCircle size={16} className="text-slate-400" />
-                            </InfoTooltip>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-500">
-                            Da impressão ao faturamento liberado · coorte iniciada no período
-                        </p>
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-bold text-slate-900">
+                            Pipeline completo da jornada
+                        </h2>
+                        <InfoTooltip text="Meta + Google usam impressões e cliques agregados. O WhatsApp vem da tag Origem da conversa ou do cliente; daí em diante, cada cliente conta uma vez e só avança em ordem cronológica.">
+                            <HelpCircle size={16} className="text-slate-400" />
+                        </InfoTooltip>
                     </div>
-
-                    <div className="hidden shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-right lg:block">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                            Conversão ponta a ponta
-                        </div>
-                        <div className="mt-0.5 text-2xl font-black text-slate-900">
-                            {formatRate(endToEndRate)}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                            WhatsApp → liberado
-                        </div>
-                    </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Da impressão ao faturamento liberado · coorte iniciada no período
+                    </p>
                 </div>
             </div>
 
@@ -494,11 +480,9 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
                         }
                     />
                     <PipelineInsight
-                        label="Coorte rastreável"
-                        value={`${(
-                            whatsappStage?.value ?? 0
-                        ).toLocaleString("pt-BR")} clientes`}
-                        detail={formatWhatsappOrigins(pipeline)}
+                        label="Conversão ponta a ponta"
+                        value={formatRate(endToEndRate)}
+                        detail="WhatsApp → liberado"
                     />
                     <PipelineInsight
                         label="Receita liberada"
@@ -511,10 +495,6 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
                         )}`}
                     />
                 </div>
-
-                <p className="mt-4 text-[11px] leading-5 text-slate-400">
-                    Clique → WhatsApp é uma taxa aproximada: Meta + Google fornecem eventos agregados, enquanto WhatsApp conta clientes únicos pelas tags de Origem atribuídas a essas plataformas. As demais taxas usam a mesma coorte e respeitam a ordem cronológica.
-                </p>
             </div>
         </Card>
     );
@@ -967,18 +947,4 @@ function formatPipelineDate(value: string) {
     if (!value) return "—";
     const [year, month, day] = value.split("-");
     return year && month && day ? `${day}/${month}/${year}` : value;
-}
-
-function formatWhatsappOrigins(pipeline: FullJourneyPipeline) {
-    const topOrigins = pipeline.audit.whatsapp_origins
-        .slice(0, 2)
-        .map(
-            (origin) =>
-                `${origin.origin}: ${origin.clients.toLocaleString("pt-BR")}`,
-        );
-
-    if (topOrigins.length > 0) return topOrigins.join(" · ");
-    return `${pipeline.audit.whatsapp_conversations.toLocaleString(
-        "pt-BR",
-    )} conversas com Origem atribuída`;
 }

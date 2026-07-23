@@ -2,6 +2,10 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import {
+    paidMediaPlatformFromOrigin,
+    paidMediaPlatformFromTrackingSource,
+} from "@/lib/ads/paidMediaAttribution";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     FINANCIAL_CATEGORIES,
@@ -1102,14 +1106,15 @@ function resolveClientAdPlatform(
 ): AdMetricRow["platform"] | null {
     if (!client) return null;
 
-    const source = normalizeText(client.utm_source ?? "");
-    const origin = normalizeText(client.last_origin ?? "");
-    const sourcePlatform = adPlatformFromText(source);
+    const origin = client.last_origin?.trim();
+    if (origin) return paidMediaPlatformFromOrigin(origin);
+
+    const sourcePlatform = paidMediaPlatformFromTrackingSource(
+        client.utm_source,
+    );
     if (sourcePlatform) return sourcePlatform;
 
-    const originPlatform = adPlatformFromText(origin);
-    if (originPlatform) return originPlatform;
-
+    // Tracking identifiers are used only when the canonical sheet Origin is blank.
     const hasGoogleClick = Boolean(
         client.gclid || client.gbraid || client.wbraid,
     );
@@ -1119,23 +1124,6 @@ function resolveClientAdPlatform(
 
     if (hasGoogleClick && !hasMetaClick) return "google_ads";
     if (hasMetaClick && !hasGoogleClick) return "meta_ads";
-    return null;
-}
-
-function adPlatformFromText(value: string): AdMetricRow["platform"] | null {
-    if (!value) return null;
-    if (
-        /(^|\W)(google|google ads|adwords|gads|youtube)(\W|$)/.test(value)
-    ) {
-        return "google_ads";
-    }
-    if (
-        /(^|\W)(meta|meta ads|facebook|facebook ads|instagram|fb|ig)(\W|$)/.test(
-            value,
-        )
-    ) {
-        return "meta_ads";
-    }
     return null;
 }
 

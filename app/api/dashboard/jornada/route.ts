@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { paidMediaPlatformFromOrigin } from "@/lib/ads/paidMediaAttribution";
 import {
     executiveRpcParams,
     readDashboardFilters,
@@ -355,7 +356,7 @@ async function loadPaidWhatsappConversations(
         const clientOrigin = client?.last_origin?.trim();
         const origin = conversationOrigin || clientOrigin || null;
 
-        if (!adPlatformFromOrigin(origin)) return [];
+        if (!paidMediaPlatformFromOrigin(origin)) return [];
         if (
             selectedOrigins.size > 0 &&
             !selectedOrigins.has(normalizeText(origin ?? ""))
@@ -663,16 +664,6 @@ function buildWhatsappOriginBreakdown(
                 second.conversations - first.conversations ||
                 first.origin.localeCompare(second.origin, "pt-BR"),
         );
-}
-
-function adPlatformFromOrigin(value: string | null) {
-    const origin = normalizeText(value ?? "");
-    if (!origin) return null;
-    if (origin.includes("google")) return "google_ads" as const;
-    if (origin.includes("meta") || origin.includes("facebook")) {
-        return "meta_ads" as const;
-    }
-    return null;
 }
 
 function hasOperationalFilters(filters: DashboardFilters) {

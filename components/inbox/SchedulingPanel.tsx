@@ -13,7 +13,7 @@ import { getSchedulingProcedureOptions, SCHEDULING_DURATION_OPTIONS, SCHEDULING_
 import type { InboxChannel } from "@/types/inbox";
 import type { CalendarAppointment, SchedulingAddressFields, SchedulingDataResponse, SchedulingForm, SchedulingFormat, SchedulingPersonFields } from "@/types/scheduling";
 
-type Props = { open:boolean; threadId?:string|null; clientId?:string|null; onClose:()=>void; onOpenClientProfile?:(id:string)=>void; onCreated?:()=>void; selectClient?:boolean; client?:{name:string;phone:string|null;city:string|null;channel:InboxChannel}|null };
+type Props = { open:boolean; threadId?:string|null; clientId?:string|null; initialSchedule?:{scheduledFor:string;procedureName:string|null}|null; onClose:()=>void; onOpenClientProfile?:(id:string)=>void; onCreated?:()=>void; selectClient?:boolean; client?:{name:string;phone:string|null;city:string|null;channel:InboxChannel}|null };
 type Data = Omit<SchedulingDataResponse,"client"> & {client:SchedulingDataResponse["client"]|null};
 type ClientOption={id:string;name:string|null;phone:string|null;email:string|null};
 type ErrorMap=Record<string,string>;
@@ -21,7 +21,7 @@ const emptyPerson:SchedulingPersonFields={fullName:"",cpf:"",birthDate:"",email:
 const emptyAddress:SchedulingAddressFields={street:"",number:"",complement:"",neighborhood:"",city:"",state:"",cep:"",country:""};
 const initialForm:SchedulingForm={unitId:"",doctorId:"",schedulingDate:"",schedulingTime:"",durationMinutes:45,procedureName:"Consulta",primary:{...emptyPerson},spouse:{...emptyPerson},address:{...emptyAddress},notes:""};
 
-export default function SchedulingPanel({open,threadId,clientId,onClose,onOpenClientProfile,onCreated,selectClient=false,client=null}:Props){
+export default function SchedulingPanel({open,threadId,clientId,initialSchedule=null,onClose,onOpenClientProfile,onCreated,selectClient=false,client=null}:Props){
  const [format,setFormat]=useState<SchedulingFormat>("congelamento"); const [form,setForm]=useState(initialForm); const [data,setData]=useState<Data|null>(null);
  const [errors,setErrors]=useState<ErrorMap>({}); const [loading,setLoading]=useState(false); const [autofilling,setAutofilling]=useState(false); const [submitting,setSubmitting]=useState(false);
  const [message,setMessage]=useState<{type:"error"|"success";text:string}|null>(null); const [clients,setClients]=useState<ClientOption[]>([]); const [selectedClientId,setSelectedClientId]=useState(""); const [clientQuery,setClientQuery]=useState(""); const [loadingClients,setLoadingClients]=useState(false); const requestRef=useRef(0);
@@ -29,10 +29,10 @@ export default function SchedulingPanel({open,threadId,clientId,onClose,onOpenCl
 
  useEffect(()=>{if(open)setAddToFivFunnel(true)},[open]);
  useEffect(()=>{if(!open)return; const c=new AbortController(); setLoading(true); setMessage(null); setErrors({});
-  (async()=>{try{const r=await fetch(threadId?`/api/inbox/scheduling-data?thread_id=${encodeURIComponent(threadId)}`:"/api/scheduling/options",{cache:"no-store",signal:c.signal}); const j=await r.json(); if(!r.ok)throw new Error(j?.error??"Não foi possível carregar os dados.");
-   if(threadId){setData(j);setFormat(j.suggestedFormat);setForm(j.form)}else{setData({client:null,spouse:null,units:j.units??[],doctors:j.doctors??[],suggestedFormat:"congelamento",form:initialForm});setFormat("congelamento");setForm(initialForm);if(selectClient){setSelectedClientId("");setClientQuery("")}}
+  (async()=>{try{const endpoint=threadId?`/api/inbox/scheduling-data?thread_id=${encodeURIComponent(threadId)}`:clientId?`/api/inbox/scheduling-data?client_id=${encodeURIComponent(clientId)}`:"/api/scheduling/options";const r=await fetch(endpoint,{cache:"no-store",signal:c.signal}); const j=await r.json(); if(!r.ok)throw new Error(j?.error??"Não foi possível carregar os dados.");
+   if(threadId||clientId){const nextForm=!threadId&&initialSchedule?{...j.form,schedulingDate:fromDateInput(initialSchedule.scheduledFor.slice(0,10)),procedureName:initialSchedule.procedureName?.trim()||j.form.procedureName}:j.form;setData(j);setFormat(j.suggestedFormat);setForm(nextForm)}else{setData({client:null,spouse:null,units:j.units??[],doctors:j.doctors??[],suggestedFormat:"congelamento",form:initialForm});setFormat("congelamento");setForm(initialForm);if(selectClient){setSelectedClientId("");setClientQuery("")}}
   }catch(e){if(!c.signal.aborted)setMessage({type:"error",text:e instanceof Error?e.message:"Não foi possível carregar os dados."})}finally{if(!c.signal.aborted)setLoading(false)}})(); return()=>c.abort();
- },[open,threadId,selectClient]);
+ },[open,threadId,clientId,initialSchedule,selectClient]);
  useEffect(()=>{if(!open||!selectClient)return; const c=new AbortController();setLoadingClients(true);(async()=>{try{const r=await fetch("/api/clientes",{cache:"no-store",signal:c.signal});const j=await r.json();if(!r.ok)throw new Error(j?.error);setClients(j.clients??[])}catch{if(!c.signal.aborted)setClients([])}finally{if(!c.signal.aborted)setLoadingClients(false)}})();return()=>c.abort()},[open,selectClient]);
  useEffect(()=>{const date=toDateInput(form.schedulingDate);if(!open||!date||!form.doctorId){setBusy([]);return} const c=new AbortController(); setLoadingBusy(true); const end=addDay(date);
   (async()=>{try{const q=new URLSearchParams({start:date,end});q.append("doctor_ids",form.doctorId);q.append("statuses","scheduled");q.append("statuses","confirmed");const r=await fetch(`/api/scheduling/appointments?${q}`,{cache:"no-store",signal:c.signal});const j=await r.json();if(!r.ok)throw new Error();setBusy(j.appointments??[])}catch{if(!c.signal.aborted)setBusy([])}finally{if(!c.signal.aborted)setLoadingBusy(false)}})();return()=>c.abort()

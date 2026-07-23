@@ -280,6 +280,42 @@ const TOOLS = [
     },
     {
         type: "function",
+        name: "get_paid_media_overview",
+        description:
+            "Consulta Google Ads e Meta Ads e retorna investimento, impressões, cliques, CTR, CPC, conversões reportadas, resultados reais atribuídos no CliniSys, ROAS, custo por agendamento/paciente, comparação anterior, evolução, eficiência por plataforma, campanhas e o pipeline completo até faturamento autorizado. Use para qualquer pergunta sobre mídia paga, anúncios ou a jornada originada por Google/Meta.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa os últimos 30 dias.",
+                },
+                date_to: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa hoje.",
+                },
+                platform: {
+                    type: "string",
+                    enum: ["all", "google_ads", "meta_ads"],
+                },
+                top_campaigns_limit: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 20,
+                },
+            },
+            required: [
+                "date_from",
+                "date_to",
+                "platform",
+                "top_campaigns_limit",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "get_business_overview",
         description:
             "Retorna visão macro de clientes, conversas, análises, agendamentos, threads abertas, mensagens ativas, follow-ups e unidades.",
@@ -526,7 +562,7 @@ REGRAS:
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
-8. Para perguntas financeiras, use get_financial_overview. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Quando a pergunta cruzar financeiro e operação, combine get_financial_overview com get_business_overview ou as ferramentas de agenda.
+8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.
 
 FORMATO DA RESPOSTA:
 9. Sempre comece com um título Markdown descritivo usando ##.

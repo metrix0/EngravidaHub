@@ -8,6 +8,7 @@ import {
     findDoctorBySourceName,
     type DoctorReference,
 } from "@/lib/invoices/matchDoctor";
+import { getPaidMediaOverview } from "@/lib/ai/assistantPaidMediaTool";
 import {
     getScheduleStatusFlags,
     getScheduleStatusLabel,
@@ -94,6 +95,8 @@ export async function executeAssistantDataTool(
             return getBusinessOverview(args);
         case "get_financial_overview":
             return getFinancialOverview(args);
+        case "get_paid_media_overview":
+            return getPaidMediaOverview(args);
         default:
             return {
                 output: { ok: false, error: `Unknown tool: ${name}` },

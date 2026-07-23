@@ -79,7 +79,8 @@ export const __uiDemo = {
             options={[
                 { value: "7", label: "7 dias" },
                 { value: "30", label: "30 dias" },
-                { value: "90", label: "90 dias" },
+                { value: "current_month", label: "Mês atual" },
+                { value: "previous_month", label: "Mês anterior" },
             ]}
         />
     ),
@@ -89,7 +90,8 @@ export const __uiDemo = {
   options={[
     { value: "7", label: "7 dias" },
     { value: "30", label: "30 dias" },
-    { value: "90", label: "90 dias" },
+    { value: "current_month", label: "Mês atual" },
+    { value: "previous_month", label: "Mês anterior" },
   ]}
 />`,
 };

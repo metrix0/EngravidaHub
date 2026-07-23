@@ -27,10 +27,11 @@ import {
 
 import SidePanel from "@/components/layout/SidePanel";
 
-import type {
+import {
+    getDateRangeFromPreset,
+    type CalendarPreset,
     CalendarPresetValue,
-    CalendarPreset,
-    DateRange,
+    type DateRange,
 } from "@/components/ui/CalendarButton";
 import type { FiltersResponse } from "@/types";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
@@ -103,9 +104,15 @@ const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
         endOffsetDays: 0,
     },
     {
-        label: "90 dias",
-        value: "90",
-        startOffsetDays: -89,
+        label: "Mês atual",
+        value: "current_month",
+        startOffsetDays: 0,
+        endOffsetDays: 0,
+    },
+    {
+        label: "Mês anterior",
+        value: "previous_month",
+        startOffsetDays: 0,
         endOffsetDays: 0,
     },
 ];
@@ -710,33 +717,10 @@ function getInteractionDateRange(
         return null;
     }
 
-    if (period === "yesterday") {
-        const date = getDateWithOffset(-1);
-
-        return {
-            start: date,
-            end: date,
-        };
-    }
-
-    const days = Number(period);
-
-    if (!Number.isFinite(days)) {
-        return null;
-    }
-
-    return {
-        start: getDateWithOffset(-(days - 1)),
-        end: getDateWithOffset(0),
-    };
-}
-
-function getDateWithOffset(offsetDays: number) {
-    const date = new Date();
-
-    date.setDate(date.getDate() + offsetDays);
-
-    return toDateString(date.toISOString());
+    const preset = CLIENTES_DATE_PRESETS.find(
+        (candidate) => candidate.value === period,
+    );
+    return preset ? getDateRangeFromPreset(preset) : null;
 }
 
 function toDateString(date: string) {
