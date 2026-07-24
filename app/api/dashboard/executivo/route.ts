@@ -105,10 +105,12 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
     schedule_summary: ScheduleSummary;
     schedule_evolution: ScheduleEvolutionPoint[];
     schedules_by_unit: ScheduleUnitDistribution[];
+    schedule_unit_table: ScheduleUnitTable;
 };
 
 type ScheduleSummary = {
     total: number;
+    unique_total: number;
     cancelled: number;
     showed_up: number;
     no_show: number;
@@ -125,6 +127,11 @@ type ScheduleEvolutionPoint = {
     showed_up: number;
     no_show: number;
     rescheduled: number;
+    unique_total: number;
+    unique_cancelled: number;
+    unique_showed_up: number;
+    unique_no_show: number;
+    unique_rescheduled: number;
 };
 
 type ScheduleUnitDistribution = {
@@ -134,6 +141,29 @@ type ScheduleUnitDistribution = {
     no_show: number;
     outcomes_observed: number;
     no_show_rate: number | null;
+};
+
+type ScheduleUnitTableRow = {
+    unit_name: string;
+    appointments: number;
+    reschedulings: number;
+    rescheduling_rate: number | null;
+    unique_appointments: number;
+    pending: number;
+    showed_up: number;
+    showed_up_rate: number | null;
+    projection: number;
+    rescheduled: number;
+    rescheduled_rate: number | null;
+    cancelled: number;
+    cancelled_rate: number | null;
+    no_show: number;
+    no_show_rate: number | null;
+};
+
+type ScheduleUnitTable = {
+    rows: ScheduleUnitTableRow[];
+    total: ScheduleUnitTableRow;
 };
 
 export async function GET(request: Request) {
@@ -156,14 +186,11 @@ export async function GET(request: Request) {
     // anchors and per-unit satisfaction from one database scan per period.
     // This replaces the previous N+1 RPC pattern without changing the payload
     // shown by the dashboard.
-    const [currentResult, previousResult] = await Promise.all([
-        supabase
-            .rpc("dashboard_executive_metrics_v3", currentParams)
-            .abortSignal(request.signal),
-        supabase
-            .rpc("dashboard_executive_metrics_v3", previousParams)
-            .abortSignal(request.signal),
-    ]);
+    const currentResult = await runExecutiveMetricsRpc(
+        currentParams,
+        request.signal,
+        "current",
+    );
 
     if (currentResult.error) {
         console.error(
@@ -179,6 +206,12 @@ export async function GET(request: Request) {
             { status: 500 },
         );
     }
+
+    const previousResult = await runExecutiveMetricsRpc(
+        previousParams,
+        request.signal,
+        "previous",
+    );
 
     if (previousResult.error) {
         console.error(
@@ -264,6 +297,7 @@ export async function GET(request: Request) {
         schedule_summary: scheduleAnalytics.summary,
         schedule_evolution: scheduleAnalytics.evolution,
         schedules_by_unit: scheduleAnalytics.byUnit,
+        schedule_unit_table: scheduleAnalytics.unitTable,
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
@@ -275,6 +309,35 @@ export async function GET(request: Request) {
     });
 }
 
+async function runExecutiveMetricsRpc(
+    params: ReturnType<typeof executiveRpcParams>,
+    signal: AbortSignal,
+    period: "current" | "previous",
+) {
+    let result = await supabase
+        .rpc("dashboard_executive_metrics_v3", params)
+        .abortSignal(signal);
+
+    if (!signal.aborted && isStatementTimeout(result.error)) {
+        console.warn(
+            `[dashboard/executivo] ${period} metric RPC timed out; retrying once`,
+        );
+        result = await supabase
+            .rpc("dashboard_executive_metrics_v3", params)
+            .abortSignal(signal);
+    }
+
+    return result;
+}
+
+function isStatementTimeout(error: { code?: string; message?: string } | null) {
+    return (
+        error?.code === "57014" ||
+        error?.message?.toLocaleLowerCase("pt-BR").includes("statement timeout") ===
+            true
+    );
+}
+
 type UnitSatisfaction = {
     satisfaction_observed: number;
     satisfaction_rate: number | null;
@@ -282,9 +345,16 @@ type UnitSatisfaction = {
 
 type ScheduleAnalyticsRow = {
     id: string;
+    source_hash: string;
+    source_external_id: string | null;
+    client_id: string | null;
+    normalized_phone: string | null;
+    patient_name: string | null;
     scheduled_for: string;
+    created_in_source_at: string | null;
     unit_name: string | null;
     status: string | null;
+    updated_at: string;
 };
 
 type ScheduleAnalyticsResult = {
@@ -292,6 +362,7 @@ type ScheduleAnalyticsResult = {
     summary: ScheduleSummary;
     evolution: ScheduleEvolutionPoint[];
     byUnit: ScheduleUnitDistribution[];
+    unitTable: ScheduleUnitTable;
 };
 
 const SCHEDULE_PAGE_SIZE = 1_000;
@@ -318,8 +389,8 @@ async function loadSelectedUnitNames(
     }
 
     return (data ?? [])
-        .map((unit) => unit.name?.trim())
-        .filter((name): name is string => Boolean(name));
+        .map((unit: { name?: string | null }) => unit.name?.trim())
+        .filter((name: string | undefined): name is string => Boolean(name));
 }
 
 async function loadScheduleAnalytics(
@@ -345,7 +416,7 @@ async function loadScheduleAnalytics(
         ) {
             let query = supabase
                 .from("schedules")
-                .select("id, scheduled_for, unit_name, status")
+                .select("id, source_hash, source_external_id, client_id, normalized_phone, patient_name, scheduled_for, created_in_source_at, unit_name, status, updated_at")
                 .gte("scheduled_for", startDate)
                 .lte("scheduled_for", endDate)
                 .order("scheduled_for", { ascending: true })
@@ -409,19 +480,30 @@ async function loadScheduleAnalytics(
             units.set(key, current);
         }
 
+        const uniqueRows = latestUniqueScheduleRows(rows);
+        summary.unique_total = uniqueRows.length;
+        for (const row of uniqueRows) {
+            const group = normalizeScheduleStatus(row.status);
+            const daily = evolutionByDate.get(row.scheduled_for);
+            if (!daily) continue;
+
+            daily.unique_total += 1;
+            if (group === "cancelled") daily.unique_cancelled += 1;
+            if (scheduleShowedUp(group)) daily.unique_showed_up += 1;
+            if (group === "no_show") daily.unique_no_show += 1;
+            if (group === "rescheduled") daily.unique_rescheduled += 1;
+        }
+
         const byUnit = [...units.values()]
             .map((unit) => {
                 const outcomesObserved = unit.showed_up + unit.no_show;
-
                 return {
                     unit_name: unit.unit_name,
                     count: unit.count,
                     percentage:
                         summary.total > 0
                             ? Number(
-                                  ((unit.count / summary.total) * 100).toFixed(
-                                      1,
-                                  ),
+                                  ((unit.count / summary.total) * 100).toFixed(1),
                               )
                             : null,
                     no_show: unit.no_show,
@@ -429,10 +511,7 @@ async function loadScheduleAnalytics(
                     no_show_rate:
                         outcomesObserved > 0
                             ? Number(
-                                  (
-                                      (unit.no_show / outcomesObserved) *
-                                      100
-                                  ).toFixed(1),
+                                  ((unit.no_show / outcomesObserved) * 100).toFixed(1),
                               )
                             : null,
                 };
@@ -446,11 +525,14 @@ async function loadScheduleAnalytics(
                     ),
             );
 
+        const unitTable = buildScheduleUnitTable(rows, startDate, endDate);
+
         return {
             available: true,
             summary,
             evolution: [...evolutionByDate.values()],
             byUnit,
+            unitTable,
         };
     } catch (error) {
         console.error("[dashboard/executivo] failed to load schedules", error);
@@ -672,9 +754,157 @@ function normalizeUnitSatisfaction(value: unknown) {
     return new Map<string, UnitSatisfaction | null>(entries);
 }
 
+function latestUniqueScheduleRows(rows: ScheduleAnalyticsRow[]) {
+    const latest = new Map<string, ScheduleAnalyticsRow>();
+
+    for (const row of rows) {
+        const key = scheduleIdentity(row);
+        const current = latest.get(key);
+        if (!current || compareScheduleRecency(row, current) > 0) {
+            latest.set(key, row);
+        }
+    }
+
+    return [...latest.values()];
+}
+
+function scheduleIdentity(row: ScheduleAnalyticsRow) {
+    const phone = row.normalized_phone?.trim();
+    if (phone) return `phone:${phone}`;
+    if (row.client_id) return `client:${row.client_id}`;
+    const patient = normalizeUnitName(row.patient_name?.trim() || "");
+    if (patient) return `patient:${patient}`;
+    return `schedule:${row.source_hash || row.id}`;
+}
+
+function compareScheduleRecency(
+    first: ScheduleAnalyticsRow,
+    second: ScheduleAnalyticsRow,
+) {
+    const dateComparison = first.scheduled_for.localeCompare(second.scheduled_for);
+    if (dateComparison !== 0) return dateComparison;
+
+    const firstExternal = Number(first.source_external_id ?? 0);
+    const secondExternal = Number(second.source_external_id ?? 0);
+    if (Number.isFinite(firstExternal) && Number.isFinite(secondExternal)) {
+        const externalComparison = firstExternal - secondExternal;
+        if (externalComparison !== 0) return externalComparison;
+    }
+
+    const createdComparison = (first.created_in_source_at ?? "").localeCompare(
+        second.created_in_source_at ?? "",
+    );
+    if (createdComparison !== 0) return createdComparison;
+    return first.updated_at.localeCompare(second.updated_at);
+}
+
+function buildScheduleUnitTable(
+    rows: ScheduleAnalyticsRow[],
+    startDate: string,
+    endDate: string,
+): ScheduleUnitTable {
+    const projectionFactor = rangeProjectionFactor(startDate, endDate);
+    const rowsByUnit = new Map<string, ScheduleAnalyticsRow[]>();
+
+    for (const row of rows) {
+        const unitName = row.unit_name?.trim() || "Sem unidade";
+        const key = normalizeUnitName(unitName);
+        const group = rowsByUnit.get(key) ?? [];
+        group.push(row);
+        rowsByUnit.set(key, group);
+    }
+
+    const tableRows = [...rowsByUnit.values()]
+        .map((unitRows) =>
+            summarizeScheduleUnit(
+                unitRows[0]?.unit_name?.trim() || "Sem unidade",
+                unitRows,
+                projectionFactor,
+            ),
+        )
+        .sort(
+            (first, second) =>
+                second.appointments - first.appointments ||
+                first.unit_name.localeCompare(second.unit_name, "pt-BR"),
+        );
+
+    return {
+        rows: tableRows,
+        total: summarizeScheduleUnit("Total geral", rows, projectionFactor),
+    };
+}
+
+function summarizeScheduleUnit(
+    unitName: string,
+    rows: ScheduleAnalyticsRow[],
+    projectionFactor: number,
+): ScheduleUnitTableRow {
+    const uniqueRows = latestUniqueScheduleRows(rows);
+    const rescheduledRows = rows.filter(
+        (row) => normalizeScheduleStatus(row.status) === "rescheduled",
+    );
+    const rescheduledPatients = new Set(
+        rescheduledRows.map((row) => scheduleIdentity(row)),
+    ).size;
+    const counts = {
+        pending: 0,
+        showedUp: 0,
+        rescheduled: 0,
+        cancelled: 0,
+        noShow: 0,
+    };
+
+    for (const row of uniqueRows) {
+        const group = normalizeScheduleStatus(row.status);
+        if (group === "pending") counts.pending += 1;
+        if (scheduleShowedUp(group)) counts.showedUp += 1;
+        if (group === "rescheduled") counts.rescheduled += 1;
+        if (group === "cancelled") counts.cancelled += 1;
+        if (group === "no_show") counts.noShow += 1;
+    }
+
+    return {
+        unit_name: unitName,
+        appointments: rows.length,
+        reschedulings: rescheduledRows.length,
+        rescheduling_rate: percentage(rescheduledPatients, rows.length),
+        unique_appointments: uniqueRows.length,
+        pending: counts.pending,
+        showed_up: counts.showedUp,
+        showed_up_rate: percentage(counts.showedUp, uniqueRows.length),
+        projection: roundMetric(counts.showedUp * projectionFactor),
+        rescheduled: counts.rescheduled,
+        rescheduled_rate: percentage(counts.rescheduled, uniqueRows.length),
+        cancelled: counts.cancelled,
+        cancelled_rate: percentage(counts.cancelled, uniqueRows.length),
+        no_show: counts.noShow,
+        no_show_rate: percentage(counts.noShow, uniqueRows.length),
+    };
+}
+
+function rangeProjectionFactor(startDate: string, endDate: string) {
+    const today = brazilDate(new Date().toISOString());
+    const currentMonthStart = `${today.slice(0, 7)}-01`;
+    if (startDate !== currentMonthStart || endDate < today) return 1;
+
+    const [year, monthNumber, day] = today.split("-").map(Number);
+    const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    return daysInMonth / Math.max(1, Math.min(day, daysInMonth));
+}
+
+function percentage(value: number, total: number) {
+    if (total <= 0) return null;
+    return Number(((value / total) * 100).toFixed(1));
+}
+
+function roundMetric(value: number) {
+    return Number(value.toFixed(1));
+}
+
 function emptyScheduleSummary(): ScheduleSummary {
     return {
         total: 0,
+        unique_total: 0,
         cancelled: 0,
         showed_up: 0,
         no_show: 0,
@@ -708,6 +938,11 @@ function emptyScheduleEvolutionPoint(
         showed_up: 0,
         no_show: 0,
         rescheduled: 0,
+        unique_total: 0,
+        unique_cancelled: 0,
+        unique_showed_up: 0,
+        unique_no_show: 0,
+        unique_rescheduled: 0,
     };
 }
 
@@ -723,6 +958,14 @@ function emptyScheduleAnalytics(
             emptyScheduleEvolutionPoint,
         ),
         byUnit: [],
+        unitTable: {
+            rows: [],
+            total: summarizeScheduleUnit(
+                "Total geral",
+                [],
+                rangeProjectionFactor(startDate, endDate),
+            ),
+        },
     };
 }
 

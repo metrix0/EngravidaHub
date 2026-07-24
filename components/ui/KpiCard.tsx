@@ -46,7 +46,6 @@ export default function KpiCard({
             : formatter
               ? formatter(currentValue)
               : `${currentValue}${suffix}`;
-
     const trend = getTrend({
         currentValue,
         previousValue,

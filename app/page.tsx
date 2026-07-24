@@ -29,8 +29,6 @@ import {
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
 import {
     Card,
@@ -45,6 +43,8 @@ import {
     Skeleton,
 } from "@/components";
 import type { ExecutiveDashboardData, FiltersResponse } from "@/types";
+import ExecutiveScheduleTable from "@/components/dashboard/ExecutiveScheduleTable";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 
 export default function ExecutiveDashboardPage() {
     const [data, setData] = useState<ExecutiveDashboardData | null>(null);
@@ -56,13 +56,17 @@ export default function ExecutiveDashboardPage() {
     const [originValues, setOriginValues] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
-    });
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("yesterday");
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+
         async function loadFilters() {
             const response = await fetch(
                 "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
@@ -72,9 +76,11 @@ export default function ExecutiveDashboardPage() {
         }
 
         void loadFilters();
-    }, []);
+    }, [dateFilterReady]);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+
         const controller = new AbortController();
 
         async function loadDashboard() {
@@ -141,13 +147,14 @@ export default function ExecutiveDashboardPage() {
         originValues,
         period,
         selectedRange,
+        dateFilterReady,
     ]);
 
-    if (loading) {
+    if (!dateFilterReady || loading) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-8 py-8">
                     <DashboardSkeleton />
                 </section>
             </main>
@@ -179,9 +186,9 @@ export default function ExecutiveDashboardPage() {
     );
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
                     title="Dashboard"
                     description="Acompanhe os principais indicadores de atendimento"
@@ -189,6 +196,8 @@ export default function ExecutiveDashboardPage() {
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
@@ -211,7 +220,7 @@ export default function ExecutiveDashboardPage() {
                 {isRefreshing ? (
                     <DashboardBodySkeleton />
                 ) : (
-                    <div className="overflow-x-hidden pb-12">
+                    <div className="min-w-0 max-w-full overflow-x-hidden pb-12">
                         <section className="mb-6 grid grid-cols-1 gap-5">
                             <HorizontalScroller scrollAmount={400}>
                                 <div className="min-w-[260px]">
@@ -220,7 +229,7 @@ export default function ExecutiveDashboardPage() {
                                         label="Conversas analisadas"
                                         currentValue={data.kpis.conversations_analyzed}
                                         previousValue={data.previous_kpis.conversations_analyzed}
-                                        formatter={(value) => value.toLocaleString("pt-BR")}
+                                        formatter={(value: number) => value.toLocaleString("pt-BR")}
                                         color="purple"
                                     />
                                 </div>
@@ -298,9 +307,15 @@ export default function ExecutiveDashboardPage() {
                             <ScheduleEvolutionCard data={data} />
                         </section>
 
-                        <section className="grid grid-cols-2 gap-5">
+                        <section className="mb-6 grid grid-cols-2 gap-5">
                             <ConversationGoalsCard data={data} />
                             <UnitViewCard data={data} />
+                        </section>
+
+                        <section className="min-w-0 max-w-full">
+                            <ExecutiveScheduleTable
+                                data={data.schedule_unit_table}
+                            />
                         </section>
                     </div>
                 )}
@@ -370,12 +385,12 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                     <h2 className="text-lg font-bold">
                         Agendamentos no período
                     </h2>
-                    <InfoTooltip text="Cada barra azul é o total de consultas pela data marcada no CliniSys, incluindo canceladas e reagendadas. As barras menores mostram canceladas (vermelho) e reagendadas (amarelo), sobrepostas ao total na mesma escala.">
+                    <InfoTooltip text="Cada barra azul mostra agendamentos únicos: apenas o agendamento mais recente de cada paciente no período. Cancelados e reagendados também são calculados sobre esse conjunto único e aparecem sobrepostos.">
                         <HelpCircle size={16} className="text-slate-400" />
                     </InfoTooltip>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
-                    <LegendDot color="bg-blue-500" label="Agendamentos" />
+                    <LegendDot color="bg-blue-500" label="Agendamentos únicos" />
                     <LegendDot color="bg-rose-500" label="Cancelados" />
                     <LegendDot color="bg-amber-500" label="Reagendados" />
                 </div>
@@ -413,7 +428,7 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             cursor={{ fill: "#f8fafc" }}
                         />
                         <Bar
-                            dataKey="total"
+                            dataKey="unique_total"
                             fill="#1683ff"
                             shape={<ScheduleOverlayBar />}
                             isAnimationActive={false}
@@ -558,9 +573,7 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                                 {unit.appointments_count.toLocaleString("pt-BR")}
                             </span>
                         </div>
-                        <div
-                            title={`Faltas: ${unit.no_show} · base observada: ${unit.outcomes_observed}`}
-                        >
+                        <div title={`Faltas: ${unit.no_show} · base observada: ${unit.outcomes_observed}`}>
                             <NoShowValue value={unit.no_show_rate} />
                         </div>
                     </div>
@@ -572,11 +585,7 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
 
 function NoShowValue({ value }: { value: number | null }) {
     if (value === null) {
-        return (
-            <span className="font-bold text-slate-400" title="Sem desfecho observável">
-                —
-            </span>
-        );
+        return <span className="font-bold text-slate-400">—</span>;
     }
 
     const color =
@@ -588,7 +597,7 @@ function NoShowValue({ value }: { value: number | null }) {
 
     return (
         <span className="font-bold" style={{ color }}>
-            {value}%
+            {value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
         </span>
     );
 }
@@ -654,11 +663,29 @@ function DashboardBodySkeleton() {
                 </Card>
             </section>
             <section className="mb-6">
-                <Card><Skeleton className="h-6 w-[40%]" /><Skeleton className="mt-3 h-4 w-[62%]" /><Skeleton className="mt-5 h-[290px] w-full" /></Card>
+                <Card>
+                    <Skeleton className="h-6 w-[40%]" />
+                    <Skeleton className="mt-3 h-4 w-[62%]" />
+                    <Skeleton className="mt-5 h-[290px] w-full" />
+                </Card>
+            </section>
+            <section className="mb-6">
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[28%]" />
+                    <Skeleton className="h-11 w-full rounded-xl" />
+                    <div className="mt-1 space-y-1">
+                        {Array.from({ length: 7 }).map((_, index) => (
+                            <Skeleton
+                                key={index}
+                                className="h-10 w-full rounded-none"
+                            />
+                        ))}
+                    </div>
+                </Card>
             </section>
             <section className="grid grid-cols-2 gap-5">
                 <Card><Skeleton className="mb-5 h-6 w-[45%]" /><div className="grid grid-cols-[180px_1fr] items-center gap-6"><Skeleton className="h-[170px] w-[170px] rounded-full" /><div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-4 w-full" />))}</div></div></Card>
-                <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-5 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 5 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-5 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 5 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
+                <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-4 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-4 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 4 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
             </section>
         </>
     );
@@ -721,11 +748,11 @@ function ScheduleEvolutionTooltip({
     if (!active || !payload?.length) return null;
 
     const row = payload[0]?.payload ?? {};
-    const total = typeof row.total === "number" ? row.total : 0;
+    const total = typeof row.unique_total === "number" ? row.unique_total : 0;
     const cancelled =
-        typeof row.cancelled === "number" ? row.cancelled : 0;
+        typeof row.unique_cancelled === "number" ? row.unique_cancelled : 0;
     const rescheduled =
-        typeof row.rescheduled === "number" ? row.rescheduled : 0;
+        typeof row.unique_rescheduled === "number" ? row.unique_rescheduled : 0;
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
@@ -736,7 +763,7 @@ function ScheduleEvolutionTooltip({
                 <div className="flex items-center justify-between gap-6">
                     <div className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-                        <span className="text-slate-600">Agendamentos</span>
+                        <span className="text-slate-600">Agendamentos únicos</span>
                     </div>
                     <span className="font-semibold text-slate-800">
                         {total.toLocaleString("pt-BR")}
@@ -771,9 +798,9 @@ type ScheduleOverlayBarProps = {
     width?: number;
     height?: number;
     payload?: {
-        total?: number;
-        cancelled?: number;
-        rescheduled?: number;
+        unique_total?: number;
+        unique_cancelled?: number;
+        unique_rescheduled?: number;
     };
 };
 
@@ -784,75 +811,40 @@ function ScheduleOverlayBar({
     height = 0,
     payload,
 }: ScheduleOverlayBarProps) {
-    const total = Math.max(Number(payload?.total ?? 0), 0);
+    const total = Math.max(Number(payload?.unique_total ?? 0), 0);
     const cancelled = Math.min(
-        Math.max(Number(payload?.cancelled ?? 0), 0),
+        Math.max(Number(payload?.unique_cancelled ?? 0), 0),
         total,
     );
     const rescheduled = Math.min(
-        Math.max(Number(payload?.rescheduled ?? 0), 0),
+        Math.max(Number(payload?.unique_rescheduled ?? 0), 0),
         total,
     );
-    const cancelledHeight =
-        total > 0 ? (height * cancelled) / total : 0;
-    const rescheduledHeight =
-        total > 0 ? (height * rescheduled) / total : 0;
-    const cancelledY = y + height - cancelledHeight;
-    const rescheduledY = y + height - rescheduledHeight;
-    const compactOverlays = width < 12;
-    const overlayGap = Math.max(1, Math.min(width * 0.08, 3));
-    const regularOverlayWidth = Math.max(2, Math.min(width * 0.32, 10));
-    const regularOverlaysWidth = regularOverlayWidth * 2 + overlayGap;
-    const cancelledWidth = compactOverlays
-        ? Math.max(1, width * 0.7)
-        : regularOverlayWidth;
-    const rescheduledWidth = compactOverlays
-        ? Math.max(1, width * 0.36)
-        : regularOverlayWidth;
-    const cancelledX = compactOverlays
-        ? x + (width - cancelledWidth) / 2
-        : x + (width - regularOverlaysWidth) / 2;
-    const rescheduledX = compactOverlays
-        ? x + (width - rescheduledWidth) / 2
-        : cancelledX + regularOverlayWidth + overlayGap;
-    const cancelledRadius = Math.min(
-        1.5,
-        cancelledWidth / 4,
-        cancelledHeight / 2,
-    );
-    const rescheduledRadius = Math.min(
-        1.5,
-        rescheduledWidth / 4,
-        rescheduledHeight / 2,
-    );
+    const cancelledHeight = total > 0 ? (height * cancelled) / total : 0;
+    const rescheduledHeight = total > 0 ? (height * rescheduled) / total : 0;
+    const cancelledWidth = Math.max(8, Math.min(width * 0.5, 18));
+    const rescheduledWidth = Math.max(6, Math.min(width * 0.3, 11));
 
     return (
         <g>
-            <rect
-                x={x}
-                y={y}
-                width={width}
-                height={height}
-                rx={6}
-                fill="#1683ff"
-            />
-            {cancelledHeight > 0 ? (
+            <rect x={x} y={y} width={width} height={height} rx={6} fill="#1683ff" />
+            {cancelled > 0 ? (
                 <rect
-                    x={cancelledX}
-                    y={cancelledY}
+                    x={x + (width - cancelledWidth) / 2}
+                    y={y + height - cancelledHeight}
                     width={cancelledWidth}
                     height={cancelledHeight}
-                    rx={cancelledRadius}
+                    rx={Math.min(4, cancelledWidth / 2)}
                     fill="#f43f5e"
                 />
             ) : null}
-            {rescheduledHeight > 0 ? (
+            {rescheduled > 0 ? (
                 <rect
-                    x={rescheduledX}
-                    y={rescheduledY}
+                    x={x + width - rescheduledWidth - 1}
+                    y={y + height - rescheduledHeight}
                     width={rescheduledWidth}
                     height={rescheduledHeight}
-                    rx={rescheduledRadius}
+                    rx={Math.min(3, rescheduledWidth / 2)}
                     fill="#f59e0b"
                 />
             ) : null}

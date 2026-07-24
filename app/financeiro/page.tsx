@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
     BadgeDollarSign,
     Ban,
-    Banknote,
     CalendarCheck2,
     ChartNoAxesCombined,
     CircleDollarSign,
@@ -19,7 +18,6 @@ import {
     WalletCards,
 } from "lucide-react";
 import {
-    Area,
     Bar,
     BarChart,
     CartesianGrid,
@@ -49,13 +47,18 @@ import {
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
 import type {
     FiltersResponse,
     FinancialDashboardData,
 } from "@/types";
+import {
+    FinancialUnitTableCard,
+    MonthlyProjectionKpiCard,
+    RevenueEvolutionComparisonCard,
+    useFinancialUnitSummary,
+} from "@/components/dashboard/FinancialDashboardExtras";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 
 const STATUS_COLORS: Record<string, string> = {
     authorized: "#10b981",
@@ -80,14 +83,24 @@ export default function FinancialDashboardPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const hasLoadedOnce = useRef(false);
-    const [period, setPeriod] =
-        useState<CalendarPresetValue | null>("30");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("30");
+    const financialSummary = useFinancialUnitSummary({
+        unitIds,
+        categories,
+        period,
+        selectedRange,
+        enabled: dateFilterReady,
     });
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+
         async function loadFilters() {
             try {
                 const response = await fetch(
@@ -101,9 +114,11 @@ export default function FinancialDashboardPage() {
         }
 
         void loadFilters();
-    }, []);
+    }, [dateFilterReady]);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+
         async function loadDashboard() {
             if (hasLoadedOnce.current) setIsRefreshing(true);
             else setLoading(true);
@@ -154,9 +169,15 @@ export default function FinancialDashboardPage() {
         }
 
         void loadDashboard();
-    }, [unitIds, categories, period, selectedRange]);
+    }, [
+        unitIds,
+        categories,
+        period,
+        selectedRange,
+        dateFilterReady,
+    ]);
 
-    if (loading) {
+    if (!dateFilterReady || loading) {
         return (
             <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 flex-1 px-8 py-8">
@@ -183,6 +204,10 @@ export default function FinancialDashboardPage() {
         );
     }
 
+    const exactAuthorizedRevenue =
+        financialSummary.data?.total.total ??
+        data.kpis.authorized_revenue;
+
     return (
         <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
             <section className="min-w-0 flex-1 px-8 py-8">
@@ -193,6 +218,8 @@ export default function FinancialDashboardPage() {
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-3 flex justify-end gap-3">
@@ -222,16 +249,33 @@ export default function FinancialDashboardPage() {
                     <FinancialBodySkeleton />
                 ) : (
                     <div className="overflow-x-hidden pb-12">
-                        <KpiSection data={data} />
+                        <KpiSection
+                            data={data}
+                            exactAuthorizedRevenue={exactAuthorizedRevenue}
+                            projection={financialSummary.data?.projection ?? null}
+                            projectionLoading={financialSummary.loading}
+                        />
 
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1.55fr_0.85fr]">
-                            <EvolutionCard data={data} />
+                            <RevenueEvolutionComparisonCard
+                                data={data}
+                                unitIds={unitIds}
+                                categories={categories}
+                            />
                             <StatusCard data={data} />
                         </section>
 
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_1.2fr]">
                             <CategoryCard data={data} />
                             <UnitCard data={data} />
+                        </section>
+
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <FinancialUnitTableCard
+                                data={financialSummary.data}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
                         </section>
 
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
@@ -247,21 +291,26 @@ export default function FinancialDashboardPage() {
     );
 }
 
-function KpiSection({ data }: { data: FinancialDashboardData }) {
+function KpiSection({
+    data,
+    exactAuthorizedRevenue,
+    projection,
+    projectionLoading,
+}: {
+    data: FinancialDashboardData;
+    exactAuthorizedRevenue: number;
+    projection: number | null;
+    projectionLoading: boolean;
+}) {
     return (
         <section className="mb-6 grid grid-cols-1 gap-5">
             <HorizontalScroller scrollAmount={420}>
-                <KpiContainer>
-                    <KpiCard
-                        icon={<Banknote size={26} />}
-                        label="Faturamento autorizado"
-                        currentValue={data.kpis.authorized_revenue}
+                <KpiContainer wide>
+                    <MonthlyProjectionKpiCard
+                        currentValue={exactAuthorizedRevenue}
                         previousValue={data.previous_kpis.authorized_revenue}
-                        formatter={formatCompactCurrency}
-                        color="green"
-                        tooltipText={`Valor exato: ${formatCurrency(
-                            data.kpis.authorized_revenue,
-                        )}`}
+                        projection={projection}
+                        loading={projectionLoading}
                     />
                 </KpiContainer>
 
@@ -329,8 +378,18 @@ function KpiSection({ data }: { data: FinancialDashboardData }) {
     );
 }
 
-function KpiContainer({ children }: { children: ReactNode }) {
-    return <div className="min-w-[285px]">{children}</div>;
+function KpiContainer({
+    children,
+    wide = false,
+}: {
+    children: ReactNode;
+    wide?: boolean;
+}) {
+    return (
+        <div className={wide ? "w-max min-w-[285px]" : "min-w-[285px]"}>
+            {children}
+        </div>
+    );
 }
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
@@ -462,8 +521,14 @@ function AdsEvolutionCard({ data }: { data: FinancialDashboardData }) {
             />
 
             <div className="mb-4 flex flex-wrap items-center gap-5 text-xs text-slate-500">
-                <LegendDot color={AD_PLATFORM_COLORS.google_ads} label="Google Ads" />
-                <LegendDot color={AD_PLATFORM_COLORS.meta_ads} label="Meta Ads" />
+                <LegendDot
+                    color={AD_PLATFORM_COLORS.google_ads}
+                    label="Google Ads"
+                />
+                <LegendDot
+                    color={AD_PLATFORM_COLORS.meta_ads}
+                    label="Meta Ads"
+                />
                 {data.ads.comparison_available ? (
                     <LegendDot color="#10b981" label="Receita atribuída" />
                 ) : null}
@@ -777,86 +842,6 @@ function AdsCampaignCard({ data }: { data: FinancialDashboardData }) {
     );
 }
 
-function EvolutionCard({ data }: { data: FinancialDashboardData }) {
-    return (
-        <Card>
-            <CardTitle
-                title="Evolução do faturamento"
-                tooltip="Valores de NFS-e autorizadas pela data de emissão. Cancelamentos aparecem separadamente e não reduzem silenciosamente a série autorizada."
-                subtitle={`${formatInteger(
-                    data.kpis.authorized_invoices,
-                )} notas autorizadas no período`}
-            />
-
-            <div className="mb-4 flex items-center gap-6 text-xs text-slate-500">
-                <LegendDot color="#10b981" label="Faturamento autorizado" />
-                <LegendDot color="#ef4444" label="Valor cancelado" />
-            </div>
-
-            <div className="h-[300px]">
-                {data.evolution.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={data.evolution}>
-                            <defs>
-                                <linearGradient
-                                    id="financialRevenueFill"
-                                    x1="0"
-                                    y1="0"
-                                    x2="0"
-                                    y2="1"
-                                >
-                                    <stop
-                                        offset="5%"
-                                        stopColor="#10b981"
-                                        stopOpacity={0.25}
-                                    />
-                                    <stop
-                                        offset="95%"
-                                        stopColor="#10b981"
-                                        stopOpacity={0}
-                                    />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid
-                                strokeDasharray="4 4"
-                                stroke="#e2e8f0"
-                            />
-                            <XAxis
-                                dataKey="label"
-                                tick={{ fontSize: 12 }}
-                                stroke="#94a3b8"
-                                minTickGap={24}
-                            />
-                            <YAxis
-                                tick={{ fontSize: 12 }}
-                                stroke="#94a3b8"
-                                tickFormatter={formatCompactCurrency}
-                                width={72}
-                            />
-                            <Tooltip content={<EvolutionTooltip />} />
-                            <Bar
-                                dataKey="cancelled_amount"
-                                fill="#ef4444"
-                                opacity={0.35}
-                                radius={[4, 4, 0, 0]}
-                            />
-                            <Area
-                                type="monotone"
-                                dataKey="authorized_revenue"
-                                stroke="#10b981"
-                                strokeWidth={3}
-                                fill="url(#financialRevenueFill)"
-                            />
-                        </ComposedChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <EmptyState message="Nenhuma nota emitida no período." />
-                )}
-            </div>
-        </Card>
-    );
-}
-
 function StatusCard({ data }: { data: FinancialDashboardData }) {
     return (
         <Card>
@@ -887,7 +872,7 @@ function StatusCard({ data }: { data: FinancialDashboardData }) {
                                     ))}
                                 </Pie>
                                 <Tooltip
-                                    formatter={(value) => [
+                                    formatter={(value: number | string) => [
                                         formatInteger(Number(value)),
                                         "Notas",
                                     ]}
@@ -1221,43 +1206,6 @@ type TooltipPayloadItem = {
     payload?: Record<string, unknown>;
 };
 
-function EvolutionTooltip({
-    active,
-    payload,
-    label,
-}: {
-    active?: boolean;
-    payload?: TooltipPayloadItem[];
-    label?: string;
-}) {
-    if (!active || !payload?.length) return null;
-    const values = payload[0]?.payload ?? {};
-
-    return (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
-            <div className="mb-2 font-bold text-slate-700">{label}</div>
-            <div className="space-y-1 text-slate-600">
-                <div>
-                    Autorizado: {formatCurrency(Number(values.authorized_revenue ?? 0))}
-                </div>
-                <div>
-                    Cancelado: {formatCurrency(Number(values.cancelled_amount ?? 0))}
-                </div>
-                <div>
-                    Notas: {formatInteger(Number(values.authorized_invoices ?? 0))}
-                </div>
-                <div>
-                    Ticket: {formatNullableCurrency(
-                        typeof values.average_ticket === "number"
-                            ? values.average_ticket
-                            : null,
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function AdsEvolutionTooltip({
     active,
     payload,
@@ -1282,13 +1230,9 @@ function AdsEvolutionTooltip({
             <div className="space-y-1 text-slate-600">
                 <div>Google Ads: {formatCurrency(googleSpend)}</div>
                 <div>Meta Ads: {formatCurrency(metaSpend)}</div>
-                <div>
-                    Investimento: {formatCurrency(googleSpend + metaSpend)}
-                </div>
+                <div>Investimento: {formatCurrency(googleSpend + metaSpend)}</div>
                 {attributedRevenue !== null ? (
-                    <div>
-                        Receita atribuída: {formatCurrency(attributedRevenue)}
-                    </div>
+                    <div>Receita atribuída: {formatCurrency(attributedRevenue)}</div>
                 ) : null}
             </div>
         </div>
@@ -1396,6 +1340,20 @@ function FinancialBodySkeleton() {
                     <Skeleton className="h-[300px] w-full" />
                 </Card>
             </section>
+            <section className="mb-6">
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[28%]" />
+                    <Skeleton className="h-11 w-full rounded-xl" />
+                    <div className="mt-1 space-y-1">
+                        {Array.from({ length: 7 }).map((_, index) => (
+                            <Skeleton
+                                key={index}
+                                className="h-10 w-full rounded-none"
+                            />
+                        ))}
+                    </div>
+                </Card>
+            </section>
             <section className="mt-8 border-t border-slate-200 pt-8">
                 <Skeleton className="mb-3 h-7 w-[190px]" />
                 <section className="mb-5 grid grid-cols-1 gap-5">
@@ -1457,6 +1415,13 @@ function formatNullableMultiplier(value: number | null) {
     return value === null ? "—" : formatMultiplier(value);
 }
 
+function formatMetric(value: number) {
+    return value.toLocaleString("pt-BR", {
+        minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+        maximumFractionDigits: 1,
+    });
+}
+
 function formatCompactCurrency(value: number) {
     return new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -1468,13 +1433,6 @@ function formatCompactCurrency(value: number) {
 
 function formatInteger(value: number) {
     return value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-}
-
-function formatMetric(value: number) {
-    return value.toLocaleString("pt-BR", {
-        minimumFractionDigits: value % 1 === 0 ? 0 : 1,
-        maximumFractionDigits: 1,
-    });
 }
 
 function formatPercentage(value: number | null) {

@@ -56,6 +56,7 @@ export type ExecutiveDashboardData = {
 
     schedule_summary: {
         total: number;
+        unique_total: number;
         cancelled: number;
         showed_up: number;
         no_show: number;
@@ -72,6 +73,11 @@ export type ExecutiveDashboardData = {
         showed_up: number;
         no_show: number;
         rescheduled: number;
+        unique_total: number;
+        unique_cancelled: number;
+        unique_showed_up: number;
+        unique_no_show: number;
+        unique_rescheduled: number;
     }[];
 
     schedules_by_unit: {
@@ -82,6 +88,43 @@ export type ExecutiveDashboardData = {
         outcomes_observed: number;
         no_show_rate: number | null;
     }[];
+
+    schedule_unit_table: {
+        rows: {
+            unit_name: string;
+            appointments: number;
+            reschedulings: number;
+            rescheduling_rate: number | null;
+            unique_appointments: number;
+            pending: number;
+            showed_up: number;
+            showed_up_rate: number | null;
+            projection: number;
+            rescheduled: number;
+            rescheduled_rate: number | null;
+            cancelled: number;
+            cancelled_rate: number | null;
+            no_show: number;
+            no_show_rate: number | null;
+        }[];
+        total: {
+            unit_name: string;
+            appointments: number;
+            reschedulings: number;
+            rescheduling_rate: number | null;
+            unique_appointments: number;
+            pending: number;
+            showed_up: number;
+            showed_up_rate: number | null;
+            projection: number;
+            rescheduled: number;
+            rescheduled_rate: number | null;
+            cancelled: number;
+            cancelled_rate: number | null;
+            no_show: number;
+            no_show_rate: number | null;
+        };
+    };
 
     attendance_score: {
         overall_score: number | null;
