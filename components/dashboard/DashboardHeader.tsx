@@ -3,6 +3,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import ButtonGroup from "@/components/ui/ButtonGroup";
 import CalendarButton from "@/components/ui/CalendarButton";
@@ -11,16 +12,17 @@ import {
     type CalendarPresetValue,
     type DateRange,
 } from "@/components/ui/CalendarButton";
+import { useServerDashboardDateFilters } from "@/components/dashboard/DashboardDateFilterProvider";
+import {
+    DATE_FILTER_STORAGE_PREFIX,
+    isStoredDashboardDateFilter,
+    type StoredDashboardDateFilter,
+    writeDashboardDateFilterCookie,
+} from "@/lib/dashboard/dateFilterStorage";
 
-const DATE_FILTER_STORAGE_PREFIX = "engravida-hub:date-filter:v1:";
 const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
 const useBrowserLayoutEffect =
     typeof window === "undefined" ? useEffect : useLayoutEffect;
-
-export type StoredDashboardDateFilter = {
-    period: CalendarPresetValue | null;
-    selectedRange: DateRange;
-};
 
 type DashboardHeaderProps = {
     title: string;
@@ -38,66 +40,34 @@ export function useDashboardDateFilter(
     defaultPeriod: CalendarPresetValue,
     presets: typeof DEFAULT_CALENDAR_PRESETS = DEFAULT_CALENDAR_PRESETS,
 ) {
-    const [period, setPeriod] = useState<CalendarPresetValue | null>(
-        defaultPeriod,
+    const pathname = usePathname() || "/";
+    const serverFilters = useServerDashboardDateFilters();
+    const [filter, setFilter] = useState<StoredDashboardDateFilter>(() =>
+        resolveInitialFilter({
+            pathname,
+            defaultPeriod,
+            presets,
+            serverFilter: serverFilters[pathname],
+        }),
     );
-    const [selectedRange, setSelectedRange] = useState<DateRange>(
-        EMPTY_DATE_RANGE,
-    );
-    const [ready, setReady] = useState(false);
-
-    useBrowserLayoutEffect(() => {
-        const storedFilter = readStoredDateFilter(presets);
-
-        if (storedFilter) {
-            setPeriod(storedFilter.period);
-            setSelectedRange(
-                storedFilter.period === null
-                    ? storedFilter.selectedRange
-                    : EMPTY_DATE_RANGE,
-            );
-        }
-
-        // State restoration and readiness are committed in the same layout
-        // effect, before the browser paints the dashboard.
-        setReady(true);
-    }, [presets]);
 
     useEffect(() => {
-        if (!ready) return;
-
-        writeStoredDateFilter({ period, selectedRange });
-    }, [period, ready, selectedRange]);
+        writeStoredDateFilter(pathname, filter);
+    }, [filter, pathname]);
 
     return {
-        period,
-        setPeriod,
-        selectedRange,
-        setSelectedRange,
-        ready,
+        period: filter.period,
+        setPeriod: (period: CalendarPresetValue | null) => {
+            setFilter((current) => ({ ...current, period }));
+        },
+        selectedRange: filter.selectedRange,
+        setSelectedRange: (selectedRange: DateRange) => {
+            setFilter((current) => ({ ...current, selectedRange }));
+        },
+        // The initial value is supplied by the server cookie. The cookie is
+        // mirrored from localStorage before the first visible page paint.
+        ready: true,
     };
-}
-
-export function getInitialDashboardDateFilter(
-    defaultPeriod: CalendarPresetValue,
-    presets: typeof DEFAULT_CALENDAR_PRESETS = DEFAULT_CALENDAR_PRESETS,
-): StoredDashboardDateFilter {
-    const fallback: StoredDashboardDateFilter = {
-        period: defaultPeriod,
-        selectedRange: EMPTY_DATE_RANGE,
-    };
-
-    if (typeof window === "undefined") return fallback;
-
-    const storedFilter = readStoredDateFilter(presets);
-    if (!storedFilter) return fallback;
-
-    return storedFilter.period === null
-        ? storedFilter
-        : {
-              period: storedFilter.period,
-              selectedRange: EMPTY_DATE_RANGE,
-          };
 }
 
 export function DashboardHeader({
@@ -111,6 +81,8 @@ export function DashboardHeader({
     storageManaged = false,
     storageReady = true,
 }: DashboardHeaderProps) {
+    const pathname = usePathname() || "/";
+    const serverFilters = useServerDashboardDateFilters();
     const [internalStorageReady, setInternalStorageReady] = useState(
         storageManaged,
     );
@@ -125,7 +97,11 @@ export function DashboardHeader({
             return;
         }
 
-        const storedFilter = readStoredDateFilter(presets);
+        const storedFilter = resolveStoredFilter(
+            pathname,
+            presets,
+            serverFilters[pathname],
+        );
 
         if (storedFilter) {
             const restoredRange =
@@ -143,14 +119,22 @@ export function DashboardHeader({
         }
 
         setInternalStorageReady(true);
-    }, [presets, setPeriod, setSelectedRange, storageManaged]);
+    }, [
+        pathname,
+        presets,
+        serverFilters,
+        setPeriod,
+        setSelectedRange,
+        storageManaged,
+    ]);
 
     useEffect(() => {
         if (storageManaged || !internalStorageReady) return;
 
-        writeStoredDateFilter({ period, selectedRange });
+        writeStoredDateFilter(pathname, { period, selectedRange });
     }, [
         internalStorageReady,
+        pathname,
         period,
         selectedRange,
         storageManaged,
@@ -205,17 +189,60 @@ export function DashboardHeader({
     );
 }
 
-function readStoredDateFilter(
+function resolveInitialFilter({
+    pathname,
+    defaultPeriod,
+    presets,
+    serverFilter,
+}: {
+    pathname: string;
+    defaultPeriod: CalendarPresetValue;
+    presets: typeof DEFAULT_CALENDAR_PRESETS;
+    serverFilter?: StoredDashboardDateFilter;
+}): StoredDashboardDateFilter {
+    const fallback: StoredDashboardDateFilter = {
+        period: defaultPeriod,
+        selectedRange: EMPTY_DATE_RANGE,
+    };
+    const storedFilter = resolveStoredFilter(
+        pathname,
+        presets,
+        serverFilter,
+    );
+
+    if (!storedFilter) return fallback;
+    return storedFilter.period === null
+        ? storedFilter
+        : {
+              period: storedFilter.period,
+              selectedRange: EMPTY_DATE_RANGE,
+          };
+}
+
+function resolveStoredFilter(
+    pathname: string,
     presets: typeof DEFAULT_CALENDAR_PRESETS,
-): StoredDashboardDateFilter | null {
+    serverFilter?: StoredDashboardDateFilter,
+) {
+    const localFilter = readStoredDateFilter(pathname);
+    const candidate = localFilter ?? serverFilter ?? null;
+    if (!candidate || !isAllowedFilter(candidate, presets)) return null;
+    return candidate;
+}
+
+function readStoredDateFilter(pathname: string) {
     if (typeof window === "undefined") return null;
 
     try {
-        const storedValue = window.localStorage.getItem(getStorageKey());
+        const storedValue = window.localStorage.getItem(
+            `${DATE_FILTER_STORAGE_PREFIX}${pathname}`,
+        );
         if (!storedValue) return null;
 
         const storedFilter = JSON.parse(storedValue) as unknown;
-        return isStoredDateFilter(storedFilter, presets) ? storedFilter : null;
+        return isStoredDashboardDateFilter(storedFilter)
+            ? storedFilter
+            : null;
     } catch (error) {
         console.warn(
             "[DashboardHeader] failed to restore date filter",
@@ -225,61 +252,31 @@ function readStoredDateFilter(
     }
 }
 
-function writeStoredDateFilter(value: StoredDashboardDateFilter) {
+function writeStoredDateFilter(
+    pathname: string,
+    value: StoredDashboardDateFilter,
+) {
     if (typeof window === "undefined") return;
 
     try {
-        window.localStorage.setItem(getStorageKey(), JSON.stringify(value));
+        window.localStorage.setItem(
+            `${DATE_FILTER_STORAGE_PREFIX}${pathname}`,
+            JSON.stringify(value),
+        );
+        writeDashboardDateFilterCookie(pathname, value);
     } catch (error) {
         console.warn("[DashboardHeader] failed to save date filter", error);
     }
 }
 
-function getStorageKey() {
-    return `${DATE_FILTER_STORAGE_PREFIX}${window.location.pathname}`;
-}
-
-function isStoredDateFilter(
-    value: unknown,
+function isAllowedFilter(
+    value: StoredDashboardDateFilter,
     presets: typeof DEFAULT_CALENDAR_PRESETS,
-): value is StoredDashboardDateFilter {
-    if (!value || typeof value !== "object") return false;
-
-    const candidate = value as Partial<StoredDashboardDateFilter>;
-
-    if (!isDateRange(candidate.selectedRange)) return false;
-
-    if (candidate.period === null) {
-        return Boolean(candidate.selectedRange.start);
-    }
-
-    if (typeof candidate.period !== "string") return false;
-
-    return presets.some((preset) => preset.value === candidate.period);
+) {
+    if (value.period === null) return Boolean(value.selectedRange.start);
+    return presets.some((preset) => preset.value === value.period);
 }
 
 function sameDateRange(first: DateRange, second: DateRange) {
     return first.start === second.start && first.end === second.end;
-}
-
-function isDateRange(value: unknown): value is DateRange {
-    if (!value || typeof value !== "object") return false;
-
-    const candidate = value as Partial<DateRange>;
-
-    if (!isDateValue(candidate.start) || !isDateValue(candidate.end)) {
-        return false;
-    }
-
-    if (candidate.start === null) return candidate.end === null;
-    if (candidate.end === null) return true;
-
-    return candidate.end >= candidate.start;
-}
-
-function isDateValue(value: unknown): value is string | null {
-    return (
-        value === null ||
-        (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
-    );
 }

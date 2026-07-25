@@ -15,6 +15,8 @@ import {
 import type {
     FinancialUnitRow,
     FinancialUnitSummaryData,
+    ProcedureCategoryKey,
+    ProcedureCityRow,
 } from "@/types/financial-dashboard-extras";
 
 export const dynamic = "force-dynamic";
@@ -125,6 +127,10 @@ export async function GET(request: Request) {
             ),
             rows: table.rows,
             total: table.total,
+            procedures_by_city: buildProcedureMix({
+                invoices: selectedInvoices,
+                units: selectedUnits,
+            }),
         };
 
         return NextResponse.json(response, {
@@ -286,6 +292,87 @@ function buildFinancialTable({
         rows,
         total: finalizeFinancialBucket(totalBucket, projectionFactor),
     };
+}
+
+function buildProcedureMix({
+    invoices,
+    units,
+}: {
+    invoices: InvoiceRow[];
+    units: UnitRow[];
+}): ProcedureCityRow[] {
+    const unitNames = new Map(units.map((unit) => [unit.id, unit.name]));
+    const buckets = new Map<string, ProcedureCityRow>();
+
+    for (const unit of units) {
+        buckets.set(unit.id, emptyProcedureCityRow(unit.id, unit.name));
+    }
+
+    for (const invoice of invoices) {
+        if (invoiceStatusGroup(invoice.status) !== "authorized") continue;
+
+        const unitName =
+            (invoice.unit_id ? unitNames.get(invoice.unit_id) : null) ??
+            invoice.unit_name?.trim() ??
+            "Sem unidade";
+        if (normalizeText(unitName) === "campinas") continue;
+
+        const key =
+            invoice.unit_id ?? `name:${normalizeText(invoice.unit_name)}`;
+        const bucket =
+            buckets.get(key) ??
+            emptyProcedureCityRow(invoice.unit_id, unitName);
+        const category = classifyProcedure(invoice);
+
+        bucket.total += 1;
+        bucket[category] += 1;
+        buckets.set(key, bucket);
+    }
+
+    return [...buckets.values()].sort(
+        (first, second) =>
+            second.total - first.total ||
+            first.unit_name.localeCompare(second.unit_name, "pt-BR"),
+    );
+}
+
+function emptyProcedureCityRow(
+    unitId: string | null,
+    unitName: string,
+): ProcedureCityRow {
+    return {
+        unit_id: unitId,
+        unit_name: unitName,
+        total: 0,
+        first_evaluation: 0,
+        ivf: 0,
+        egg_freezing_cycle: 0,
+        embryo_transfer: 0,
+        storage: 0,
+        exams: 0,
+        freezing: 0,
+        other: 0,
+    };
+}
+
+function classifyProcedure(invoice: InvoiceRow): ProcedureCategoryKey {
+    const description = normalizeText(invoice.description);
+
+    if (isFirstEvaluation(description)) return "first_evaluation";
+    if (isEggFreezingCycle(description)) return "egg_freezing_cycle";
+    if (isEmbryoTransfer(invoice.category, description)) {
+        return "embryo_transfer";
+    }
+    if (invoice.category === "ivf") return "ivf";
+    if (invoice.category === "storage") return "storage";
+    if (
+        invoice.category === "exams" ||
+        invoice.category === "genetics"
+    ) {
+        return "exams";
+    }
+    if (invoice.category === "freezing") return "freezing";
+    return "other";
 }
 
 function emptyFinancialBucket(

@@ -43,7 +43,6 @@ import {
     KpiCard,
     MainFilters,
     Pagination,
-    SidePanel,
     Skeleton,
 } from "@/components";
 import type { FiltersResponse } from "@/types";
@@ -240,17 +239,17 @@ export default function EventsPage() {
 
     if (loadingFilters || loadingData) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-                <SidePanel />
-                <section className="flex-1 px-8 py-8"><EventsSkeleton /></section>
+            <main className="scrollbar-hide h-full w-full overflow-y-auto bg-white text-slate-900">
+                <section className="min-w-0 px-8 py-8">
+                    <EventsSkeleton />
+                </section>
             </main>
         );
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-            <SidePanel />
-            <section className="flex-1 px-8 py-8">
+        <main className="scrollbar-hide h-full w-full overflow-y-auto bg-white text-slate-900">
+            <section className="min-w-0 px-8 py-8">
                 <DashboardHeader
                     title="Eventos"
                     description="Acompanhe os eventos enviados para as plataformas de anúncios"

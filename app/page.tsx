@@ -150,12 +150,43 @@ export default function ExecutiveDashboardPage() {
         dateFilterReady,
     ]);
 
-    if (!dateFilterReady || loading) {
+    if (!dateFilterReady) {
         return (
             <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <DashboardSkeleton />
+                </section>
+            </main>
+        );
+    }
+
+    if (loading) {
+        return (
+            <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
+                <SidePanel />
+                <section className="min-w-0 flex-1 px-8 py-8">
+                    <DashboardHeader
+                        title="Dashboard"
+                        description="Acompanhe os principais indicadores de atendimento"
+                        period={period}
+                        setPeriod={setPeriod}
+                        selectedRange={selectedRange}
+                        setSelectedRange={setSelectedRange}
+                        storageManaged
+                        storageReady
+                    />
+
+                    <div className="mb-8 flex justify-end gap-3">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <Skeleton
+                                key={index}
+                                className="h-12 w-[220px]"
+                            />
+                        ))}
+                    </div>
+
+                    <DashboardBodySkeleton />
                 </section>
             </main>
         );

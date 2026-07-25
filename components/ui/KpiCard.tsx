@@ -17,6 +17,7 @@ type KpiCardProps = {
     positiveDirection?: "up" | "down";
     tooltipText?: string | null;
     unavailableLabel?: string;
+    freeWidth?: boolean;
 };
 
 const colorClasses: Record<KpiCardColor, string> = {
@@ -39,6 +40,7 @@ export default function KpiCard({
     positiveDirection = "up",
     tooltipText = null,
     unavailableLabel = "—",
+    freeWidth = false,
 }: KpiCardProps) {
     const formattedValue =
         currentValue === null
@@ -53,8 +55,14 @@ export default function KpiCard({
     });
 
     return (
-        <Card className="h-full">
-            <div className="flex h-full min-w-0 items-center gap-5">
+        <Card className={freeWidth ? "h-full w-max min-w-[285px]" : "h-full"}>
+            <div
+                className={
+                    freeWidth
+                        ? "flex h-full w-max items-center gap-5"
+                        : "flex h-full min-w-0 items-center gap-5"
+                }
+            >
                 <div className="flex h-full items-center">
                     <div
                         className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${colorClasses[color]}`}
@@ -63,23 +71,22 @@ export default function KpiCard({
                     </div>
                 </div>
 
-                <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium leading-tight text-muted">
-                        <span>{label}</span>
+                <div className={freeWidth ? "flex-none" : "min-w-0 flex-1"}>
+                    <div className="flex min-w-0 items-center gap-1 text-xs font-medium leading-tight text-muted">
+                        <span className="min-w-0 truncate" title={label}>
+                            {label}
+                        </span>
                         {tooltipText ? (
-                            <>
-                                {" "}
-                                <InfoTooltip
-                                    text={tooltipText}
-                                    portal
-                                    fitContent
-                                >
-                                    <HelpCircle
-                                        size={13}
-                                        className="inline align-[-2px] text-slate-400"
-                                    />
-                                </InfoTooltip>
-                            </>
+                            <InfoTooltip
+                                text={tooltipText}
+                                portal
+                                fitContent
+                            >
+                                <HelpCircle
+                                    size={13}
+                                    className="shrink-0 text-slate-400"
+                                />
+                            </InfoTooltip>
                         ) : null}
                     </div>
 

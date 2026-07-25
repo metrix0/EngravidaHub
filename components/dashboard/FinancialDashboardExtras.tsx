@@ -37,11 +37,61 @@ import type { FinancialDashboardData } from "@/types";
 import type {
     FinancialUnitRow,
     FinancialUnitSummaryData,
+    ProcedureCategoryKey,
+    ProcedureCityRow,
     RevenueComparisonData,
 } from "@/types/financial-dashboard-extras";
 
 const EMPTY_CATEGORIES: string[] = [];
 const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
+
+const PROCEDURE_SEGMENTS: {
+    key: ProcedureCategoryKey;
+    label: string;
+    colorClass: string;
+}[] = [
+    {
+        key: "first_evaluation",
+        label: "1ª avaliação",
+        colorClass: "bg-blue-500",
+    },
+    {
+        key: "ivf",
+        label: "FIV",
+        colorClass: "bg-violet-500",
+    },
+    {
+        key: "egg_freezing_cycle",
+        label: "Crio",
+        colorClass: "bg-cyan-500",
+    },
+    {
+        key: "embryo_transfer",
+        label: "TED + TOD",
+        colorClass: "bg-pink-500",
+    },
+    {
+        key: "storage",
+        label: "Anuidade",
+        colorClass: "bg-amber-500",
+    },
+    {
+        key: "exams",
+        label: "Exames",
+        colorClass: "bg-emerald-500",
+    },
+    {
+        key: "freezing",
+        label: "Congelamento",
+        colorClass: "bg-orange-500",
+    },
+    {
+        key: "other",
+        label: "Outros",
+        colorClass: "bg-slate-400",
+    },
+];
+
 
 type FinancialSummaryFilters = {
     unitIds: string[];
@@ -138,11 +188,13 @@ export function MonthlyProjectionKpiCard({
     previousValue,
     projection,
     loading,
+    freeWidth = false,
 }: {
     currentValue: number;
     previousValue: number;
     projection: number | null;
     loading: boolean;
+    freeWidth?: boolean;
 }) {
     const trend = percentageChange(currentValue, previousValue);
     const tooltipText = projection === null
@@ -153,16 +205,26 @@ export function MonthlyProjectionKpiCard({
         : `Projeção ${formatCurrency(projection)}`;
 
     return (
-        <Card className="h-full">
-            <div className="flex h-full min-w-0 items-center gap-5">
+        <Card
+            className={
+                freeWidth ? "h-full w-max min-w-[285px]" : "h-full"
+            }
+        >
+            <div
+                className={
+                    freeWidth
+                        ? "flex h-full w-max items-center gap-5"
+                        : "flex h-full min-w-0 items-center gap-5"
+                }
+            >
                 <div className="flex h-full items-center">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-soft text-green">
                         <Banknote size={26} />
                     </div>
                 </div>
 
-                <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium leading-tight text-muted">
+                <div className={freeWidth ? "flex-none" : "min-w-0 flex-1"}>
+                    <div className="whitespace-nowrap text-xs font-medium leading-tight text-muted">
                         <span>Faturamento autorizado</span>{" "}
                         <InfoTooltip
                             text={tooltipText}
@@ -234,6 +296,154 @@ export function FinancialUnitTableCard({
             )}
         </Card>
     );
+}
+
+export function ProcedureMixByCityCard({
+    data,
+    loading,
+    error,
+}: {
+    data: FinancialUnitSummaryData | null;
+    loading: boolean;
+    error?: string | null;
+}) {
+    return (
+        <Card className="w-full min-w-0">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-lg font-bold">
+                        Procedimentos por cidade
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                        O comprimento compara o volume total; as cores mostram
+                        o mix de procedimentos.
+                    </p>
+                </div>
+
+                <div className="flex max-w-[720px] flex-wrap justify-end gap-x-4 gap-y-2 text-[11px] text-slate-500">
+                    {PROCEDURE_SEGMENTS.map((segment) => (
+                        <div
+                            key={segment.key}
+                            className="flex items-center gap-1.5"
+                        >
+                            <span
+                                className={`h-2.5 w-2.5 rounded-full ${segment.colorClass}`}
+                            />
+                            <span>{segment.label}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {loading ? (
+                <div className="space-y-4">
+                    {Array.from({ length: 7 }).map((_, index) => (
+                        <div
+                            key={index}
+                            className="grid grid-cols-[150px_minmax(0,1fr)_52px] items-center gap-4"
+                        >
+                            <Skeleton className="h-4 w-[110px]" />
+                            <Skeleton className="h-9 w-full rounded-lg" />
+                            <Skeleton className="h-4 w-10" />
+                        </div>
+                    ))}
+                </div>
+            ) : data ? (
+                <ProcedureMixRows rows={data.procedures_by_city ?? []} />
+            ) : (
+                <TableError
+                    message={error ?? "Sem procedimentos no período."}
+                />
+            )}
+        </Card>
+    );
+}
+
+function ProcedureMixRows({ rows }: { rows: ProcedureCityRow[] }) {
+    const maxTotal = Math.max(1, ...rows.map((row) => row.total));
+
+    return (
+        <div className="space-y-4">
+            {rows.map((row) => {
+                const topProcedure = mostCommonProcedure(row);
+                const barWidth =
+                    row.total === 0
+                        ? 0
+                        : Math.max(3, (row.total / maxTotal) * 100);
+
+                return (
+                    <div
+                        key={row.unit_id ?? row.unit_name}
+                        className="grid grid-cols-[150px_minmax(0,1fr)_52px] items-center gap-4"
+                    >
+                        <div className="min-w-0">
+                            <div
+                                className="truncate text-sm font-semibold text-slate-700"
+                                title={row.unit_name}
+                            >
+                                {row.unit_name}
+                            </div>
+                            <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                                {topProcedure
+                                    ? `${topProcedure.label}: ${formatInteger(
+                                          topProcedure.value,
+                                      )}`
+                                    : "Sem procedimentos"}
+                            </div>
+                        </div>
+
+                        <div className="h-9 overflow-hidden rounded-lg bg-slate-100">
+                            <div
+                                className="flex h-full min-w-0 overflow-hidden rounded-lg transition-[width] duration-300"
+                                style={{ width: `${barWidth}%` }}
+                            >
+                                {row.total > 0
+                                    ? PROCEDURE_SEGMENTS.map((segment) => {
+                                          const value = row[segment.key];
+                                          if (value <= 0) return null;
+
+                                          return (
+                                              <div
+                                                  key={segment.key}
+                                                  className={`${segment.colorClass} h-full min-w-[2px]`}
+                                                  style={{
+                                                      width: `${
+                                                          (value / row.total) *
+                                                          100
+                                                      }%`,
+                                                  }}
+                                                  title={`${row.unit_name} · ${
+                                                      segment.label
+                                                  }: ${formatInteger(value)}`}
+                                              />
+                                          );
+                                      })
+                                    : null}
+                            </div>
+                        </div>
+
+                        <div className="text-right text-sm font-bold text-slate-700">
+                            {formatInteger(row.total)}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function mostCommonProcedure(row: ProcedureCityRow) {
+    return PROCEDURE_SEGMENTS.map((segment) => ({
+        ...segment,
+        value: row[segment.key],
+    })).reduce<
+        | (typeof PROCEDURE_SEGMENTS)[number] & { value: number }
+        | null
+    >((best, current) => {
+        if (current.value <= 0) return best;
+        if (!best || current.value > best.value) return current;
+        return best;
+    }, null);
 }
 
 export function RevenueEvolutionComparisonCard({

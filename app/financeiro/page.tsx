@@ -55,6 +55,7 @@ import type {
 import {
     FinancialUnitTableCard,
     MonthlyProjectionKpiCard,
+    ProcedureMixByCityCard,
     RevenueEvolutionComparisonCard,
     useFinancialUnitSummary,
 } from "@/components/dashboard/FinancialDashboardExtras";
@@ -177,11 +178,37 @@ export default function FinancialDashboardPage() {
         dateFilterReady,
     ]);
 
-    if (!dateFilterReady || loading) {
+    if (!dateFilterReady) {
         return (
             <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <FinancialDashboardSkeleton />
+                </section>
+            </main>
+        );
+    }
+
+    if (loading) {
+        return (
+            <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
+                <section className="min-w-0 flex-1 px-8 py-8">
+                    <DashboardHeader
+                        title="Financeiro"
+                        description="Acompanhe faturamento, mix de serviços e eficiência comercial"
+                        period={period}
+                        setPeriod={setPeriod}
+                        selectedRange={selectedRange}
+                        setSelectedRange={setSelectedRange}
+                        storageManaged
+                        storageReady
+                    />
+
+                    <div className="mb-8 flex justify-end gap-3">
+                        <Skeleton className="h-12 w-[230px]" />
+                        <Skeleton className="h-12 w-[250px]" />
+                    </div>
+
+                    <FinancialBodySkeleton />
                 </section>
             </main>
         );
@@ -278,6 +305,14 @@ export default function FinancialDashboardPage() {
                             />
                         </section>
 
+                        <section className="mb-6">
+                            <ProcedureMixByCityCard
+                                data={financialSummary.data}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
+
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
                             <CrmCard data={data} />
                             <DoctorCard data={data} />
@@ -305,12 +340,13 @@ function KpiSection({
     return (
         <section className="mb-6 grid grid-cols-1 gap-5">
             <HorizontalScroller scrollAmount={420}>
-                <KpiContainer wide>
+                <KpiContainer>
                     <MonthlyProjectionKpiCard
                         currentValue={exactAuthorizedRevenue}
                         previousValue={data.previous_kpis.authorized_revenue}
                         projection={projection}
                         loading={projectionLoading}
+                        freeWidth
                     />
                 </KpiContainer>
 
@@ -378,18 +414,8 @@ function KpiSection({
     );
 }
 
-function KpiContainer({
-    children,
-    wide = false,
-}: {
-    children: ReactNode;
-    wide?: boolean;
-}) {
-    return (
-        <div className={wide ? "w-max min-w-[285px]" : "min-w-[285px]"}>
-            {children}
-        </div>
-    );
+function KpiContainer({ children }: { children: ReactNode }) {
+    return <div className="min-w-[285px] shrink-0">{children}</div>;
 }
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
@@ -430,6 +456,7 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     currentValue={ads.kpis.spend}
                                     formatter={formatCompactCurrency}
                                     color="blue"
+                                    freeWidth
                                 />
                             </KpiContainer>
 
