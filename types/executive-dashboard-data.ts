@@ -80,6 +80,12 @@ export type ExecutiveDashboardData = {
         unique_rescheduled: number;
     }[];
 
+    schedule_creation_evolution: {
+        date: string;
+        date_iso: string;
+        total: number;
+    }[];
+
     schedules_by_unit: {
         unit_name: string;
         count: number;

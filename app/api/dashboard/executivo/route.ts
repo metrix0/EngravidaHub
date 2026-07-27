@@ -104,6 +104,7 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
     };
     schedule_summary: ScheduleSummary;
     schedule_evolution: ScheduleEvolutionPoint[];
+    schedule_creation_evolution: ScheduleCreationEvolutionPoint[];
     schedules_by_unit: ScheduleUnitDistribution[];
     schedule_unit_table: ScheduleUnitTable;
 };
@@ -132,6 +133,12 @@ type ScheduleEvolutionPoint = {
     unique_showed_up: number;
     unique_no_show: number;
     unique_rescheduled: number;
+};
+
+type ScheduleCreationEvolutionPoint = {
+    date: string;
+    date_iso: string;
+    total: number;
 };
 
 type ScheduleUnitDistribution = {
@@ -246,11 +253,13 @@ export async function GET(request: Request) {
     );
     const [
         scheduleAnalytics,
+        scheduleCreationEvolution,
         previousScheduleCount,
         currentConversationCount,
         previousConversationCount,
     ] = await Promise.all([
         loadScheduleAnalytics(range, selectedUnitNames, request.signal),
+        loadScheduleCreationEvolution(range, selectedUnitNames, request.signal),
         loadScheduleTotal(
             range,
             selectedUnitNames,
@@ -296,6 +305,7 @@ export async function GET(request: Request) {
         daily_evolution: current.daily_evolution,
         schedule_summary: scheduleAnalytics.summary,
         schedule_evolution: scheduleAnalytics.evolution,
+        schedule_creation_evolution: scheduleCreationEvolution,
         schedules_by_unit: scheduleAnalytics.byUnit,
         schedule_unit_table: scheduleAnalytics.unitTable,
         attendance_score: currentWithScheduleRate.attendance_score,
@@ -355,6 +365,12 @@ type ScheduleAnalyticsRow = {
     unit_name: string | null;
     status: string | null;
     updated_at: string;
+};
+
+type ScheduleCreationRow = {
+    id: string;
+    created_in_source_at: string;
+    unit_name: string | null;
 };
 
 type ScheduleAnalyticsResult = {
@@ -542,6 +558,66 @@ async function loadScheduleAnalytics(
         );
         return emptyScheduleAnalytics(startDate, endDate, false);
     }
+}
+
+async function loadScheduleCreationEvolution(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    selectedUnitNames: string[] | null,
+    signal: AbortSignal,
+): Promise<ScheduleCreationEvolutionPoint[]> {
+    const startDate = range.startDate ?? brazilDate(range.startAt);
+    const endDate = range.endDate ?? brazilDate(
+        new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+    );
+    const evolutionByDate = new Map(
+        buildDateRange(startDate, endDate).map((dateIso) => [
+            dateIso,
+            emptyScheduleCreationEvolutionPoint(dateIso),
+        ]),
+    );
+
+    if (selectedUnitNames?.length === 0) {
+        return [...evolutionByDate.values()];
+    }
+
+    try {
+        for (
+            let from = 0;
+            from < MAX_SCHEDULE_ANALYTICS_ROWS;
+            from += SCHEDULE_PAGE_SIZE
+        ) {
+            let query = supabase
+                .from("schedules")
+                .select("id, created_in_source_at, unit_name")
+                .gte("created_in_source_at", startDate)
+                .lte("created_in_source_at", endDate)
+                .order("created_in_source_at", { ascending: true })
+                .order("id", { ascending: true })
+                .range(from, from + SCHEDULE_PAGE_SIZE - 1);
+
+            if (selectedUnitNames) {
+                query = query.in("unit_name", selectedUnitNames);
+            }
+
+            const { data, error } = await query.abortSignal(signal);
+            if (error) throw error;
+
+            const page = (data ?? []) as ScheduleCreationRow[];
+            for (const row of page) {
+                const daily = evolutionByDate.get(row.created_in_source_at);
+                if (daily) daily.total += 1;
+            }
+
+            if (page.length < SCHEDULE_PAGE_SIZE) break;
+        }
+    } catch (error) {
+        console.error(
+            "[dashboard/executivo] failed to load schedule creation evolution",
+            error,
+        );
+    }
+
+    return [...evolutionByDate.values()];
 }
 
 async function loadScheduleTotal(
@@ -943,6 +1019,17 @@ function emptyScheduleEvolutionPoint(
         unique_showed_up: 0,
         unique_no_show: 0,
         unique_rescheduled: 0,
+    };
+}
+
+function emptyScheduleCreationEvolutionPoint(
+    dateIso: string,
+): ScheduleCreationEvolutionPoint {
+    const [, month, day] = dateIso.split("-");
+    return {
+        date: `${day}/${month}`,
+        date_iso: dateIso,
+        total: 0,
     };
 }
 

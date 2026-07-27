@@ -334,8 +334,9 @@ export default function ExecutiveDashboardPage() {
                             <DropoffCard data={data} />
                         </section>
 
-                        <section className="mb-6">
+                        <section className="mb-6 grid grid-cols-1 gap-5">
                             <ScheduleEvolutionCard data={data} />
+                            <ScheduleCreationEvolutionCard data={data} />
                         </section>
 
                         <section className="mb-6 grid grid-cols-2 gap-5">
@@ -462,6 +463,69 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             dataKey="unique_total"
                             fill="#1683ff"
                             shape={<ScheduleOverlayBar />}
+                            isAnimationActive={false}
+                        />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+function ScheduleCreationEvolutionCard({
+    data,
+}: {
+    data: ExecutiveDashboardData;
+}) {
+    return (
+        <Card>
+            <div className="mb-5">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold">Marcações por dia</h2>
+                    <InfoTooltip text="Mostra quantos agendamentos foram criados no CliniSys em cada dia do período, independentemente da data marcada para a consulta.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
+                <div className="mt-3 flex items-center gap-6 text-xs text-slate-500">
+                    <LegendDot color="bg-red-700" label="Marcações realizadas" />
+                </div>
+            </div>
+
+            <div className="h-[290px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                        data={data.schedule_creation_evolution}
+                        margin={{ top: 18, right: 8, bottom: 0, left: 0 }}
+                        barCategoryGap="24%"
+                    >
+                        <CartesianGrid
+                            strokeDasharray="4 4"
+                            stroke="#e2e8f0"
+                        />
+                        <XAxis
+                            dataKey="date"
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            minTickGap={24}
+                        />
+                        <YAxis
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            allowDecimals={false}
+                            domain={[
+                                0,
+                                (maximum: number) =>
+                                    Math.max(1, Math.ceil(maximum * 1.18)),
+                            ]}
+                        />
+                        <Tooltip
+                            content={<ScheduleCreationEvolutionTooltip />}
+                            cursor={{ fill: "#f8fafc" }}
+                        />
+                        <Bar
+                            dataKey="total"
+                            fill="#b91c1c"
+                            shape={<ScheduleCreationBar />}
                             isAnimationActive={false}
                         />
                     </BarChart>
@@ -693,12 +757,14 @@ function DashboardBodySkeleton() {
                     <div className="mt-7 space-y-6">{Array.from({ length: 4 }).map((_, index) => (<div key={index} className="grid grid-cols-[32px_minmax(0,1fr)_48px] items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><div><Skeleton className="h-4 w-[72%]" /><Skeleton className="mt-2 h-2 w-full rounded-full" /></div><Skeleton className="h-4 w-10" /></div>))}</div>
                 </Card>
             </section>
-            <section className="mb-6">
-                <Card>
-                    <Skeleton className="h-6 w-[40%]" />
-                    <Skeleton className="mt-3 h-4 w-[62%]" />
-                    <Skeleton className="mt-5 h-[290px] w-full" />
-                </Card>
+            <section className="mb-6 grid grid-cols-1 gap-5">
+                {Array.from({ length: 2 }).map((_, index) => (
+                    <Card key={index}>
+                        <Skeleton className="h-6 w-[40%]" />
+                        <Skeleton className="mt-3 h-4 w-[62%]" />
+                        <Skeleton className="mt-5 h-[290px] w-full" />
+                    </Card>
+                ))}
             </section>
             <section className="mb-6">
                 <Card>
@@ -820,6 +886,80 @@ function ScheduleEvolutionTooltip({
                 </div>
             </div>
         </div>
+    );
+}
+
+function ScheduleCreationEvolutionTooltip({
+    active,
+    payload,
+    label,
+}: {
+    active?: boolean;
+    payload?: ChartTooltipPayloadItem[];
+    label?: string;
+}) {
+    if (!active || !payload?.length) return null;
+
+    const total = Number(payload[0]?.value ?? 0);
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="mb-3 text-sm font-semibold text-slate-800">
+                {label}
+            </div>
+            <div className="flex items-center justify-between gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-700" />
+                    <span className="text-slate-600">Marcações realizadas</span>
+                </div>
+                <span className="font-semibold text-slate-800">
+                    {total.toLocaleString("pt-BR")}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+type ScheduleCreationBarProps = {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    payload?: {
+        total?: number;
+    };
+};
+
+function ScheduleCreationBar({
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    payload,
+}: ScheduleCreationBarProps) {
+    const total = Math.max(Number(payload?.total ?? 0), 0);
+
+    return (
+        <g>
+            <rect
+                x={x}
+                y={y}
+                width={width}
+                height={height}
+                rx={6}
+                fill="#b91c1c"
+            />
+            <text
+                x={x + width / 2}
+                y={y - 7}
+                textAnchor="middle"
+                fill="#334155"
+                fontSize={11}
+                fontWeight={700}
+            >
+                {total.toLocaleString("pt-BR")}
+            </text>
+        </g>
     );
 }
 
