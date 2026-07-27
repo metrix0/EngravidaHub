@@ -1,6 +1,21 @@
 // lib/active-messages/templates.ts
 export type ActiveMessageDatabaseField = "client_first_name";
 
+export type ActiveMessageTemplateCategory =
+    | "marketing"
+    | "utility"
+    | "authentication";
+
+// Meta WhatsApp Business Platform list rates for Brazil in BRL, effective 2026-07-01.
+export const ACTIVE_MESSAGE_TEMPLATE_PRICES_BRL: Record<
+    ActiveMessageTemplateCategory,
+    number
+> = {
+    marketing: 0.3217,
+    utility: 0.035,
+    authentication: 0.035,
+};
+
 export type ActiveMessageTemplateParameter = {
     key: string;
     source:
@@ -19,6 +34,8 @@ export type ActiveMessageTemplateParameter = {
 export type ActiveMessageTemplate = {
     id: string;
     name: string;
+    category: ActiveMessageTemplateCategory;
+    namespace?: string;
     preview: string;
     blip_template_name: string;
     active_campaign: {
@@ -33,6 +50,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
     {
         id: "contato_pesquisa_satisfacao_1a_avaliacao",
         name: "Pesquisa de satisfação — 1ª avaliação",
+        category: "utility",
         preview: [
             "Olá, {{1}}. Tudo bem?",
             "",
@@ -91,6 +109,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
     {
         id: "recaptacao_clientes_congelamento_util",
         name: "Recaptação de clientes — Congelamento",
+        category: "utility",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
             "",
@@ -119,6 +138,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
     {
         id: "recaptacao_clientes_organico_util",
         name: "Recaptação de clientes — Orgânico",
+        category: "utility",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
             "",
@@ -147,6 +167,7 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
     {
         id: "recaptacao_clientes_laqueadura",
         name: "Recaptação de clientes — Laqueadura",
+        category: "utility",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
             "",
@@ -173,8 +194,49 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
         ],
     },
     {
+        id: "ovulo_indicacao",
+        name: "Indicação — Congelamento de óvulos",
+        category: "marketing",
+        namespace: "5ccbe85a_7396_45f1_a010_77e1ef8c75dd",
+        preview: [
+            "Olá, {{1}}, tudo bem? 💛",
+            "",
+            "Tem novidade na sua jornada com a Clínica Engravida.",
+            "",
+            "Agora você pode indicar uma amiga para o congelamento de óvulos e as duas ganham benefícios.",
+            "",
+            "Quando a sua indicada iniciar o tratamento conosco, ela recebe 10% de abatimento no valor total do tratamento e você ganha 1 ano de anuidade do armazenamento.",
+            "",
+            "Para participar, basta acessar a nossa plataforma exclusiva. Nela você pode:",
+            "• fazer suas indicações;",
+            "• acompanhar os benefícios conquistados;",
+            "• consultar informações importantes da sua jornada, como os dados do seu armazenamento e dos seus óvulos congelados, tudo em um só lugar.",
+            "",
+            "Para acessar, clique no botão abaixo e utilize:",
+            "",
+            "Login: seu e-mail",
+            "Senha: seu CPF",
+        ].join("\n"),
+        blip_template_name: "ovulo_indicacao",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
+    {
         id: "recaptacao_clientes_problemas_e_lgbt",
         name: "Recaptação de clientes — Problemas e LGBT",
+        category: "utility",
         preview: [
             "Olá, {{1}}, tudo bem? 😊",
             "",
@@ -201,6 +263,22 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
         ],
     },
 ];
+
+export function getActiveMessageTemplatePriceBrl(
+    category: ActiveMessageTemplateCategory,
+) {
+    return ACTIVE_MESSAGE_TEMPLATE_PRICES_BRL[category];
+}
+
+export function getActiveMessageTemplateCategoryLabel(
+    category: ActiveMessageTemplateCategory,
+) {
+    return {
+        marketing: "Marketing",
+        utility: "Utilidade",
+        authentication: "Autenticação",
+    }[category];
+}
 
 export function getActiveMessageTemplate(templateId: string) {
     return (

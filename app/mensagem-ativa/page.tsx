@@ -6,6 +6,7 @@ import {
     Check,
     Clock3,
     FileText,
+    FileUp,
     Info,
     LoaderCircle,
     MessageSquareText,
@@ -32,6 +33,10 @@ import {
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import {
+    SpreadsheetImportModal,
+    type SpreadsheetImportSendPayload,
+} from "@/components/active-messages/SpreadsheetImportModal";
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 import type {
     ActiveMessageClient,
@@ -65,6 +70,14 @@ type DynamicTemplateField = {
     required?: boolean;
 };
 
+type SpreadsheetImportClientsResponse = {
+    ok: boolean;
+    requested_count: number;
+    created_count: number;
+    existing_count: number;
+    client_ids: string[];
+};
+
 export default function MensagemAtivaPage() {
     const [data, setData] = useState<ActiveMessagesPageResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -93,6 +106,8 @@ export default function MensagemAtivaPage() {
     const [currentPage, setCurrentPage] = useState(1);
 
     const [confirmationOpen, setConfirmationOpen] = useState(false);
+    const [spreadsheetImportOpen, setSpreadsheetImportOpen] = useState(false);
+    const [spreadsheetPreparing, setSpreadsheetPreparing] = useState(false);
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<SendFeedback | null>(null);
     const deepLinkAppliedRef = useRef(false);
@@ -603,14 +618,20 @@ export default function MensagemAtivaPage() {
         },
     ];
 
-    async function handleSend() {
+    async function submitSend({
+        clientIds,
+        filters,
+    }: {
+        clientIds: string[];
+        filters: Record<string, unknown>;
+    }) {
         if (
             !selectedTemplate ||
             !templateFieldsComplete ||
-            selectedCount === 0 ||
+            clientIds.length === 0 ||
             sending
         ) {
-            return;
+            return false;
         }
 
         setSending(true);
@@ -627,18 +648,8 @@ export default function MensagemAtivaPage() {
                     },
                     body: JSON.stringify({
                         template_id: selectedTemplate.id,
-                        client_ids: [...selectedClientIds],
-                        filters: {
-                            search: search.trim() || null,
-                            funnel_stage_ids: stageValues,
-                            tunnels: tunnelValues,
-                            origins: originValues,
-                            closing_tags: closingTagValues,
-                            last_client_message_date_range:
-                                lastClientMessageRange,
-                            whatsapp_window: windowValues,
-                            active_send_history: activeSendValues,
-                        },
+                        client_ids: clientIds,
+                        filters,
                         dynamic_values: dynamicValues,
                     }),
                 },
@@ -672,9 +683,8 @@ export default function MensagemAtivaPage() {
                         : ""
                 }`,
             });
-            setSelectedClientIds(new Set());
-            setConfirmationOpen(false);
             await loadPage({ silent: true });
+            return true;
         } catch (error) {
             console.error("[mensagem-ativa] send failed", error);
             setFeedback({
@@ -685,9 +695,111 @@ export default function MensagemAtivaPage() {
                         ? error.message
                         : "Ocorreu uma falha inesperada no envio.",
             });
-            setConfirmationOpen(false);
+            return false;
         } finally {
             setSending(false);
+        }
+    }
+
+    async function handleSend() {
+        const sent = await submitSend({
+            clientIds: [...selectedClientIds],
+            filters: {
+                search: search.trim() || null,
+                funnel_stage_ids: stageValues,
+                tunnels: tunnelValues,
+                origins: originValues,
+                closing_tags: closingTagValues,
+                last_client_message_date_range:
+                    lastClientMessageRange,
+                whatsapp_window: windowValues,
+                active_send_history: activeSendValues,
+            },
+        });
+
+        setConfirmationOpen(false);
+        if (sent) setSelectedClientIds(new Set());
+    }
+
+    async function handleSpreadsheetSend(
+        payload: SpreadsheetImportSendPayload,
+    ) {
+        setSpreadsheetPreparing(true);
+
+        try {
+            let importedClientIds: string[] = [];
+            let createdClientCount = 0;
+            let existingClientCount = 0;
+
+            if (payload.newClients.length > 0) {
+                const response = await fetch(
+                    "/api/mensagem-ativa/import-clients",
+                    {
+                        method: "POST",
+                        credentials: "include",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            clients: payload.newClients,
+                        }),
+                    },
+                );
+                const json = (await response.json()) as
+                    | SpreadsheetImportClientsResponse
+                    | { error?: string };
+
+                if (!response.ok) {
+                    throw new Error(
+                        "error" in json && json.error
+                            ? json.error
+                            : "Não foi possível criar os novos clientes",
+                    );
+                }
+
+                const importResult = json as SpreadsheetImportClientsResponse;
+                importedClientIds = importResult.client_ids;
+                createdClientCount = importResult.created_count;
+                existingClientCount = importResult.existing_count;
+            }
+
+            const clientIds = [
+                ...new Set([...payload.clientIds, ...importedClientIds]),
+            ];
+
+            const sent = await submitSend({
+                clientIds,
+                filters: {
+                    source: "spreadsheet_import",
+                    files: payload.fileNames,
+                    scanned_count: payload.scannedCount,
+                    matched_count: payload.matchedCount,
+                    created_client_count: createdClientCount,
+                    existing_client_count: existingClientCount,
+                    whatsapp_window: {
+                        open: payload.openWindowCount,
+                        expired:
+                            payload.templateWindowCount +
+                            importedClientIds.length,
+                    },
+                },
+            });
+
+            if (sent) setSpreadsheetImportOpen(false);
+            return sent;
+        } catch (error) {
+            console.error("[mensagem-ativa] spreadsheet import failed", error);
+            setFeedback({
+                tone: "error",
+                title: "Não foi possível importar",
+                description:
+                    error instanceof Error
+                        ? error.message
+                        : "Ocorreu uma falha inesperada na importação.",
+            });
+            return false;
+        } finally {
+            setSpreadsheetPreparing(false);
         }
     }
 
@@ -879,6 +991,15 @@ export default function MensagemAtivaPage() {
 
                             <button
                                 type="button"
+                                onClick={() => setSpreadsheetImportOpen(true)}
+                                className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                            >
+                                <FileUp size={17} />
+                                Importar planilha
+                            </button>
+
+                            <button
+                                type="button"
                                 onClick={() =>
                                     setConfirmationOpen(true)
                                 }
@@ -967,6 +1088,24 @@ export default function MensagemAtivaPage() {
                     }
                 }}
                 onConfirm={() => void handleSend()}
+            />
+
+            <SpreadsheetImportModal
+                open={spreadsheetImportOpen}
+                clients={data?.clients ?? []}
+                templateName={selectedTemplate?.name ?? null}
+                templateReady={Boolean(
+                    selectedTemplate && templateFieldsComplete,
+                )}
+                templateCategory={selectedTemplate?.category ?? null}
+                sending={sending || spreadsheetPreparing}
+                maxClients={MAX_CLIENTS_PER_SEND}
+                onClose={() => {
+                    if (!sending && !spreadsheetPreparing) {
+                        setSpreadsheetImportOpen(false);
+                    }
+                }}
+                onSend={handleSpreadsheetSend}
             />
         </main>
     );
@@ -1147,7 +1286,7 @@ function HistoryTable({
             },
             {
                 id: "recipients",
-                label: "Conversas",
+                label: "Clientes/Conversas",
                 width: "31%",
                 render: (item) => (
                     <HoverBadgeList
@@ -1191,6 +1330,8 @@ function HistoryTable({
                         maxBadgeWidthClassName="max-w-[145px]"
                         expandedBadgeClassName="max-w-[260px]"
                         popupMaxWidthClassName="max-w-[680px]"
+                        overflowIndicatorThreshold={30}
+                        previewCount={0}
                     />
                 ),
             },
@@ -1779,3 +1920,5 @@ function normalize(value: string) {
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "");
 }
+
+

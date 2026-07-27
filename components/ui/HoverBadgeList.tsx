@@ -21,6 +21,9 @@ type HoverBadgeListProps = {
     maxBadgeWidthClassName?: string;
     popupMaxWidthClassName?: string;
     popupAlignContainerSelector?: string;
+    previewCount?: number;
+    overflowIndicatorThreshold?: number;
+    overflowLabel?: string;
 };
 
 export function HoverBadgeList({
@@ -32,6 +35,9 @@ export function HoverBadgeList({
     maxBadgeWidthClassName = "max-w-[115px]",
     popupMaxWidthClassName = "max-w-[520px]",
     popupAlignContainerSelector,
+    previewCount = 2,
+    overflowIndicatorThreshold = Number.POSITIVE_INFINITY,
+    overflowLabel = "…",
 }: HoverBadgeListProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const [side, setSide] = useState<"left" | "right">("left");
@@ -39,6 +45,21 @@ export function HoverBadgeList({
     if (items.length === 0) {
         return <span className="text-xs font-medium text-slate-400">{emptyLabel}</span>;
     }
+
+    const normalizedPreviewCount = Math.max(0, previewCount);
+    const hiddenCount = Math.max(0, items.length - normalizedPreviewCount);
+    const previewItems: HoverBadgeListItem[] =
+        items.length > overflowIndicatorThreshold
+            ? [
+                  ...items.slice(0, normalizedPreviewCount),
+                  {
+                      key: "__overflow-indicator__",
+                      label: overflowLabel,
+                      title: `Mais ${hiddenCount} clientes. Passe o mouse para ver todos.`,
+                      className: "bg-slate-100 text-slate-600",
+                  },
+              ]
+            : items;
 
     function handleMouseEnter() {
         const wrapper = wrapperRef.current;
@@ -70,7 +91,7 @@ export function HoverBadgeList({
             className={`group/badge-list relative min-w-0 max-w-full ${className}`}
         >
             <div className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
-                {items.map((item) => (
+                {previewItems.map((item) => (
                     <Badge
                         key={item.key}
                         item={item}
