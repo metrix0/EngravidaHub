@@ -180,7 +180,7 @@ export default function FinancialDashboardPage() {
 
     if (!dateFilterReady) {
         return (
-            <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
+            <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <FinancialDashboardSkeleton />
                 </section>
@@ -190,7 +190,7 @@ export default function FinancialDashboardPage() {
 
     if (loading) {
         return (
-            <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
+            <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <DashboardHeader
                         title="Financeiro"
@@ -216,7 +216,7 @@ export default function FinancialDashboardPage() {
 
     if (!data) {
         return (
-            <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
+            <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
                 <section className="flex min-w-0 flex-1 items-center justify-center px-8 py-8">
                     <Card className="max-w-xl text-center">
                         <h1 className="text-xl font-bold">
@@ -234,9 +234,8 @@ export default function FinancialDashboardPage() {
     const exactAuthorizedRevenue =
         financialSummary.data?.total.total ??
         data.kpis.authorized_revenue;
-
     return (
-        <main className="scrollbar-hide flex h-full w-full overflow-y-auto bg-white text-slate-900">
+        <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
             <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
                     title="Financeiro"
@@ -319,6 +318,10 @@ export default function FinancialDashboardPage() {
                         </section>
 
                         <AdsSection data={data} />
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <MediaBudgetByCityCard data={data} />
+                        </section>
                     </div>
                 )}
             </section>
@@ -866,6 +869,165 @@ function AdsCampaignCard({ data }: { data: FinancialDashboardData }) {
                 <EmptyState message="Nenhuma campanha com dados no período." />
             )}
         </Card>
+    );
+}
+
+type MediaBudgetCityRow = FinancialDashboardData["ads"]["by_city"][number];
+
+function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
+    const rows = data.ads.by_city.filter((row) => row.city !== "Campinas");
+
+    return (
+        <Card>
+            <CardTitle
+                title="Verba de mídia por cidade"
+                tooltip="As campanhas são associadas às cidades por nomes e siglas identificados no nome da campanha. Os valores refletem o período selecionado."
+                subtitle="Investimento e agendamentos no período selecionado"
+            />
+
+            {rows.length === 0 ? (
+                <EmptyState
+                    message="Nenhuma cidade disponível para os filtros selecionados."
+                />
+            ) : (
+                <>
+                    <div className="overflow-x-auto rounded-xl">
+                        <div className="min-w-[1220px]">
+                            <div className="sticky top-0 grid grid-cols-[minmax(180px,1.35fr)_0.9fr_1fr_0.95fr_0.95fr_0.95fr_0.72fr_0.78fr_0.95fr] gap-3 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-500">
+                                <div>Cidade</div>
+                                <div>Verba mensal</div>
+                                <div>Investido no período</div>
+                                <div>Restante projetado</div>
+                                <div>Média diária</div>
+                                <div>Projeção mensal</div>
+                                <div>Ritmo</div>
+                                <div>Agendamentos</div>
+                                <div>Custo/agend.</div>
+                            </div>
+
+                            {rows.map((row) => (
+                                <MediaBudgetByCityRowItem
+                                    key={row.key}
+                                    row={row}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    {data.ads.unmatched_city_spend > 0 ? (
+                        <p
+                            className="mt-3 text-right text-[11px] text-slate-400"
+                            title="Campanhas nacionais ou sem uma cidade ou sigla reconhecível no nome não são distribuídas entre as unidades."
+                        >
+                            {formatCurrency(data.ads.unmatched_city_spend)} sem
+                            cidade identificada no nome da campanha
+                        </p>
+                    ) : null}
+                </>
+            )}
+        </Card>
+    );
+}
+
+function MediaBudgetByCityRowItem({ row }: { row: MediaBudgetCityRow }) {
+    const investedPercentage =
+        row.monthly_budget > 0
+            ? Math.max(
+                  0,
+                  Math.min(100, (row.spend / row.monthly_budget) * 100),
+              )
+            : 0;
+    const campaignNamesTitle =
+        row.matched_campaign_names.length > 0
+            ? row.matched_campaign_names.join("\n")
+            : undefined;
+
+    return (
+        <div className="grid grid-cols-[minmax(180px,1.35fr)_0.9fr_1fr_0.95fr_0.95fr_0.95fr_0.72fr_0.78fr_0.95fr] items-center gap-3 border-t border-slate-100 px-3 py-3 text-sm">
+            <div className="min-w-0">
+                <div className="truncate font-medium text-slate-700">
+                    {row.city}
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                    {row.meta_spend > 0 ? (
+                        <span
+                            className="text-[#0866FF]"
+                            title="Meta Ads"
+                            aria-label="Meta Ads"
+                        >
+                            <FaMeta size={12} />
+                        </span>
+                    ) : null}
+                    {row.google_spend > 0 ? (
+                        <span
+                            style={{ color: AD_PLATFORM_COLORS.google_ads }}
+                            title="Google Ads"
+                            aria-label="Google Ads"
+                        >
+                            <FaGoogle size={12} />
+                        </span>
+                    ) : null}
+                    <span
+                        className={
+                            campaignNamesTitle
+                                ? "cursor-help underline decoration-dotted underline-offset-2"
+                                : undefined
+                        }
+                        title={campaignNamesTitle}
+                    >
+                        {row.matched_campaigns}{" "}
+                        {row.matched_campaigns === 1 ? "campanha" : "campanhas"}
+                    </span>
+                </div>
+            </div>
+
+            <div className="font-semibold text-slate-700">
+                {formatCurrency(row.monthly_budget)}
+            </div>
+
+            <div className="min-w-0">
+                <div className="font-semibold text-slate-700">
+                    {formatCurrency(row.spend)}
+                </div>
+                <div
+                    className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"
+                    title={`${formatPercentage(investedPercentage)} da verba mensal`}
+                >
+                    <div
+                        className="h-full rounded-full bg-brand"
+                        style={{ width: `${investedPercentage}%` }}
+                    />
+                </div>
+            </div>
+
+            <div className="text-slate-600">
+                {formatCurrency(row.remaining_to_budget)}
+            </div>
+
+            <div className="text-slate-600">
+                {formatCurrency(row.average_daily_spend)}
+            </div>
+
+            <div className="text-slate-600">
+                {formatCurrency(row.monthly_projection)}
+            </div>
+
+            <div className="font-semibold text-slate-700">
+                {row.pace_percentage === null
+                    ? "—"
+                    : formatPercentage(row.pace_percentage)}
+            </div>
+
+            <div className="text-slate-600">
+                {formatInteger(row.schedules)}
+            </div>
+
+            <div className="text-slate-600">
+                {row.cost_per_schedule === null
+                    ? "—"
+                    : formatCurrency(row.cost_per_schedule)}
+            </div>
+        </div>
     );
 }
 

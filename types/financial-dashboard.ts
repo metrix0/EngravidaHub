@@ -139,6 +139,24 @@ export type FinancialDashboardData = {
             reported_conversions: number;
             cost_per_reported_conversion: number | null;
         }[];
+        by_city: {
+            key: string;
+            unit_id: string | null;
+            city: string;
+            monthly_budget: number;
+            spend: number;
+            google_spend: number;
+            meta_spend: number;
+            average_daily_spend: number;
+            monthly_projection: number;
+            remaining_to_budget: number;
+            pace_percentage: number | null;
+            schedules: number;
+            cost_per_schedule: number | null;
+            matched_campaigns: number;
+            matched_campaign_names: string[];
+        }[];
+        unmatched_city_spend: number;
         last_synced_at: string | null;
     };
     audit: {

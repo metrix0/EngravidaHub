@@ -29,6 +29,19 @@ import type {
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
 
+const MEDIA_BUDGET_CITIES = [
+    { key: "sao_paulo", city: "São Paulo", monthlyBudget: 70_000, aliases: ["sao paulo", "sp"] },
+    { key: "rio_de_janeiro", city: "Rio de Janeiro", monthlyBudget: 45_000, aliases: ["rio de janeiro", "rj"] },
+    { key: "salvador", city: "Salvador", monthlyBudget: 35_000, aliases: ["salvador", "ssa"] },
+    { key: "brasilia", city: "Brasília", monthlyBudget: 35_000, aliases: ["brasilia", "bsb"] },
+    { key: "juiz_de_fora", city: "Juiz de Fora", monthlyBudget: 30_000, aliases: ["juiz de fora", "jf", "jdf"] },
+    { key: "belo_horizonte", city: "Belo Horizonte", monthlyBudget: 30_000, aliases: ["belo horizonte", "bh"] },
+    { key: "manaus", city: "Manaus", monthlyBudget: 25_000, aliases: ["manaus", "mao"] },
+    { key: "vitoria", city: "Vitória", monthlyBudget: 30_000, aliases: ["vitoria", "vix"] },
+    { key: "bauru", city: "Bauru", monthlyBudget: 20_000, aliases: ["bauru", "bau"] },
+    { key: "campinas", city: "Campinas", monthlyBudget: 10_000, aliases: ["campinas", "cpq"] },
+] as const;
+
 type InvoiceRow = {
     source_invoice_id: number | string;
     issued_at: string;
@@ -183,6 +196,14 @@ export async function GET(request: Request) {
             endAt: range.previousEndAt,
             comparisonAvailable,
         });
+        const mediaByCity = buildMediaBudgetByCity({
+            adMetrics: currentAdMetrics,
+            schedules,
+            units,
+            selectedUnitIds: filters.unitIds,
+            startAt: range.startAt,
+            endAt: range.endAt,
+        });
 
         const response: FinancialDashboardData = {
             filters: {
@@ -213,6 +234,8 @@ export async function GET(request: Request) {
                 evolution: currentAds.evolution,
                 by_platform: currentAds.byPlatform,
                 top_campaigns: currentAds.topCampaigns,
+                by_city: mediaByCity.rows,
+                unmatched_city_spend: mediaByCity.unmatchedSpend,
                 last_synced_at: lastAdsSyncedAt,
             },
             audit: {
@@ -1099,6 +1122,168 @@ function buildTopAdCampaigns(
                 second.reported_conversions - first.reported_conversions,
         )
         .slice(0, 10);
+}
+
+function buildMediaBudgetByCity({
+    adMetrics,
+    schedules,
+    units,
+    selectedUnitIds,
+    startAt,
+    endAt,
+}: {
+    adMetrics: AdMetricRow[];
+    schedules: ScheduleRow[];
+    units: UnitRow[];
+    selectedUnitIds: string[];
+    startAt: string;
+    endAt: string;
+}) {
+    const unitByName = new Map(
+        units.map((unit) => [normalizeCampaignMatchText(unit.name), unit]),
+    );
+    const selectedUnitIdSet = new Set(selectedUnitIds);
+    const visibleCities = MEDIA_BUDGET_CITIES.filter((city) => {
+        if (selectedUnitIds.length === 0) return true;
+        const unit = unitByName.get(normalizeCampaignMatchText(city.city));
+        return Boolean(unit && selectedUnitIdSet.has(unit.id));
+    });
+    const visibleCityKeys = new Set(visibleCities.map((city) => city.key));
+    const accumulators = new Map(
+        visibleCities.map((city) => [
+            city.key,
+            {
+                spend: 0,
+                googleSpend: 0,
+                metaSpend: 0,
+                campaignKeys: new Set<string>(),
+                campaignNames: new Map<string, string>(),
+            },
+        ]),
+    );
+    let unmatchedSpend = 0;
+
+    for (const metric of adMetrics) {
+        const spend = numeric(metric.spend);
+        const city = matchMediaBudgetCity(metric.campaign_name);
+
+        if (!city) {
+            if (selectedUnitIds.length === 0) unmatchedSpend += spend;
+            continue;
+        }
+        if (!visibleCityKeys.has(city.key)) continue;
+
+        const accumulator = accumulators.get(city.key);
+        if (!accumulator) continue;
+
+        accumulator.spend += spend;
+        if (metric.platform === "google_ads") accumulator.googleSpend += spend;
+        else accumulator.metaSpend += spend;
+        const campaignKey = [
+            metric.platform,
+            metric.account_id,
+            metric.campaign_id,
+        ].join(":");
+        accumulator.campaignKeys.add(campaignKey);
+        accumulator.campaignNames.set(
+            campaignKey,
+            metric.campaign_name?.trim() || "Campanha sem nome",
+        );
+    }
+
+    const scheduleCounts = new Map<string, number>();
+    for (const schedule of schedules) {
+        const key = normalizeCampaignMatchText(schedule.unit_name);
+        if (!key) continue;
+        scheduleCounts.set(key, (scheduleCounts.get(key) ?? 0) + 1);
+    }
+
+    const periodDays = Math.max(
+        1,
+        Math.ceil(
+            (new Date(endAt).getTime() - new Date(startAt).getTime()) /
+                (24 * 60 * 60 * 1_000),
+        ),
+    );
+
+    return {
+        rows: visibleCities.map((city) => {
+            const accumulator = accumulators.get(city.key) ?? {
+                spend: 0,
+                googleSpend: 0,
+                metaSpend: 0,
+                campaignKeys: new Set<string>(),
+                campaignNames: new Map<string, string>(),
+            };
+            const unit = unitByName.get(normalizeCampaignMatchText(city.city));
+            const schedulesForCity =
+                scheduleCounts.get(normalizeCampaignMatchText(city.city)) ?? 0;
+            const averageDailySpend = accumulator.spend / periodDays;
+            const monthlyProjection = averageDailySpend * 30;
+
+            return {
+                key: city.key,
+                unit_id: unit?.id ?? null,
+                city: city.city,
+                monthly_budget: roundMoney(city.monthlyBudget),
+                spend: roundMoney(accumulator.spend),
+                google_spend: roundMoney(accumulator.googleSpend),
+                meta_spend: roundMoney(accumulator.metaSpend),
+                average_daily_spend: roundMoney(averageDailySpend),
+                monthly_projection: roundMoney(monthlyProjection),
+                remaining_to_budget: roundMoney(
+                    city.monthlyBudget - monthlyProjection,
+                ),
+                pace_percentage:
+                    city.monthlyBudget > 0
+                        ? roundMetric(
+                              (monthlyProjection / city.monthlyBudget) * 100,
+                          )
+                        : null,
+                schedules: schedulesForCity,
+                cost_per_schedule:
+                    schedulesForCity > 0
+                        ? roundMoney(accumulator.spend / schedulesForCity)
+                        : null,
+                matched_campaigns: accumulator.campaignKeys.size,
+                matched_campaign_names: [...accumulator.campaignNames.values()]
+                    .sort((first, second) =>
+                        first.localeCompare(second, "pt-BR"),
+                    ),
+            };
+        }),
+        unmatchedSpend: roundMoney(unmatchedSpend),
+    };
+}
+
+function matchMediaBudgetCity(campaignName: string | null | undefined) {
+    const normalizedCampaign = normalizeCampaignMatchText(campaignName);
+    if (!normalizedCampaign) return null;
+    const paddedCampaign = ` ${normalizedCampaign} `;
+
+    for (const city of MEDIA_BUDGET_CITIES) {
+        for (const alias of city.aliases) {
+            const normalizedAlias = normalizeCampaignMatchText(alias);
+            if (
+                normalizedAlias &&
+                paddedCampaign.includes(` ${normalizedAlias} `)
+            ) {
+                return city;
+            }
+        }
+    }
+
+    return null;
+}
+
+function normalizeCampaignMatchText(value: string | null | undefined) {
+    return (value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function resolveClientAdPlatform(
