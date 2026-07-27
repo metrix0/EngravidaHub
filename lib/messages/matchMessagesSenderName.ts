@@ -33,16 +33,25 @@ type AttendantRow = {
 };
 
 const QUERY_BATCH_SIZE = 100;
+const WRITE_CONCURRENCY = 8;
+const SUPABASE_REQUEST_ATTEMPTS = 3;
+const SUPABASE_RETRY_BASE_MS = 500;
 
 export async function matchMessagesSenderName({
-                                                   limit,
-                                               }: MatchMessagesSenderNameInput) {
-    const { data: conversations, error: conversationsError } = await supabase
-        .from("conversations")
-        .select("id")
-        .is("conversation_analysis_id", null)
-        .order("ended_at", { ascending: true })
-        .limit(limit);
+    limit,
+}: MatchMessagesSenderNameInput) {
+    const { data: conversations, error: conversationsError } =
+        await withSupabaseRetry(() =>
+            supabase
+                .from("conversations")
+                .select("id")
+                .is("conversation_analysis_id", null)
+                .order("ended_at", {
+                    ascending: false,
+                    nullsFirst: false,
+                })
+                .limit(limit),
+        );
 
     if (conversationsError) {
         throw conversationsError;
@@ -59,29 +68,29 @@ export async function matchMessagesSenderName({
     }
 
     const conversationIds = pendingConversations.map(
-        (conversation) => conversation.id
+        (conversation) => conversation.id,
     );
 
     const messages = await fetchMessagesByConversationIds(conversationIds);
 
     const clientIds = Array.from(
-        new Set(messages.map((message) => message.client_id).filter(Boolean))
+        new Set(messages.map((message) => message.client_id).filter(Boolean)),
     );
 
     const externalContactIds = Array.from(
         new Set(
             messages
                 .map((message) => message.external_contact_id)
-                .filter(Boolean) as string[]
-        )
+                .filter(Boolean) as string[],
+        ),
     );
 
     const externalAttendantIds = Array.from(
         new Set(
             messages
                 .map((message) => message.external_attendant_id)
-                .filter(Boolean) as string[]
-        )
+                .filter(Boolean) as string[],
+        ),
     );
 
     const clients = await fetchClients({
@@ -95,13 +104,13 @@ export async function matchMessagesSenderName({
     const clientsByExternalContactId = new Map(
         clients
             .filter((client) => client.external_contact_id)
-            .map((client) => [client.external_contact_id, client])
+            .map((client) => [client.external_contact_id, client]),
     );
 
     const attendantsByExternalId = new Map(
         attendants
             .filter((attendant) => attendant.external_attendant_id)
-            .map((attendant) => [attendant.external_attendant_id, attendant])
+            .map((attendant) => [attendant.external_attendant_id, attendant]),
     );
 
     const skippedConversationIds = new Set<string>();
@@ -130,18 +139,20 @@ export async function matchMessagesSenderName({
         }
     }
 
-    for (const update of updates) {
-        const { error } = await supabase
-            .from("messages")
-            .update({
-                sender_name: update.sender_name,
-            })
-            .eq("id", update.id);
+    await runWithConcurrency(updates, WRITE_CONCURRENCY, async (update) => {
+        const { error } = await withSupabaseRetry(() =>
+            supabase
+                .from("messages")
+                .update({
+                    sender_name: update.sender_name,
+                })
+                .eq("id", update.id),
+        );
 
         if (error) {
             throw error;
         }
-    }
+    });
 
     await updateConversationAttendantNames({
         messages,
@@ -149,7 +160,7 @@ export async function matchMessagesSenderName({
     });
 
     const readyConversationIds = conversationIds.filter(
-        (conversationId) => !skippedConversationIds.has(conversationId)
+        (conversationId) => !skippedConversationIds.has(conversationId),
     );
 
     return {
@@ -160,19 +171,21 @@ export async function matchMessagesSenderName({
 }
 
 async function fetchMessagesByConversationIds(
-    conversationIds: string[]
+    conversationIds: string[],
 ): Promise<MessageRow[]> {
     const messages: MessageRow[] = [];
 
     for (const ids of chunk(conversationIds, QUERY_BATCH_SIZE)) {
-        const { data, error } = await supabase
-            .from("messages")
-            .select(
-                "id, conversation_id, client_id, sender_type, sender_name, external_contact_id, external_attendant_id"
-            )
-            .in("conversation_id", ids)
-            .is("sender_name", null)
-            .order("sent_at", { ascending: true });
+        const { data, error } = await withSupabaseRetry(() =>
+            supabase
+                .from("messages")
+                .select(
+                    "id, conversation_id, client_id, sender_type, sender_name, external_contact_id, external_attendant_id",
+                )
+                .in("conversation_id", ids)
+                .is("sender_name", null)
+                .order("sent_at", { ascending: true }),
+        );
 
         if (error) {
             throw error;
@@ -185,19 +198,21 @@ async function fetchMessagesByConversationIds(
 }
 
 async function fetchClients({
-                                clientIds,
-                                externalContactIds,
-                            }: {
+    clientIds,
+    externalContactIds,
+}: {
     clientIds: string[];
     externalContactIds: string[];
 }): Promise<ClientRow[]> {
     const clientsById = new Map<string, ClientRow>();
 
     for (const ids of chunk(clientIds, QUERY_BATCH_SIZE)) {
-        const { data, error } = await supabase
-            .from("clients")
-            .select("id, name, external_contact_id")
-            .in("id", ids);
+        const { data, error } = await withSupabaseRetry(() =>
+            supabase
+                .from("clients")
+                .select("id, name, external_contact_id")
+                .in("id", ids),
+        );
 
         if (error) {
             throw error;
@@ -209,10 +224,12 @@ async function fetchClients({
     }
 
     for (const ids of chunk(externalContactIds, QUERY_BATCH_SIZE)) {
-        const { data, error } = await supabase
-            .from("clients")
-            .select("id, name, external_contact_id")
-            .in("external_contact_id", ids);
+        const { data, error } = await withSupabaseRetry(() =>
+            supabase
+                .from("clients")
+                .select("id, name, external_contact_id")
+                .in("external_contact_id", ids),
+        );
 
         if (error) {
             throw error;
@@ -227,15 +244,17 @@ async function fetchClients({
 }
 
 async function fetchAttendants(
-    externalAttendantIds: string[]
+    externalAttendantIds: string[],
 ): Promise<AttendantRow[]> {
     const attendantsById = new Map<string, AttendantRow>();
 
     for (const ids of chunk(externalAttendantIds, QUERY_BATCH_SIZE)) {
-        const { data, error } = await supabase
-            .from("attendants")
-            .select("id, name, external_attendant_id")
-            .in("external_attendant_id", ids);
+        const { data, error } = await withSupabaseRetry(() =>
+            supabase
+                .from("attendants")
+                .select("id, name, external_attendant_id")
+                .in("external_attendant_id", ids),
+        );
 
         if (error) {
             throw error;
@@ -250,11 +269,11 @@ async function fetchAttendants(
 }
 
 function getSenderNameForMessage({
-                                     message,
-                                     clientsById,
-                                     clientsByExternalContactId,
-                                     attendantsByExternalId,
-                                 }: {
+    message,
+    clientsById,
+    clientsByExternalContactId,
+    attendantsByExternalId,
+}: {
     message: MessageRow;
     clientsById: Map<string, ClientRow>;
     clientsByExternalContactId: Map<string | null, ClientRow>;
@@ -270,7 +289,7 @@ function getSenderNameForMessage({
 
     if (message.sender_type === "attendant") {
         const attendant = attendantsByExternalId.get(
-            message.external_attendant_id
+            message.external_attendant_id,
         );
 
         return attendant?.name ?? message.sender_name?.trim() ?? "Atendente";
@@ -288,9 +307,9 @@ function getSenderNameForMessage({
 }
 
 async function updateConversationAttendantNames({
-                                                    messages,
-                                                    attendantsByExternalId,
-                                                }: {
+    messages,
+    attendantsByExternalId,
+}: {
     messages: MessageRow[];
     attendantsByExternalId: Map<string | null, AttendantRow>;
 }) {
@@ -302,7 +321,7 @@ async function updateConversationAttendantNames({
         if (!message.external_attendant_id) continue;
 
         const attendant = attendantsByExternalId.get(
-            message.external_attendant_id
+            message.external_attendant_id,
         );
 
         if (!attendant?.name) continue;
@@ -310,23 +329,120 @@ async function updateConversationAttendantNames({
         if (!attendantNameByConversationId.has(message.conversation_id)) {
             attendantNameByConversationId.set(
                 message.conversation_id,
-                attendant.name
+                attendant.name,
             );
         }
     }
 
-    for (const [conversationId, attendantName] of attendantNameByConversationId) {
-        const { error } = await supabase
-            .from("conversations")
-            .update({
-                attendant_chat_name: attendantName,
-            })
-            .eq("id", conversationId);
+    await runWithConcurrency(
+        Array.from(attendantNameByConversationId.entries()),
+        WRITE_CONCURRENCY,
+        async ([conversationId, attendantName]) => {
+            const { error } = await withSupabaseRetry(() =>
+                supabase
+                    .from("conversations")
+                    .update({
+                        attendant_chat_name: attendantName,
+                    })
+                    .eq("id", conversationId),
+            );
 
-        if (error) {
-            throw error;
+            if (error) {
+                throw error;
+            }
+        },
+    );
+}
+
+async function withSupabaseRetry<T extends { data: unknown; error: unknown }>(
+    operation: () => PromiseLike<T>,
+): Promise<T> {
+    let lastResult: T | null = null;
+    let lastThrownError: unknown = null;
+
+    for (
+        let attempt = 1;
+        attempt <= SUPABASE_REQUEST_ATTEMPTS;
+        attempt += 1
+    ) {
+        try {
+            const result = await operation();
+
+            if (
+                !result.error ||
+                !isTransientSupabaseError(result.error) ||
+                attempt === SUPABASE_REQUEST_ATTEMPTS
+            ) {
+                return result;
+            }
+
+            lastResult = result;
+            console.warn("[sender-name-match] transient Supabase error; retrying", {
+                attempt,
+                error: errorText(result.error),
+            });
+        } catch (error) {
+            if (
+                !isTransientSupabaseError(error) ||
+                attempt === SUPABASE_REQUEST_ATTEMPTS
+            ) {
+                throw error;
+            }
+
+            lastThrownError = error;
+            console.warn("[sender-name-match] transient Supabase error; retrying", {
+                attempt,
+                error: errorText(error),
+            });
         }
+
+        await wait(SUPABASE_RETRY_BASE_MS * 2 ** (attempt - 1));
     }
+
+    if (lastResult) return lastResult;
+    throw lastThrownError ?? new Error("Supabase request failed after retries");
+}
+
+function isTransientSupabaseError(error: unknown) {
+    return /ECONNRESET|fetch failed|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|UND_ERR|socket hang up|network connection/i.test(
+        errorText(error),
+    );
+}
+
+function errorText(error: unknown): string {
+    if (error instanceof Error) {
+        return [
+            error.name,
+            error.message,
+            error.cause ? errorText(error.cause) : "",
+        ]
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    if (typeof error === "string") return error;
+
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return String(error);
+    }
+}
+
+async function runWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<void>,
+) {
+    for (let index = 0; index < items.length; index += concurrency) {
+        await Promise.all(items.slice(index, index + concurrency).map(worker));
+    }
+}
+
+function wait(milliseconds: number) {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, milliseconds);
+    });
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
