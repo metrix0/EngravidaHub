@@ -273,10 +273,17 @@ export function MonthlyProjectionKpiCard({
 
 export function FinancialUnitTableCard({
     data,
+    operationalUnits,
+    operationalKpis,
     loading,
     error,
 }: {
     data: FinancialUnitSummaryData | null;
+    operationalUnits: FinancialDashboardData["by_unit"];
+    operationalKpis: Pick<
+        FinancialDashboardData["kpis"],
+        "average_ticket" | "cancellation_rate"
+    >;
     loading: boolean;
     error?: string | null;
 }) {
@@ -285,11 +292,13 @@ export function FinancialUnitTableCard({
             <TableHeading title="Faturamento por unidade" />
 
             {loading ? (
-                <TableSkeleton columns={13} />
+                <TableSkeleton columns={16} />
             ) : data ? (
                 <FinancialTable
                     rows={data.rows}
                     total={data.total}
+                    operationalUnits={operationalUnits}
+                    operationalKpis={operationalKpis}
                 />
             ) : (
                 <TableError message={error ?? "Sem dados financeiros no mês."} />
@@ -315,8 +324,8 @@ export function ProcedureMixByCityCard({
                         Procedimentos por cidade
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
-                        O comprimento compara o volume total; as cores mostram
-                        o mix de procedimentos.
+                        O comprimento compara o volume total. As cores
+                        diferenciam os procedimentos.
                     </p>
                 </div>
 
@@ -544,10 +553,6 @@ export function RevenueEvolutionComparisonCard({
     const selectedOption = options.find(
         (option) => option.value === comparisonMonth,
     );
-    const currentInvoices = comparison
-        ? comparison.current.authorized_invoices
-        : data.kpis.authorized_invoices;
-
     function chooseMonth(value: string) {
         setComparisonMonth(value);
         setMenuOpen(false);
@@ -557,15 +562,9 @@ export function RevenueEvolutionComparisonCard({
         <Card>
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold">Evolução do faturamento</h2>
-                        <InfoTooltip text="Valores de NFS-e autorizadas pela data de emissão. Cancelamentos aparecem separadamente e não reduzem silenciosamente a série autorizada. Ao comparar, o gráfico mostra o mês atual completo e sobrepõe o mês escolhido pelo mesmo dia do mês.">
-                            <HelpCircle size={16} className="text-slate-400" />
-                        </InfoTooltip>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                        {formatInteger(currentInvoices)} notas autorizadas {comparison ? `em ${capitalize(comparison.current.month_label)}` : "no período"}
-                    </p>
+                    <h2 className="text-lg font-bold">
+                        Evolução do faturamento
+                    </h2>
                 </div>
 
                 <div ref={menuRef} className="relative">
@@ -741,12 +740,25 @@ export function RevenueEvolutionComparisonCard({
     );
 }
 
+type UnitOperationalMetrics = {
+    average_ticket: number | null;
+    cancellation_rate: number | null;
+    schedules: number;
+};
+
 function FinancialTable({
     rows,
     total,
+    operationalUnits,
+    operationalKpis,
 }: {
     rows: FinancialUnitRow[];
     total: FinancialUnitRow;
+    operationalUnits: FinancialDashboardData["by_unit"];
+    operationalKpis: Pick<
+        FinancialDashboardData["kpis"],
+        "average_ticket" | "cancellation_rate"
+    >;
 }) {
     const columns: {
         key: keyof FinancialUnitRow;
@@ -770,10 +782,33 @@ function FinancialTable({
         { key: "freezing", label: "Congelamento" },
         { key: "other", label: "Outros" },
     ];
+    const operationalById = new Map(
+        operationalUnits.flatMap((unit) =>
+            unit.unit_id ? [[unit.unit_id, unit] as const] : [],
+        ),
+    );
+    const operationalByName = new Map(
+        operationalUnits.map((unit) => [
+            normalizeUnitKey(unit.unit_name),
+            unit,
+        ]),
+    );
+    const findOperationalUnit = (row: FinancialUnitRow) =>
+        (row.unit_id ? operationalById.get(row.unit_id) : null) ??
+        operationalByName.get(normalizeUnitKey(row.unit_name)) ??
+        null;
+    const operationalTotal: UnitOperationalMetrics = {
+        average_ticket: operationalKpis.average_ticket,
+        cancellation_rate: operationalKpis.cancellation_rate,
+        schedules: operationalUnits.reduce(
+            (sum, unit) => sum + unit.schedules,
+            0,
+        ),
+    };
 
     return (
         <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl pb-2">
-            <table className="w-max min-w-[1500px] border-collapse text-xs">
+            <table className="w-max min-w-[1780px] border-collapse text-xs">
                 <thead className="bg-slate-50 text-slate-500">
                     <tr>
                         <th className="sticky left-0 z-20 bg-slate-50 px-3 py-3 text-left font-bold">
@@ -787,6 +822,15 @@ function FinancialTable({
                                 {column.label}
                             </th>
                         ))}
+                        <th className="whitespace-nowrap px-3 py-3 text-right font-bold">
+                            Ticket
+                        </th>
+                        <th className="whitespace-nowrap px-3 py-3 text-right font-bold">
+                            Cancel.
+                        </th>
+                        <th className="whitespace-nowrap px-3 py-3 text-right font-bold">
+                            Agenda
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -795,9 +839,15 @@ function FinancialTable({
                             key={row.unit_id ?? row.unit_name}
                             row={row}
                             columns={columns}
+                            operational={findOperationalUnit(row)}
                         />
                     ))}
-                    <FinancialRow row={total} columns={columns} total />
+                    <FinancialRow
+                        row={total}
+                        columns={columns}
+                        operational={operationalTotal}
+                        total
+                    />
                 </tbody>
             </table>
         </div>
@@ -807,6 +857,7 @@ function FinancialTable({
 function FinancialRow({
     row,
     columns,
+    operational,
     total = false,
 }: {
     row: FinancialUnitRow;
@@ -815,6 +866,7 @@ function FinancialRow({
         label: string;
         emphasis?: boolean;
     }[];
+    operational: UnitOperationalMetrics | null;
     total?: boolean;
 }) {
     return (
@@ -844,6 +896,21 @@ function FinancialRow({
                     {formatTableCurrency(Number(row[column.key] ?? 0))}
                 </td>
             ))}
+            <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
+                {formatNullableTableCurrency(
+                    operational?.average_ticket ?? null,
+                )}
+            </td>
+            <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
+                {formatTablePercentage(
+                    operational?.cancellation_rate ?? null,
+                )}
+            </td>
+            <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
+                {operational
+                    ? formatInteger(operational.schedules)
+                    : "—"}
+            </td>
         </tr>
     );
 }
@@ -1064,16 +1131,40 @@ function formatCompactProjection(value: number) {
 }
 
 function formatTableCurrency(value: number) {
-    return Math.round(value).toLocaleString("pt-BR", {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 0,
         maximumFractionDigits: 0,
-    });
+    }).format(value);
+}
+
+function formatNullableTableCurrency(value: number | null) {
+    return value === null ? "—" : formatTableCurrency(value);
+}
+
+function formatTablePercentage(value: number | null) {
+    return value === null
+        ? "—"
+        : `${value.toLocaleString("pt-BR", {
+              maximumFractionDigits: 1,
+          })}%`;
 }
 
 function formatInteger(value: number) {
     return value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
+function normalizeUnitKey(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function capitalize(value: string) {
     return value.charAt(0).toLocaleUpperCase("pt-BR") + value.slice(1);
 }
-

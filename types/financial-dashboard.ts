@@ -153,6 +153,11 @@ export type FinancialDashboardData = {
             pace_percentage: number | null;
             schedules: number;
             cost_per_schedule: number | null;
+            paid_schedules: number;
+            cost_per_paid_schedule: number | null;
+            attributed_revenue: number;
+            attributed_patients: number;
+            real_roas: number | null;
             matched_campaigns: number;
             matched_campaign_names: string[];
         }[];

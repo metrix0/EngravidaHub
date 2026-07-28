@@ -75,6 +75,8 @@ type ExecutiveMetricsPayload = {
         scheduling_rate: number | null;
         scheduling_eligible: number;
         appointments_count: number;
+        unique_appointments_count: number;
+        raw_conversations: number;
     }[];
 };
 
@@ -173,6 +175,15 @@ type ScheduleUnitTable = {
     total: ScheduleUnitTableRow;
 };
 
+type RawConversationUnitRow = {
+    id: string;
+    unit_id: string | null;
+    clients:
+        | { unit_id: string | null }
+        | Array<{ unit_id: string | null }>
+        | null;
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
@@ -257,6 +268,7 @@ export async function GET(request: Request) {
         previousScheduleCount,
         currentConversationCount,
         previousConversationCount,
+        rawConversationCountsByUnit,
     ] = await Promise.all([
         loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         loadScheduleCreationEvolution(range, selectedUnitNames, request.signal),
@@ -268,6 +280,7 @@ export async function GET(request: Request) {
         ),
         loadRawConversationCount(range, filters, "current", request.signal),
         loadRawConversationCount(range, filters, "previous", request.signal),
+        loadRawConversationCountsByUnit(range, filters, request.signal),
     ]);
     const currentScheduleCount = scheduleAnalytics.available
         ? scheduleAnalytics.summary.total
@@ -283,6 +296,8 @@ export async function GET(request: Request) {
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
         scheduleAnalytics.byUnit,
+        scheduleAnalytics.unitTable,
+        rawConversationCountsByUnit,
         unitSatisfaction,
     );
 
@@ -709,6 +724,79 @@ async function loadRawConversationCount(
     }
 }
 
+async function loadRawConversationCountsByUnit(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    filters: ReturnType<typeof readDashboardFilters>,
+    signal: AbortSignal,
+): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+
+    try {
+        for (
+            let from = 0;
+            from < MAX_SCHEDULE_ANALYTICS_ROWS;
+            from += SCHEDULE_PAGE_SIZE
+        ) {
+            let query = supabase
+                .from("conversations")
+                .select(
+                    "id, unit_id, clients!conversations_client_id_fkey(unit_id)",
+                )
+                .gte("started_at", range.startAt)
+                .lt("started_at", range.endAt)
+                .order("id", { ascending: true })
+                .range(from, from + SCHEDULE_PAGE_SIZE - 1);
+
+            if (filters.serviceIds.length > 0) {
+                query = query.in("service_id", filters.serviceIds);
+            }
+            if (filters.attendantIds.length > 0) {
+                query = query.in("attendant_id", filters.attendantIds);
+            }
+            if (filters.tunnels.length > 0) {
+                query = query.in("tunnel", filters.tunnels);
+            }
+            if (filters.origins.length > 0) {
+                query = query.in("origin", filters.origins);
+            }
+
+            const { data, error } = await query.abortSignal(signal);
+            if (error) throw error;
+
+            const page = (data ?? []) as RawConversationUnitRow[];
+            for (const row of page) {
+                const relatedClient = Array.isArray(row.clients)
+                    ? row.clients[0] ?? null
+                    : row.clients;
+                const unitId = relatedClient?.unit_id ?? row.unit_id;
+
+                // A conversation can retain an older unit_id while the linked
+                // client's canonical unit has already changed. Match the
+                // executive RPC by filtering on that effective unit.
+                if (
+                    filters.unitIds.length > 0 &&
+                    (!unitId || !filters.unitIds.includes(unitId))
+                ) {
+                    continue;
+                }
+
+                const key = unitId ?? "__NO_UNIT__";
+                counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
+
+            if (page.length < SCHEDULE_PAGE_SIZE) break;
+        }
+    } catch (error) {
+        console.error(
+            "[dashboard/executivo] failed to load raw conversations by unit",
+            error,
+        );
+        return new Map();
+    }
+
+    return counts;
+}
+
 function applyScheduleRateMetric(
     payload: ExecutiveMetricsPayload,
     values: {
@@ -752,10 +840,18 @@ function applyScheduleRateMetric(
 function mergeUnitMetrics(
     units: ExecutiveMetricsPayload["by_unit"],
     scheduleCounts: ScheduleUnitDistribution[],
+    scheduleUnitTable: ScheduleUnitTable,
+    rawConversationCountsByUnit: Map<string, number>,
     unitSatisfaction: Map<string, UnitSatisfaction | null>,
 ) {
     const schedulesByName = new Map(
         scheduleCounts.map((item) => [normalizeUnitName(item.unit_name), item]),
+    );
+    const uniqueSchedulesByName = new Map(
+        scheduleUnitTable.rows.map((item) => [
+            normalizeUnitName(item.unit_name),
+            item.unique_appointments,
+        ]),
     );
     const seenNames = new Set<string>();
 
@@ -775,6 +871,11 @@ function mergeUnitMetrics(
                 satisfaction?.satisfaction_observed ??
                 unit.satisfaction_observed,
             appointments_count: schedules?.count ?? 0,
+            unique_appointments_count:
+                uniqueSchedulesByName.get(nameKey) ?? 0,
+            raw_conversations: rawConversationCountsByUnit.get(
+                unit.unit_id ?? "__NO_UNIT__",
+            ) ?? 0,
             no_show_rate: schedules?.no_show_rate ?? null,
             no_show: schedules?.no_show ?? 0,
             outcomes_observed: schedules?.outcomes_observed ?? 0,
@@ -796,6 +897,9 @@ function mergeUnitMetrics(
             scheduling_rate: null,
             scheduling_eligible: 0,
             appointments_count: schedule.count,
+            unique_appointments_count:
+                uniqueSchedulesByName.get(nameKey) ?? 0,
+            raw_conversations: 0,
             no_show_rate: schedule.no_show_rate,
             no_show: schedule.no_show,
             outcomes_observed: schedule.outcomes_observed,

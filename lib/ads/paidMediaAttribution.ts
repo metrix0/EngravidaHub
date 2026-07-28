@@ -1,6 +1,27 @@
 // lib/ads/paidMediaAttribution.ts
 export type PaidMediaPlatform = "google_ads" | "meta_ads";
 
+export type PaidMediaAttributionEvidence =
+    | "origin"
+    | "utm_source"
+    | "click_id";
+
+export type PaidMediaAttributionInput = {
+    last_origin?: string | null;
+    utm_source?: string | null;
+    gclid?: string | null;
+    gbraid?: string | null;
+    wbraid?: string | null;
+    fbclid?: string | null;
+    fbc?: string | null;
+    ctwa_clid?: string | null;
+};
+
+export type PaidMediaAttribution = {
+    platform: PaidMediaPlatform;
+    evidence: PaidMediaAttributionEvidence;
+};
+
 const GOOGLE_PAID_ORIGIN_FAMILIES = [
     "google conta 1",
     "google conta 2",
@@ -52,6 +73,51 @@ export function paidMediaPlatformFromTrackingSource(
     }
 
     return null;
+}
+
+/**
+ * Resolves the strongest paid-acquisition evidence that is still present on a
+ * client. A later organic `last_origin` must not erase an earlier paid UTM or
+ * click identifier.
+ */
+export function resolvePaidMediaAttribution(
+    client: PaidMediaAttributionInput | null | undefined,
+): PaidMediaAttribution | null {
+    if (!client) return null;
+
+    const originPlatform = paidMediaPlatformFromOrigin(client.last_origin);
+    if (originPlatform) {
+        return { platform: originPlatform, evidence: "origin" };
+    }
+
+    const sourcePlatform = paidMediaPlatformFromTrackingSource(
+        client.utm_source,
+    );
+    if (sourcePlatform) {
+        return { platform: sourcePlatform, evidence: "utm_source" };
+    }
+
+    const hasGoogleClick = Boolean(
+        client.gclid || client.gbraid || client.wbraid,
+    );
+    const hasMetaClick = Boolean(
+        client.fbclid || client.fbc || client.ctwa_clid,
+    );
+
+    if (hasGoogleClick && !hasMetaClick) {
+        return { platform: "google_ads", evidence: "click_id" };
+    }
+    if (hasMetaClick && !hasGoogleClick) {
+        return { platform: "meta_ads", evidence: "click_id" };
+    }
+
+    return null;
+}
+
+export function resolvePaidMediaPlatform(
+    client: PaidMediaAttributionInput | null | undefined,
+): PaidMediaPlatform | null {
+    return resolvePaidMediaAttribution(client)?.platform ?? null;
 }
 
 function belongsToOriginFamily(origin: string, family: string) {

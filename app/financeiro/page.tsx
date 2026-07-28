@@ -291,14 +291,15 @@ export default function FinancialDashboardPage() {
                             <StatusCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_1.2fr]">
+                        <section className="mb-6">
                             <CategoryCard data={data} />
-                            <UnitCard data={data} />
                         </section>
 
                         <section className="mb-6 min-w-0 max-w-full">
                             <FinancialUnitTableCard
                                 data={financialSummary.data}
+                                operationalUnits={data.by_unit}
+                                operationalKpis={data.kpis}
                                 loading={financialSummary.loading}
                                 error={financialSummary.error}
                             />
@@ -321,6 +322,10 @@ export default function FinancialDashboardPage() {
 
                         <section className="mt-6 min-w-0 max-w-full">
                             <MediaBudgetByCityCard data={data} />
+                        </section>
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <PaidCityReturnCard data={data} />
                         </section>
                     </div>
                 )}
@@ -457,6 +462,9 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     icon={<BadgeDollarSign size={26} />}
                                     label="Investimento em mídia"
                                     currentValue={ads.kpis.spend}
+                                    previousValue={
+                                        ads.previous_kpis.spend
+                                    }
                                     formatter={formatCompactCurrency}
                                     color="blue"
                                     freeWidth
@@ -473,7 +481,7 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     }
                                     formatter={formatCompactCurrency}
                                     color="green"
-                                    tooltipText="NFS-e autorizadas de clientes identificados como Google ou Meta."
+                                    tooltipText="Soma das NFS-e autorizadas no período cujos clientes têm evidência de aquisição paga. Primeiro usamos uma Origem reconhecida de Google ou Meta; se ela não existir, usamos UTM ou IDs de clique (Google: gclid, gbraid, wbraid; Meta: fbclid, fbc, ctwa_clid). Se houver sinais conflitantes, a receita não é atribuída. Faturas sem cliente vinculado também ficam de fora."
                                 />
                             </KpiContainer>
 
@@ -487,7 +495,6 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     }
                                     formatter={formatMultiplier}
                                     color="purple"
-                                    tooltipText="Receita atribuída do CliniSys ÷ investimento."
                                 />
                             </KpiContainer>
 
@@ -534,6 +541,10 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                         <AdsPlatformCard data={data} />
                     </div>
 
+                    <div className="mb-5">
+                        <AdsPlatformRoasCard data={data} />
+                    </div>
+
                     <AdsCampaignCard data={data} />
                 </>
             )}
@@ -546,8 +557,6 @@ function AdsEvolutionCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Investimento x receita atribuída"
-                tooltip="Barras: gasto diário das plataformas. Linha: NFS-e autorizadas de clientes identificados como mídia paga. Não usa a receita declarada pelas plataformas."
-                subtitle="Evolução no período selecionado"
             />
 
             <div className="mb-4 flex flex-wrap items-center gap-5 text-xs text-slate-500">
@@ -635,7 +644,6 @@ function AdsPlatformCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Eficiência por plataforma"
-                subtitle="Compare investimento, retorno e eficiência de Google Ads e Meta Ads"
             />
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -754,6 +762,85 @@ function AdsPlatformCard({ data }: { data: FinancialDashboardData }) {
     );
 }
 
+function AdsPlatformRoasCard({ data }: { data: FinancialDashboardData }) {
+    const chartData = data.ads.by_platform.map((platform) => ({
+        platform: platform.label,
+        spend: platform.spend,
+        attributed_revenue: platform.attributed_revenue,
+        roas: platform.return_on_spend,
+    }));
+
+    return (
+        <Card>
+            <CardTitle title="ROAS por Plataforma" />
+
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+                <LegendDot color="#94a3b8" label="Investimento" />
+                <LegendDot color="#10b981" label="Receita atribuída" />
+                <LegendDot color="#d97706" label="ROAS" />
+            </div>
+
+            {chartData.length > 0 ? (
+                <div className="h-[320px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart
+                            data={chartData}
+                            margin={{ top: 18, right: 18, bottom: 0, left: 6 }}
+                        >
+                            <CartesianGrid
+                                strokeDasharray="4 4"
+                                stroke="#e2e8f0"
+                            />
+                            <XAxis
+                                dataKey="platform"
+                                tick={{ fontSize: 12 }}
+                                stroke="#94a3b8"
+                            />
+                            <YAxis
+                                yAxisId="money"
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                                tickFormatter={formatCompactCurrency}
+                            />
+                            <YAxis
+                                yAxisId="roas"
+                                orientation="right"
+                                tick={{ fontSize: 11 }}
+                                stroke="#d97706"
+                                tickFormatter={(value) => `${value}x`}
+                            />
+                            <Tooltip content={<AdsPlatformRoasTooltip />} />
+                            <Bar
+                                yAxisId="money"
+                                dataKey="spend"
+                                fill="#94a3b8"
+                                radius={[5, 5, 0, 0]}
+                            />
+                            <Bar
+                                yAxisId="money"
+                                dataKey="attributed_revenue"
+                                fill="#10b981"
+                                radius={[5, 5, 0, 0]}
+                            />
+                            <Line
+                                yAxisId="roas"
+                                type="monotone"
+                                dataKey="roas"
+                                stroke="#d97706"
+                                strokeWidth={3}
+                                dot={{ r: 5, fill: "#d97706" }}
+                                connectNulls={false}
+                            />
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                </div>
+            ) : (
+                <EmptyState message="Nenhuma plataforma com dados no período." />
+            )}
+        </Card>
+    );
+}
+
 function PlatformHighlight({
     label,
     value,
@@ -801,13 +888,12 @@ function AdsCampaignCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Campanhas com maior investimento"
-                tooltip="Resultados e custo por resultado usam a definição configurada em cada plataforma. Use este ranking para eficiência de mídia; receita real é comparada apenas por plataforma."
-                subtitle="Top 10 no período selecionado"
+                tooltip="Top 10 no período selecionado. Resultados e custo por resultado usam a definição configurada em cada plataforma. Use este ranking para eficiência de mídia; receita real é comparada apenas por plataforma."
             />
 
             {data.ads.top_campaigns.length > 0 ? (
-                <div className="max-h-[390px] overflow-y-auto rounded-xl">
-                    <div className="sticky top-0 grid grid-cols-[minmax(260px,1.6fr)_0.75fr_0.55fr_0.65fr_0.55fr_0.75fr] gap-3 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-500">
+                <div className="rounded-xl">
+                    <div className="grid grid-cols-[minmax(260px,1.6fr)_0.75fr_0.55fr_0.65fr_0.55fr_0.75fr] gap-3 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-500">
                         <div>Campanha</div>
                         <div>Investimento</div>
                         <div>Cliques</div>
@@ -882,7 +968,6 @@ function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
             <CardTitle
                 title="Verba de mídia por cidade"
                 tooltip="As campanhas são associadas às cidades por nomes e siglas identificados no nome da campanha. Os valores refletem o período selecionado."
-                subtitle="Investimento e agendamentos no período selecionado"
             />
 
             {rows.length === 0 ? (
@@ -994,7 +1079,7 @@ function MediaBudgetByCityRowItem({ row }: { row: MediaBudgetCityRow }) {
                     title={`${formatPercentage(investedPercentage)} da verba mensal`}
                 >
                     <div
-                        className="h-full rounded-full bg-brand"
+                        className="h-full rounded-full bg-blue-500"
                         style={{ width: `${investedPercentage}%` }}
                     />
                 </div>
@@ -1031,13 +1116,115 @@ function MediaBudgetByCityRowItem({ row }: { row: MediaBudgetCityRow }) {
     );
 }
 
+function PaidCityReturnCard({ data }: { data: FinancialDashboardData }) {
+    const rows = data.ads.by_city
+        .filter(
+            (row) =>
+                row.city !== "Campinas" &&
+                (row.spend > 0 || row.attributed_revenue > 0),
+        )
+        .sort(
+            (first, second) =>
+                second.spend - first.spend ||
+                second.attributed_revenue - first.attributed_revenue,
+        );
+
+    return (
+        <Card>
+            <CardTitle
+                title="Retorno real da mídia por cidade"
+                tooltip="Cruza a verba das campanhas identificadas pelo nome da cidade com notas autorizadas de clientes que possuem Origem, UTM ou ID de clique pago. Uma interação orgânica posterior não apaga a evidência paga."
+            />
+
+            {rows.length === 0 ? (
+                <EmptyState message="Sem investimento ou receita paga atribuída para comparar neste período." />
+            ) : (
+                <>
+                    <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+                        <LegendDot color="#94a3b8" label="Investimento" />
+                        <LegendDot
+                            color="#10b981"
+                            label="Receita atribuída"
+                        />
+                        <LegendDot color="#d97706" label="ROAS real" />
+                    </div>
+
+                    <div className="h-[360px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart
+                                    data={rows}
+                                    margin={{
+                                        top: 18,
+                                        right: 26,
+                                        bottom: 18,
+                                        left: 8,
+                                    }}
+                                >
+                                    <CartesianGrid
+                                        strokeDasharray="4 4"
+                                        stroke="#e2e8f0"
+                                    />
+                                    <XAxis
+                                        dataKey="city"
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                        interval={0}
+                                        angle={-18}
+                                        textAnchor="end"
+                                        height={58}
+                                    />
+                                    <YAxis
+                                        yAxisId="money"
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                        tickFormatter={formatCompactCurrency}
+                                    />
+                                    <YAxis
+                                        yAxisId="roas"
+                                        orientation="right"
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#d97706"
+                                        tickFormatter={(value) => `${value}x`}
+                                    />
+                                    <Tooltip
+                                        content={<PaidCityReturnTooltip />}
+                                    />
+                                    <Bar
+                                        yAxisId="money"
+                                        dataKey="spend"
+                                        fill="#94a3b8"
+                                        radius={[4, 4, 0, 0]}
+                                    />
+                                    <Bar
+                                        yAxisId="money"
+                                        dataKey="attributed_revenue"
+                                        fill="#10b981"
+                                        radius={[4, 4, 0, 0]}
+                                    />
+                                    <Line
+                                        yAxisId="roas"
+                                        type="monotone"
+                                        dataKey="real_roas"
+                                        stroke="#d97706"
+                                        strokeWidth={3}
+                                        dot={{ r: 4, fill: "#d97706" }}
+                                        connectNulls={false}
+                                    />
+                                </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </>
+            )}
+        </Card>
+    );
+}
+
 function StatusCard({ data }: { data: FinancialDashboardData }) {
     return (
         <Card>
             <CardTitle
                 title="Status fiscal"
                 tooltip="Cancelamento negado ou rejeitado permanece como nota válida e entra em autorizadas. Pendentes e negadas são exibidas separadamente."
-                subtitle="Situação atual consolidada por fatura"
             />
 
             {data.by_status.length > 0 ? (
@@ -1119,8 +1306,7 @@ function CategoryCard({ data }: { data: FinancialDashboardData }) {
     return (
         <Card>
             <CardTitle
-                title="Mix de faturamento"
-                subtitle="Quais serviços sustentam o faturamento"
+                title="Faturamento por procedimento"
             />
 
             <div style={{ height: chartHeight }}>
@@ -1129,7 +1315,7 @@ function CategoryCard({ data }: { data: FinancialDashboardData }) {
                         <BarChart
                             data={data.by_category}
                             layout="vertical"
-                            margin={{ left: 8, right: 16 }}
+                            margin={{ left: 0, right: 20 }}
                             barCategoryGap="24%"
                         >
                             <CartesianGrid
@@ -1146,7 +1332,7 @@ function CategoryCard({ data }: { data: FinancialDashboardData }) {
                             <YAxis
                                 type="category"
                                 dataKey="label"
-                                width={148}
+                                width={124}
                                 tick={{ fontSize: 11 }}
                                 stroke="#94a3b8"
                             />
@@ -1162,55 +1348,6 @@ function CategoryCard({ data }: { data: FinancialDashboardData }) {
                     <EmptyState message="Nenhuma categoria faturada no período." />
                 )}
             </div>
-        </Card>
-    );
-}
-
-function UnitCard({ data }: { data: FinancialDashboardData }) {
-    return (
-        <Card>
-            <CardTitle
-                title="Visão por unidade"
-                tooltip="Faturamento, ticket e cancelamento vêm das NFS-e. Agendamentos vêm da agenda CliniSys no mesmo período e servem como contexto operacional."
-                subtitle="Desempenho financeiro e volume de agenda"
-            />
-
-            {data.by_unit.length > 0 ? (
-                <div className="max-h-[335px] overflow-y-auto rounded-xl">
-                    <div className="sticky top-0 grid grid-cols-[1.1fr_1fr_0.75fr_0.7fr_0.7fr] gap-3 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-500">
-                        <div>Unidade</div>
-                        <div>Faturamento</div>
-                        <div>Ticket</div>
-                        <div>Cancel.</div>
-                        <div>Agenda</div>
-                    </div>
-
-                    {data.by_unit.map((unit) => (
-                        <div
-                            key={unit.unit_id ?? unit.unit_name}
-                            className="grid grid-cols-[1.1fr_1fr_0.75fr_0.7fr_0.7fr] items-center gap-3 border-t border-slate-100 px-3 py-3 text-sm"
-                        >
-                            <div className="truncate font-medium text-slate-700">
-                                {unit.unit_name}
-                            </div>
-                            <div className="font-semibold text-slate-700">
-                                {formatCurrency(unit.revenue)}
-                            </div>
-                            <div className="text-slate-600">
-                                {formatNullableCurrency(unit.average_ticket)}
-                            </div>
-                            <div className="text-slate-600">
-                                {formatPercentage(unit.cancellation_rate)}
-                            </div>
-                            <div className="text-slate-600">
-                                {formatInteger(unit.schedules)}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <EmptyState message="Nenhuma unidade faturou no período." />
-            )}
         </Card>
     );
 }
@@ -1282,7 +1419,6 @@ function DoctorCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Faturamento por médico"
-                tooltip="Ranking pelo valor das NFS-e autorizadas associadas ao médico na fonte CliniSys. Não representa remuneração ou margem médica."
                 subtitle="Participação no faturamento autorizado"
             />
 
@@ -1301,7 +1437,7 @@ function DoctorCard({ data }: { data: FinancialDashboardData }) {
                                     <span className="truncate font-medium text-slate-600">
                                         {doctor.doctor_name}
                                     </span>
-                                    <span className="text-xs text-slate-400">
+                                    <span className="shrink-0 whitespace-nowrap text-xs text-slate-400">
                                         {formatInteger(doctor.invoices)} notas
                                     </span>
                                 </div>
@@ -1423,6 +1559,91 @@ function AdsEvolutionTooltip({
                 {attributedRevenue !== null ? (
                     <div>Receita atribuída: {formatCurrency(attributedRevenue)}</div>
                 ) : null}
+            </div>
+        </div>
+    );
+}
+
+function AdsPlatformRoasTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: TooltipPayloadItem[];
+}) {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload ?? {};
+    const attributedRevenue =
+        typeof row.attributed_revenue === "number"
+            ? row.attributed_revenue
+            : null;
+    const roas = typeof row.roas === "number" ? row.roas : null;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
+            <div className="mb-2 font-bold text-slate-700">
+                {String(row.platform ?? "")}
+            </div>
+            <div className="space-y-1 text-slate-600">
+                <div>
+                    Investimento: {formatCurrency(Number(row.spend ?? 0))}
+                </div>
+                <div>
+                    Receita atribuída:{" "}
+                    {attributedRevenue === null
+                        ? "—"
+                        : formatCurrency(attributedRevenue)}
+                </div>
+                <div>
+                    ROAS: {roas === null ? "—" : formatMultiplier(roas)}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function PaidCityReturnTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: TooltipPayloadItem[];
+}) {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload ?? {};
+    const roas =
+        typeof row.real_roas === "number" ? row.real_roas : null;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
+            <div className="mb-2 font-bold text-slate-700">
+                {String(row.city ?? "")}
+            </div>
+            <div className="space-y-1 text-slate-600">
+                <div>
+                    Investimento: {formatCurrency(Number(row.spend ?? 0))}
+                </div>
+                <div>
+                    Receita atribuída:{" "}
+                    {formatCurrency(Number(row.attributed_revenue ?? 0))}
+                </div>
+                <div>
+                    ROAS real: {roas === null ? "—" : formatMultiplier(roas)}
+                </div>
+                <div>
+                    Agendados pagos:{" "}
+                    {formatInteger(Number(row.paid_schedules ?? 0))}
+                </div>
+                <div>
+                    Custo/agendado pago:{" "}
+                    {typeof row.cost_per_paid_schedule === "number"
+                        ? formatCurrency(row.cost_per_paid_schedule)
+                        : "—"}
+                </div>
+                <div>
+                    Pacientes faturados:{" "}
+                    {formatInteger(Number(row.attributed_patients ?? 0))}
+                </div>
             </div>
         </div>
     );
@@ -1589,6 +1810,15 @@ function formatCurrency(value: number) {
     }).format(value);
 }
 
+function formatCompactCurrency(value: number) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        notation: "compact",
+        maximumFractionDigits: 1,
+    }).format(value);
+}
+
 function formatNullableCurrency(value: number | null) {
     return value === null ? "—" : formatCurrency(value);
 }
@@ -1609,15 +1839,6 @@ function formatMetric(value: number) {
         minimumFractionDigits: value % 1 === 0 ? 0 : 1,
         maximumFractionDigits: 1,
     });
-}
-
-function formatCompactCurrency(value: number) {
-    return new Intl.NumberFormat("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-        notation: "compact",
-        maximumFractionDigits: 1,
-    }).format(value);
 }
 
 function formatInteger(value: number) {

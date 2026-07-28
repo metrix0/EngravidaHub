@@ -165,6 +165,8 @@ export type ExecutiveDashboardData = {
         scheduling_rate: number | null;
         scheduling_eligible: number;
         appointments_count: number;
+        unique_appointments_count: number;
+        raw_conversations: number;
         no_show_rate: number | null;
         no_show: number;
         outcomes_observed: number;

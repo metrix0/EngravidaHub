@@ -20,10 +20,14 @@ import {
     Line,
     Pie,
     PieChart,
+    ReferenceLine,
     ResponsiveContainer,
+    Scatter,
+    ScatterChart,
     Tooltip,
     XAxis,
     YAxis,
+    ZAxis,
 } from "recharts";
 
 import {
@@ -349,6 +353,10 @@ export default function ExecutiveDashboardPage() {
                                 data={data.schedule_unit_table}
                             />
                         </section>
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <UnitEfficiencyMapCard data={data} />
+                        </section>
                     </div>
                 )}
             </section>
@@ -413,14 +421,9 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
     return (
         <Card>
             <div className="mb-5">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold">
-                        Agendamentos no período
-                    </h2>
-                    <InfoTooltip text="Cada barra azul mostra agendamentos únicos: apenas o agendamento mais recente de cada paciente no período. Cancelados e reagendados também são calculados sobre esse conjunto único e aparecem sobrepostos.">
-                        <HelpCircle size={16} className="text-slate-400" />
-                    </InfoTooltip>
-                </div>
+                <h2 className="text-lg font-bold">
+                    Agendamentos no período
+                </h2>
                 <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
                     <LegendDot color="bg-blue-500" label="Agendamentos únicos" />
                     <LegendDot color="bg-rose-500" label="Cancelados" />
@@ -487,7 +490,7 @@ function ScheduleCreationEvolutionCard({
                     </InfoTooltip>
                 </div>
                 <div className="mt-3 flex items-center gap-6 text-xs text-slate-500">
-                    <LegendDot color="bg-red-700" label="Marcações realizadas" />
+                    <LegendDot color="bg-cyan-500" label="Marcações realizadas" />
                 </div>
             </div>
 
@@ -524,7 +527,7 @@ function ScheduleCreationEvolutionCard({
                         />
                         <Bar
                             dataKey="total"
-                            fill="#b91c1c"
+                            fill="#06b6d4"
                             shape={<ScheduleCreationBar />}
                             isAnimationActive={false}
                         />
@@ -545,9 +548,6 @@ function DropoffCard({ data }: { data: ExecutiveDashboardData }) {
                         <HelpCircle size={16} className="text-slate-400" />
                     </InfoTooltip>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                    Base: abandonos com evidência
-                </p>
             </div>
 
             <div className="space-y-7">
@@ -676,6 +676,211 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
             </div>
         </Card>
     );
+}
+
+function UnitEfficiencyMapCard({
+    data,
+}: {
+    data: ExecutiveDashboardData;
+}) {
+    const rows = data.by_unit.flatMap((unit) => {
+        if (unit.raw_conversations <= 0 || unit.resolution_rate === null) {
+            return [];
+        }
+        return [
+            {
+                unit: unit.unit_name,
+                resolution_rate: unit.resolution_rate,
+                real_schedule_rate: Number(
+                    (
+                        (unit.unique_appointments_count /
+                            unit.raw_conversations) *
+                        100
+                    ).toFixed(1),
+                ),
+                conversations: unit.raw_conversations,
+                appointments: unit.unique_appointments_count,
+                no_show_rate: unit.no_show_rate,
+                fill: unitEfficiencyColor(unit.no_show_rate),
+            },
+        ];
+    });
+    const averageResolution = average(
+        rows.map((row) => row.resolution_rate),
+    );
+    const averageScheduling = average(
+        rows.map((row) => row.real_schedule_rate),
+    );
+    const maximumScheduling = Math.max(
+        10,
+        ...rows.map((row) => row.real_schedule_rate),
+    );
+
+    return (
+        <Card>
+            <div className="mb-4">
+                <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold">
+                            Mapa de eficiência das unidades
+                        </h2>
+                    <InfoTooltip text="Cruza a resolução com clientes únicos agendados no CliniSys divididos por todas as conversas da unidade no período. Reagendamentos e registros repetidos do mesmo paciente não inflam a taxa. O tamanho representa o volume total de conversas e a cor representa o no-show.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+                <LegendDot color="bg-emerald-500" label="No-show ≤ 5%" />
+                <LegendDot color="bg-amber-500" label="No-show 5–10%" />
+                <LegendDot color="bg-rose-500" label="No-show > 10%" />
+                <span>Bolha maior = mais conversas</span>
+            </div>
+
+            {rows.length === 0 ? (
+                <div className="flex h-[280px] items-center justify-center text-sm text-slate-400">
+                    Sem base suficiente por unidade neste período.
+                </div>
+            ) : (
+                <div className="h-[390px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart
+                            margin={{ top: 20, right: 24, bottom: 28, left: 8 }}
+                        >
+                            <CartesianGrid
+                                strokeDasharray="4 4"
+                                stroke="#e2e8f0"
+                            />
+                            <XAxis
+                                type="number"
+                                dataKey="resolution_rate"
+                                name="Resolução"
+                                unit="%"
+                                domain={[0, 100]}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                                label={{
+                                    value: "Resolução real (%)",
+                                    position: "insideBottom",
+                                    offset: -16,
+                                    fontSize: 12,
+                                    fill: "#64748b",
+                                }}
+                            />
+                            <YAxis
+                                type="number"
+                                dataKey="real_schedule_rate"
+                                name="Agendamento real"
+                                unit="%"
+                                domain={[
+                                    0,
+                                    Math.ceil(maximumScheduling * 1.15),
+                                ]}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                                label={{
+                                    value: "Agendamentos por conversa (%)",
+                                    angle: -90,
+                                    position: "insideLeft",
+                                    fontSize: 12,
+                                    fill: "#64748b",
+                                }}
+                            />
+                            <ZAxis
+                                type="number"
+                                dataKey="conversations"
+                                range={[90, 650]}
+                            />
+                            <ReferenceLine
+                                x={averageResolution}
+                                stroke="#94a3b8"
+                                strokeDasharray="5 5"
+                            />
+                            <ReferenceLine
+                                y={averageScheduling}
+                                stroke="#94a3b8"
+                                strokeDasharray="5 5"
+                            />
+                            <Tooltip
+                                cursor={{ strokeDasharray: "4 4" }}
+                                content={<UnitEfficiencyTooltip />}
+                            />
+                            <Scatter data={rows}>
+                                {rows.map((row) => (
+                                    <Cell
+                                        key={row.unit}
+                                        fill={row.fill}
+                                        fillOpacity={0.82}
+                                        stroke={row.fill}
+                                    />
+                                ))}
+                            </Scatter>
+                        </ScatterChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function UnitEfficiencyTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: Array<{
+        payload?: {
+            unit?: string;
+            resolution_rate?: number;
+            real_schedule_rate?: number;
+            conversations?: number;
+            appointments?: number;
+            no_show_rate?: number | null;
+        };
+    }>;
+}) {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload;
+    if (!row) return null;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs shadow-lg">
+            <div className="mb-2 text-sm font-bold text-slate-800">
+                {row.unit}
+            </div>
+            <div className="space-y-1 text-slate-600">
+                <div>Resolução: {formatPercent(row.resolution_rate)}</div>
+                <div>
+                    Agendamentos por conversa:{" "}
+                    {formatPercent(row.real_schedule_rate)}
+                </div>
+                <div>
+                    {Number(row.appointments ?? 0).toLocaleString("pt-BR")} agendamentos ·{" "}
+                    {Number(row.conversations ?? 0).toLocaleString("pt-BR")} conversas
+                </div>
+                <div>No-show: {formatPercent(row.no_show_rate)}</div>
+            </div>
+        </div>
+    );
+}
+
+function unitEfficiencyColor(noShowRate: number | null) {
+    if (noShowRate === null) return "#94a3b8";
+    if (noShowRate <= 5) return "#10b981";
+    if (noShowRate <= 10) return "#f59e0b";
+    return "#f43f5e";
+}
+
+function average(values: number[]) {
+    if (values.length === 0) return 0;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function formatPercent(value: number | null | undefined) {
+    return value === null || value === undefined
+        ? "—"
+        : `${value.toLocaleString("pt-BR", {
+              maximumFractionDigits: 1,
+          })}%`;
 }
 
 function NoShowValue({ value }: { value: number | null }) {
@@ -909,7 +1114,7 @@ function ScheduleCreationEvolutionTooltip({
             </div>
             <div className="flex items-center justify-between gap-6 text-sm">
                 <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-red-700" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-cyan-500" />
                     <span className="text-slate-600">Marcações realizadas</span>
                 </div>
                 <span className="font-semibold text-slate-800">
@@ -947,7 +1152,7 @@ function ScheduleCreationBar({
                 width={width}
                 height={height}
                 rx={6}
-                fill="#b91c1c"
+                fill="#06b6d4"
             />
             <text
                 x={x + width / 2}

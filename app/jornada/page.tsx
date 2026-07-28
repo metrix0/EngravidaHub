@@ -43,6 +43,7 @@ import {
     SidePanel,
     Skeleton,
 } from "@/components";
+import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
 
 type JourneyDashboardData = {
@@ -85,6 +86,7 @@ type PipelineStageKey =
     | "paid_impressions"
     | "paid_clicks"
     | "whatsapp"
+    | "tracked_whatsapp"
     | "scheduled"
     | "attended"
     | "invoiced"
@@ -113,9 +115,28 @@ type FullJourneyPipeline = {
         lost: number | null;
         estimated: boolean;
     }[];
+    platform_breakdown: {
+        platform: "google_ads" | "meta_ads";
+        label: string;
+        spend: number;
+        whatsapp_clicks: number;
+        platform_whatsapp_conversations: number;
+        tracked_clients: number;
+        scheduled_clients: number;
+        attended_clients: number;
+        invoiced_clients: number;
+        authorized_clients: number;
+        authorized_revenue: number;
+    }[];
     audit: {
-        whatsapp_conversations: number;
-        whatsapp_clients: number;
+        platform_whatsapp_conversations: number;
+        tracked_whatsapp_clients: number;
+        measurement_ready: boolean;
+        measurement_note: string | null;
+        tracked_by_evidence: {
+            evidence: "origin" | "utm_source" | "click_id";
+            clients: number;
+        }[];
         whatsapp_origins: {
             origin: string;
             conversations: number;
@@ -136,9 +157,13 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
     currency_code: "BRL",
     stages: [],
     transitions: [],
+    platform_breakdown: [],
     audit: {
-        whatsapp_conversations: 0,
-        whatsapp_clients: 0,
+        platform_whatsapp_conversations: 0,
+        tracked_whatsapp_clients: 0,
+        measurement_ready: false,
+        measurement_note: null,
+        tracked_by_evidence: [],
         whatsapp_origins: [],
         cohort_start_date: "",
         cohort_end_date: "",
@@ -313,7 +338,7 @@ export default function JourneyPage() {
                     <JourneyBodySkeleton />
                 ) : (
                     <div className="overflow-x-hidden pb-12">
-                        <section className="mb-6 grid grid-cols-[1.55fr_0.85fr] gap-5">
+                        <section className="mb-6 grid grid-cols-[1.7fr_0.8fr] gap-5">
                             <JourneyFunnelCard data={current} />
                             <DropoffCard data={current} />
                         </section>
@@ -348,7 +373,12 @@ const PIPELINE_STAGE_STYLE: Record<
     whatsapp: {
         accent: "#16a66a",
         soft: "#e8fbf1",
-        eyebrow: "Entrada",
+        eyebrow: "Plataforma",
+    },
+    tracked_whatsapp: {
+        accent: "#0f9f94",
+        soft: "#e6f8f6",
+        eyebrow: "CRM",
     },
     scheduled: {
         accent: "#8b5cf6",
@@ -388,15 +418,15 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
             ? transition
             : current;
     }, null);
-    const whatsappStage = pipeline.stages.find(
-        (stage) => stage.key === "whatsapp",
+    const trackedWhatsappStage = pipeline.stages.find(
+        (stage) => stage.key === "tracked_whatsapp",
     );
     const authorizedStage = pipeline.stages.find(
         (stage) => stage.key === "authorized",
     );
     const endToEndRate = calculateRate(
         authorizedStage?.value ?? 0,
-        whatsappStage?.value ?? 0,
+        trackedWhatsappStage?.value ?? 0,
     );
 
     return (
@@ -405,15 +435,16 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
                 <div>
                     <div className="flex items-center gap-2">
                         <h2 className="text-xl font-bold text-slate-900">
-                            Pipeline completo da jornada
+                            Jornada completa
                         </h2>
-                        <InfoTooltip text="Meta + Google usam impressões e cliques agregados. O WhatsApp vem da tag Origem da conversa ou do cliente; daí em diante, cada cliente conta uma vez e só avança em ordem cronológica.">
+                        <InfoTooltip
+                            text={buildPipelineSourceTooltip(pipeline)}
+                            portal
+                            widthClassName="w-[560px]"
+                        >
                             <HelpCircle size={16} className="text-slate-400" />
                         </InfoTooltip>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">
-                        Da impressão ao faturamento liberado · coorte iniciada no período
-                    </p>
                 </div>
             </div>
 
@@ -431,7 +462,7 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
 
             {pipeline.filters_applied ? (
                 <div className="border-b border-blue-100 bg-blue-50 px-6 py-3 text-xs text-blue-800">
-                    Impressões e cliques permanecem globais de Meta + Google; os filtros selecionados valem do WhatsApp em diante.
+                    A medição das plataformas permanece global; os filtros selecionados valem do WhatsApp rastreado em diante.
                 </div>
             ) : null}
 
@@ -482,7 +513,7 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
                     <PipelineInsight
                         label="Conversão ponta a ponta"
                         value={formatRate(endToEndRate)}
-                        detail="WhatsApp → liberado"
+                        detail="WhatsApp rastreado → liberado"
                     />
                     <PipelineInsight
                         label="Receita liberada"
@@ -535,7 +566,7 @@ function PipelineStageCard({
                 {stage.label}
             </div>
             <div className="mt-1 text-[28px] font-black tracking-tight text-slate-900">
-                {stage.value.toLocaleString("pt-BR")}
+                {formatPipelineStageValue(stage)}
             </div>
             <div className="mt-auto min-h-5 pt-3 text-[11px] font-medium text-slate-500">
                 {formatPipelineSecondary(stage)}
@@ -559,7 +590,7 @@ function PipelineTransitionCard({
                 }`}
                 title={
                     transition.estimated
-                        ? "Aproximada: compara cliques agregados com clientes únicos."
+                        ? "Estimativa de cobertura: compara eventos agregados da plataforma com clientes únicos identificados no CRM."
                         : undefined
                 }
             >
@@ -595,6 +626,7 @@ function PipelineStageIcon({ stageKey }: { stageKey: PipelineStageKey }) {
     }
     if (stageKey === "paid_clicks") return <MousePointerClick size={20} />;
     if (stageKey === "whatsapp") return <MessageCircle size={20} />;
+    if (stageKey === "tracked_whatsapp") return <UserCheck size={20} />;
     if (stageKey === "scheduled") return <CalendarCheck2 size={20} />;
     if (stageKey === "attended") return <UserCheck size={20} />;
     if (stageKey === "invoiced") return <ReceiptText size={20} />;
@@ -625,17 +657,16 @@ function PipelineInsight({
 function JourneyFunnelCard({ data }: { data: JourneyDashboardData }) {
     return (
         <Card>
-            <div className="mb-5 flex items-center gap-2">
-                <h2 className="text-lg font-bold">Funil da jornada</h2>
-                <InfoTooltip text="Cada etapa exige que o mesmo cliente tenha passado pela etapa anterior em ordem cronológica. Isso evita somar eventos fora de sequência.">
-                    <HelpCircle size={16} className="text-slate-400" />
-                </InfoTooltip>
+            <div className="mb-5">
+                <h2 className="text-lg font-bold">Jornada na Conversa</h2>
             </div>
 
-            <div className="grid grid-cols-2 items-center gap-5">
-                <div className="h-[300px]">
+            <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(245px,0.65fr)] items-center gap-5">
+                <div className="h-[330px] min-w-0">
                     <ResponsiveContainer width="100%" height="100%">
-                        <FunnelChart>
+                        <FunnelChart
+                            margin={{ top: 10, right: 64, bottom: 10, left: 6 }}
+                        >
                             <Tooltip />
                             <Funnel
                                 dataKey="value"
@@ -671,10 +702,7 @@ function JourneyFunnelCard({ data }: { data: JourneyDashboardData }) {
                                     {item.name}
                                 </span>
                             </div>
-                            <div className="grid grid-cols-[45px_48px_52px] items-center gap-1">
-                                <span className="text-right font-bold text-slate-700">
-                                    {item.value}
-                                </span>
+                            <div className="grid grid-cols-[48px_52px] items-center gap-1">
                                 <span className="text-right text-xs font-bold text-slate-500">
                                     {formatRate(item.relative_percentage)}
                                 </span>
@@ -697,11 +725,10 @@ function DropoffCard({ data }: { data: JourneyDashboardData }) {
             <div className="mb-5">
                 <div className="flex items-center gap-2">
                     <h2 className="text-lg font-bold">Pontos de abandono</h2>
-                    <InfoTooltip text="Somente abandonos com message_ids de evidência entram na métrica.">
+                    <InfoTooltip text="Base: abandonos observáveis">
                         <HelpCircle size={16} className="text-slate-400" />
                     </InfoTooltip>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">Base: abandonos observáveis</p>
             </div>
 
             <div className="space-y-7">
@@ -730,15 +757,17 @@ function DropoffCard({ data }: { data: JourneyDashboardData }) {
 }
 
 function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
+    const chartData = data.intent_paths.map((item) => ({
+        ...item,
+        intent: translateIntent(item.intent),
+    }));
+
     return (
         <Card>
             <div className="mb-5">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold">Caminhos por intenção inicial</h2>
-                    <InfoTooltip text="Não resolvida e parcial são categorias separadas. Abandono só é contado quando há evidência de abandono.">
-                        <HelpCircle size={16} className="text-slate-400" />
-                    </InfoTooltip>
-                </div>
+                <h2 className="text-lg font-bold">
+                    Resultados por intenção inicial
+                </h2>
                 <div className="mt-3 flex flex-wrap items-center gap-5 text-xs text-slate-500">
                     <LegendDot color="green" label="Resolvida" />
                     <LegendDot color="orange" label="Parcial" />
@@ -749,7 +778,11 @@ function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
 
             <div className="h-[260px]">
                 <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.intent_paths} barCategoryGap="28%">
+                    <BarChart
+                        data={chartData}
+                        barCategoryGap="28%"
+                        margin={{ left: 10 }}
+                    >
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                         <XAxis
                             dataKey="intent"
@@ -760,7 +793,18 @@ function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
                             textAnchor="end"
                             height={65}
                         />
-                        <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                        <YAxis
+                            width={58}
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            label={{
+                                value: "Conversas",
+                                angle: -90,
+                                position: "insideLeft",
+                                fontSize: 12,
+                                fill: "#64748b",
+                            }}
+                        />
                         <Tooltip content={<IntentPathsTooltip />} cursor={false} />
                         <Bar dataKey="resolved" name="Resolvida" stackId="result" fill="var(--color-green)" />
                         <Bar dataKey="partial" name="Parcial" stackId="result" fill="var(--color-orange)" />
@@ -779,13 +823,14 @@ function ObjectionsCard({ data }: { data: JourneyDashboardData }) {
             <div className="mb-5">
                 <div className="flex items-center gap-2">
                     <h2 className="text-lg font-bold">Principais objeções</h2>
-                    <InfoTooltip text="Cada conversa conta no máximo uma vez por tipo de objeção e precisa citar message_ids de evidência.">
+                    <InfoTooltip
+                        text={`Base: ${
+                            data.audit?.conversations_with_objections ?? 0
+                        } conversas com objeções observáveis`}
+                    >
                         <HelpCircle size={16} className="text-slate-400" />
                     </InfoTooltip>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                    Base: {data.audit?.conversations_with_objections ?? 0} conversas com objeções observáveis
-                </p>
             </div>
 
             <div className="space-y-4">
@@ -798,7 +843,7 @@ function ObjectionsCard({ data }: { data: JourneyDashboardData }) {
                             <div className="mb-2 flex items-center justify-between text-sm">
                                 <span className="font-medium text-slate-700">{item.label}</span>
                                 <span className="font-bold text-slate-700">
-                                    {item.value} · {formatRate(item.percentage)}
+                                    {formatRate(item.percentage)}
                                 </span>
                             </div>
                             <PercentageBar value={item.percentage ?? 0} color="purple" />
@@ -822,13 +867,24 @@ function EmptyCardMessage({ message }: { message: string }) {
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
-    const style = color === "slate-500"
-        ? { backgroundColor: "#64748b" }
-        : { backgroundColor: `var(--color-${color})` };
+    const resolvedColors: Record<string, string> = {
+        "slate-500": "#64748b",
+        "bg-slate-400": "#94a3b8",
+        "bg-emerald-500": "#10b981",
+        "bg-amber-500": "#f59e0b",
+        "bg-violet-500": "#8b5cf6",
+        "bg-teal-500": "#14b8a6",
+    };
+    const backgroundColor = color.startsWith("#")
+        ? color
+        : resolvedColors[color] ?? `var(--color-${color})`;
 
     return (
         <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full" style={style} />
+            <span
+                className="h-3 w-3 rounded-full"
+                style={{ backgroundColor }}
+            />
             <span>{label}</span>
         </div>
     );
@@ -889,6 +945,17 @@ function JourneyBodySkeleton() {
 
 type ChartTooltipPayloadItem = { dataKey: string; value: string | number; color?: string };
 
+function translateIntent(value: string) {
+    const key = value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+    return CUSTOMER_START_INTENT_LABELS[key] ?? value;
+}
+
 function IntentPathsTooltip({ active, payload, label }: { active?: boolean; payload?: ChartTooltipPayloadItem[]; label?: string }) {
     if (!active || !payload?.length) return null;
     const labels: Record<string, string> = { resolved: "Resolvida", partial: "Parcial", not_resolved: "Não resolvida", abandoned: "Abandono" };
@@ -912,14 +979,42 @@ function calculateRate(value: number, total: number) {
     return Number(((value / total) * 100).toFixed(1));
 }
 
+function buildPipelineSourceTooltip(pipeline: FullJourneyPipeline) {
+    const stages = new Map(
+        pipeline.stages.map((stage) => [stage.key, stage]),
+    );
+    const count = (key: PipelineStageKey) =>
+        (stages.get(key)?.value ?? 0).toLocaleString("pt-BR");
+    const money = (key: PipelineStageKey) =>
+        formatPipelineCurrency(
+            stages.get(key)?.secondary_value ?? 0,
+            pipeline.currency_code,
+        );
+
+    return [
+        `Impressões pagas ${count("paid_impressions")} — dados das APIs Meta e Google Ads para campanhas e ações elegíveis ao WhatsApp.`,
+        `Cliques pagos ${count("paid_clicks")} — dados das APIs Meta e Google Ads para cliques elegíveis ao WhatsApp.`,
+        `Conversas WhatsApp ${count("whatsapp")} — ações de conversa reportadas pelas próprias plataformas de anúncios.`,
+        `WhatsApp rastreado ${count("tracked_whatsapp")} — clientes únicos identificados pela Origem paga da conversa. Se a Origem estiver vazia, usamos a UTM ou o ID de clique salvo no cliente somente quando esse rastreamento foi atualizado até 7 dias antes ou depois do início da conversa.`,
+        `Agendaram ${count("scheduled")} — clientes dessa coorte com agendamento importado do CliniSys após a entrada pelo WhatsApp.`,
+        `Compareceram ${count("attended")} — clientes agendados com presença confirmada pelo status do CliniSys.`,
+        `Faturados ${count("invoiced")} · ${money("invoiced")} — clientes presentes com nota emitida no CliniSys após a entrada paga.`,
+        `Liberados ${count("authorized")} · ${money("authorized")} — notas dessa coorte com autorização fiscal confirmada no CliniSys.`,
+    ].join("\n");
+}
+
 function formatPipelineSecondary(
     stage: FullJourneyPipeline["stages"][number],
 ) {
     if (stage.secondary_value === null || !stage.secondary_kind) {
         return stage.key === "paid_impressions"
-            ? "exibições no período"
+            ? ""
             : stage.key === "paid_clicks"
-              ? "interações no anúncio"
+              ? "cliques elegíveis"
+              : stage.key === "whatsapp"
+                ? "ações reportadas pelas plataformas"
+                : stage.key === "tracked_whatsapp"
+                  ? "clientes únicos identificados"
               : stage.key === "scheduled"
                 ? "clientes únicos"
                 : stage.key === "attended"
@@ -932,6 +1027,16 @@ function formatPipelineSecondary(
             ? formatPipelineCurrency(stage.secondary_value, "BRL")
             : stage.secondary_value.toLocaleString("pt-BR");
     return `${value}${stage.secondary_label ? ` ${stage.secondary_label}` : ""}`;
+}
+
+function formatPipelineStageValue(
+    stage: FullJourneyPipeline["stages"][number],
+) {
+    if (stage.key === "paid_impressions" && stage.value >= 1_000_000) {
+        return `${Math.round(stage.value / 1_000_000).toLocaleString("pt-BR")}m`;
+    }
+
+    return stage.value.toLocaleString("pt-BR");
 }
 
 function formatPipelineCurrency(value: number, currencyCode: string) {

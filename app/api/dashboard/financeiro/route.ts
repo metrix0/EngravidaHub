@@ -2,10 +2,7 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
-import {
-    paidMediaPlatformFromOrigin,
-    paidMediaPlatformFromTrackingSource,
-} from "@/lib/ads/paidMediaAttribution";
+import { resolvePaidMediaPlatform } from "@/lib/ads/paidMediaAttribution";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     FINANCIAL_CATEGORIES,
@@ -199,6 +196,8 @@ export async function GET(request: Request) {
         const mediaByCity = buildMediaBudgetByCity({
             adMetrics: currentAdMetrics,
             schedules,
+            invoices: currentInvoices,
+            clients,
             units,
             selectedUnitIds: filters.unitIds,
             startAt: range.startAt,
@@ -1127,6 +1126,8 @@ function buildTopAdCampaigns(
 function buildMediaBudgetByCity({
     adMetrics,
     schedules,
+    invoices,
+    clients,
     units,
     selectedUnitIds,
     startAt,
@@ -1134,6 +1135,8 @@ function buildMediaBudgetByCity({
 }: {
     adMetrics: AdMetricRow[];
     schedules: ScheduleRow[];
+    invoices: InvoiceRow[];
+    clients: ClientAttributionRow[];
     units: UnitRow[];
     selectedUnitIds: string[];
     startAt: string;
@@ -1192,10 +1195,41 @@ function buildMediaBudgetByCity({
     }
 
     const scheduleCounts = new Map<string, number>();
+    const paidScheduleClients = new Map<string, Set<string>>();
+    const clientsById = new Map(clients.map((client) => [client.id, client]));
     for (const schedule of schedules) {
         const key = normalizeCampaignMatchText(schedule.unit_name);
         if (!key) continue;
         scheduleCounts.set(key, (scheduleCounts.get(key) ?? 0) + 1);
+        if (
+            schedule.client_id &&
+            resolveClientAdPlatform(clientsById.get(schedule.client_id))
+        ) {
+            const current = paidScheduleClients.get(key) ?? new Set<string>();
+            current.add(schedule.client_id);
+            paidScheduleClients.set(key, current);
+        }
+    }
+
+    const attributedRevenue = new Map<string, number>();
+    const attributedPatients = new Map<string, Set<string>>();
+    for (const invoice of invoices) {
+        if (
+            !invoice.client_id ||
+            statusGroup(invoice.status) !== "authorized" ||
+            !resolveClientAdPlatform(clientsById.get(invoice.client_id))
+        ) {
+            continue;
+        }
+        const key = normalizeCampaignMatchText(invoice.unit_name);
+        if (!key) continue;
+        attributedRevenue.set(
+            key,
+            (attributedRevenue.get(key) ?? 0) + numeric(invoice.amount),
+        );
+        const patients = attributedPatients.get(key) ?? new Set<string>();
+        patients.add(invoice.client_id);
+        attributedPatients.set(key, patients);
     }
 
     const periodDays = Math.max(
@@ -1218,6 +1252,18 @@ function buildMediaBudgetByCity({
             const unit = unitByName.get(normalizeCampaignMatchText(city.city));
             const schedulesForCity =
                 scheduleCounts.get(normalizeCampaignMatchText(city.city)) ?? 0;
+            const paidSchedulesForCity =
+                paidScheduleClients.get(
+                    normalizeCampaignMatchText(city.city),
+                )?.size ?? 0;
+            const attributedRevenueForCity =
+                attributedRevenue.get(
+                    normalizeCampaignMatchText(city.city),
+                ) ?? 0;
+            const attributedPatientsForCity =
+                attributedPatients.get(
+                    normalizeCampaignMatchText(city.city),
+                )?.size ?? 0;
             const averageDailySpend = accumulator.spend / periodDays;
             const monthlyProjection = averageDailySpend * 30;
 
@@ -1244,6 +1290,24 @@ function buildMediaBudgetByCity({
                 cost_per_schedule:
                     schedulesForCity > 0
                         ? roundMoney(accumulator.spend / schedulesForCity)
+                        : null,
+                paid_schedules: paidSchedulesForCity,
+                cost_per_paid_schedule:
+                    paidSchedulesForCity > 0
+                        ? roundMoney(
+                              accumulator.spend / paidSchedulesForCity,
+                          )
+                        : null,
+                attributed_revenue: roundMoney(
+                    attributedRevenueForCity,
+                ),
+                attributed_patients: attributedPatientsForCity,
+                real_roas:
+                    accumulator.spend > 0
+                        ? roundMetric(
+                              attributedRevenueForCity /
+                                  accumulator.spend,
+                          )
                         : null,
                 matched_campaigns: accumulator.campaignKeys.size,
                 matched_campaign_names: [...accumulator.campaignNames.values()]
@@ -1289,27 +1353,7 @@ function normalizeCampaignMatchText(value: string | null | undefined) {
 function resolveClientAdPlatform(
     client: ClientAttributionRow | undefined,
 ): AdMetricRow["platform"] | null {
-    if (!client) return null;
-
-    const origin = client.last_origin?.trim();
-    if (origin) return paidMediaPlatformFromOrigin(origin);
-
-    const sourcePlatform = paidMediaPlatformFromTrackingSource(
-        client.utm_source,
-    );
-    if (sourcePlatform) return sourcePlatform;
-
-    // Tracking identifiers are used only when the canonical sheet Origin is blank.
-    const hasGoogleClick = Boolean(
-        client.gclid || client.gbraid || client.wbraid,
-    );
-    const hasMetaClick = Boolean(
-        client.fbclid || client.fbc || client.ctwa_clid,
-    );
-
-    if (hasGoogleClick && !hasMetaClick) return "google_ads";
-    if (hasMetaClick && !hasGoogleClick) return "meta_ads";
-    return null;
+    return resolvePaidMediaPlatform(client);
 }
 
 function adPlatformLabel(platform: AdMetricRow["platform"]) {

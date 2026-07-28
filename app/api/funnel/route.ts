@@ -38,7 +38,6 @@ type FunnelClient = {
 };
 
 const DEFAULT_DAYS = 30;
-const IN_FILTER_BATCH_SIZE = 100;
 const PAGE_SIZE = 1_000;
 
 export async function GET(request: Request) {
@@ -99,72 +98,90 @@ export async function GET(request: Request) {
     }
 
     const clients = clientsResult.clients as FunnelClient[];
-    const clientIds = clients.map((client) => client.id);
-    const kpiClientIds = unitClientIdsResult.clientIds;
+    const clientIds = new Set(clients.map((client) => client.id));
+    const kpiClientIds = unitClientIdsResult.clientIds
+        ? new Set(unitClientIdsResult.clientIds)
+        : null;
 
     try {
-        const [cardEvents, appointments, periodEvents] = await Promise.all([
-            getJourneyEvents({ clientIds }),
-            getAppointments(clientIds),
-            getJourneyEvents({
-                clientIds: kpiClientIds,
-                dateRange: {
-                    start: previousRange.start,
-                    end: currentRange.end,
-                },
-            }),
+        const [allEvents, allAppointments] = await Promise.all([
+            getAllJourneyEvents(),
+            getAllAppointments(),
         ]);
+        const cardEvents = allEvents.filter((event) =>
+            clientIds.has(event.client_id),
+        );
+        const appointments = allAppointments.filter(
+            (appointment) =>
+                appointment.client_id &&
+                clientIds.has(appointment.client_id),
+        );
+        const periodEvents = kpiClientIds
+            ? allEvents.filter((event) => kpiClientIds.has(event.client_id))
+            : allEvents;
 
         const eventsByClient = groupEventsByClient(cardEvents);
         const appointmentsByClient = groupAppointmentsByClient(appointments);
 
-        return NextResponse.json({
-            funnels: funnels ?? [],
-            stages: stages ?? [],
-            units: units ?? [],
-            clients: clients.map((client) => {
-                const milestone = resolveFunnelMilestone(
-                    eventsByClient.get(client.id) ?? [],
-                );
-                const appointment = chooseNearestAppointment(
-                    appointmentsByClient.get(client.id) ?? [],
-                );
+        return NextResponse.json(
+            {
+                funnels: funnels ?? [],
+                stages: stages ?? [],
+                units: units ?? [],
+                clients: clients.map((client) => {
+                    const milestone = resolveFunnelMilestone(
+                        eventsByClient.get(client.id) ?? [],
+                    );
+                    const appointment = chooseNearestAppointment(
+                        appointmentsByClient.get(client.id) ?? [],
+                    );
 
-                return {
-                    ...client,
-                    schedule_summary: appointment
-                        ? appointmentToSummary(
-                              appointment,
-                              client.funnel_stage_id,
-                          )
-                        : milestone
-                          ? {
-                              id: milestone.event.id,
-                              scheduled_for: milestone.event.scheduled_for,
-                              procedure_name: milestone.event.procedure_name,
-                              status: milestone.event.status,
-                              status_group: milestone.statusGroup,
-                              event_kind: milestone.event.event_kind,
-                              attention: isFunnelAttentionState(
+                    return {
+                        ...client,
+                        schedule_summary: appointment
+                            ? appointmentToSummary(
+                                  appointment,
                                   client.funnel_stage_id,
-                                  milestone.event.status,
-                              ),
-                              attention_label: getFunnelAttentionLabel(
-                                  client.funnel_stage_id,
-                                  milestone.event.status,
-                              ),
-                          }
-                          : null,
-                    appointment,
-                };
-            }),
-            kpis: buildFunnelKpis(
-                filterEventsByRange(periodEvents, currentRange),
-            ),
-            previous_kpis: buildFunnelKpis(
-                filterEventsByRange(periodEvents, previousRange),
-            ),
-        });
+                              )
+                            : milestone
+                              ? {
+                                    id: milestone.event.id,
+                                    scheduled_for:
+                                        milestone.event.scheduled_for,
+                                    procedure_name:
+                                        milestone.event.procedure_name,
+                                    status: milestone.event.status,
+                                    status_group: milestone.statusGroup,
+                                    event_kind:
+                                        milestone.event.event_kind,
+                                    attention: isFunnelAttentionState(
+                                        client.funnel_stage_id,
+                                        milestone.event.status,
+                                    ),
+                                    attention_label:
+                                        getFunnelAttentionLabel(
+                                            client.funnel_stage_id,
+                                            milestone.event.status,
+                                        ),
+                                }
+                              : null,
+                        appointment,
+                    };
+                }),
+                kpis: buildFunnelKpis(
+                    filterEventsByRange(periodEvents, currentRange),
+                ),
+                previous_kpis: buildFunnelKpis(
+                    filterEventsByRange(periodEvents, previousRange),
+                ),
+            },
+            {
+                headers: {
+                    "Cache-Control": "private, no-store",
+                    "Server-Timing": `funnel-events;desc="${allEvents.length}", funnel-clients;desc="${clients.length}"`,
+                },
+            },
+        );
     } catch (error) {
         return NextResponse.json(
             {
@@ -179,6 +196,52 @@ export async function GET(request: Request) {
 }
 
 async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
+    const first = await loadFunnelClientPage({
+        unitIds,
+        from: 0,
+        withCount: true,
+    });
+    if (first.error) return { clients: [], error: first.error };
+
+    const total = first.count ?? first.clients.length;
+    const remainingOffsets = Array.from(
+        {
+            length: Math.max(
+                0,
+                Math.ceil((total - PAGE_SIZE) / PAGE_SIZE),
+            ),
+        },
+        (_, index) => (index + 1) * PAGE_SIZE,
+    );
+    const remaining = await Promise.all(
+        remainingOffsets.map((from) =>
+            loadFunnelClientPage({
+                unitIds,
+                from,
+                withCount: false,
+            }),
+        ),
+    );
+    const failed = remaining.find((page) => page.error);
+
+    return {
+        clients: [
+            ...first.clients,
+            ...remaining.flatMap((page) => page.clients),
+        ],
+        error: failed?.error ?? null,
+    };
+}
+
+async function loadFunnelClientPage({
+    unitIds,
+    from,
+    withCount,
+}: {
+    unitIds: string[];
+    from: number;
+    withCount: boolean;
+}) {
     let query = supabase
         .from("clients")
         .select(
@@ -195,97 +258,162 @@ async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
             utm_campaign,
             updated_at
             `,
+            withCount ? { count: "exact" } : undefined,
         )
         .not("funnel_stage_id", "is", null)
-        .order("last_interaction_at", { ascending: false });
+        .order("last_interaction_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
     if (unitIds.length > 0) query = query.in("unit_id", unitIds);
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
-    return { clients: data ?? [], error };
+    return {
+        clients: (data ?? []) as FunnelClient[],
+        error,
+        count,
+    };
 }
 
 async function getClientIdsForUnitFilter(unitIds: string[]) {
     if (unitIds.length === 0) {
-        return { clientIds: null, error: null };
+        return { clientIds: null as string[] | null, error: null };
     }
 
-    const { data, error } = await supabase
-        .from("clients")
-        .select("id")
-        .in("unit_id", unitIds);
+    const first = await loadUnitClientIdPage(unitIds, 0, true);
+    if (first.error) return { clientIds: [] as string[], error: first.error };
+
+    const total = first.count ?? first.clientIds.length;
+    const offsets = Array.from(
+        {
+            length: Math.max(
+                0,
+                Math.ceil((total - PAGE_SIZE) / PAGE_SIZE),
+            ),
+        },
+        (_, index) => (index + 1) * PAGE_SIZE,
+    );
+    const remaining = await Promise.all(
+        offsets.map((from) =>
+            loadUnitClientIdPage(unitIds, from, false),
+        ),
+    );
+    const failed = remaining.find((page) => page.error);
 
     return {
-        clientIds: data?.map((client) => client.id) ?? [],
-        error,
+        clientIds: [
+            ...first.clientIds,
+            ...remaining.flatMap((page) => page.clientIds),
+        ],
+        error: failed?.error ?? null,
     };
 }
 
-async function getJourneyEvents({
-    clientIds,
-    dateRange,
-}: {
-    clientIds: string[] | null;
-    dateRange?: DateRange;
-}) {
-    if (clientIds && clientIds.length === 0) {
-        return [] as ClinisysJourneyEvent[];
-    }
+async function loadUnitClientIdPage(
+    unitIds: string[],
+    from: number,
+    withCount: boolean,
+) {
+    const { data, error, count } = await supabase
+        .from("clients")
+        .select("id", withCount ? { count: "exact" } : undefined)
+        .in("unit_id", unitIds)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
-    const events: ClinisysJourneyEvent[] = [];
-    const batches = clientIds
-        ? chunk(clientIds, IN_FILTER_BATCH_SIZE)
-        : [null];
-
-    for (const clientBatch of batches) {
-        let page = 0;
-
-        while (true) {
-            let query = supabase
-                .from("funnel_clinisys_events")
-                .select(
-                    "id, client_id, scheduled_for, procedure_name, status, event_kind",
-                )
-                .order("scheduled_for", { ascending: true })
-                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-            if (clientBatch) query = query.in("client_id", clientBatch);
-            if (dateRange) {
-                query = query
-                    .gte("scheduled_for", toDateKey(dateRange.start))
-                    .lte("scheduled_for", toDateKey(dateRange.end));
-            }
-
-            const { data, error } = await query;
-            if (error) throw error;
-
-            const rows = (data ?? []) as ClinisysJourneyEvent[];
-            events.push(...rows);
-            if (rows.length < PAGE_SIZE) break;
-            page += 1;
-        }
-    }
-
-    return events;
+    return {
+        clientIds: (data ?? []).map((client) => client.id),
+        error,
+        count,
+    };
 }
 
-async function getAppointments(clientIds: string[]) {
-    if (clientIds.length === 0) return [] as CalendarAppointment[];
+async function getAllJourneyEvents() {
+    const first = await loadJourneyEventPage(0, true);
+    if (first.error) throw first.error;
 
-    const appointments: CalendarAppointment[] = [];
+    const total = first.count ?? first.events.length;
+    const offsets = Array.from(
+        {
+            length: Math.max(
+                0,
+                Math.ceil((total - PAGE_SIZE) / PAGE_SIZE),
+            ),
+        },
+        (_, index) => (index + 1) * PAGE_SIZE,
+    );
+    const remaining = await Promise.all(
+        offsets.map((from) => loadJourneyEventPage(from, false)),
+    );
+    const failed = remaining.find((page) => page.error);
+    if (failed?.error) throw failed.error;
 
-    for (const clientBatch of chunk(clientIds, IN_FILTER_BATCH_SIZE)) {
-        const { data, error } = await supabase
-            .from("appointments")
-            .select(APPOINTMENT_SELECT)
-            .in("client_id", clientBatch)
-            .order("starts_at", { ascending: true });
+    return [
+        ...first.events,
+        ...remaining.flatMap((page) => page.events),
+    ];
+}
 
-        if (error) throw error;
-        appointments.push(...(data ?? []).map(mapAppointment));
-    }
+async function loadJourneyEventPage(from: number, withCount: boolean) {
+    const { data, error, count } = await supabase
+        .from("funnel_clinisys_events")
+        .select(
+            "id, client_id, scheduled_for, procedure_name, status, event_kind",
+            withCount ? { count: "exact" } : undefined,
+        )
+        .order("scheduled_for", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
-    return appointments;
+    return {
+        events: (data ?? []) as ClinisysJourneyEvent[],
+        error,
+        count,
+    };
+}
+
+async function getAllAppointments() {
+    const first = await loadAppointmentPage(0, true);
+    if (first.error) throw first.error;
+
+    const total = first.count ?? first.appointments.length;
+    const offsets = Array.from(
+        {
+            length: Math.max(
+                0,
+                Math.ceil((total - PAGE_SIZE) / PAGE_SIZE),
+            ),
+        },
+        (_, index) => (index + 1) * PAGE_SIZE,
+    );
+    const remaining = await Promise.all(
+        offsets.map((from) => loadAppointmentPage(from, false)),
+    );
+    const failed = remaining.find((page) => page.error);
+    if (failed?.error) throw failed.error;
+
+    return [
+        ...first.appointments,
+        ...remaining.flatMap((page) => page.appointments),
+    ];
+}
+
+async function loadAppointmentPage(from: number, withCount: boolean) {
+    const { data, error, count } = await supabase
+        .from("appointments")
+        .select(
+            APPOINTMENT_SELECT,
+            withCount ? { count: "exact" } : undefined,
+        )
+        .order("starts_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+    return {
+        appointments: (data ?? []).map(mapAppointment),
+        error,
+        count,
+    };
 }
 
 function buildFunnelKpis(events: ClinisysJourneyEvent[]) {
@@ -449,11 +577,4 @@ function parseIds(value: string | null) {
     return value
         ? value.split(",").map((item) => item.trim()).filter(Boolean)
         : [];
-}
-
-function chunk<T>(items: T[], size: number) {
-    return Array.from(
-        { length: Math.ceil(items.length / size) },
-        (_, index) => items.slice(index * size, (index + 1) * size),
-    );
 }

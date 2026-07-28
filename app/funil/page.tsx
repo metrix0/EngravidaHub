@@ -226,8 +226,6 @@ export default function FunnelPage() {
                 unit_ids: unitIds,
             });
 
-            params.set("funnel_id", selectedFunnelId ?? DEFAULT_FUNNEL_ID);
-
             const response = await fetch(`/api/funnel?${params.toString()}`, {
                 cache: "no-store",
             });
@@ -253,24 +251,21 @@ export default function FunnelPage() {
                 data.funnels?.find((funnel) => funnel.id === DEFAULT_FUNNEL_ID) ??
                 data.funnels?.[0];
 
-            const selectedFunnelStillExists = data.funnels?.some(
-                (funnel) => funnel.id === selectedFunnelId
-            );
-
-            if (!selectedFunnelStillExists && defaultFunnel?.id) {
-                setFunnelIds([defaultFunnel.id]);
-            }
+            setFunnelIds((current) => {
+                const currentId = current[0];
+                const selectedFunnelStillExists = data.funnels?.some(
+                    (funnel) => funnel.id === currentId,
+                );
+                return !selectedFunnelStillExists && defaultFunnel?.id
+                    ? [defaultFunnel.id]
+                    : current;
+            });
 
             if (showLoading) {
                 setLoading(false);
             }
         },
-        [
-            period,
-            unitIds,
-            selectedRange,
-            selectedFunnelId,
-        ]
+        [period, unitIds, selectedRange],
     );
 
     useEffect(() => {
@@ -1049,10 +1044,11 @@ function FunnelColumn({
     onOpenClientProfile: (clientId: string) => void;
     onOpenClientSchedule: (clientId: string) => void;
 }) {
-    const [expanded, setExpanded] = useState(false);
-
-    const visibleClients = expanded ? clients : clients.slice(0, 5);
-    const hiddenClientsCount = clients.length - 5;
+    const COLLAPSED_CLIENTS = 5;
+    const CLIENTS_PER_BATCH = 20;
+    const [visibleLimit, setVisibleLimit] = useState(COLLAPSED_CLIENTS);
+    const visibleClients = clients.slice(0, visibleLimit);
+    const hiddenClientsCount = Math.max(0, clients.length - visibleLimit);
 
     return (
         <div
@@ -1092,17 +1088,41 @@ function FunnelColumn({
                 ))}
             </div>
 
-            {clients.length > 5 && (
-                <button
-                    type="button"
-                    onClick={() => setExpanded((current) => !current)}
-                    className="mt-5 w-full cursor-pointer text-center text-sm font-semibold text-blue"
-                >
-                    {expanded
-                        ? "− Ver menos"
-                        : `+ Ver mais ${hiddenClientsCount}`}
-                </button>
-            )}
+            {clients.length > COLLAPSED_CLIENTS ? (
+                <div className="mt-5 flex items-center justify-center gap-3 text-sm font-semibold">
+                    {hiddenClientsCount > 0 ? (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setVisibleLimit((current) =>
+                                    Math.min(
+                                        clients.length,
+                                        current + CLIENTS_PER_BATCH,
+                                    ),
+                                )
+                            }
+                            className="cursor-pointer text-blue"
+                        >
+                            + Ver mais{" "}
+                            {Math.min(
+                                CLIENTS_PER_BATCH,
+                                hiddenClientsCount,
+                            )}
+                        </button>
+                    ) : null}
+                    {visibleLimit > COLLAPSED_CLIENTS ? (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setVisibleLimit(COLLAPSED_CLIENTS)
+                            }
+                            className="cursor-pointer text-slate-500"
+                        >
+                            − Ver menos
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     );
 }

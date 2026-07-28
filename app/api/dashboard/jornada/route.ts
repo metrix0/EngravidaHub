@@ -2,7 +2,12 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
-import { paidMediaPlatformFromOrigin } from "@/lib/ads/paidMediaAttribution";
+import {
+    paidMediaPlatformFromOrigin,
+    resolvePaidMediaAttribution,
+    type PaidMediaAttributionEvidence,
+    type PaidMediaPlatform,
+} from "@/lib/ads/paidMediaAttribution";
 import {
     executiveRpcParams,
     readDashboardFilters,
@@ -23,6 +28,7 @@ type PipelineStageKey =
     | "paid_impressions"
     | "paid_clicks"
     | "whatsapp"
+    | "tracked_whatsapp"
     | "scheduled"
     | "attended"
     | "invoiced"
@@ -55,9 +61,16 @@ type FullJourneyPipeline = {
     currency_code: string;
     stages: PipelineStage[];
     transitions: PipelineTransition[];
+    platform_breakdown: PipelinePlatformBreakdown[];
     audit: {
-        whatsapp_conversations: number;
-        whatsapp_clients: number;
+        platform_whatsapp_conversations: number;
+        tracked_whatsapp_clients: number;
+        measurement_ready: boolean;
+        measurement_note: string | null;
+        tracked_by_evidence: {
+            evidence: PaidMediaAttributionEvidence;
+            clients: number;
+        }[];
         whatsapp_origins: {
             origin: string;
             conversations: number;
@@ -70,6 +83,20 @@ type FullJourneyPipeline = {
     };
 };
 
+type PipelinePlatformBreakdown = {
+    platform: PaidMediaPlatform;
+    label: string;
+    spend: number;
+    whatsapp_clicks: number;
+    platform_whatsapp_conversations: number;
+    tracked_clients: number;
+    scheduled_clients: number;
+    attended_clients: number;
+    invoiced_clients: number;
+    authorized_clients: number;
+    authorized_revenue: number;
+};
+
 type WhatsappConversationRow = {
     id: string;
     client_id: string | null;
@@ -79,10 +106,54 @@ type WhatsappConversationRow = {
 
 type PipelineClientOriginRow = {
     last_origin: string | null;
+    utm_source: string | null;
+    gclid: string | null;
+    gbraid: string | null;
+    wbraid: string | null;
+    fbclid: string | null;
+    fbc: string | null;
+    ctwa_clid: string | null;
+    tracking_updated_at: string | null;
 };
 
 type WhatsappConversationSourceRow = WhatsappConversationRow & {
     clients: PipelineClientOriginRow | PipelineClientOriginRow[] | null;
+};
+
+type PaidWhatsappEntry = WhatsappConversationRow & {
+    platform: PaidMediaPlatform;
+    evidence: PaidMediaAttributionEvidence;
+};
+
+type PipelineAdMetricRow = {
+    platform: PaidMediaPlatform;
+    campaign_name: string;
+    impressions: number | string;
+    clicks: number | string;
+    spend: number | string;
+    reported_conversions: number | string;
+    reported_conversion_type: string | null;
+    whatsapp_impressions?: number | string;
+    whatsapp_clicks?: number | string;
+    whatsapp_conversations?: number | string;
+};
+
+type PaidMediaTotals = {
+    available: boolean;
+    measurementReady: boolean;
+    measurementNote: string | null;
+    impressions: number;
+    clicks: number;
+    whatsappConversations: number;
+    byPlatform: Map<
+        PaidMediaPlatform,
+        {
+            spend: number;
+            impressions: number;
+            clicks: number;
+            whatsappConversations: number;
+        }
+    >;
 };
 
 type PipelineScheduleRow = {
@@ -173,17 +244,28 @@ async function loadFullJourneyPipeline(
         saoPauloDate(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
-    const [paidMedia, whatsappConversations] = await Promise.all([
+    const [paidMedia, whatsappEntries] = await Promise.all([
         loadPaidMediaTotals(startDate, endDate, signal),
         loadPaidWhatsappConversations(range, filters, signal),
     ]);
-    const cohort = new Map<string, string>();
+    const cohort = new Map<
+        string,
+        {
+            enteredAt: string;
+            platform: PaidMediaPlatform;
+            evidence: PaidMediaAttributionEvidence;
+        }
+    >();
 
-    for (const conversation of whatsappConversations) {
-        if (!conversation.client_id) continue;
-        const current = cohort.get(conversation.client_id);
-        if (!current || conversation.started_at < current) {
-            cohort.set(conversation.client_id, conversation.started_at);
+    for (const entry of whatsappEntries) {
+        if (!entry.client_id) continue;
+        const current = cohort.get(entry.client_id);
+        if (!current || entry.started_at < current.enteredAt) {
+            cohort.set(entry.client_id, {
+                enteredAt: entry.started_at,
+                platform: entry.platform,
+                evidence: entry.evidence,
+            });
         }
     }
 
@@ -199,10 +281,10 @@ async function loadFullJourneyPipeline(
         const clientId = schedule.client_id;
         if (!clientId) continue;
 
-        const enteredAt = cohort.get(clientId);
-        if (!enteredAt) continue;
+        const cohortEntry = cohort.get(clientId);
+        if (!cohortEntry) continue;
 
-        const enteredDate = saoPauloDate(enteredAt);
+        const enteredDate = saoPauloDate(cohortEntry.enteredAt);
         const createdDate =
             schedule.created_in_source_at ?? schedule.scheduled_for;
         if (!createdDate || createdDate < enteredDate) continue;
@@ -229,8 +311,13 @@ async function loadFullJourneyPipeline(
         const clientId = invoice.client_id;
         if (!clientId) continue;
 
-        const attendedDate = attendedAtByClient.get(clientId);
-        if (!attendedDate || saoPauloDate(invoice.issued_at) < attendedDate) {
+        const cohortEntry = cohort.get(clientId);
+        if (
+            !attendedAtByClient.has(clientId) ||
+            !cohortEntry ||
+            saoPauloDate(invoice.issued_at) <
+                saoPauloDate(cohortEntry.enteredAt)
+        ) {
             continue;
         }
 
@@ -244,6 +331,14 @@ async function loadFullJourneyPipeline(
         }
     }
 
+    const platformBreakdown = buildPlatformBreakdown({
+        paidMedia,
+        cohort,
+        scheduledClients,
+        attendedClients: new Set(attendedAtByClient.keys()),
+        invoices,
+    });
+
     return buildFullJourneyPipeline({
         available: true,
         adsAvailable: paidMedia.available,
@@ -252,10 +347,13 @@ async function loadFullJourneyPipeline(
         endDate,
         impressions: paidMedia.impressions,
         clicks: paidMedia.clicks,
-        whatsappConversations: whatsappConversations.length,
+        platformWhatsappConversations: paidMedia.whatsappConversations,
         whatsappClients: cohort.size,
+        measurementReady: paidMedia.measurementReady,
+        measurementNote: paidMedia.measurementNote,
+        trackedByEvidence: buildEvidenceBreakdown(cohort),
         whatsappOrigins: buildWhatsappOriginBreakdown(
-            whatsappConversations,
+            whatsappEntries,
         ),
         scheduledClients: scheduledClients.size,
         attendedClients: attendedAtByClient.size,
@@ -263,6 +361,7 @@ async function loadFullJourneyPipeline(
         authorizedClients: authorizedClients.size,
         invoicedAmount,
         authorizedAmount,
+        platformBreakdown,
         error: null,
     });
 }
@@ -271,14 +370,99 @@ async function loadPaidMediaTotals(
     startDate: string,
     endDate: string,
     signal: AbortSignal,
-) {
-    let impressions = 0;
-    let clicks = 0;
+): Promise<PaidMediaTotals> {
+    const measuredRows = await loadPipelineAdRows({
+        select:
+            "platform, campaign_name, impressions, clicks, spend, reported_conversions, reported_conversion_type, whatsapp_impressions, whatsapp_clicks, whatsapp_conversations",
+        startDate,
+        endDate,
+        signal,
+    });
+
+    if (measuredRows.error && isMissingAdsTable(measuredRows.error)) {
+        return emptyPaidMediaTotals(false);
+    }
+    if (
+        measuredRows.error &&
+        !isMissingWhatsappMeasurementColumns(measuredRows.error)
+    ) {
+        throw measuredRows.error;
+    }
+
+    let rows = measuredRows.rows;
+    let measurementReady = !measuredRows.error;
+
+    if (measuredRows.error) {
+        const fallback = await loadPipelineAdRows({
+            select:
+                "platform, campaign_name, impressions, clicks, spend, reported_conversions, reported_conversion_type",
+            startDate,
+            endDate,
+            signal,
+        });
+        if (fallback.error) throw fallback.error;
+        rows = fallback.rows;
+        measurementReady = false;
+    }
+
+    const totals = emptyPaidMediaTotals(true);
+    totals.measurementReady = measurementReady;
+    totals.measurementNote = null;
+
+    for (const row of rows) {
+        const platform = row.platform;
+        const current = totals.byPlatform.get(platform);
+        if (!current) continue;
+
+        const hasStoredWhatsappMeasurement =
+            measurementReady &&
+            (numeric(row.whatsapp_impressions) > 0 ||
+                numeric(row.whatsapp_clicks) > 0 ||
+                numeric(row.whatsapp_conversations) > 0);
+        const impressions = hasStoredWhatsappMeasurement
+            ? numeric(row.whatsapp_impressions)
+            : fallbackWhatsappImpressions(row);
+        const clicks = hasStoredWhatsappMeasurement
+            ? numeric(row.whatsapp_clicks)
+            : fallbackWhatsappClicks(row);
+        const conversations = hasStoredWhatsappMeasurement
+            ? numeric(row.whatsapp_conversations)
+            : fallbackWhatsappConversations(row);
+
+        current.spend += numeric(row.spend);
+        current.impressions += impressions;
+        current.clicks += clicks;
+        current.whatsappConversations += conversations;
+        totals.impressions += impressions;
+        totals.clicks += clicks;
+        totals.whatsappConversations += conversations;
+    }
+
+    totals.impressions = Math.trunc(totals.impressions);
+    totals.clicks = Math.trunc(totals.clicks);
+    totals.whatsappConversations = roundMetric(
+        totals.whatsappConversations,
+    );
+    return totals;
+}
+
+async function loadPipelineAdRows({
+    select,
+    startDate,
+    endDate,
+    signal,
+}: {
+    select: string;
+    startDate: string;
+    endDate: string;
+    signal: AbortSignal;
+}) {
+    const rows: PipelineAdMetricRow[] = [];
 
     for (let from = 0; from < MAX_PIPELINE_ROWS; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("ad_daily_metrics")
-            .select("platform, impressions, clicks")
+            .select(select)
             .in("platform", ["meta_ads", "google_ads"])
             .gte("metric_date", startDate)
             .lte("metric_date", endDate)
@@ -286,25 +470,13 @@ async function loadPaidMediaTotals(
             .range(from, from + PAGE_SIZE - 1)
             .abortSignal(signal);
 
-        if (error) {
-            if (isMissingAdsTable(error)) {
-                return { available: false, impressions: 0, clicks: 0 };
-            }
-            throw error;
-        }
-
-        const page = (data ?? []) as {
-            impressions: number | string;
-            clicks: number | string;
-        }[];
-        for (const row of page) {
-            impressions += numeric(row.impressions);
-            clicks += numeric(row.clicks);
-        }
+        if (error) return { rows: [] as PipelineAdMetricRow[], error };
+        const page = (data ?? []) as unknown as PipelineAdMetricRow[];
+        rows.push(...page);
         if (page.length < PAGE_SIZE) break;
     }
 
-    return { available: true, impressions, clicks };
+    return { rows, error: null };
 }
 
 async function loadPaidWhatsappConversations(
@@ -318,7 +490,7 @@ async function loadPaidWhatsappConversations(
         let query = supabase
             .from("conversations")
             .select(
-                "id, client_id, started_at, origin, clients!conversations_client_id_fkey(last_origin)",
+                "id, client_id, started_at, origin, clients!conversations_client_id_fkey(last_origin, utm_source, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
             .gte("started_at", range.startAt)
             .lt("started_at", range.endAt)
@@ -348,15 +520,37 @@ async function loadPaidWhatsappConversations(
 
     const selectedOrigins = new Set(filters.origins.map(normalizeText));
 
-    return rows.flatMap((conversation) => {
+    return rows.flatMap((conversation): PaidWhatsappEntry[] => {
         const conversationOrigin = conversation.origin?.trim();
         const client = Array.isArray(conversation.clients)
             ? conversation.clients[0]
             : conversation.clients;
-        const clientOrigin = client?.last_origin?.trim();
-        const origin = conversationOrigin || clientOrigin || null;
+        const directPlatform =
+            paidMediaPlatformFromOrigin(conversationOrigin);
+        const clientAttribution = resolvePaidMediaAttribution(client);
+        const attribution =
+            directPlatform
+                ? {
+                      platform: directPlatform,
+                      evidence: "origin" as const,
+                  }
+                : trackingIsNearConversation(
+                        client?.tracking_updated_at,
+                        conversation.started_at,
+                    )
+                  ? clientAttribution
+                  : null;
+        if (!attribution) return [];
 
-        if (!paidMediaPlatformFromOrigin(origin)) return [];
+        const clientOrigin = client?.last_origin?.trim();
+        const origin =
+            (directPlatform
+                ? conversationOrigin
+                : paidMediaPlatformFromOrigin(clientOrigin) ===
+                    attribution.platform
+                  ? clientOrigin
+                  : null) ?? attributionEvidenceLabel(attribution);
+
         if (
             selectedOrigins.size > 0 &&
             !selectedOrigins.has(normalizeText(origin ?? ""))
@@ -364,7 +558,14 @@ async function loadPaidWhatsappConversations(
             return [];
         }
 
-        return [{ ...conversation, origin }];
+        return [
+            {
+                ...conversation,
+                origin,
+                platform: attribution.platform,
+                evidence: attribution.evidence,
+            },
+        ];
     });
 }
 
@@ -372,56 +573,60 @@ async function loadPipelineSchedules(
     clientIds: string[],
     signal: AbortSignal,
 ) {
-    const rows: PipelineScheduleRow[] = [];
+    const pages = await Promise.all(
+        chunk(clientIds, ID_FILTER_BATCH_SIZE).map(async (ids) => {
+            const rows: PipelineScheduleRow[] = [];
+            for (let from = 0; ; from += PAGE_SIZE) {
+                const { data, error } = await supabase
+                    .from("schedules")
+                    .select(
+                        "client_id, created_in_source_at, scheduled_for, status",
+                    )
+                    .in("client_id", ids)
+                    .order("scheduled_for", { ascending: true })
+                    .range(from, from + PAGE_SIZE - 1)
+                    .abortSignal(signal);
 
-    for (const ids of chunk(clientIds, ID_FILTER_BATCH_SIZE)) {
-        for (let from = 0; ; from += PAGE_SIZE) {
-            const { data, error } = await supabase
-                .from("schedules")
-                .select(
-                    "client_id, created_in_source_at, scheduled_for, status",
-                )
-                .in("client_id", ids)
-                .order("scheduled_for", { ascending: true })
-                .range(from, from + PAGE_SIZE - 1)
-                .abortSignal(signal);
+                if (error) throw error;
+                const page = (data ?? []) as PipelineScheduleRow[];
+                rows.push(...page);
+                if (page.length < PAGE_SIZE) break;
+            }
+            return rows;
+        }),
+    );
 
-            if (error) throw error;
-            const page = (data ?? []) as PipelineScheduleRow[];
-            rows.push(...page);
-            if (page.length < PAGE_SIZE) break;
-        }
-    }
-
-    return rows;
+    return pages.flat();
 }
 
 async function loadPipelineInvoices(
     clientIds: string[],
     signal: AbortSignal,
 ) {
-    const rows: PipelineInvoiceRow[] = [];
+    const pages = await Promise.all(
+        chunk(clientIds, ID_FILTER_BATCH_SIZE).map(async (ids) => {
+            const rows: PipelineInvoiceRow[] = [];
+            for (let from = 0; ; from += PAGE_SIZE) {
+                const { data, error } = await supabase
+                    .from("clinisys_invoices")
+                    .select(
+                        "source_invoice_id, client_id, issued_at, amount, status",
+                    )
+                    .in("client_id", ids)
+                    .order("issued_at", { ascending: true })
+                    .range(from, from + PAGE_SIZE - 1)
+                    .abortSignal(signal);
 
-    for (const ids of chunk(clientIds, ID_FILTER_BATCH_SIZE)) {
-        for (let from = 0; ; from += PAGE_SIZE) {
-            const { data, error } = await supabase
-                .from("clinisys_invoices")
-                .select(
-                    "source_invoice_id, client_id, issued_at, amount, status",
-                )
-                .in("client_id", ids)
-                .order("issued_at", { ascending: true })
-                .range(from, from + PAGE_SIZE - 1)
-                .abortSignal(signal);
+                if (error) throw error;
+                const page = (data ?? []) as PipelineInvoiceRow[];
+                rows.push(...page);
+                if (page.length < PAGE_SIZE) break;
+            }
+            return rows;
+        }),
+    );
 
-            if (error) throw error;
-            const page = (data ?? []) as PipelineInvoiceRow[];
-            rows.push(...page);
-            if (page.length < PAGE_SIZE) break;
-        }
-    }
-
-    return rows;
+    return pages.flat();
 }
 
 function buildFullJourneyPipeline(values: {
@@ -432,8 +637,11 @@ function buildFullJourneyPipeline(values: {
     endDate: string;
     impressions: number;
     clicks: number;
-    whatsappConversations: number;
+    platformWhatsappConversations: number;
     whatsappClients: number;
+    measurementReady: boolean;
+    measurementNote: string | null;
+    trackedByEvidence: FullJourneyPipeline["audit"]["tracked_by_evidence"];
     whatsappOrigins: FullJourneyPipeline["audit"]["whatsapp_origins"];
     scheduledClients: number;
     attendedClients: number;
@@ -441,6 +649,7 @@ function buildFullJourneyPipeline(values: {
     authorizedClients: number;
     invoicedAmount: number;
     authorizedAmount: number;
+    platformBreakdown: PipelinePlatformBreakdown[];
     error: string | null;
 }): FullJourneyPipeline {
     const stages: PipelineStage[] = [
@@ -452,11 +661,19 @@ function buildFullJourneyPipeline(values: {
         stage("paid_clicks", "Cliques pagos", values.clicks),
         stage(
             "whatsapp",
-            "WhatsApp",
+            "Conversas WhatsApp",
+            values.platformWhatsappConversations,
+            null,
+            null,
+            null,
+        ),
+        stage(
+            "tracked_whatsapp",
+            "WhatsApp rastreado",
             values.whatsappClients,
-            values.whatsappConversations,
-            "count",
-            "conversas",
+            null,
+            null,
+            null,
         ),
         stage("scheduled", "Agendaram", values.scheduledClients),
         stage("attended", "Compareceram", values.attendedClients),
@@ -485,6 +702,7 @@ function buildFullJourneyPipeline(values: {
         filters_applied: values.filtersApplied,
         currency_code: "BRL",
         stages,
+        platform_breakdown: values.platformBreakdown,
         transitions: [
             transition(
                 "paid_ctr",
@@ -498,13 +716,21 @@ function buildFullJourneyPipeline(values: {
                 "click_to_whatsapp",
                 "Clique → WhatsApp",
                 values.clicks,
+                values.platformWhatsappConversations,
+                false,
+                false,
+            ),
+            transition(
+                "whatsapp_to_tracking",
+                "WhatsApp → CRM",
+                values.platformWhatsappConversations,
                 values.whatsappClients,
                 true,
                 false,
             ),
             transition(
                 "whatsapp_to_schedule",
-                "WhatsApp → agenda",
+                "Rastreado → agenda",
                 values.whatsappClients,
                 values.scheduledClients,
                 false,
@@ -536,8 +762,12 @@ function buildFullJourneyPipeline(values: {
             ),
         ],
         audit: {
-            whatsapp_conversations: values.whatsappConversations,
-            whatsapp_clients: values.whatsappClients,
+            platform_whatsapp_conversations:
+                values.platformWhatsappConversations,
+            tracked_whatsapp_clients: values.whatsappClients,
+            measurement_ready: values.measurementReady,
+            measurement_note: values.measurementNote,
+            tracked_by_evidence: values.trackedByEvidence,
             whatsapp_origins: values.whatsappOrigins,
             cohort_start_date: values.startDate,
             cohort_end_date: values.endDate,
@@ -567,8 +797,11 @@ function emptyFullJourneyPipeline(
         endDate,
         impressions: 0,
         clicks: 0,
-        whatsappConversations: 0,
+        platformWhatsappConversations: 0,
         whatsappClients: 0,
+        measurementReady: false,
+        measurementNote: null,
+        trackedByEvidence: [],
         whatsappOrigins: [],
         scheduledClients: 0,
         attendedClients: 0,
@@ -576,6 +809,7 @@ function emptyFullJourneyPipeline(
         authorizedClients: 0,
         invoicedAmount: 0,
         authorizedAmount: 0,
+        platformBreakdown: [],
         error,
     });
 }
@@ -666,6 +900,212 @@ function buildWhatsappOriginBreakdown(
         );
 }
 
+function buildEvidenceBreakdown(
+    cohort: Map<
+        string,
+        {
+            enteredAt: string;
+            platform: PaidMediaPlatform;
+            evidence: PaidMediaAttributionEvidence;
+        }
+    >,
+): FullJourneyPipeline["audit"]["tracked_by_evidence"] {
+    const counts = new Map<PaidMediaAttributionEvidence, number>();
+    for (const entry of cohort.values()) {
+        counts.set(entry.evidence, (counts.get(entry.evidence) ?? 0) + 1);
+    }
+
+    return (["origin", "utm_source", "click_id"] as const)
+        .map((evidence) => ({
+            evidence,
+            clients: counts.get(evidence) ?? 0,
+        }))
+        .filter((item) => item.clients > 0);
+}
+
+function buildPlatformBreakdown({
+    paidMedia,
+    cohort,
+    scheduledClients,
+    attendedClients,
+    invoices,
+}: {
+    paidMedia: PaidMediaTotals;
+    cohort: Map<
+        string,
+        {
+            enteredAt: string;
+            platform: PaidMediaPlatform;
+            evidence: PaidMediaAttributionEvidence;
+        }
+    >;
+    scheduledClients: Set<string>;
+    attendedClients: Set<string>;
+    invoices: PipelineInvoiceRow[];
+}): PipelinePlatformBreakdown[] {
+    const outcomes = new Map(
+        (["google_ads", "meta_ads"] as const).map((platform) => [
+            platform,
+            {
+                tracked: new Set<string>(),
+                scheduled: new Set<string>(),
+                attended: new Set<string>(),
+                invoiced: new Set<string>(),
+                authorized: new Set<string>(),
+                authorizedRevenue: 0,
+            },
+        ]),
+    );
+
+    for (const [clientId, entry] of cohort) {
+        const outcome = outcomes.get(entry.platform);
+        if (!outcome) continue;
+        outcome.tracked.add(clientId);
+        if (scheduledClients.has(clientId)) outcome.scheduled.add(clientId);
+        if (attendedClients.has(clientId)) outcome.attended.add(clientId);
+    }
+
+    for (const invoice of invoices) {
+        const clientId = invoice.client_id;
+        if (!clientId || !attendedClients.has(clientId)) continue;
+        const entry = cohort.get(clientId);
+        if (
+            !entry ||
+            saoPauloDate(invoice.issued_at) <
+                saoPauloDate(entry.enteredAt)
+        ) {
+            continue;
+        }
+
+        const outcome = outcomes.get(entry.platform);
+        if (!outcome) continue;
+        outcome.invoiced.add(clientId);
+        if (invoiceStatusIsAuthorized(invoice.status)) {
+            outcome.authorized.add(clientId);
+            outcome.authorizedRevenue += numeric(invoice.amount);
+        }
+    }
+
+    return (["google_ads", "meta_ads"] as const).map((platform) => {
+        const media = paidMedia.byPlatform.get(platform)!;
+        const outcome = outcomes.get(platform)!;
+        return {
+            platform,
+            label: platform === "google_ads" ? "Google Ads" : "Meta Ads",
+            spend: roundMoney(media.spend),
+            whatsapp_clicks: Math.trunc(media.clicks),
+            platform_whatsapp_conversations: roundMetric(
+                media.whatsappConversations,
+            ),
+            tracked_clients: outcome.tracked.size,
+            scheduled_clients: outcome.scheduled.size,
+            attended_clients: outcome.attended.size,
+            invoiced_clients: outcome.invoiced.size,
+            authorized_clients: outcome.authorized.size,
+            authorized_revenue: roundMoney(outcome.authorizedRevenue),
+        };
+    });
+}
+
+function emptyPaidMediaTotals(available: boolean): PaidMediaTotals {
+    return {
+        available,
+        measurementReady: false,
+        measurementNote: null,
+        impressions: 0,
+        clicks: 0,
+        whatsappConversations: 0,
+        byPlatform: new Map([
+            [
+                "google_ads",
+                {
+                    spend: 0,
+                    impressions: 0,
+                    clicks: 0,
+                    whatsappConversations: 0,
+                },
+            ],
+            [
+                "meta_ads",
+                {
+                    spend: 0,
+                    impressions: 0,
+                    clicks: 0,
+                    whatsappConversations: 0,
+                },
+            ],
+        ]),
+    };
+}
+
+function fallbackWhatsappImpressions(row: PipelineAdMetricRow) {
+    if (row.platform === "google_ads") return numeric(row.impressions);
+    return fallbackMetaWhatsappCampaign(row)
+        ? numeric(row.impressions)
+        : 0;
+}
+
+function fallbackWhatsappClicks(row: PipelineAdMetricRow) {
+    if (row.platform === "google_ads") return numeric(row.clicks);
+    return fallbackMetaWhatsappCampaign(row) ? numeric(row.clicks) : 0;
+}
+
+function fallbackWhatsappConversations(row: PipelineAdMetricRow) {
+    return isMetaMessagingResult(row.reported_conversion_type)
+        ? numeric(row.reported_conversions)
+        : 0;
+}
+
+function fallbackMetaWhatsappCampaign(row: PipelineAdMetricRow) {
+    if (isMetaMessagingResult(row.reported_conversion_type)) return true;
+    const campaign = normalizeText(row.campaign_name);
+    return (
+        /(^| )(direct|whatsapp|whats app|wpp)( |$)/.test(campaign) ||
+        campaign.includes("clique para whatsapp")
+    );
+}
+
+function isMetaMessagingResult(value: string | null) {
+    const normalized = normalizeText(value);
+    return (
+        normalized.includes("messaging conversation started") ||
+        normalized.includes("messaging_conversation_started")
+    );
+}
+
+function trackingIsNearConversation(
+    trackingUpdatedAt: string | null | undefined,
+    conversationStartedAt: string,
+) {
+    if (!trackingUpdatedAt) return false;
+    const trackingTime = new Date(trackingUpdatedAt).getTime();
+    const conversationTime = new Date(conversationStartedAt).getTime();
+    if (
+        !Number.isFinite(trackingTime) ||
+        !Number.isFinite(conversationTime)
+    ) {
+        return false;
+    }
+    return Math.abs(trackingTime - conversationTime) <= 7 * 86_400_000;
+}
+
+function attributionEvidenceLabel(
+    attribution: {
+        platform: PaidMediaPlatform;
+        evidence: PaidMediaAttributionEvidence;
+    },
+) {
+    const platform =
+        attribution.platform === "google_ads" ? "Google" : "Meta";
+    const evidence =
+        attribution.evidence === "utm_source"
+            ? "UTM"
+            : attribution.evidence === "click_id"
+              ? "ID de clique"
+              : "Origem";
+    return `${platform} · ${evidence}`;
+}
+
 function hasOperationalFilters(filters: DashboardFilters) {
     return (
         filters.unitIds.length > 0 ||
@@ -673,6 +1113,17 @@ function hasOperationalFilters(filters: DashboardFilters) {
         filters.attendantIds.length > 0 ||
         filters.tunnels.length > 0 ||
         filters.origins.length > 0
+    );
+}
+
+function isMissingWhatsappMeasurementColumns(error: {
+    code?: string;
+    message?: string;
+}) {
+    return (
+        error.code === "42703" ||
+        error.code === "PGRST204" ||
+        Boolean(error.message?.includes("whatsapp_"))
     );
 }
 
@@ -698,11 +1149,16 @@ function roundMoney(value: number) {
     return Number(value.toFixed(2));
 }
 
-function normalizeText(value: string) {
-    return value
+function roundMetric(value: number) {
+    return Number(value.toFixed(4));
+}
+
+function normalizeText(value: string | null | undefined) {
+    return (value ?? "")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 }
