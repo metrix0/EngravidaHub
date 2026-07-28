@@ -22,6 +22,8 @@ import {
     Funnel,
     FunnelChart,
     LabelList,
+    Pie,
+    PieChart,
     ResponsiveContainer,
     Tooltip,
     XAxis,
@@ -92,6 +94,12 @@ type PipelineStageKey =
     | "invoiced"
     | "authorized";
 
+type TrackedWhatsappSourceField =
+    | "conversation_origin"
+    | "client_origin"
+    | "utm_source"
+    | "click_id";
+
 type FullJourneyPipeline = {
     available: boolean;
     ads_available: boolean;
@@ -137,6 +145,22 @@ type FullJourneyPipeline = {
             evidence: "origin" | "utm_source" | "click_id";
             clients: number;
         }[];
+        tracked_sources: {
+            platform: "google_ads" | "meta_ads";
+            field: TrackedWhatsappSourceField;
+            source: string;
+            clients: number;
+            percentage: number;
+        }[];
+        whatsapp_coverage: {
+            total_conversations: number;
+            tracked_conversations: number;
+            tracking_rate: number | null;
+            google_conversations: number;
+            meta_conversations: number;
+            other_conversations: number;
+            untracked_conversations: number;
+        };
         whatsapp_origins: {
             origin: string;
             conversations: number;
@@ -164,6 +188,16 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
         measurement_ready: false,
         measurement_note: null,
         tracked_by_evidence: [],
+        tracked_sources: [],
+        whatsapp_coverage: {
+            total_conversations: 0,
+            tracked_conversations: 0,
+            tracking_rate: null,
+            google_conversations: 0,
+            meta_conversations: 0,
+            other_conversations: 0,
+            untracked_conversations: 0,
+        },
         whatsapp_origins: [],
         cohort_start_date: "",
         cohort_end_date: "",
@@ -349,6 +383,16 @@ export default function JourneyPage() {
                         <section className="mt-6 min-w-0 max-w-full">
                             <FullJourneyPipelineCard data={current} />
                         </section>
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <WhatsappCoverageCard
+                                pipeline={current.full_pipeline}
+                            />
+                        </section>
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <TrackedWhatsappSourcesCard
+                                pipeline={current.full_pipeline}
+                            />
+                        </section>
                     </div>
                 )}
             </section>
@@ -529,6 +573,423 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
             </div>
         </Card>
     );
+}
+
+const TRACKED_WHATSAPP_PLATFORM_STYLE = {
+    google_ads: {
+        label: "Google Ads",
+        color: "#d97706",
+    },
+    meta_ads: {
+        label: "Meta Ads",
+        color: "#0866ff",
+    },
+} as const;
+
+const WHATSAPP_COVERAGE_STYLE = {
+    meta_ads: {
+        label: "Meta Ads",
+        color: "#0866ff",
+    },
+    google_ads: {
+        label: "Google Ads",
+        color: "#d97706",
+    },
+    other: {
+        label: "Outras origens",
+        color: "#8b5cf6",
+    },
+    untracked: {
+        label: "Não rastreadas",
+        color: "#94a3b8",
+    },
+} as const;
+
+type WhatsappCoverageChartItem = {
+    key: keyof typeof WHATSAPP_COVERAGE_STYLE;
+    label: string;
+    value: number;
+    percentage: number | null;
+    color: string;
+};
+
+function WhatsappCoverageCard({
+    pipeline,
+}: {
+    pipeline: FullJourneyPipeline;
+}) {
+    const coverage =
+        pipeline.audit.whatsapp_coverage ??
+        EMPTY_PIPELINE.audit.whatsapp_coverage;
+    const chartData: WhatsappCoverageChartItem[] = [
+        {
+            key: "meta_ads",
+            ...WHATSAPP_COVERAGE_STYLE.meta_ads,
+            value: coverage.meta_conversations,
+            percentage: calculateRate(
+                coverage.meta_conversations,
+                coverage.total_conversations,
+            ),
+        },
+        {
+            key: "google_ads",
+            ...WHATSAPP_COVERAGE_STYLE.google_ads,
+            value: coverage.google_conversations,
+            percentage: calculateRate(
+                coverage.google_conversations,
+                coverage.total_conversations,
+            ),
+        },
+        {
+            key: "other",
+            ...WHATSAPP_COVERAGE_STYLE.other,
+            value: coverage.other_conversations,
+            percentage: calculateRate(
+                coverage.other_conversations,
+                coverage.total_conversations,
+            ),
+        },
+        {
+            key: "untracked",
+            ...WHATSAPP_COVERAGE_STYLE.untracked,
+            value: coverage.untracked_conversations,
+            percentage: calculateRate(
+                coverage.untracked_conversations,
+                coverage.total_conversations,
+            ),
+        },
+    ];
+
+    return (
+        <Card className="min-w-0">
+            <h2 className="text-lg font-bold">
+                Cobertura das conversas no WhatsApp
+            </h2>
+
+            {coverage.total_conversations === 0 ? (
+                <div className="mt-5">
+                    <EmptyCardMessage message="Nenhuma conversa no período." />
+                </div>
+            ) : (
+                <div className="mt-4 grid grid-cols-1 items-center gap-6 lg:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1.1fr)] lg:gap-10">
+                    <div className="relative h-[270px] min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={chartData}
+                                    dataKey="value"
+                                    nameKey="label"
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={68}
+                                    outerRadius={98}
+                                    paddingAngle={2}
+                                    stroke="none"
+                                    isAnimationActive={false}
+                                >
+                                    {chartData.map((item) => (
+                                        <Cell
+                                            key={item.key}
+                                            fill={item.color}
+                                        />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    content={
+                                        <WhatsappCoverageTooltip />
+                                    }
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
+                        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-3xl font-bold text-slate-800">
+                                {coverage.total_conversations.toLocaleString(
+                                    "pt-BR",
+                                )}
+                            </span>
+                            <span className="mt-1 text-xs font-medium text-slate-500">
+                                total de conversas
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="min-w-0">
+                        <div className="mb-3 flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3">
+                            <span className="text-sm font-medium text-slate-600">
+                                Conversas rastreadas
+                            </span>
+                            <div className="text-right">
+                                <div className="font-bold text-slate-800">
+                                    {coverage.tracked_conversations.toLocaleString(
+                                        "pt-BR",
+                                    )}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                    {formatRate(coverage.tracking_rate)} do total
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                            {chartData.map((item) => (
+                                <div
+                                    key={item.key}
+                                    className="flex items-center justify-between gap-4 py-3"
+                                >
+                                    <div className="flex items-center gap-2.5">
+                                        <span
+                                            className="h-2.5 w-2.5 rounded-full"
+                                            style={{
+                                                backgroundColor: item.color,
+                                            }}
+                                        />
+                                        <span className="text-sm font-medium text-slate-700">
+                                            {item.label}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-baseline gap-3">
+                                        <span className="font-bold text-slate-800">
+                                            {item.value.toLocaleString("pt-BR")}
+                                        </span>
+                                        <span className="w-12 text-right text-xs text-slate-500">
+                                            {formatRate(item.percentage)}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function WhatsappCoverageTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: { payload?: WhatsappCoverageChartItem }[];
+}) {
+    const item = payload?.[0]?.payload;
+    if (!active || !item) return null;
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-2">
+                <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                />
+                <span className="font-semibold text-slate-800">
+                    {item.label}
+                </span>
+            </div>
+            <div className="mt-2 text-sm text-slate-600">
+                {item.value.toLocaleString("pt-BR")} ·{" "}
+                {formatRate(item.percentage)}
+            </div>
+        </div>
+    );
+}
+
+function TrackedWhatsappSourcesCard({
+    pipeline,
+}: {
+    pipeline: FullJourneyPipeline;
+}) {
+    const sources = pipeline.audit.tracked_sources ?? [];
+    const groupedSources = new Map<string, TrackedWhatsappChartSource>();
+
+    for (const source of sources) {
+        const evidence = trackedSourceEvidence(source.field);
+        const key = [
+            source.platform,
+            evidence,
+            source.source.trim().toLocaleLowerCase("pt-BR"),
+        ].join(":");
+        const current = groupedSources.get(key);
+        if (current) {
+            current.clients += source.clients;
+            continue;
+        }
+
+        groupedSources.set(key, {
+            platform: source.platform,
+            source: source.source,
+            evidence,
+            clients: source.clients,
+            percentage: 0,
+            key,
+            label: trackedSourceAxisLabel(source.source, evidence),
+        });
+    }
+
+    const totalClients = [...groupedSources.values()].reduce(
+        (sum, source) => sum + source.clients,
+        0,
+    );
+    const chartData = [...groupedSources.values()]
+        .map((source) => ({
+            ...source,
+            percentage: calculateRate(source.clients, totalClients) ?? 0,
+        }))
+        .sort(
+            (first, second) =>
+                second.clients - first.clients ||
+                first.source.localeCompare(second.source, "pt-BR"),
+        );
+    const chartHeight = Math.max(280, chartData.length * 30 + 40);
+
+    return (
+        <Card className="min-w-0">
+            <div className="mb-5">
+                <h2 className="text-lg font-bold">
+                    De onde vem o WhatsApp rastreado
+                </h2>
+                <div className="mt-3 flex flex-wrap items-center gap-5 text-xs text-slate-500">
+                    <LegendDot
+                        color={TRACKED_WHATSAPP_PLATFORM_STYLE.google_ads.color}
+                        label="Google Ads"
+                    />
+                    <LegendDot
+                        color={TRACKED_WHATSAPP_PLATFORM_STYLE.meta_ads.color}
+                        label="Meta Ads"
+                    />
+                </div>
+            </div>
+
+            {chartData.length === 0 ? (
+                <EmptyCardMessage message="Nenhum cliente rastreado no período." />
+            ) : (
+                <div className="w-full" style={{ height: chartHeight }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                            data={chartData}
+                            layout="vertical"
+                            barCategoryGap="24%"
+                            margin={{ left: 0, right: 20 }}
+                        >
+                            <CartesianGrid
+                                strokeDasharray="4 4"
+                                stroke="#e2e8f0"
+                                horizontal={false}
+                            />
+                            <XAxis
+                                type="number"
+                                allowDecimals={false}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                            />
+                            <YAxis
+                                type="category"
+                                dataKey="label"
+                                width={220}
+                                tick={{ fontSize: 11 }}
+                                stroke="#94a3b8"
+                                tickFormatter={(value: string) =>
+                                    shortenChartLabel(value, 38)
+                                }
+                            />
+                            <Tooltip
+                                content={<TrackedWhatsappSourceTooltip />}
+                                cursor={false}
+                            />
+                            <Bar
+                                dataKey="clients"
+                                name="Clientes únicos"
+                                radius={[0, 7, 7, 0]}
+                                isAnimationActive={false}
+                            >
+                                {chartData.map((source) => (
+                                    <Cell
+                                        key={source.key}
+                                        fill={
+                                            TRACKED_WHATSAPP_PLATFORM_STYLE[
+                                                source.platform
+                                            ].color
+                                        }
+                                    />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
+        </Card>
+    );
+}
+
+type TrackedWhatsappSourceEvidence = "UTM" | "Origem" | "ID de clique";
+
+type TrackedWhatsappChartSource = {
+    platform: "google_ads" | "meta_ads";
+    source: string;
+    evidence: TrackedWhatsappSourceEvidence;
+    clients: number;
+    percentage: number;
+    key: string;
+    label: string;
+};
+
+function TrackedWhatsappSourceTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: { payload?: TrackedWhatsappChartSource }[];
+}) {
+    const source = payload?.[0]?.payload;
+    if (!active || !source) return null;
+
+    const platform = TRACKED_WHATSAPP_PLATFORM_STYLE[source.platform];
+
+    return (
+        <div className="max-w-[340px] rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="font-semibold text-slate-800">{source.source}</div>
+            <div className="mt-2 space-y-1.5 text-xs text-slate-500">
+                <div className="flex items-center justify-between gap-6">
+                    <span>Classificação</span>
+                    <span
+                        className="font-semibold"
+                        style={{ color: platform.color }}
+                    >
+                        {platform.label}
+                    </span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <span>Clientes únicos</span>
+                    <span className="font-semibold text-slate-700">
+                        {source.clients.toLocaleString("pt-BR")} ·{" "}
+                        {formatRate(source.percentage)}
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function trackedSourceEvidence(
+    field: TrackedWhatsappSourceField,
+): TrackedWhatsappSourceEvidence {
+    if (field === "utm_source") return "UTM";
+    if (field === "click_id") return "ID de clique";
+    return "Origem";
+}
+
+function trackedSourceAxisLabel(
+    source: string,
+    evidence: TrackedWhatsappSourceEvidence,
+) {
+    if (evidence === "UTM") return `${source} (UTM)`;
+    if (evidence === "Origem") return `${source} (Origem)`;
+    return source;
+}
+
+function shortenChartLabel(value: string, maximumLength: number) {
+    if (value.length <= maximumLength) return value;
+    return `${value.slice(0, maximumLength - 1)}…`;
 }
 
 function PipelineStageCard({
@@ -937,6 +1398,33 @@ function JourneyBodySkeleton() {
                                 ))}
                         </div>
                     </div>
+                </Card>
+            </section>
+            <section className="mb-6 min-w-0">
+                <Card>
+                    <Skeleton className="h-6 w-[330px]" />
+                    <div className="mt-5 grid grid-cols-1 items-center gap-6 lg:grid-cols-2 lg:gap-10">
+                        <Skeleton className="mx-auto h-[220px] w-[220px] rounded-full" />
+                        <div className="space-y-3">
+                            <Skeleton className="h-14 w-full rounded-xl" />
+                            {Array.from({ length: 4 }).map((_, index) => (
+                                <Skeleton
+                                    key={index}
+                                    className="h-10 w-full"
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </Card>
+            </section>
+            <section className="mb-6 min-w-0">
+                <Card>
+                    <Skeleton className="h-6 w-[310px]" />
+                    <div className="mt-3 flex gap-5">
+                        <Skeleton className="h-3 w-[90px]" />
+                        <Skeleton className="h-3 w-[80px]" />
+                    </div>
+                    <Skeleton className="mt-5 h-[420px] w-full" />
                 </Card>
             </section>
         </>
