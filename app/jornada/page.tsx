@@ -96,6 +96,7 @@ type PipelineStageKey =
 type TrackedWhatsappSourceField =
     | "conversation_origin"
     | "client_origin"
+    | "tintim_source"
     | "utm_source"
     | "click_id";
 
@@ -141,7 +142,7 @@ type FullJourneyPipeline = {
         measurement_ready: boolean;
         measurement_note: string | null;
         tracked_by_evidence: {
-            evidence: "origin" | "utm_source" | "click_id";
+            evidence: "tintim" | "origin" | "utm_source" | "click_id";
             clients: number;
         }[];
         tracked_sources: {
@@ -942,7 +943,11 @@ function TrackedWhatsappSourcesCard({
     );
 }
 
-type TrackedWhatsappSourceEvidence = "UTM" | "Origem" | "ID de clique";
+type TrackedWhatsappSourceEvidence =
+    | "TinTim"
+    | "UTM"
+    | "Origem"
+    | "ID de clique";
 
 type TrackedWhatsappChartSource = {
     platform: "google_ads" | "meta_ads";
@@ -994,6 +999,7 @@ function TrackedWhatsappSourceTooltip({
 function trackedSourceEvidence(
     field: TrackedWhatsappSourceField,
 ): TrackedWhatsappSourceEvidence {
+    if (field === "tintim_source") return "TinTim";
     if (field === "utm_source") return "UTM";
     if (field === "click_id") return "ID de clique";
     return "Origem";
@@ -1003,6 +1009,7 @@ function trackedSourceAxisLabel(
     source: string,
     evidence: TrackedWhatsappSourceEvidence,
 ) {
+    if (evidence === "TinTim") return `${source} (TinTim)`;
     if (evidence === "UTM") return `${source} (UTM)`;
     if (evidence === "Origem") return `${source} (Origem)`;
     return source;
@@ -1258,12 +1265,12 @@ function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
                 </div>
             </div>
 
-            <div className="h-[260px]">
+            <div className="h-[340px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                         data={chartData}
                         barCategoryGap="28%"
-                        margin={{ left: 10 }}
+                        margin={{ left: 10, bottom: 8 }}
                     >
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                         <XAxis
@@ -1273,7 +1280,7 @@ function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
                             interval={0}
                             angle={-18}
                             textAnchor="end"
-                            height={65}
+                            height={130}
                         />
                         <YAxis
                             width={58}
@@ -1504,7 +1511,7 @@ function buildPipelineSourceTooltip(pipeline: FullJourneyPipeline) {
         `Impressões pagas ${count("paid_impressions")} — dados das APIs Meta e Google Ads para campanhas e ações elegíveis ao WhatsApp.`,
         `Cliques pagos ${count("paid_clicks")} — dados das APIs Meta e Google Ads para cliques elegíveis ao WhatsApp.`,
         `Conversas WhatsApp ${count("whatsapp")} — ações de conversa reportadas pelas próprias plataformas de anúncios.`,
-        `WhatsApp rastreado ${count("tracked_whatsapp")} — clientes únicos identificados pela Origem paga da conversa. Se a Origem estiver vazia, usamos a UTM ou o ID de clique salvo no cliente somente quando esse rastreamento foi atualizado até 7 dias antes ou depois do início da conversa.`,
+        `WhatsApp rastreado ${count("tracked_whatsapp")} — clientes únicos atribuídos por evidência da própria conversa. Primeiro usamos a Origem registrada; depois, a plataforma e a origem enviadas pelo TinTim para o mesmo cliente e a conversa mais próxima. Na ausência desses sinais, usamos somente UTM paga ou ID de clique salvo no cliente até 7 dias antes ou depois da conversa.`,
         `Agendaram ${count("scheduled")} — clientes dessa coorte com agendamento importado do CliniSys após a entrada pelo WhatsApp.`,
         `Compareceram ${count("attended")} — clientes agendados com presença confirmada pelo status do CliniSys.`,
         `Faturados ${count("invoiced")} · ${money("invoiced")} — clientes presentes com nota emitida no CliniSys após a entrada paga.`,

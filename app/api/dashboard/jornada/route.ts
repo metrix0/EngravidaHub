@@ -19,11 +19,19 @@ import {
     normalizeScheduleStatus,
     scheduleShowedUp,
 } from "@/lib/schedules/status";
+import {
+    isTrackedTintimSource,
+    paidMediaPlatformFromTintimSource,
+} from "@/lib/tintim/attribution";
 
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
 const MAX_PIPELINE_ROWS = 50_000;
 const CONVERSATION_PAGE_CONCURRENCY = 4;
+
+type JourneyAttributionEvidence =
+    | PaidMediaAttributionEvidence
+    | "tintim";
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -69,7 +77,7 @@ type FullJourneyPipeline = {
         measurement_ready: boolean;
         measurement_note: string | null;
         tracked_by_evidence: {
-            evidence: PaidMediaAttributionEvidence;
+            evidence: JourneyAttributionEvidence;
             clients: number;
         }[];
         tracked_sources: {
@@ -77,6 +85,7 @@ type FullJourneyPipeline = {
             field:
                 | "conversation_origin"
                 | "client_origin"
+                | "tintim_source"
                 | "utm_source"
                 | "click_id";
             source: string;
@@ -140,10 +149,11 @@ type WhatsappConversationSourceRow = WhatsappConversationRow & {
 
 type PaidWhatsappEntry = WhatsappConversationRow & {
     platform: PaidMediaPlatform;
-    evidence: PaidMediaAttributionEvidence;
+    evidence: JourneyAttributionEvidence;
     source_field:
         | "conversation_origin"
         | "client_origin"
+        | "tintim_source"
         | "utm_source"
         | "click_id";
     source_value: string;
@@ -152,9 +162,15 @@ type PaidWhatsappEntry = WhatsappConversationRow & {
 type PaidWhatsappCohortEntry = {
     enteredAt: string;
     platform: PaidMediaPlatform;
-    evidence: PaidMediaAttributionEvidence;
+    evidence: JourneyAttributionEvidence;
     sourceField: PaidWhatsappEntry["source_field"];
     sourceValue: string;
+};
+
+type TintimConversationAttributionRow = {
+    conversation_id: string;
+    source: string | null;
+    platform: PaidMediaPlatform | null;
 };
 
 type WhatsappCoverage = {
@@ -530,6 +546,8 @@ async function loadPaidWhatsappConversations(
     signal: AbortSignal,
 ) {
     const rows: WhatsappConversationSourceRow[] = [];
+    const tintimAttributionPromise =
+        loadTintimConversationAttribution(range, filters, signal);
 
     async function loadPage(from: number) {
         let query = supabase
@@ -581,6 +599,7 @@ async function loadPaidWhatsappConversations(
         }
     }
 
+    const tintimByConversation = await tintimAttributionPromise;
     const selectedOrigins = new Set(filters.origins.map(normalizeText));
     const paidEntries: PaidWhatsappEntry[] = [];
     const coverageByConversation = new Map<
@@ -594,7 +613,10 @@ async function loadPaidWhatsappConversations(
             ? conversation.clients[0]
             : conversation.clients;
         const directPlatform =
-            paidMediaPlatformFromOrigin(conversationOrigin);
+            paidMediaPlatformFromOrigin(conversationOrigin) ??
+            paidMediaPlatformFromTintimSource(conversationOrigin);
+        const tintimAttribution =
+            tintimByConversation.get(conversation.id) ?? null;
         const clientAttribution = resolvePaidMediaAttribution(client);
         const trackingIsNear = trackingIsNearConversation(
             client?.tracking_updated_at,
@@ -606,6 +628,13 @@ async function loadPaidWhatsappConversations(
                       platform: directPlatform,
                       evidence: "origin" as const,
                   }
+                : tintimAttribution?.platform
+                  ? {
+                        platform: tintimAttribution.platform,
+                        evidence: "tintim" as const,
+                    }
+                : tintimAttribution
+                  ? null
                 : trackingIsNear
                   ? clientAttribution
                   : null;
@@ -614,10 +643,15 @@ async function loadPaidWhatsappConversations(
             (attribution
                 ? ((directPlatform
                       ? conversationOrigin
-                      : paidMediaPlatformFromOrigin(clientOrigin) ===
-                          attribution.platform
-                        ? clientOrigin
-                        : null) ?? attributionEvidenceLabel(attribution))
+                      : attribution.evidence === "tintim" &&
+                          tintimAttribution
+                        ? tintimAttributionSource(tintimAttribution)
+                        : (
+                                paidMediaPlatformFromOrigin(clientOrigin) ??
+                                paidMediaPlatformFromTintimSource(clientOrigin)
+                            ) === attribution.platform
+                          ? clientOrigin
+                          : null) ?? attributionEvidenceLabel(attribution))
                 : conversationOrigin ??
                   clientOrigin ??
                   client?.utm_source?.trim()) ?? null;
@@ -635,11 +669,14 @@ async function loadPaidWhatsappConversations(
             conversation.id;
         const coverageCategory =
             attribution?.platform ??
-            (hasConversationTrackingEvidence({
-                conversationOrigin,
-                client,
-                trackingIsNear,
-            })
+            ((
+                hasTintimTrackingEvidence(tintimAttribution) ||
+                hasConversationTrackingEvidence({
+                    conversationOrigin,
+                    client,
+                    trackingIsNear,
+                })
+            )
                 ? "other"
                 : "untracked");
         coverageByConversation.set(
@@ -655,6 +692,7 @@ async function loadPaidWhatsappConversations(
             directPlatform,
             conversationOrigin,
             client,
+            tintimAttribution,
             attribution,
         });
         if (!attributionSource) continue;
@@ -673,6 +711,49 @@ async function loadPaidWhatsappConversations(
         paidEntries,
         coverage: buildWhatsappCoverage(coverageByConversation),
     };
+}
+
+async function loadTintimConversationAttribution(
+    range: DashboardDateRange,
+    filters: DashboardFilters,
+    signal: AbortSignal,
+) {
+    const { data, error } = await supabase
+        .rpc(
+            "dashboard_tintim_conversation_attribution_v1",
+            executiveRpcParams(
+                { startAt: range.startAt, endAt: range.endAt },
+                filters,
+            ),
+        )
+        .abortSignal(signal);
+    const byConversation = new Map<
+        string,
+        TintimConversationAttributionRow
+    >();
+
+    if (error) {
+        console.warn(
+            "[dashboard/jornada] TinTim attribution unavailable; using existing tracking evidence",
+            {
+                code: error.code,
+                message: error.message,
+            },
+        );
+        return byConversation;
+    }
+
+    for (const rawValue of arrayOrEmpty(data)) {
+        const value = asObject(rawValue);
+        if (typeof value.conversation_id !== "string") continue;
+
+        byConversation.set(
+            value.conversation_id,
+            normalizeTintimAttribution(value),
+        );
+    }
+
+    return byConversation;
 }
 
 async function loadPipelineSchedules(
@@ -1015,12 +1096,12 @@ function buildWhatsappOriginBreakdown(
 function buildEvidenceBreakdown(
     cohort: Map<string, PaidWhatsappCohortEntry>,
 ): FullJourneyPipeline["audit"]["tracked_by_evidence"] {
-    const counts = new Map<PaidMediaAttributionEvidence, number>();
+    const counts = new Map<JourneyAttributionEvidence, number>();
     for (const entry of cohort.values()) {
         counts.set(entry.evidence, (counts.get(entry.evidence) ?? 0) + 1);
     }
 
-    return (["origin", "utm_source", "click_id"] as const)
+    return (["tintim", "origin", "utm_source", "click_id"] as const)
         .map((evidence) => ({
             evidence,
             clients: counts.get(evidence) ?? 0,
@@ -1293,6 +1374,40 @@ function isMetaMessagingResult(value: string | null) {
     );
 }
 
+function normalizeTintimAttribution(
+    value: Record<string, unknown>,
+): TintimConversationAttributionRow {
+    const platform =
+        value.platform === "google_ads" || value.platform === "meta_ads"
+            ? value.platform
+            : null;
+    return {
+        conversation_id: String(value.conversation_id),
+        source: nullableText(value.source),
+        platform,
+    };
+}
+
+function tintimAttributionSource(
+    attribution: TintimConversationAttributionRow,
+) {
+    return (
+        attribution.source ??
+        (attribution.platform === "google_ads"
+            ? "Google Ads"
+            : "Meta Ads")
+    );
+}
+
+function hasTintimTrackingEvidence(
+    attribution: TintimConversationAttributionRow | null,
+) {
+    return Boolean(
+        attribution?.platform ||
+        isTrackedTintimSource(attribution?.source),
+    );
+}
+
 function trackingIsNearConversation(
     trackingUpdatedAt: string | null | undefined,
     conversationStartedAt: string,
@@ -1313,14 +1428,16 @@ function resolveAttributionSource({
     directPlatform,
     conversationOrigin,
     client,
+    tintimAttribution,
     attribution,
 }: {
     directPlatform: PaidMediaPlatform | null;
     conversationOrigin: string | null | undefined;
     client: PipelineClientOriginRow | null;
+    tintimAttribution: TintimConversationAttributionRow | null;
     attribution: {
         platform: PaidMediaPlatform;
-        evidence: PaidMediaAttributionEvidence;
+        evidence: JourneyAttributionEvidence;
     };
 }): {
     field: PaidWhatsappEntry["source_field"];
@@ -1330,6 +1447,13 @@ function resolveAttributionSource({
         return {
             field: "conversation_origin",
             value: conversationOrigin.trim(),
+        };
+    }
+
+    if (attribution.evidence === "tintim" && tintimAttribution) {
+        return {
+            field: "tintim_source",
+            value: tintimAttributionSource(tintimAttribution),
         };
     }
 
@@ -1376,13 +1500,15 @@ function resolveAttributionSource({
 function attributionEvidenceLabel(
     attribution: {
         platform: PaidMediaPlatform;
-        evidence: PaidMediaAttributionEvidence;
+        evidence: JourneyAttributionEvidence;
     },
 ) {
     const platform =
         attribution.platform === "google_ads" ? "Google" : "Meta";
     const evidence =
-        attribution.evidence === "utm_source"
+        attribution.evidence === "tintim"
+            ? "TinTim"
+            : attribution.evidence === "utm_source"
             ? "UTM"
             : attribution.evidence === "click_id"
               ? "ID de clique"
@@ -1435,6 +1561,12 @@ function roundMoney(value: number) {
 
 function roundMetric(value: number) {
     return Number(value.toFixed(4));
+}
+
+function nullableText(value: unknown) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed || null;
 }
 
 function normalizeText(value: string | null | undefined) {

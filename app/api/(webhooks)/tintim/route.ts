@@ -3,59 +3,11 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
 import { supabase } from "@/lib";
-
-type TintimPayload = {
-    phone?: string | null;
-    phone_e164?: string | null;
-    name?: string | null;
-
-    fbclid?: string | null;
-    fbc?: string | null;
-    fbp?: string | null;
-
-    gclid?: string | null;
-    gbraid?: string | null;
-    wbraid?: string | null;
-
-    ctwa_clid?: string | null;
-
-    utm_source?: string | null;
-    utm_medium?: string | null;
-    utm_campaign?: string | null;
-    utm_content?: string | null;
-    utm_term?: string | null;
-
-    location?: {
-        state?: string | null;
-        country?: string | null;
-    } | null;
-
-    visit?: {
-        meta?: {
-            remote_addr?: string | null;
-            http_user_agent?: {
-                raw?: string | null;
-            } | null;
-        } | null;
-        params?: {
-            fbclid?: string | null;
-            fbc?: string | null;
-            fbp?: string | null;
-
-            gclid?: string | null;
-            gbraid?: string | null;
-            wbraid?: string | null;
-
-            ctwa_clid?: string | null;
-
-            utm_source?: string | null;
-            utm_medium?: string | null;
-            utm_campaign?: string | null;
-            utm_content?: string | null;
-            utm_term?: string | null;
-        } | null;
-    } | null;
-};
+import {
+    buildTintimAttributionEvent,
+    extractTintimClientTracking,
+    type TintimPayload,
+} from "@/lib/tintim/attribution";
 
 export async function POST(request: Request) {
     try {
@@ -92,13 +44,18 @@ export async function POST(request: Request) {
             );
         }
 
-        const tracking = extractTracking(payload);
+        const tracking = extractTintimClientTracking(payload);
 
         if (!client) {
             const createdClientId = await createClientFromTintim({
                 phone: normalizedPhone,
                 name: normalizePersonName(payload.name ?? null),
                 tracking,
+            });
+            const attributionEvent = await saveTintimAttributionEvent({
+                payload,
+                clientId: createdClientId,
+                phone: normalizedPhone,
             });
 
             return NextResponse.json({
@@ -110,17 +67,27 @@ export async function POST(request: Request) {
                 inserted_tracking_fields: Object.keys(tracking).filter(
                     (key) => tracking[key as keyof typeof tracking]
                 ),
+                attribution_event_saved: attributionEvent.saved,
+                attribution_platform: attributionEvent.platform,
             });
         }
 
         const updatePayload = buildOnlyEmptyFieldsUpdate(client, tracking);
 
         if (Object.keys(updatePayload).length === 0) {
+            const attributionEvent = await saveTintimAttributionEvent({
+                payload,
+                clientId: client.id,
+                phone: normalizedPhone,
+            });
+
             return NextResponse.json({
                 ok: true,
                 matched: true,
                 client_id: client.id,
                 updated_tracking_fields: [],
+                attribution_event_saved: attributionEvent.saved,
+                attribution_platform: attributionEvent.platform,
             });
         }
 
@@ -139,12 +106,19 @@ export async function POST(request: Request) {
                 { status: 500 }
             );
         }
+        const attributionEvent = await saveTintimAttributionEvent({
+            payload,
+            clientId: client.id,
+            phone: normalizedPhone,
+        });
 
         return NextResponse.json({
             ok: true,
             matched: true,
             client_id: client.id,
             updated_tracking_fields: Object.keys(updatePayload),
+            attribution_event_saved: attributionEvent.saved,
+            attribution_platform: attributionEvent.platform,
         });
     } catch (error) {
         return NextResponse.json(
@@ -160,39 +134,11 @@ export async function POST(request: Request) {
     }
 }
 
-function extractTracking(payload: TintimPayload) {
-    const params = payload.visit?.params ?? {};
-
-    return {
-        fbclid: firstValue(payload.fbclid, params.fbclid),
-        fbc: firstValue(payload.fbc, params.fbc),
-        fbp: firstValue(payload.fbp, params.fbp),
-
-        gclid: firstValue(payload.gclid, params.gclid),
-        gbraid: firstValue(payload.gbraid, params.gbraid),
-        wbraid: firstValue(payload.wbraid, params.wbraid),
-
-        ctwa_clid: firstValue(payload.ctwa_clid, params.ctwa_clid),
-
-        utm_source: firstValue(payload.utm_source, params.utm_source),
-        utm_medium: firstValue(payload.utm_medium, params.utm_medium),
-        utm_campaign: firstValue(payload.utm_campaign, params.utm_campaign),
-        utm_content: firstValue(payload.utm_content, params.utm_content),
-        utm_term: firstValue(payload.utm_term, params.utm_term),
-
-        client_ip_address: firstValue(payload.visit?.meta?.remote_addr),
-        client_user_agent: firstValue(payload.visit?.meta?.http_user_agent?.raw),
-
-        state: firstValue(payload.location?.state),
-        country: firstValue(payload.location?.country),
-    };
-}
-
 async function createClientFromTintim({
-                                          phone,
-                                          name,
-                                          tracking,
-                                      }: {
+    phone,
+    name,
+    tracking,
+}: {
     phone: string;
     name: string | null;
     tracking: Record<string, string | null>;
@@ -228,6 +174,43 @@ async function createClientFromTintim({
     return data.id as string;
 }
 
+async function saveTintimAttributionEvent({
+    payload,
+    clientId,
+    phone,
+}: {
+    payload: TintimPayload;
+    clientId: string;
+    phone: string;
+}) {
+    const event = buildTintimAttributionEvent({
+        payload,
+        clientId,
+        phone,
+    });
+    const { error } = await supabase
+        .from("tintim_attribution_events")
+        .upsert(event, {
+            onConflict: "event_fingerprint",
+            ignoreDuplicates: true,
+        });
+
+    if (error) {
+        console.error("[tintim webhook] Attribution insert failed", {
+            code: error.code,
+            message: error.message,
+        });
+        throw new Error(
+            `Failed to store TinTim attribution: ${error.message}`,
+        );
+    }
+
+    return {
+        saved: true,
+        platform: event.platform,
+    };
+}
+
 function buildOnlyEmptyFieldsUpdate(
     currentClient: Record<string, unknown>,
     incoming: Record<string, string | null>
@@ -249,10 +232,6 @@ function buildOnlyEmptyFieldsUpdate(
     }
 
     return update;
-}
-
-function firstValue(...values: Array<string | null | undefined>) {
-    return values.find((value) => value && value.trim() !== "")?.trim() ?? null;
 }
 
 function normalizeBrazilPhone(phone: string | null) {
