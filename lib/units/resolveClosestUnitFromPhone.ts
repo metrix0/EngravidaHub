@@ -28,11 +28,6 @@ const UNIT_COORDS_BY_NAME: Record<string, Coordinates> = {
         lat: -15.7939,
         lng: -47.8828,
     },
-    campinas: {
-        city: "Campinas",
-        lat: -22.9056,
-        lng: -47.0608,
-    },
     "juiz de fora": {
         city: "Juiz de Fora",
         lat: -21.7642,
@@ -144,6 +139,7 @@ const DDD_CITY_COORDS: Record<string, Coordinates> = {
 };
 
 const ACTIVE_UNITS_CACHE_TTL_MS = 5 * 60 * 1000;
+export const MAX_DDD_UNIT_DISTANCE_KM = 300;
 
 let activeUnitsCache: {
     units: UnitRow[];
@@ -181,7 +177,16 @@ export async function resolveClosestUnitIdFromPhone(phone: string | null) {
 
     rankedUnits.sort((a, b) => a.distanceKm - b.distanceKm);
 
-    return rankedUnits[0]?.unit.id ?? null;
+    const closest = rankedUnits[0];
+
+    if (
+        !closest ||
+        closest.distanceKm > MAX_DDD_UNIT_DISTANCE_KM
+    ) {
+        return null;
+    }
+
+    return closest.unit.id;
 }
 
 async function getActiveUnits(): Promise<UnitRow[]> {

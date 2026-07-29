@@ -184,6 +184,11 @@ type RawConversationUnitRow = {
         | null;
 };
 
+type RawConversationSummary = {
+    currentCount: number | null;
+    byUnit: Map<string, number>;
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
@@ -200,15 +205,17 @@ export async function GET(request: Request) {
         filters,
     );
 
-    // v3 returns the canonical metrics, clear-satisfaction overrides, response
-    // anchors and per-unit satisfaction from one database scan per period.
-    // This replaces the previous N+1 RPC pattern without changing the payload
-    // shown by the dashboard.
-    const currentResult = await runExecutiveMetricsRpc(
-        currentParams,
-        request.signal,
-        "current",
-    );
+    // The current period needs the complete executive payload. The comparison
+    // period only needs KPI fields, so its smaller RPC can run alongside v3
+    // without repeating the expensive chart and per-unit calculations.
+    const [currentResult, previousResult] = await Promise.all([
+        runExecutiveMetricsRpc(
+            currentParams,
+            request.signal,
+            "current",
+        ),
+        runExecutiveComparisonRpc(previousParams, request.signal),
+    ]);
 
     if (currentResult.error) {
         console.error(
@@ -224,12 +231,6 @@ export async function GET(request: Request) {
             { status: 500 },
         );
     }
-
-    const previousResult = await runExecutiveMetricsRpc(
-        previousParams,
-        request.signal,
-        "previous",
-    );
 
     if (previousResult.error) {
         console.error(
@@ -266,9 +267,8 @@ export async function GET(request: Request) {
         scheduleAnalytics,
         scheduleCreationEvolution,
         previousScheduleCount,
-        currentConversationCount,
         previousConversationCount,
-        rawConversationCountsByUnit,
+        rawConversationSummary,
     ] = await Promise.all([
         loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         loadScheduleCreationEvolution(range, selectedUnitNames, request.signal),
@@ -278,10 +278,11 @@ export async function GET(request: Request) {
             "previous",
             request.signal,
         ),
-        loadRawConversationCount(range, filters, "current", request.signal),
         loadRawConversationCount(range, filters, "previous", request.signal),
-        loadRawConversationCountsByUnit(range, filters, request.signal),
+        loadRawConversationSummary(range, filters, request.signal),
     ]);
+    const currentConversationCount = rawConversationSummary.currentCount;
+    const rawConversationCountsByUnit = rawConversationSummary.byUnit;
     const currentScheduleCount = scheduleAnalytics.available
         ? scheduleAnalytics.summary.total
         : null;
@@ -355,11 +356,37 @@ async function runExecutiveMetricsRpc(
     return result;
 }
 
+async function runExecutiveComparisonRpc(
+    params: ReturnType<typeof executiveRpcParams>,
+    signal: AbortSignal,
+) {
+    const result = await supabase
+        .rpc("dashboard_executive_comparison_v1", params)
+        .abortSignal(signal);
+
+    if (!result.error || !isMissingRpcFunction(result.error)) {
+        return result;
+    }
+
+    return runExecutiveMetricsRpc(params, signal, "previous");
+}
+
 function isStatementTimeout(error: { code?: string; message?: string } | null) {
     return (
         error?.code === "57014" ||
         error?.message?.toLocaleLowerCase("pt-BR").includes("statement timeout") ===
             true
+    );
+}
+
+function isMissingRpcFunction(error: {
+    code?: string;
+    message?: string;
+}) {
+    return (
+        error.code === "PGRST202" ||
+        error.code === "42883" ||
+        error.message?.includes("dashboard_executive_comparison_v1") === true
     );
 }
 
@@ -722,6 +749,63 @@ async function loadRawConversationCount(
         );
         return null;
     }
+}
+
+async function loadRawConversationSummary(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    filters: ReturnType<typeof readDashboardFilters>,
+    signal: AbortSignal,
+): Promise<RawConversationSummary> {
+    const { data, error } = await supabase
+        .rpc(
+            "dashboard_raw_conversation_summary_v1",
+            executiveRpcParams(
+                { startAt: range.startAt, endAt: range.endAt },
+                filters,
+            ),
+        )
+        .abortSignal(signal);
+
+    if (!error) {
+        const payload = asObject(data);
+        const currentCount = nullableNumber(payload, "current_count");
+        const byUnit = new Map<string, number>();
+
+        for (const value of arrayOrEmpty<Record<string, unknown>>(
+            payload.by_unit,
+        )) {
+            const unitId =
+                typeof value.unit_id === "string"
+                    ? value.unit_id
+                    : "__NO_UNIT__";
+            const conversations =
+                typeof value.conversations === "number"
+                    ? value.conversations
+                    : 0;
+            byUnit.set(unitId, conversations);
+        }
+
+        if (currentCount !== null) {
+            return { currentCount, byUnit };
+        }
+    } else {
+        console.warn(
+            "[dashboard/executivo] raw conversation summary RPC unavailable; using compatibility reads",
+            error,
+        );
+    }
+
+    const [currentCount, byUnit] = await Promise.all([
+        loadRawConversationCount(
+            range,
+            filters,
+            "current",
+            signal,
+        ),
+        loadRawConversationCountsByUnit(range, filters, signal),
+    ]);
+
+    return { currentCount, byUnit };
 }
 
 async function loadRawConversationCountsByUnit(

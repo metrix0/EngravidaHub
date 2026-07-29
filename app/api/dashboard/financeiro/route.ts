@@ -25,6 +25,7 @@ import type {
 
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
+const CLIENT_BATCH_CONCURRENCY = 6;
 
 const MEDIA_BUDGET_CITIES = [
     { key: "sao_paulo", city: "São Paulo", monthlyBudget: 70_000, aliases: ["sao paulo", "sp"] },
@@ -118,6 +119,47 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const range = resolveDashboardDateRange(searchParams);
         const filters = readFinancialFilters(searchParams);
+        const comparisonAvailable =
+            filters.unitIds.length === 0 && filters.categories.length === 0;
+        const unitsPromise = loadUnits();
+        const doctorsPromise = loadDoctors();
+        const currentInvoicesPromise = loadInvoices(
+            range.startAt,
+            range.endAt,
+            filters,
+        );
+        const previousInvoicesPromise = loadInvoices(
+            range.previousStartAt,
+            range.previousEndAt,
+            filters,
+        );
+        const currentAdMetricsPromise = loadAdMetrics(
+            range.startAt,
+            range.endAt,
+        );
+        const previousAdMetricsPromise = loadAdMetrics(
+            range.previousStartAt,
+            range.previousEndAt,
+        );
+        const schedulesPromise = unitsPromise.then((units) =>
+            loadSchedules(
+                range.startAt,
+                range.endAt,
+                selectedNames(units, filters.unitIds),
+            ),
+        );
+        const previousSchedulesPromise = Promise.all([
+            unitsPromise,
+            previousAdMetricsPromise,
+        ]).then(([units, previousAdMetrics]) =>
+            comparisonAvailable && previousAdMetrics.length > 0
+                ? loadSchedules(
+                      range.previousStartAt,
+                      range.previousEndAt,
+                      selectedNames(units, filters.unitIds),
+                  )
+                : [],
+        );
         const [
             units,
             doctors,
@@ -127,38 +169,21 @@ export async function GET(request: Request) {
             previousAdMetrics,
             lastSyncedAt,
             lastAdsSyncedAt,
+            schedules,
+            previousSchedules,
         ] = await Promise.all([
-            loadUnits(),
-            loadDoctors(),
-            loadInvoices(range.startAt, range.endAt, filters),
-            loadInvoices(
-                range.previousStartAt,
-                range.previousEndAt,
-                filters,
-            ),
-            loadAdMetrics(range.startAt, range.endAt),
-            loadAdMetrics(range.previousStartAt, range.previousEndAt),
+            unitsPromise,
+            doctorsPromise,
+            currentInvoicesPromise,
+            previousInvoicesPromise,
+            currentAdMetricsPromise,
+            previousAdMetricsPromise,
             loadLastSyncedAt(),
             loadLastAdsSyncedAt(),
+            schedulesPromise,
+            previousSchedulesPromise,
         ]);
 
-        const selectedUnitNames = selectedNames(units, filters.unitIds);
-        const comparisonAvailable =
-            filters.unitIds.length === 0 && filters.categories.length === 0;
-        const [schedules, previousSchedules] = await Promise.all([
-            loadSchedules(
-                range.startAt,
-                range.endAt,
-                selectedUnitNames,
-            ),
-            comparisonAvailable && previousAdMetrics.length > 0
-                ? loadSchedules(
-                      range.previousStartAt,
-                      range.previousEndAt,
-                      selectedUnitNames,
-                  )
-                : Promise.resolve([]),
-        ]);
         const clientIds = Array.from(
             new Set(
                 [
@@ -381,19 +406,30 @@ async function loadSchedules(
 
 async function loadClients(clientIds: string[]) {
     const clients: ClientAttributionRow[] = [];
+    const batches = chunk(clientIds, ID_FILTER_BATCH_SIZE);
 
-    for (const ids of chunk(clientIds, ID_FILTER_BATCH_SIZE)) {
-        if (ids.length === 0) continue;
+    for (
+        let from = 0;
+        from < batches.length;
+        from += CLIENT_BATCH_CONCURRENCY
+    ) {
+        const pages = await Promise.all(
+            batches
+                .slice(from, from + CLIENT_BATCH_CONCURRENCY)
+                .map(async (ids) => {
+                    const { data, error } = await supabase
+                        .from("clients")
+                        .select(
+                            "id, last_origin, last_tunnel, utm_source, utm_medium, utm_campaign, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid",
+                        )
+                        .in("id", ids);
 
-        const { data, error } = await supabase
-            .from("clients")
-            .select(
-                "id, last_origin, last_tunnel, utm_source, utm_medium, utm_campaign, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid",
-            )
-            .in("id", ids);
+                    if (error) throw error;
+                    return (data ?? []) as ClientAttributionRow[];
+                }),
+        );
 
-        if (error) throw error;
-        clients.push(...((data ?? []) as ClientAttributionRow[]));
+        for (const page of pages) clients.push(...page);
     }
 
     return clients;

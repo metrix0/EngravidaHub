@@ -12,7 +12,12 @@ import {
     getBigquerySchedules,
     type BigqueryScheduleRow,
 } from "@/lib/schedules/getBigquerySchedules";
+import {
+    isTransientSupabaseError,
+    withSupabaseRetry,
+} from "@/lib/supabase/retry";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
+import { syncClientUnitsFromClinisys } from "@/lib/units/syncClientUnitsFromClinisys";
 
 const BATCH_SIZE = 100;
 const UPSERT_BATCH_SIZE = 300;
@@ -121,31 +126,52 @@ export async function syncClinisysFunnelJourney({
 
     const now = new Date().toISOString();
     for (const batch of chunk(resolvedEvents, UPSERT_BATCH_SIZE)) {
-        const { error } = await supabase
-            .from("funnel_clinisys_events")
-            .upsert(
-                batch.map((event) => ({
-                    source: CLINISYS_SOURCE,
-                    source_external_id: event.source_external_id,
-                    source_hash: event.source_hash,
-                    client_id: event.client_id,
-                    scheduled_for: event.scheduled_for,
-                    created_in_source_at: event.created_in_source_at,
-                    patient_name: event.patient_name,
-                    phone: event.phone,
-                    normalized_phone: event.normalized_phone,
-                    unit_name: event.unit_name,
-                    procedure_name: event.procedure_name,
-                    status: event.status,
-                    event_kind: event.event_kind,
-                    updated_at: now,
-                })),
-                { onConflict: "source_hash" },
-            );
+        const { error } = await withSupabaseRetry(
+            () =>
+                supabase
+                    .from("funnel_clinisys_events")
+                    .upsert(
+                        batch.map((event) => ({
+                            source: CLINISYS_SOURCE,
+                            source_external_id: event.source_external_id,
+                            source_hash: event.source_hash,
+                            client_id: event.client_id,
+                            scheduled_for: event.scheduled_for,
+                            created_in_source_at: event.created_in_source_at,
+                            patient_name: event.patient_name,
+                            phone: event.phone,
+                            normalized_phone: event.normalized_phone,
+                            unit_name: event.unit_name,
+                            procedure_name: event.procedure_name,
+                            status: event.status,
+                            event_kind: event.event_kind,
+                            updated_at: now,
+                        })),
+                        { onConflict: "source_hash" },
+                    ),
+            {
+                attempts: 3,
+                label: "clinisys funnel event upsert",
+            },
+        );
 
         if (error) throw error;
     }
 
+    const unitSync = await syncClientUnitsFromClinisys(
+        resolvedEvents.flatMap((event) =>
+            event.client_id
+                ? [
+                      {
+                          clientId: event.client_id,
+                          unitName: event.unit_name,
+                          scheduledFor: event.scheduled_for,
+                          createdInSourceAt: event.created_in_source_at,
+                      },
+                  ]
+                : [],
+        ),
+    );
     const affectedClientIds = [
         ...new Set(
             resolvedEvents
@@ -157,10 +183,14 @@ export async function syncClinisysFunnelJourney({
     let moved = 0;
 
     for (const batch of chunk(moves, UPSERT_BATCH_SIZE)) {
-        const { data, error } = await supabase.rpc(
-            "apply_clinisys_funnel_moves",
+        const { data, error } = await withSupabaseRetry(
+            () =>
+                supabase.rpc("apply_clinisys_funnel_moves", {
+                    p_moves: batch,
+                }),
             {
-                p_moves: batch,
+                attempts: 3,
+                label: "clinisys funnel moves",
             },
         );
 
@@ -174,6 +204,7 @@ export async function syncClinisysFunnelJourney({
         upserted: resolvedEvents.length,
         affected_clients: affectedClientIds.length,
         moved,
+        clinisys_units_updated: unitSync.updated,
         skipped_missing_phone: skippedMissingPhone,
     });
 
@@ -185,6 +216,8 @@ export async function syncClinisysFunnelJourney({
         upserted: resolvedEvents.length,
         affected_clients: affectedClientIds.length,
         moved,
+        clinisys_units_considered: unitSync.considered,
+        clinisys_units_updated: unitSync.updated,
         skipped_missing_phone: skippedMissingPhone,
         procedures: procedureSummary,
         ignored_procedures: ignoredSummary,
@@ -244,17 +277,33 @@ async function loadClientsByPhone(events: NormalizedJourneyEvent[]) {
 
     for (const phoneBatch of chunk(normalizedPhones, BATCH_SIZE)) {
         const phoneVariants = phoneBatch.flatMap(buildPhoneSearchOptions);
-        const [{ data: byPhone, error: phoneError }, { data: byIdentity, error: identityError }] =
-            await Promise.all([
-                supabase
-                    .from("clients")
-                    .select("id, phone, phone_identity")
-                    .in("phone", phoneVariants),
-                supabase
-                    .from("clients")
-                    .select("id, phone, phone_identity")
-                    .in("phone_identity", phoneBatch),
-            ]);
+        const [
+            { data: byPhone, error: phoneError },
+            { data: byIdentity, error: identityError },
+        ] = await Promise.all([
+            withSupabaseRetry(
+                () =>
+                    supabase
+                        .from("clients")
+                        .select("id, phone, phone_identity")
+                        .in("phone", phoneVariants),
+                {
+                    attempts: 3,
+                    label: "clinisys clients by phone",
+                },
+            ),
+            withSupabaseRetry(
+                () =>
+                    supabase
+                        .from("clients")
+                        .select("id, phone, phone_identity")
+                        .in("phone_identity", phoneBatch),
+                {
+                    attempts: 3,
+                    label: "clinisys clients by identity",
+                },
+            ),
+        ]);
 
         if (phoneError) throw phoneError;
         if (identityError) throw identityError;
@@ -273,25 +322,10 @@ async function loadClientsByPhone(events: NormalizedJourneyEvent[]) {
 
 async function findOrCreateJourneyClient(
     event: NormalizedJourneyEvent,
+    retryInsert = true,
 ): Promise<JourneyClient> {
-    const phoneOptions = buildPhoneSearchOptions(event.normalized_phone);
-    const { data: matches, error: lookupError } = await supabase
-        .from("clients")
-        .select("id, phone, phone_identity")
-        .or(
-            [
-                ...phoneOptions.map((phone) => `phone.eq.${phone}`),
-                event.normalized_phone
-                    ? `phone_identity.eq.${event.normalized_phone}`
-                    : "",
-            ]
-                .filter(Boolean)
-                .join(","),
-        )
-        .limit(1);
-
-    if (lookupError) throw lookupError;
-    if (matches?.[0]) return matches[0] as JourneyClient;
+    const existing = await lookupJourneyClient(event);
+    if (existing) return existing;
 
     const unit = await findOrCreateUnitByName(event.unit_name);
     const now = new Date().toISOString();
@@ -307,8 +341,54 @@ async function findOrCreateJourneyClient(
         .select("id, phone, phone_identity")
         .single();
 
-    if (error) throw error;
+    if (error) {
+        if (
+            isTransientSupabaseError(error) ||
+            (typeof error === "object" &&
+                error !== null &&
+                (error as { code?: string }).code === "23505")
+        ) {
+            const recovered = await lookupJourneyClient(event);
+            if (recovered) return recovered;
+
+            if (retryInsert && isTransientSupabaseError(error)) {
+                return findOrCreateJourneyClient(event, false);
+            }
+        }
+
+        throw error;
+    }
     return data as JourneyClient;
+}
+
+async function lookupJourneyClient(
+    event: NormalizedJourneyEvent,
+): Promise<JourneyClient | null> {
+    const phoneOptions = buildPhoneSearchOptions(event.normalized_phone);
+    const { data: matches, error } = await withSupabaseRetry(
+        () =>
+            supabase
+                .from("clients")
+                .select("id, phone, phone_identity")
+                .or(
+                    [
+                        ...phoneOptions.map((phone) => `phone.eq.${phone}`),
+                        event.normalized_phone
+                            ? `phone_identity.eq.${event.normalized_phone}`
+                            : "",
+                    ]
+                        .filter(Boolean)
+                        .join(","),
+                )
+                .limit(1),
+        {
+            attempts: 3,
+            label: "clinisys client lookup",
+        },
+    );
+
+    if (error) throw error;
+    return matches?.[0] ? (matches[0] as JourneyClient) : null;
 }
 
 async function buildFunnelMoves(clientIds: string[]) {
@@ -345,13 +425,20 @@ async function loadJourneyEvents(clientIds: string[]) {
 
         while (true) {
             const from = page * 1_000;
-            const { data, error } = await supabase
-                .from("funnel_clinisys_events")
-                .select(
-                    "id, client_id, scheduled_for, procedure_name, status, event_kind",
-                )
-                .in("client_id", clientBatch)
-                .range(from, from + 999);
+            const { data, error } = await withSupabaseRetry(
+                () =>
+                    supabase
+                        .from("funnel_clinisys_events")
+                        .select(
+                            "id, client_id, scheduled_for, procedure_name, status, event_kind",
+                        )
+                        .in("client_id", clientBatch)
+                        .range(from, from + 999),
+                {
+                    attempts: 3,
+                    label: "clinisys funnel event read",
+                },
+            );
 
             if (error) throw error;
             const rows = (data ?? []) as ClinisysJourneyEvent[];

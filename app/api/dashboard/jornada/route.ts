@@ -23,6 +23,7 @@ import {
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
 const MAX_PIPELINE_ROWS = 50_000;
+const CONVERSATION_PAGE_CONCURRENCY = 4;
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -530,7 +531,7 @@ async function loadPaidWhatsappConversations(
 ) {
     const rows: WhatsappConversationSourceRow[] = [];
 
-    for (let from = 0; from < MAX_PIPELINE_ROWS; from += PAGE_SIZE) {
+    async function loadPage(from: number) {
         let query = supabase
             .from("conversations")
             .select(
@@ -557,9 +558,27 @@ async function loadPaidWhatsappConversations(
         const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
 
-        const page = (data ?? []) as WhatsappConversationSourceRow[];
-        rows.push(...page);
-        if (page.length < PAGE_SIZE) break;
+        return (data ?? []) as WhatsappConversationSourceRow[];
+    }
+
+    const firstPage = await loadPage(0);
+    rows.push(...firstPage);
+
+    if (firstPage.length === PAGE_SIZE) {
+        for (
+            let from = PAGE_SIZE;
+            from < MAX_PIPELINE_ROWS;
+            from += PAGE_SIZE * CONVERSATION_PAGE_CONCURRENCY
+        ) {
+            const offsets = Array.from(
+                { length: CONVERSATION_PAGE_CONCURRENCY },
+                (_, index) => from + index * PAGE_SIZE,
+            ).filter((offset) => offset < MAX_PIPELINE_ROWS);
+            const pages = await Promise.all(offsets.map(loadPage));
+
+            for (const page of pages) rows.push(...page);
+            if (pages.some((page) => page.length < PAGE_SIZE)) break;
+        }
     }
 
     const selectedOrigins = new Set(filters.origins.map(normalizeText));

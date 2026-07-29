@@ -1,7 +1,13 @@
 // components/conversations/ConversationPanel.tsx
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
@@ -44,6 +50,7 @@ type PanelMessage = {
 };
 
 type PanelData = {
+    item_type: "conversation" | "thread";
     conversation: {
         id: string;
         started_at: string;
@@ -56,7 +63,7 @@ type PanelData = {
     client: {
         id: string;
         name: string | null;
-        phone: string;
+        phone: string | null;
     };
     messages: PanelMessage[];
     analysis: any | null;
@@ -64,25 +71,106 @@ type PanelData = {
 
 type ConversationPanelProps = {
     conversationId: string | null;
+    threadId?: string | null;
     onClose: () => void;
 };
 
 type Tab = "messages" | "analysis" | "events" | "details";
 
-export function ConversationPanel({ conversationId, onClose }: ConversationPanelProps) {
+export function ConversationPanel({
+    conversationId,
+    threadId = null,
+    onClose,
+}: ConversationPanelProps) {
     const router = useRouter();
     const [data, setData] = useState<PanelData | null>(null);
     const [loading, setLoading] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [activeItemType, setActiveItemType] = useState<
+        "conversation" | "thread"
+    >("conversation");
     const [tab, setTab] = useState<Tab>("messages");
 
     const requestIdRef = useRef(0);
 
+    const loadConversation = useCallback(
+        async (
+            nextConversationId: string,
+            itemType: "conversation" | "thread",
+            requestId: number,
+        ) => {
+            const startedAt = Date.now();
+
+            try {
+                const params = new URLSearchParams({
+                    item_type: itemType,
+                });
+                const response = await fetch(
+                    `/api/dashboard/conversas/${nextConversationId}?${params.toString()}`,
+                );
+                const json: PanelData = await response.json();
+                const elapsed = Date.now() - startedAt;
+                const minimumLoadingTime = 500;
+
+                if (elapsed < minimumLoadingTime) {
+                    await new Promise((resolve) =>
+                        window.setTimeout(
+                            resolve,
+                            minimumLoadingTime - elapsed,
+                        ),
+                    );
+                }
+
+                if (requestIdRef.current === requestId) setData(json);
+            } finally {
+                if (requestIdRef.current === requestId) setLoading(false);
+            }
+        },
+        [],
+    );
+
+    const openConversation = useCallback(
+        (
+            nextConversationId: string,
+            itemType: "conversation" | "thread",
+        ) => {
+            const requestId = requestIdRef.current + 1;
+            requestIdRef.current = requestId;
+
+            setActiveConversationId(nextConversationId);
+            setActiveItemType(itemType);
+            setPanelOpen(false);
+            setData(null);
+            setLoading(true);
+            setTab("messages");
+
+            window.setTimeout(() => {
+                if (requestIdRef.current === requestId) {
+                    setPanelOpen(true);
+                }
+            }, 20);
+
+            void loadConversation(
+                nextConversationId,
+                itemType,
+                requestId,
+            );
+        },
+        [loadConversation],
+    );
+
     useEffect(() => {
-        if (!conversationId) return;
-        openConversation(conversationId);
-    }, [conversationId]);
+        const requestedId = threadId ?? conversationId;
+        if (!requestedId) return;
+
+        const itemType = threadId ? "thread" : "conversation";
+        const timeoutId = window.setTimeout(() => {
+            openConversation(requestedId, itemType);
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [conversationId, openConversation, threadId]);
 
     useEffect(() => {
         function handleOpenConversationDetails(event: Event) {
@@ -91,7 +179,10 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
             ).detail;
 
             if (!conversationDetail?.conversationId) return;
-            openConversation(conversationDetail.conversationId);
+            openConversation(
+                conversationDetail.conversationId,
+                "conversation",
+            );
         }
 
         window.addEventListener(
@@ -105,45 +196,7 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                 handleOpenConversationDetails,
             );
         };
-    }, []);
-
-    function openConversation(nextConversationId: string) {
-        const requestId = requestIdRef.current + 1;
-        requestIdRef.current = requestId;
-
-        setActiveConversationId(nextConversationId);
-        setPanelOpen(false);
-        setData(null);
-        setLoading(true);
-        setTab("messages");
-
-        window.setTimeout(() => {
-            if (requestIdRef.current === requestId) setPanelOpen(true);
-        }, 20);
-
-        void loadConversation(nextConversationId, requestId);
-    }
-
-    async function loadConversation(nextConversationId: string, requestId: number) {
-        const startedAt = Date.now();
-
-        try {
-            const response = await fetch(`/api/dashboard/conversas/${nextConversationId}`);
-            const json: PanelData = await response.json();
-            const elapsed = Date.now() - startedAt;
-            const minimumLoadingTime = 500;
-
-            if (elapsed < minimumLoadingTime) {
-                await new Promise((resolve) =>
-                    window.setTimeout(resolve, minimumLoadingTime - elapsed),
-                );
-            }
-
-            if (requestIdRef.current === requestId) setData(json);
-        } finally {
-            if (requestIdRef.current === requestId) setLoading(false);
-        }
-    }
+    }, [openConversation]);
 
     if (!activeConversationId) return null;
 
@@ -163,7 +216,11 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
     return (
         <DetailsSidePanel
             open={panelOpen}
-            title="Detalhes da conversa"
+            title={
+                activeItemType === "thread"
+                    ? "Conversa ao vivo"
+                    : "Detalhes da conversa"
+            }
             onClose={handleClose}
             headerContent={
                 loading || !data ? (
@@ -182,7 +239,14 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                                 aria-label={`Abrir perfil de ${clientName}`}
                             >
                                 <div className="flex min-w-0 items-center gap-4">
-                                    <InitialsAvatar name={clientName} />
+                                    <InitialsAvatar
+                                        name={clientName}
+                                        conversationState={
+                                            data.item_type === "thread"
+                                                ? "live"
+                                                : undefined
+                                        }
+                                    />
 
                                     <div className="min-w-0">
                                         <div
@@ -194,17 +258,22 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
 
                                         <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
                                             <Phone size={15} />
-                                            <span>{data.client.phone}</span>
+                                            <span>{data.client.phone ?? "-"}</span>
                                         </div>
 
                                         <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
                                             <Calendar size={15} />
                                             <span
                                                 className="truncate"
-                                                title={`${formatDateTime(data.conversation.started_at)} - ${formatDateTime(data.conversation.ended_at)}`}
+                                                title={formatConversationPeriod(
+                                                    data.conversation.started_at,
+                                                    data.conversation.ended_at,
+                                                )}
                                             >
-                                                {formatDateTime(data.conversation.started_at)} -{" "}
-                                                {formatDateTime(data.conversation.ended_at)}
+                                                {formatConversationPeriod(
+                                                    data.conversation.started_at,
+                                                    data.conversation.ended_at,
+                                                )}
                                             </span>
                                         </div>
                                     </div>
@@ -212,7 +281,11 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                                 <ChevronRight size={18} className="shrink-0 text-slate-400" />
                             </button>
 
-                            {result ? (
+                            {data.item_type === "thread" ? (
+                                <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                                    Ao vivo
+                                </span>
+                            ) : result ? (
                                 <span title={`Resolução ${result}`}>
                                     <Badge value={result} />
                                 </span>
@@ -277,6 +350,7 @@ export function ConversationPanel({ conversationId, onClose }: ConversationPanel
                             <AnalysisTab
                                 analysis={data.analysis}
                                 analysisStatus={data.conversation.analysis_status}
+                                isLive={data.item_type === "thread"}
                             />
                         )}
                         {tab === "events" && <EventsTab analysis={data.analysis} />}
@@ -362,15 +436,19 @@ function MessagesTab({ messages }: { messages: PanelMessage[] }) {
 function AnalysisTab({
     analysis,
     analysisStatus,
+    isLive,
 }: {
     analysis: any | null;
     analysisStatus: PanelData["conversation"]["analysis_status"];
+    isLive: boolean;
 }) {
     if (!analysis) {
         return (
             <EmptyPanelMessage
                 text={
-                    analysisStatus === "processing"
+                    isLive
+                        ? "Essa conversa ainda está em andamento."
+                        : analysisStatus === "processing"
                         ? "Análise em processamento."
                         : "Essa conversa ainda não foi analisada."
                 }
@@ -504,7 +582,7 @@ function DetailsTab({ data }: { data: PanelData }) {
                     items={[
                         ["ID", data.conversation.id],
                         ["Cliente", data.client.name ?? "Cliente sem nome"],
-                        ["Telefone", data.client.phone],
+                        ["Telefone", data.client.phone ?? "-"],
                         ["Data inicial", formatDateTime(data.conversation.started_at)],
                         [
                             "Data final",
@@ -733,6 +811,15 @@ function formatDateTime(value: string | null | undefined) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function formatConversationPeriod(
+    startedAt: string,
+    endedAt: string | null,
+) {
+    return endedAt
+        ? `${formatDateTime(startedAt)} - ${formatDateTime(endedAt)}`
+        : `${formatDateTime(startedAt)} · Em andamento`;
 }
 
 function formatTime(value: string) {

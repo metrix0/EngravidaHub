@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 
-type ConversationState = "live" | "history" | null;
+export type ConversationState = "live" | "history" | null;
 
 type PersistedTicket = {
     type?: "thread" | "conversation";
@@ -16,25 +16,37 @@ type PersistedRailState = {
 
 const RAIL_STORAGE_KEY = "engravida:floating-chat-rail:v2";
 
-export function InitialsAvatar({ name }: { name: string }) {
+export function InitialsAvatar({
+    name,
+    conversationState: explicitConversationState,
+}: {
+    name: string;
+    conversationState?: ConversationState;
+}) {
     const wrapperRef = useRef<HTMLSpanElement | null>(null);
-    const [conversationState, setConversationState] =
+    const [detectedConversationState, setDetectedConversationState] =
         useState<ConversationState>(null);
+    const conversationState =
+        explicitConversationState ?? detectedConversationState;
     const initials = getInitials(name);
     const colorClass = getInitialsColor(initials);
 
     useEffect(() => {
+        if (explicitConversationState !== undefined) return;
+
         const wrapper = wrapperRef.current;
         if (!wrapper) return;
 
         function updateState() {
             const inboxState = getInboxConversationState(wrapper);
             if (inboxState) {
-                setConversationState(inboxState);
+                setDetectedConversationState(inboxState);
                 return;
             }
 
-            setConversationState(getFloatingRailConversationState(wrapper));
+            setDetectedConversationState(
+                getFloatingRailConversationState(wrapper),
+            );
         }
 
         updateState();
@@ -66,7 +78,7 @@ export function InitialsAvatar({ name }: { name: string }) {
                 updateState,
             );
         };
-    }, []);
+    }, [explicitConversationState]);
 
     return (
         <span ref={wrapperRef} className="relative inline-flex h-9 w-9 shrink-0">

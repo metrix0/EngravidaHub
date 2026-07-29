@@ -15,6 +15,10 @@ import {
     scheduleIsInactive,
 } from "@/lib/schedules/status";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
+import {
+    syncClientUnitsFromClinisys,
+    type ClinisysUnitAssignment,
+} from "@/lib/units/syncClientUnitsFromClinisys";
 
 const FIRST_REPRODUCTION_EVALUATION_FUNNEL_ID =
     "22222222-2222-2222-2222-222222222222";
@@ -107,6 +111,7 @@ export async function syncBigquerySchedules({
 
     const existing = await getExistingSchedules(dedupedSchedules);
     const newSchedules: NormalizedSchedule[] = [];
+    const clinisysUnitAssignments: ClinisysUnitAssignment[] = [];
     const changedSchedules: Array<{
         existing: ExistingSchedule;
         schedule: NormalizedSchedule;
@@ -142,6 +147,14 @@ export async function syncBigquerySchedules({
         }
 
         claimedExistingIds.add(existingSchedule.id);
+        if (existingSchedule.client_id) {
+            clinisysUnitAssignments.push({
+                clientId: existingSchedule.client_id,
+                unitName: schedule.unit_name,
+                scheduledFor: schedule.scheduled_for,
+                createdInSourceAt: schedule.created_in_source_at,
+            });
+        }
 
         const hashOwner = existing.byHash.get(schedule.source_hash);
         const persistedSourceHash =
@@ -188,6 +201,12 @@ export async function syncBigquerySchedules({
 
     for (const schedule of newSchedules) {
         const client = await findOrCreateClientFromSchedule(schedule);
+        clinisysUnitAssignments.push({
+            clientId: client.id,
+            unitName: schedule.unit_name,
+            scheduledFor: schedule.scheduled_for,
+            createdInSourceAt: schedule.created_in_source_at,
+        });
 
         const { data: insertedSchedule, error: scheduleError } = await supabase
             .from("schedules")
@@ -280,12 +299,21 @@ export async function syncBigquerySchedules({
         });
     }
 
+    const unitSync = await syncClientUnitsFromClinisys(
+        clinisysUnitAssignments,
+    );
+
     console.log("[syncBigquerySchedules] SAVED schedules to Supabase", {
         inserted: insertedToSupabase,
         updated: changedSchedules.length,
         status_updated: statusUpdated,
         unchanged: unchangedSchedules,
         existing_match_collisions: existingMatchCollisions,
+    });
+    console.log("[syncBigquerySchedules] SYNCED client units from CliniSys", {
+        considered: unitSync.considered,
+        resolved: unitSync.resolved,
+        updated: unitSync.updated,
     });
     console.log("[syncBigquerySchedules] UPDATED FIV funnel stages", {
         fiv_funnel_stage_updated: fivFunnelStageUpdated,
@@ -306,6 +334,8 @@ export async function syncBigquerySchedules({
         unchanged: unchangedSchedules,
         saved_to_supabase:
             insertedToSupabase + changedSchedules.length,
+        clinisys_units_considered: unitSync.considered,
+        clinisys_units_updated: unitSync.updated,
         fiv_funnel_stage_updated: fivFunnelStageUpdated,
         meta_sent: metaSent,
         google_sent: googleSent,
@@ -601,7 +631,9 @@ async function findOrCreateClientFromSchedule(
             const normalizedClientName = normalizeClientName(schedule.patient_name);
 
             if (normalizedClientName) updates.name = normalizedClientName;
-            if (!existingClient.unit_id && unit?.id) updates.unit_id = unit.id;
+            if (unit?.id && existingClient.unit_id !== unit.id) {
+                updates.unit_id = unit.id;
+            }
 
             if (Object.keys(updates).length > 0) {
                 const { error: updateError } = await supabase

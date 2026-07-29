@@ -195,7 +195,21 @@ async function findClientIdForContact(parsedContact: ParsedBlipContact) {
 }
 
 async function updateClient(clientId: string, parsedContact: ParsedBlipContact) {
-    const unitId = await resolveClosestUnitIdFromPhone(parsedContact.phone);
+    const { data: currentClient, error: currentClientError } = await supabase
+        .from("clients")
+        .select("unit_id, phone")
+        .eq("id", clientId)
+        .maybeSingle();
+
+    if (currentClientError) throw currentClientError;
+
+    // DDD is only a fallback. Once another source (especially CliniSys) has
+    // assigned a unit, routine contact updates must not replace it.
+    const unitId = currentClient?.unit_id
+        ? null
+        : await resolveClosestUnitIdFromPhone(
+              parsedContact.phone ?? currentClient?.phone ?? null,
+          );
 
     const updateData: Record<string, string | null> = {
         updated_at: new Date().toISOString(),
@@ -217,7 +231,7 @@ async function updateClient(clientId: string, parsedContact: ParsedBlipContact) 
         updateData.email = parsedContact.email;
     }
 
-    if (unitId) {
+    if (!currentClient?.unit_id && unitId) {
         updateData.unit_id = unitId;
     }
 

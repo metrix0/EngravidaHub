@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 import { syncClinisysFunnelJourney } from "@/lib/funnel/syncClinisysJourney";
+import { supabaseErrorText } from "@/lib/supabase/retry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,14 +41,14 @@ export async function GET(request: Request) {
         return NextResponse.json(result);
     } catch (error) {
         console.error("[sync-clinisys-funnel] failed", error);
+        const failure = serializeSyncError(error);
 
         return NextResponse.json(
             {
                 ok: false,
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Failed to sync the CliniSys funnel",
+                error: failure.message,
+                ...(failure.code ? { code: failure.code } : {}),
+                ...(failure.details ? { details: failure.details } : {}),
             },
             { status: 500 },
         );
@@ -63,4 +64,22 @@ function boundedNumber(
     const parsed = Number(value ?? fallback);
     if (!Number.isFinite(parsed)) return fallback;
     return Math.min(maximum, Math.max(minimum, Math.floor(parsed)));
+}
+
+function serializeSyncError(error: unknown) {
+    const record =
+        error && typeof error === "object"
+            ? (error as Record<string, unknown>)
+            : null;
+    const message =
+        (typeof record?.message === "string" && record.message.trim()) ||
+        supabaseErrorText(error) ||
+        "Failed to sync the CliniSys funnel";
+
+    return {
+        message,
+        code: typeof record?.code === "string" ? record.code : null,
+        details:
+            typeof record?.details === "string" ? record.details : null,
+    };
 }

@@ -16,6 +16,7 @@ type KpiCardProps = {
     color?: KpiCardColor;
     positiveDirection?: "up" | "down";
     tooltipText?: string | null;
+    tooltipWidthClassName?: string;
     unavailableLabel?: string;
     freeWidth?: boolean;
 };
@@ -39,6 +40,7 @@ export default function KpiCard({
     color = "brand",
     positiveDirection = "up",
     tooltipText = null,
+    tooltipWidthClassName,
     unavailableLabel = "—",
     freeWidth = false,
 }: KpiCardProps) {
@@ -81,6 +83,7 @@ export default function KpiCard({
                                 text={tooltipText}
                                 portal
                                 fitContent
+                                widthClassName={tooltipWidthClassName}
                             >
                                 <HelpCircle
                                     size={13}

@@ -8,6 +8,7 @@ import {
     readDashboardFilters,
     resolveDashboardDateRange,
 } from "@/lib/dashboard/metrics";
+import { withSupabaseRetry } from "@/lib/supabase/retry";
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -28,20 +29,36 @@ export async function GET(request: Request) {
     };
 
     const [currentResult, previousResult] = await Promise.all([
-        supabase.rpc("dashboard_events_metrics_v2", {
-            p_start_at: range.startAt,
-            p_end_at: range.endAt,
-            ...eventFilters,
-            p_page: page,
-            p_page_size: pageSize,
-        }),
-        supabase.rpc("dashboard_events_metrics_v2", {
-            p_start_at: range.previousStartAt,
-            p_end_at: range.previousEndAt,
-            ...eventFilters,
-            p_page: 1,
-            p_page_size: 1,
-        }),
+        withSupabaseRetry(
+            () =>
+                supabase.rpc("dashboard_events_metrics_v2", {
+                    p_start_at: range.startAt,
+                    p_end_at: range.endAt,
+                    ...eventFilters,
+                    p_page: page,
+                    p_page_size: pageSize,
+                }),
+            {
+                attempts: 2,
+                label: "dashboard/eventos current metric RPC",
+                signal: request.signal,
+            },
+        ),
+        withSupabaseRetry(
+            () =>
+                supabase.rpc("dashboard_events_metrics_v2", {
+                    p_start_at: range.previousStartAt,
+                    p_end_at: range.previousEndAt,
+                    ...eventFilters,
+                    p_page: 1,
+                    p_page_size: 1,
+                }),
+            {
+                attempts: 2,
+                label: "dashboard/eventos previous metric RPC",
+                signal: request.signal,
+            },
+        ),
     ]);
 
     if (currentResult.error || previousResult.error) {
@@ -79,9 +96,9 @@ export async function GET(request: Request) {
     );
 }
 
-function asObject(value: unknown): Record<string, any> {
+function asObject(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
-        ? (value as Record<string, any>)
+        ? (value as Record<string, unknown>)
         : {};
 }
 

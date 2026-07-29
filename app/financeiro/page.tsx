@@ -481,7 +481,8 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     }
                                     formatter={formatCompactCurrency}
                                     color="green"
-                                    tooltipText="Soma das NFS-e autorizadas no período cujos clientes têm evidência de aquisição paga. Primeiro usamos uma Origem reconhecida de Google ou Meta; se ela não existir, usamos UTM ou IDs de clique (Google: gclid, gbraid, wbraid; Meta: fbclid, fbc, ctwa_clid). Se houver sinais conflitantes, a receita não é atribuída. Faturas sem cliente vinculado também ficam de fora."
+                                    tooltipText="Soma das NFS-e autorizadas ligadas a clientes com evidência de aquisição paga. Atribuição: Origem Google/Meta; na ausência, UTM ou ID de clique (Google: gclid, gbraid, wbraid; Meta: fbclid, fbc, ctwa_clid). Sinais conflitantes e faturas sem cliente ficam de fora."
+                                    tooltipWidthClassName="w-[260px]"
                                 />
                             </KpiContainer>
 
@@ -961,7 +962,7 @@ function AdsCampaignCard({ data }: { data: FinancialDashboardData }) {
 type MediaBudgetCityRow = FinancialDashboardData["ads"]["by_city"][number];
 
 function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
-    const rows = data.ads.by_city.filter((row) => row.city !== "Campinas");
+    const rows = data.ads.by_city;
 
     return (
         <Card>
@@ -1118,11 +1119,7 @@ function MediaBudgetByCityRowItem({ row }: { row: MediaBudgetCityRow }) {
 
 function PaidCityReturnCard({ data }: { data: FinancialDashboardData }) {
     const rows = data.ads.by_city
-        .filter(
-            (row) =>
-                row.city !== "Campinas" &&
-                (row.spend > 0 || row.attributed_revenue > 0),
-        )
+        .filter((row) => row.spend > 0 || row.attributed_revenue > 0)
         .sort(
             (first, second) =>
                 second.spend - first.spend ||

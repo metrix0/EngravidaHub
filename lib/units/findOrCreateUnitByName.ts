@@ -1,5 +1,6 @@
 // lib/units/findOrCreateUnitByName.ts
 import { supabase } from "@/lib";
+import { withSupabaseRetry } from "@/lib/supabase/retry";
 
 type UnitForName = {
     id: string;
@@ -15,10 +16,13 @@ export async function findOrCreateUnitByName(
         return null;
     }
 
-    const { data: existingUnits, error: findError } = await supabase
-        .from("units")
-        .select("id, name")
-        .eq("active", true);
+    const { data: existingUnits, error: findError } = await withSupabaseRetry(
+        () => supabase.from("units").select("id, name, active"),
+        {
+            attempts: 3,
+            label: "unit lookup",
+        },
+    );
 
     if (findError) {
         throw findError;
@@ -29,7 +33,9 @@ export async function findOrCreateUnitByName(
     });
 
     if (existingUnit) {
-        return existingUnit;
+        return existingUnit.active
+            ? { id: existingUnit.id, name: existingUnit.name }
+            : null;
     }
 
     const { data: createdUnit, error: createError } = await supabase
@@ -38,14 +44,17 @@ export async function findOrCreateUnitByName(
             name: unitName,
             active: true,
         })
-        .select("id, name")
+        .select("id, name, active")
         .single();
 
     if (createError) {
         throw createError;
     }
 
-    return createdUnit;
+    return {
+        id: createdUnit.id,
+        name: createdUnit.name,
+    };
 }
 
 function cleanUnitName(value: string | null | undefined) {

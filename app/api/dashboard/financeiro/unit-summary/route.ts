@@ -60,11 +60,10 @@ export async function GET(request: Request) {
         const currentMonth = currentMonthClock();
 
         const [units, doctors] = await Promise.all([loadUnits(), loadDoctors()]);
-        const selectedUnits = (
+        const selectedUnits =
             unitIds.length === 0
                 ? units
-                : units.filter((unit) => unitIds.includes(unit.id))
-        ).filter((unit) => normalizeText(unit.name) !== "campinas");
+                : units.filter((unit) => unitIds.includes(unit.id));
 
         const selectedStartDate =
             range.startDate ?? saoPauloDate(range.startAt);
@@ -223,6 +222,9 @@ function buildFinancialTable({
     projectionFactor: number;
 }) {
     const unitNames = new Map(units.map((unit) => [unit.id, unit.name]));
+    const unitsByNormalizedName = new Map(
+        units.map((unit) => [normalizeText(unit.name), unit]),
+    );
     const buckets = new Map<string, FinancialBucket>();
 
     for (const unit of units) {
@@ -231,15 +233,16 @@ function buildFinancialTable({
 
     for (const invoice of invoices) {
         if (invoiceStatusGroup(invoice.status) !== "authorized") continue;
-        const unitName =
-            (invoice.unit_id ? unitNames.get(invoice.unit_id) : null) ??
-            invoice.unit_name?.trim() ??
-            "Sem unidade";
-        if (normalizeText(unitName) === "campinas") continue;
-
-        const key = invoice.unit_id ?? `name:${normalizeText(invoice.unit_name)}`;
+        const activeUnit = resolveActiveUnit(
+            invoice,
+            unitNames,
+            unitsByNormalizedName,
+        );
+        const unitName = activeUnit?.name ?? "Sem unidade";
+        const key = activeUnit?.id ?? "__NO_UNIT__";
         const bucket =
-            buckets.get(key) ?? emptyFinancialBucket(invoice.unit_id, unitName);
+            buckets.get(key) ??
+            emptyFinancialBucket(activeUnit?.id ?? null, unitName);
         const amount = numeric(invoice.amount);
         const description = normalizeText(invoice.description);
         const linkedDoctor =
@@ -302,6 +305,9 @@ function buildProcedureMix({
     units: UnitRow[];
 }): ProcedureCityRow[] {
     const unitNames = new Map(units.map((unit) => [unit.id, unit.name]));
+    const unitsByNormalizedName = new Map(
+        units.map((unit) => [normalizeText(unit.name), unit]),
+    );
     const buckets = new Map<string, ProcedureCityRow>();
 
     for (const unit of units) {
@@ -311,17 +317,16 @@ function buildProcedureMix({
     for (const invoice of invoices) {
         if (invoiceStatusGroup(invoice.status) !== "authorized") continue;
 
-        const unitName =
-            (invoice.unit_id ? unitNames.get(invoice.unit_id) : null) ??
-            invoice.unit_name?.trim() ??
-            "Sem unidade";
-        if (normalizeText(unitName) === "campinas") continue;
-
-        const key =
-            invoice.unit_id ?? `name:${normalizeText(invoice.unit_name)}`;
+        const activeUnit = resolveActiveUnit(
+            invoice,
+            unitNames,
+            unitsByNormalizedName,
+        );
+        const unitName = activeUnit?.name ?? "Sem unidade";
+        const key = activeUnit?.id ?? "__NO_UNIT__";
         const bucket =
             buckets.get(key) ??
-            emptyProcedureCityRow(invoice.unit_id, unitName);
+            emptyProcedureCityRow(activeUnit?.id ?? null, unitName);
         const category = classifyProcedure(invoice);
 
         bucket.total += 1;
@@ -334,6 +339,22 @@ function buildProcedureMix({
             second.total - first.total ||
             first.unit_name.localeCompare(second.unit_name, "pt-BR"),
     );
+}
+
+function resolveActiveUnit(
+    invoice: Pick<InvoiceRow, "unit_id" | "unit_name">,
+    unitNames: Map<string, string>,
+    unitsByNormalizedName: Map<string, UnitRow>,
+) {
+    if (invoice.unit_id) {
+        const name = unitNames.get(invoice.unit_id);
+        if (name) return { id: invoice.unit_id, name };
+    }
+
+    const normalizedSourceName = normalizeText(invoice.unit_name);
+    return normalizedSourceName
+        ? unitsByNormalizedName.get(normalizedSourceName) ?? null
+        : null;
 }
 
 function emptyProcedureCityRow(

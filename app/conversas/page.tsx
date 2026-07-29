@@ -33,6 +33,7 @@ import {
 
 type ConversationRow = {
     id: string;
+    item_type: "conversation" | "thread";
     attendant_name: string;
     phone: string;
     started_at: string;
@@ -59,7 +60,14 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         width: "15%",
         render: (conversation) => (
             <div className="flex min-w-0 items-center gap-3">
-                <InitialsAvatar name={conversation.client_name}/>
+                <InitialsAvatar
+                    name={conversation.client_name}
+                    conversationState={
+                        conversation.item_type === "thread"
+                            ? "live"
+                            : undefined
+                    }
+                />
                 <span title={conversation.client_name} className="truncate font-medium text-slate-700">
                     {conversation.client_name}
                 </span>
@@ -102,7 +110,9 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         id: "result",
         label: "Resultado",
         width: "11%",
-        render: (conversation) => <Badge value={conversation.result}/>,
+        render: (conversation) => (
+            <ConversationResultCell conversation={conversation} />
+        ),
     },
     {
         id: "notable",
@@ -136,6 +146,7 @@ function MessagesPageContent() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const requestedConversationId = searchParams.get("conversation_id");
+    const requestedThreadId = searchParams.get("thread_id");
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
@@ -212,19 +223,27 @@ function MessagesPageContent() {
     const firstItem = totalConversations === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
     const lastItem = Math.min(currentPage * PAGE_SIZE, totalConversations);
 
-    function handleOpenConversation(conversationId: string) {
+    function handleOpenConversation(conversation: ConversationRow) {
         const nextSearchParams = new URLSearchParams(searchParams.toString());
-        nextSearchParams.set("conversation_id", conversationId);
+        nextSearchParams.delete("conversation_id");
+        nextSearchParams.delete("thread_id");
+        nextSearchParams.set(
+            conversation.item_type === "thread"
+                ? "thread_id"
+                : "conversation_id",
+            conversation.id,
+        );
         router.replace(`${pathname}?${nextSearchParams.toString()}`, {
             scroll: false,
         });
     }
 
     function handleCloseConversationPanel() {
-        if (!requestedConversationId) return;
+        if (!requestedConversationId && !requestedThreadId) return;
 
         const nextSearchParams = new URLSearchParams(searchParams.toString());
         nextSearchParams.delete("conversation_id");
+        nextSearchParams.delete("thread_id");
         const query = nextSearchParams.toString();
         router.replace(query ? `${pathname}?${query}` : pathname, {
             scroll: false,
@@ -238,6 +257,7 @@ function MessagesPageContent() {
                 <section className="flex-1 px-8 py-8"><MessagesSkeleton/></section>
                 <ConversationPanel
                     conversationId={requestedConversationId}
+                    threadId={requestedThreadId}
                     onClose={handleCloseConversationPanel}
                 />
             </main>
@@ -329,8 +349,10 @@ function MessagesPageContent() {
                     <DataTable
                         columns={CONVERSATION_COLUMNS}
                         rows={conversations}
-                        getRowKey={(conversation) => conversation.id}
-                        onRowClick={(conversation) => handleOpenConversation(conversation.id)}
+                        getRowKey={(conversation) =>
+                            `${conversation.item_type}:${conversation.id}`
+                        }
+                        onRowClick={handleOpenConversation}
                     />
                 )}
 
@@ -347,6 +369,7 @@ function MessagesPageContent() {
 
             <ConversationPanel
                 conversationId={requestedConversationId}
+                threadId={requestedThreadId}
                 onClose={handleCloseConversationPanel}
             />
         </main>
@@ -398,6 +421,22 @@ function NotableBadge({ notable }: { notable: boolean }) {
             <CircleAlert className="h-4 w-4"/>
         </span>
     );
+}
+
+function ConversationResultCell({
+    conversation,
+}: {
+    conversation: ConversationRow;
+}) {
+    if (conversation.item_type === "thread") {
+        return (
+            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                Ao vivo
+            </span>
+        );
+    }
+
+    return <Badge value={conversation.result} />;
 }
 
 function MessagesSkeleton() {

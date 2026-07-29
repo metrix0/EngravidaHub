@@ -1,82 +1,231 @@
 // app/api/dashboard/conversas/[conversationId]/route.ts
 import { NextResponse } from "next/server";
+
 import { supabase } from "@/lib";
 
-export async function GET(
-    _request: Request,
-    { params }: { params: Promise<{ conversationId: string }> }
-) {
-    const { conversationId } = await params;
+type ThreadDetailRow = {
+    id: string;
+    client_id: string;
+    status: string;
+    source: string | null;
+    channel: string | null;
+    assigned_attendant_id: string | null;
+    queued_at: string | null;
+    created_at: string;
+    updated_at: string;
+    last_message_at: string | null;
+};
 
+export async function GET(
+    request: Request,
+    { params }: { params: Promise<{ conversationId: string }> },
+) {
+    const { conversationId: itemId } = await params;
+    const itemType =
+        new URL(request.url).searchParams.get("item_type") === "thread"
+            ? "thread"
+            : "conversation";
+
+    try {
+        return itemType === "thread"
+            ? await fetchThreadDetail(itemId)
+            : await fetchConversationDetail(itemId);
+    } catch (error) {
+        console.error("[dashboard/conversas/detail] failed", {
+            item_id: itemId,
+            item_type: itemType,
+            error,
+        });
+        return NextResponse.json(
+            {
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Falha ao carregar a conversa.",
+            },
+            { status: 500 },
+        );
+    }
+}
+
+async function fetchConversationDetail(conversationId: string) {
     const { data: conversation, error: conversationError } = await supabase
         .from("conversations")
         .select("*")
         .eq("id", conversationId)
-        .single();
+        .maybeSingle();
 
-    if (conversationError) {
+    if (conversationError) throw conversationError;
+    if (!conversation) {
         return NextResponse.json(
-            { error: conversationError.message },
-            { status: 500 }
+            { error: "Conversation not found" },
+            { status: 404 },
         );
     }
 
-    const { data: client, error: clientError } = await supabase
+    const [client, messages, analysis] = await Promise.all([
+        fetchClient(conversation.client_id),
+        fetchConversationMessages(conversationId),
+        fetchAnalysis(conversation.conversation_analysis_id),
+    ]);
+
+    if (!client) {
+        return NextResponse.json(
+            { error: "Client not found" },
+            { status: 404 },
+        );
+    }
+
+    return NextResponse.json({
+        item_type: "conversation",
+        conversation,
+        client,
+        messages: cleanMessages(messages),
+        analysis,
+    });
+}
+
+async function fetchThreadDetail(threadId: string) {
+    const { data: thread, error: threadError } = await supabase
+        .from("thread")
+        .select(
+            [
+                "id",
+                "client_id",
+                "status",
+                "source",
+                "channel",
+                "assigned_attendant_id",
+                "queued_at",
+                "created_at",
+                "updated_at",
+                "last_message_at",
+            ].join(","),
+        )
+        .eq("id", threadId)
+        .eq("status", "open")
+        .maybeSingle();
+
+    if (threadError) throw threadError;
+    if (!thread) {
+        return NextResponse.json(
+            { error: "Thread not found" },
+            { status: 404 },
+        );
+    }
+    const typedThread = thread as unknown as ThreadDetailRow;
+
+    const [client, attendant, messages] = await Promise.all([
+        fetchClient(typedThread.client_id),
+        fetchAttendant(typedThread.assigned_attendant_id),
+        fetchThreadMessages(typedThread.id),
+    ]);
+
+    if (!client) {
+        return NextResponse.json(
+            { error: "Client not found" },
+            { status: 404 },
+        );
+    }
+
+    const startedAt =
+        typedThread.queued_at ??
+        messages[0]?.sent_at ??
+        typedThread.created_at;
+
+    return NextResponse.json({
+        item_type: "thread",
+        conversation: {
+            id: typedThread.id,
+            client_id: typedThread.client_id,
+            source: typedThread.source,
+            channel: typedThread.channel,
+            started_at: startedAt,
+            ended_at: null,
+            attendant_id: typedThread.assigned_attendant_id,
+            attendant_chat_name: attendant?.name ?? null,
+            tunnel: client.last_tunnel ?? null,
+            origin: client.last_origin ?? null,
+            conversation_analysis_id: null,
+            analysis_status: "pending",
+        },
+        client,
+        messages: cleanMessages(messages),
+        analysis: null,
+    });
+}
+
+async function fetchClient(clientId: string) {
+    const { data, error } = await supabase
         .from("clients")
         .select("*")
-        .eq("id", conversation.client_id)
-        .single();
+        .eq("id", clientId)
+        .maybeSingle();
 
-    if (clientError) {
-        return NextResponse.json(
-            { error: clientError.message },
-            { status: 500 }
-        );
-    }
+    if (error) throw error;
+    return data ?? null;
+}
 
-    const { data: messages, error: messagesError } = await supabase
+async function fetchAttendant(attendantId: string | null) {
+    if (!attendantId) return null;
+
+    const { data, error } = await supabase
+        .from("attendants")
+        .select("id, name")
+        .eq("id", attendantId)
+        .maybeSingle();
+
+    if (error) throw error;
+    return data ?? null;
+}
+
+async function fetchAnalysis(analysisId: string | null) {
+    if (!analysisId) return null;
+
+    const { data, error } = await supabase
+        .from("conversation_analysis")
+        .select("*")
+        .eq("id", analysisId)
+        .maybeSingle();
+
+    if (error) throw error;
+    return data ?? null;
+}
+
+async function fetchConversationMessages(conversationId: string) {
+    const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("sent_at", { ascending: true })
         .order("sequence_index", { ascending: true });
 
-    if (messagesError) {
-        return NextResponse.json(
-            { error: messagesError.message },
-            { status: 500 }
-        );
-    }
-
-    let analysis = null;
-
-    if (conversation.conversation_analysis_id) {
-        const { data, error } = await supabase
-            .from("conversation_analysis")
-            .select("*")
-            .eq("id", conversation.conversation_analysis_id)
-            .single();
-
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        analysis = data;
-    }
-
-    return NextResponse.json({
-        conversation,
-        client,
-        messages: (messages ?? []).map((message) => ({
-            ...message,
-            text: cleanMessageText(message.text),
-        })),
-        analysis,
-    });
+    if (error) throw error;
+    return data ?? [];
 }
 
-function cleanMessageText(text: string) {
-    return text
+async function fetchThreadMessages(threadId: string) {
+    const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("thread_id", threadId)
+        .is("conversation_id", null)
+        .order("sent_at", { ascending: true })
+        .order("sequence_index", { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
+}
+
+function cleanMessages(messages: Array<{ text: string | null }>) {
+    return messages.map((message) => ({
+        ...message,
+        text: cleanMessageText(message.text),
+    }));
+}
+
+function cleanMessageText(text: string | null) {
+    return (text ?? "")
         .replace(/<\/?b>/gi, "")
         .replace(/<\/?strong>/gi, "");
 }
