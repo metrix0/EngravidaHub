@@ -33,8 +33,6 @@ import {
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
 import {
     Card,
@@ -45,6 +43,7 @@ import {
     SidePanel,
     Skeleton,
 } from "@/components";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
 
@@ -223,11 +222,13 @@ export default function JourneyPage() {
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
-    });
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("yesterday");
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -249,6 +250,10 @@ export default function JourneyPage() {
     }, []);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+
+        const controller = new AbortController();
+
         async function loadData() {
             if (hasDataRef.current) setIsRefreshing(true);
             else setLoadingData(true);
@@ -269,6 +274,7 @@ export default function JourneyPage() {
 
                 const response = await fetch(
                     `/api/dashboard/jornada?${params.toString()}`,
+                    { signal: controller.signal },
                 );
                 const json = await response.json();
 
@@ -300,13 +306,25 @@ export default function JourneyPage() {
                     audit: json.audit ?? null,
                 });
                 hasDataRef.current = true;
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[jornada] failed to load dashboard", error);
             } finally {
-                setLoadingData(false);
-                setIsRefreshing(false);
+                if (!controller.signal.aborted) {
+                    setLoadingData(false);
+                    setIsRefreshing(false);
+                }
             }
         }
 
-        void loadData();
+        const debounceId = window.setTimeout(() => {
+            void loadData();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
     }, [
         unitIds,
         attendantIds,
@@ -314,6 +332,7 @@ export default function JourneyPage() {
         originValues,
         period,
         selectedRange,
+        dateFilterReady,
     ]);
 
     if (loadingFilters || loadingData) {
@@ -349,6 +368,8 @@ export default function JourneyPage() {
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
