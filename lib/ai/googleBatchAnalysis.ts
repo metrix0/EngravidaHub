@@ -1352,12 +1352,7 @@ function bucketName() {
 }
 
 function googleLocation() {
-    const location = process.env.GOOGLE_AI_LOCATION?.trim() || "us-central1";
-    if (location === "global") {
-        throw new Error(
-            "GOOGLE_AI_LOCATION cannot be global because Google OpenMaaS batch jobs require a regional endpoint",
-        );
-    }
+    const location = process.env.GOOGLE_AI_LOCATION?.trim() || "global";
     if (!/^[a-z][a-z0-9-]*$/.test(location)) {
         throw new Error(`Invalid GOOGLE_AI_LOCATION: ${location}`);
     }
@@ -1366,6 +1361,9 @@ function googleLocation() {
 
 function vertexApiBase() {
     const location = googleLocation();
+    if (location === "global") {
+        return "https://aiplatform.googleapis.com";
+    }
     if (location === "us" || location === "eu") {
         return `https://aiplatform.${location}.rep.googleapis.com`;
     }
@@ -1382,7 +1380,7 @@ function googleProjectId() {
         googleServiceAccountCredentials().project_id?.trim();
     if (!projectId) {
         throw new Error(
-            "Missing GOOGLE_AI_PROJECT_ID and project_id in GOOGLE_SERVICE_ACCOUNT_JSON",
+            "Missing GOOGLE_AI_PROJECT_ID and project_id in GOOGLE_AI_SERVICE_ACCOUNT_JSON",
         );
     }
     return projectId;
@@ -1466,17 +1464,17 @@ function getGoogleAuth() {
 function googleServiceAccountCredentials() {
     if (googleCredentials) return googleCredentials;
 
-    const raw = requiredEnv("GOOGLE_SERVICE_ACCOUNT_JSON");
+    const raw = requiredEnv("GOOGLE_AI_SERVICE_ACCOUNT_JSON");
     let parsed: Partial<GoogleServiceAccountCredentials>;
     try {
         parsed = JSON.parse(raw) as Partial<GoogleServiceAccountCredentials>;
     } catch {
-        throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON must be valid JSON");
+        throw new Error("GOOGLE_AI_SERVICE_ACCOUNT_JSON must be valid JSON");
     }
 
     if (!parsed.client_email?.trim() || !parsed.private_key?.trim()) {
         throw new Error(
-            "GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key",
+            "GOOGLE_AI_SERVICE_ACCOUNT_JSON must contain client_email and private_key",
         );
     }
 
