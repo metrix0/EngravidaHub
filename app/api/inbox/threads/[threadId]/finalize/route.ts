@@ -19,7 +19,7 @@ export async function POST(
     console.info(`[inbox-finalize:${requestId}] Starting`, {
         threadId,
         mode: "manual",
-        analysis: "deferred_to_hourly_bedrock_batch",
+        analysis: "deferred_to_hourly_google_batch",
     });
 
     const { attendant } = await getCurrentAttendantFromRequest();
@@ -68,7 +68,7 @@ export async function POST(
         return NextResponse.json({
             ...result,
             analysis_deferred: true,
-            analysis_provider: "amazon-bedrock-batch",
+            analysis_provider: "google-vertex-batch",
             request_id: requestId,
         });
     } catch (error) {

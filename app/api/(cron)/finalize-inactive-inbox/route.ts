@@ -195,9 +195,9 @@ export async function GET(request: Request) {
             legacy_error: legacyError,
             sheet_attribution_match: sheetAttributionMatch,
             sheet_attribution_error: sheetAttributionError,
-            conversation_ids_deferred_to_bedrock_batch: conversationIdsDeferred,
+            conversation_ids_deferred_to_google_batch: conversationIdsDeferred,
             analysis_deferred: true,
-            analysis_provider: "amazon-bedrock-batch",
+            analysis_provider: "google-vertex-batch",
             finalize_results: finalizeResults,
         });
     } catch (error) {

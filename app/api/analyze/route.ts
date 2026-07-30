@@ -1,7 +1,7 @@
 // app/api/analyze/route.ts
 import { NextResponse } from "next/server";
 
-import { runBedrockBatchAnalysis } from "@/lib/ai/bedrockBatchAnalysis";
+import { runGoogleBatchAnalysis } from "@/lib/ai/googleBatchAnalysis";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
 import {
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
         const inactivityHours = Number(searchParams.get("inactivity_hours") ?? 16);
         const limit = Number(searchParams.get("limit") ?? 100000);
 
-        console.log("[/api/analyze] starting daily Bedrock batch pipeline", {
+        console.log("[/api/analyze] starting daily Google batch pipeline", {
             inactivity_hours: inactivityHours,
             limit,
             request_url: request.url,
@@ -129,17 +129,17 @@ export async function GET(request: Request) {
             }),
         );
 
-        const bedrockBatch = await runLoggedStage(
-            "bedrock_batch",
-            () => runBedrockBatchAnalysis({ limit }),
+        const googleBatch = await runLoggedStage(
+            "google_batch",
+            () => runGoogleBatchAnalysis({ limit }),
             (result) => ({ result }),
         );
 
-        console.log("[/api/analyze] daily Bedrock batch pipeline finished", {
+        console.log("[/api/analyze] daily Google batch pipeline finished", {
             conversations_created: createdConversations.length,
             sheet_attribution: sheetAttributionMatch,
             sender_names_ready: senderNameMatch.ready_conversation_ids.length,
-            bedrock_batch: bedrockBatch,
+            google_batch: googleBatch,
         });
 
         return NextResponse.json({
@@ -147,7 +147,7 @@ export async function GET(request: Request) {
             closing_tag_backfill: closingTagBackfill,
             sheet_attribution: sheetAttributionMatch,
             sender_name_match: senderNameMatch,
-            bedrock_batch: bedrockBatch,
+            google_batch: googleBatch,
         });
     } catch (error) {
         const details = serializeError(error);
