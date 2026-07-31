@@ -199,7 +199,7 @@ function DevZernioPageContent() {
     }
 
     return (
-        <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+        <main className="h-full overflow-y-auto bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-5xl">
                 <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
                     <div>
