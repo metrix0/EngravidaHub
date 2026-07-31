@@ -8,10 +8,47 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_RESULTS = 50;
+const MAX_ID_MATCHES = 200;
+
+const THREAD_SELECT = `
+    id,
+    client_id,
+    instagram_user_id,
+    channel,
+    status,
+    assigned_attendant_id,
+    queued_at,
+    claimed_at,
+    last_message_text,
+    last_message_at,
+    created_at,
+    clients (
+        id,
+        name,
+        phone,
+        email
+    ),
+    instagram_user:instagram_users!thread_instagram_user_id_fkey (
+        id,
+        username,
+        display_name,
+        profile_picture_url
+    ),
+    attendants (
+        id,
+        name,
+        email
+    )
+`;
 
 type AssignmentRequest = {
     thread_id?: unknown;
     force?: unknown;
+};
+
+type SearchIdentityIds = {
+    clientIds: string[];
+    instagramUserIds: string[];
 };
 
 export async function GET(request: Request) {
@@ -30,51 +67,13 @@ export async function GET(request: Request) {
             });
         }
 
-        const clientIds = await searchClientIds(rawSearch);
-
-        if (clientIds.length === 0) {
-            return NextResponse.json({
-                ok: true,
-                current_attendant: access.attendant,
-                items: [],
-            });
-        }
-
-        const { data, error } = await supabase
-            .from("thread")
-            .select(`
-                id,
-                client_id,
-                status,
-                assigned_attendant_id,
-                queued_at,
-                claimed_at,
-                last_message_text,
-                last_message_at,
-                created_at,
-                clients (
-                    id,
-                    name,
-                    phone,
-                    email
-                ),
-                attendants (
-                    id,
-                    name,
-                    email
-                )
-            `)
-            .eq("status", "open")
-            .in("client_id", clientIds)
-            .order("last_message_at", { ascending: false, nullsFirst: false })
-            .limit(MAX_RESULTS);
-
-        if (error) throw error;
+        const identityIds = await searchIdentityIds(rawSearch);
+        const rows = await findOpenThreads(identityIds);
 
         return NextResponse.json({
             ok: true,
             current_attendant: access.attendant,
-            items: (data ?? []).map((row) => mapThread(row, access.attendant.id)),
+            items: rows.map((row) => mapThread(row, access.attendant.id)),
         });
     } catch (error) {
         console.error("[dev-inbox-assignment] search failed", error);
@@ -120,28 +119,7 @@ export async function POST(request: Request) {
 
         const { data: thread, error: threadError } = await supabase
             .from("thread")
-            .select(`
-                id,
-                client_id,
-                status,
-                assigned_attendant_id,
-                queued_at,
-                claimed_at,
-                last_message_text,
-                last_message_at,
-                created_at,
-                clients (
-                    id,
-                    name,
-                    phone,
-                    email
-                ),
-                attendants (
-                    id,
-                    name,
-                    email
-                )
-            `)
+            .select(THREAD_SELECT)
             .eq("id", threadId)
             .maybeSingle();
 
@@ -191,28 +169,7 @@ export async function POST(request: Request) {
         }
 
         const { data: updated, error: updateError } = await updateQuery
-            .select(`
-                id,
-                client_id,
-                status,
-                assigned_attendant_id,
-                queued_at,
-                claimed_at,
-                last_message_text,
-                last_message_at,
-                created_at,
-                clients (
-                    id,
-                    name,
-                    phone,
-                    email
-                ),
-                attendants (
-                    id,
-                    name,
-                    email
-                )
-            `)
+            .select(THREAD_SELECT)
             .maybeSingle();
 
         if (updateError) throw updateError;
@@ -283,12 +240,26 @@ async function requireCurrentAttendant(requireOnline: boolean) {
     };
 }
 
-async function searchClientIds(rawSearch: string) {
-    const safeText = rawSearch
-        .replace(/[,%()]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+async function searchIdentityIds(rawSearch: string): Promise<SearchIdentityIds> {
+    const safeText = sanitizeSearchText(rawSearch);
+    const instagramText = sanitizeSearchText(rawSearch.replace(/^@+/, ""));
     const digits = rawSearch.replace(/\D/g, "");
+
+    const [clientIds, instagramUserIds] = await Promise.all([
+        searchClientIds({ safeText, digits }),
+        searchInstagramUserIds(instagramText),
+    ]);
+
+    return { clientIds, instagramUserIds };
+}
+
+async function searchClientIds({
+    safeText,
+    digits,
+}: {
+    safeText: string;
+    digits: string;
+}) {
     const filters: string[] = [];
 
     if (digits.length >= 3) {
@@ -305,27 +276,114 @@ async function searchClientIds(rawSearch: string) {
         .from("clients")
         .select("id")
         .or(filters.join(","))
-        .limit(200);
+        .limit(MAX_ID_MATCHES);
 
     if (error) throw error;
 
     return (data ?? []).map((client) => client.id);
 }
 
+async function searchInstagramUserIds(searchText: string) {
+    if (searchText.length < 3) return [];
+
+    const { data, error } = await supabase
+        .from("instagram_users")
+        .select("id")
+        .or(
+            `username.ilike.%${searchText}%,display_name.ilike.%${searchText}%`,
+        )
+        .limit(MAX_ID_MATCHES);
+
+    if (error) throw error;
+
+    return (data ?? []).map((user) => user.id);
+}
+
+async function findOpenThreads({
+    clientIds,
+    instagramUserIds,
+}: SearchIdentityIds) {
+    const resultSets = await Promise.all([
+        clientIds.length > 0
+            ? findOpenThreadsForIdentity("client_id", clientIds)
+            : Promise.resolve([]),
+        instagramUserIds.length > 0
+            ? findOpenThreadsForIdentity(
+                  "instagram_user_id",
+                  instagramUserIds,
+              )
+            : Promise.resolve([]),
+    ]);
+    const byThreadId = new Map<string, any>();
+
+    for (const rows of resultSets) {
+        for (const row of rows) {
+            byThreadId.set(row.id, row);
+        }
+    }
+
+    return Array.from(byThreadId.values())
+        .sort(
+            (left, right) =>
+                threadTimestamp(right) - threadTimestamp(left),
+        )
+        .slice(0, MAX_RESULTS);
+}
+
+async function findOpenThreadsForIdentity(
+    column: "client_id" | "instagram_user_id",
+    ids: string[],
+) {
+    const { data, error } = await supabase
+        .from("thread")
+        .select(THREAD_SELECT)
+        .eq("status", "open")
+        .in(column, ids)
+        .order("last_message_at", {
+            ascending: false,
+            nullsFirst: false,
+        })
+        .limit(MAX_RESULTS);
+
+    if (error) throw error;
+    return data ?? [];
+}
+
+function sanitizeSearchText(value: string) {
+    return value
+        .replace(/[,%()]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapThread(row: any, currentAttendantId: string) {
     const client = firstRelation(row.clients);
+    const instagramUser = firstRelation(row.instagram_user);
     const assigned = firstRelation(row.attendants);
+    const isInstagram =
+        row.channel === "Instagram" || Boolean(row.instagram_user_id);
     const assignmentStatus = !row.assigned_attendant_id
         ? "unassigned"
         : row.assigned_attendant_id === currentAttendantId
             ? "mine"
             : "other";
+    const instagramUsername =
+        instagramUser?.username?.trim().replace(/^@+/, "") || null;
+    const instagramDisplayName = instagramUser?.display_name?.trim() || null;
 
     return {
         id: row.id,
-        client_id: row.client_id,
-        name: client?.name ?? "Cliente sem nome",
+        client_id: row.client_id ?? null,
+        instagram_user_id: row.instagram_user_id ?? null,
+        channel: isInstagram ? "Instagram" : "WhatsApp",
+        name: isInstagram
+            ? instagramDisplayName ||
+              (instagramUsername ? `@${instagramUsername}` : null) ||
+              "Usuário do Instagram"
+            : client?.name ?? "Cliente sem nome",
+        username: instagramUsername,
+        profile_picture_url: instagramUser?.profile_picture_url ?? null,
         phone: client?.phone ?? null,
         email: client?.email ?? null,
         preview: cleanMessageText(row.last_message_text ?? "Sem mensagens"),
@@ -336,6 +394,17 @@ function mapThread(row: any, currentAttendantId: string) {
         assigned_attendant_name: assigned?.name ?? null,
         assignment_status: assignmentStatus,
     };
+}
+
+function threadTimestamp(row: {
+    last_message_at?: string | null;
+    created_at?: string | null;
+}) {
+    const value = row.last_message_at ?? row.created_at;
+    if (!value) return 0;
+
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {

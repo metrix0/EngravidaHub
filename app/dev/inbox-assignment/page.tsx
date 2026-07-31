@@ -14,9 +14,12 @@ import {
     Users,
 } from "lucide-react";
 
- type AssignmentStatus = "unassigned" | "mine" | "other";
+import { ConversationChannelBadge } from "@/components/conversations/ConversationChannelBadge";
 
- type CurrentAttendant = {
+type AssignmentStatus = "unassigned" | "mine" | "other";
+type AssignmentChannel = "WhatsApp" | "Instagram";
+
+type CurrentAttendant = {
     id: string;
     name: string;
     email: string | null;
@@ -24,10 +27,14 @@ import {
     is_online: boolean;
 };
 
- type SearchItem = {
+type SearchItem = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
+    channel: AssignmentChannel;
     name: string;
+    username: string | null;
+    profile_picture_url: string | null;
     phone: string | null;
     email: string | null;
     preview: string;
@@ -39,14 +46,14 @@ import {
     assignment_status: AssignmentStatus;
 };
 
- type SearchResponse = {
+type SearchResponse = {
     ok: boolean;
     current_attendant?: CurrentAttendant;
     items?: SearchItem[];
     error?: string;
 };
 
- type AssignmentResponse = {
+type AssignmentResponse = {
     ok: boolean;
     already_assigned?: boolean;
     item?: SearchItem;
@@ -179,7 +186,7 @@ export default function DevInboxAssignmentPage() {
                             Atribuir conversa específica
                         </h1>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                            Pesquise uma conversa aberta por telefone ou nome e atribua-a ao atendente logado.
+                            Pesquise uma conversa aberta do WhatsApp ou Instagram e atribua-a ao atendente logado.
                         </p>
                     </div>
 
@@ -200,7 +207,7 @@ export default function DevInboxAssignmentPage() {
                                 <input
                                     value={search}
                                     onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Telefone completo ou nome do cliente"
+                                    placeholder="Telefone, nome ou @usuário do Instagram"
                                     autoFocus
                                     className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
                                 />
@@ -268,7 +275,7 @@ export default function DevInboxAssignmentPage() {
                             <EmptyState
                                 icon={<Search size={22} />}
                                 title="Pesquise uma conversa"
-                                description="Use preferencialmente o número completo exibido no Blip."
+                                description="Use telefone ou nome para WhatsApp, ou nome e @usuário para Instagram."
                             />
                         )}
 
@@ -305,12 +312,16 @@ export default function DevInboxAssignmentPage() {
                                                         <h2 className="truncate font-bold text-slate-950">
                                                             {item.name}
                                                         </h2>
+                                                        <ConversationChannelBadge
+                                                            channel={item.channel}
+                                                            showLabel
+                                                        />
                                                         <AssignmentBadge item={item} />
                                                     </div>
 
                                                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
                                                         <span className="font-semibold text-slate-700">
-                                                            {formatPhone(item.phone)}
+                                                            {formatIdentity(item)}
                                                         </span>
                                                         {item.email && <span>{item.email}</span>}
                                                         <span>{formatDate(item.last_message_at)}</span>
@@ -405,6 +416,14 @@ function EmptyState({
             </p>
         </div>
     );
+}
+
+function formatIdentity(item: SearchItem) {
+    if (item.channel === "Instagram") {
+        return item.username ? `@${item.username}` : "Perfil do Instagram";
+    }
+
+    return formatPhone(item.phone);
 }
 
 function formatPhone(value: string | null) {
