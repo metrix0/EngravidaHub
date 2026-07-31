@@ -32,6 +32,7 @@ const MAX_RECORDS_PER_JOB = 100_000;
 const DEFAULT_MAX_RECORDS = 100_000;
 const DEFAULT_MAX_COMPLETION_TOKENS = 4_500;
 const CANDIDATE_SCAN_MULTIPLIER = 10;
+const MAX_ANALYSIS_FAILURES = 3;
 const GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
 const ANALYSIS_JSON_SCHEMA = z.toJSONSchema(conversationAnalysisSchema, {
@@ -89,8 +90,10 @@ let googleCredentials: GoogleServiceAccountCredentials | null = null;
 
 export async function runGoogleBatchAnalysis({
     limit = DEFAULT_MAX_RECORDS,
+    beforeSubmit,
 }: {
     limit?: number;
+    beforeSubmit?: (conversationIds: string[]) => Promise<unknown>;
 } = {}) {
     const jobs = await listOurJobs();
     const collected = await collectFinishedJobs(jobs);
@@ -104,6 +107,7 @@ export async function runGoogleBatchAnalysis({
             model: MODEL_ID,
             collected,
             active_jobs: activeJobs,
+            origin_map_attribution: null,
             submitted: {
                 submitted: false,
                 records: 0,
@@ -114,13 +118,19 @@ export async function runGoogleBatchAnalysis({
 
     const submitted = await submitPendingBatch(
         Math.min(normalizeRequestedLimit(limit), configuredMaxRecords()),
+        beforeSubmit,
     );
+    const originMapAttribution =
+        "origin_map_attribution" in submitted
+            ? submitted.origin_map_attribution
+            : null;
 
     return {
         provider: "google-vertex-batch",
         model: MODEL_ID,
         collected,
         active_jobs: activeJobs,
+        origin_map_attribution: originMapAttribution,
         submitted,
     };
 }
@@ -128,7 +138,7 @@ export async function runGoogleBatchAnalysis({
 async function collectFinishedJobs(jobs: BatchJobSummary[]) {
     const finished = jobs.filter((job) => isTerminalJob(job.state));
 
-    const results = [];
+    const results: Array<Record<string, unknown>> = [];
 
     for (const job of finished) {
         const jobId = job.name.split("/").at(-1) ?? job.displayName;
@@ -190,6 +200,8 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
         let succeeded = 0;
         let failed = 0;
         let ineligible = 0;
+        let retryScheduled = 0;
+        let retryExhausted = 0;
         const seenRecordIds = new Set<string>();
         const expectedRecordIds = await getJobRecordIds(job);
 
@@ -218,10 +230,12 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
 
                     const recordError = getBatchRecordError(record);
                     if (recordError) {
-                        await restoreConversation(
+                        const failure = await recordConversationAnalysisFailure(
                             conversationId,
                             `Google batch record failed: ${recordError}`,
                         );
+                        if (failure.retry_scheduled) retryScheduled += 1;
+                        else retryExhausted += 1;
                         failed += 1;
                         continue;
                     }
@@ -238,10 +252,12 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
                 } catch (error) {
                     failed += 1;
                     if (conversationId) {
-                        await restoreConversation(
+                        const failure = await recordConversationAnalysisFailure(
                             conversationId,
                             `Failed to import Google batch result: ${formatError(error)}`,
                         );
+                        if (failure.retry_scheduled) retryScheduled += 1;
+                        else retryExhausted += 1;
                     }
                     console.error("[google-batch] failed to import output record", {
                         job_name: job.displayName,
@@ -266,6 +282,8 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
             succeeded,
             failed,
             ineligible,
+            retry_scheduled: retryScheduled,
+            retry_exhausted: retryExhausted,
             missing_restored: missing,
             processed_at: new Date().toISOString(),
         });
@@ -277,6 +295,8 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
             succeeded,
             failed,
             ineligible,
+            retry_scheduled: retryScheduled,
+            retry_exhausted: retryExhausted,
             missing_restored: missing,
         });
     }
@@ -284,7 +304,10 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
     return results;
 }
 
-async function submitPendingBatch(limit: number) {
+async function submitPendingBatch(
+    limit: number,
+    beforeSubmit?: (conversationIds: string[]) => Promise<unknown>,
+) {
     const candidateLimit = Math.min(
         MAX_RECORDS_PER_JOB,
         Math.max(limit, limit * CANDIDATE_SCAN_MULTIPLIER),
@@ -360,6 +383,13 @@ async function submitPendingBatch(limit: number) {
     const outputPrefix = `${OUTPUT_PREFIX}/${jobName}`;
 
     try {
+        // Attribution must run against the exact conversations already claimed
+        // and proven eligible for this batch. If it fails, the catch below
+        // restores every claim and no Google batch is submitted.
+        const originMapAttribution = beforeSubmit
+            ? await beforeSubmit([...claimedIds])
+            : null;
+
         await putGcsText(inputKey, `${records.join("\n")}\n`, "application/jsonl");
         const response = await createBatchPredictionJob({
             jobName,
@@ -371,6 +401,7 @@ async function submitPendingBatch(limit: number) {
             submitted: true,
             records: records.length,
             ineligible,
+            origin_map_attribution: originMapAttribution,
             job_name: jobName,
             job_resource: response.name,
             input: `gs://${bucketName()}/${inputKey}`,
@@ -411,7 +442,7 @@ function buildModelInput(input: AnalyzeConversationInput) {
                         metadata: {
                             conversation_id: input.conversation_id,
                             client_id: input.client_id,
-                            instagram_user_id: input.instagram_user_id,
+                            instagram_user_id: input.instagram_user_id ?? null,
                             started_at: input.started_at,
                             ended_at: input.ended_at,
                             attendant_id: input.attendant_id,
@@ -590,6 +621,7 @@ async function getPendingConversations(limit: number) {
             .select("*")
             .is("conversation_analysis_id", null)
             .eq("analysis_status", "pending")
+            .lt("analysis_failure_count", MAX_ANALYSIS_FAILURES)
             .not("ended_at", "is", null)
             .order("ended_at", { ascending: true })
             .range(from, to);
@@ -654,6 +686,39 @@ async function completeConversation(
     if (result.data !== true) {
         throw new Error("Conversation analysis completion was rejected by database guard");
     }
+}
+
+async function recordConversationAnalysisFailure(
+    conversationId: string,
+    reason: string,
+) {
+    const result = await supabase.rpc(
+        "record_conversation_analysis_failure",
+        {
+            p_conversation_id: conversationId,
+            p_error: reason,
+            p_max_failures: MAX_ANALYSIS_FAILURES,
+        },
+    );
+
+    if (result.error) {
+        throw new Error(
+            `Failed to record analysis failure for ${conversationId}: ${result.error.message}`,
+        );
+    }
+
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (!row || typeof row.failure_count !== "number") {
+        throw new Error(
+            `Analysis failure for ${conversationId} was not accepted by the database guard`,
+        );
+    }
+
+    return {
+        retry_scheduled: row.retry_scheduled === true,
+        failure_count: row.failure_count as number,
+        analysis_status: String(row.analysis_status ?? ""),
+    };
 }
 
 async function restoreConversation(conversationId: string, reason: string) {

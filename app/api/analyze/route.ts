@@ -2,12 +2,9 @@
 import { NextResponse } from "next/server";
 
 import { runGoogleBatchAnalysis } from "@/lib/ai/googleBatchAnalysis";
+import { matchConversationOriginMap } from "@/lib/conversations/matchConversationOriginMap";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName";
-import {
-    matchConversationsSheetAttribution,
-    runClientClosingTagBackfill,
-} from "@/lib/conversations/matchConversationsSheetAttribution";
 
 export const maxDuration = 300;
 
@@ -67,20 +64,6 @@ export async function GET(request: Request) {
             request_url: request.url,
         });
 
-        let closingTagBackfill = null;
-        try {
-            closingTagBackfill = await runLoggedStage(
-                "closing_tag_backfill",
-                () => runClientClosingTagBackfill({ rowLimit: 50_000 }),
-                (result) => ({ result }),
-            );
-        } catch (error) {
-            console.error(
-                "[/api/analyze] client closing tag backfill failed; analysis will continue",
-                serializeError(error),
-            );
-        }
-
         const createdConversations = await runLoggedStage(
             "message_to_conversations",
             () =>
@@ -96,30 +79,6 @@ export async function GET(request: Request) {
             }),
         );
 
-        let sheetAttributionMatch = null;
-        const createdConversationIds = createdConversations.map(
-            (conversation) => conversation.conversation_id,
-        );
-
-        if (createdConversationIds.length > 0) {
-            try {
-                sheetAttributionMatch = await runLoggedStage(
-                    "sheet_attribution",
-                    () =>
-                        matchConversationsSheetAttribution({
-                            limit: createdConversationIds.length,
-                            conversationIds: createdConversationIds,
-                        }),
-                    (result) => ({ result }),
-                );
-            } catch (error) {
-                console.error(
-                    "[/api/analyze] sheet attribution failed; analysis will continue",
-                    serializeError(error),
-                );
-            }
-        }
-
         const senderNameMatch = await runLoggedStage(
             "sender_name_match",
             () => matchMessagesSenderName({ limit }),
@@ -131,21 +90,29 @@ export async function GET(request: Request) {
 
         const googleBatch = await runLoggedStage(
             "google_batch",
-            () => runGoogleBatchAnalysis({ limit }),
+            () =>
+                runGoogleBatchAnalysis({
+                    limit,
+                    beforeSubmit: (conversationIds) =>
+                        matchConversationOriginMap({ conversationIds }),
+                }),
             (result) => ({ result }),
         );
+        const originMapAttribution =
+            googleBatch.origin_map_attribution ?? null;
 
         console.log("[/api/analyze] daily Google batch pipeline finished", {
             conversations_created: createdConversations.length,
-            sheet_attribution: sheetAttributionMatch,
+            origin_map_attribution: originMapAttribution,
+            origin_map_attribution_error: null,
             sender_names_ready: senderNameMatch.ready_conversation_ids.length,
             google_batch: googleBatch,
         });
 
         return NextResponse.json({
             ok: true,
-            closing_tag_backfill: closingTagBackfill,
-            sheet_attribution: sheetAttributionMatch,
+            origin_map_attribution: originMapAttribution,
+            origin_map_attribution_error: null,
             sender_name_match: senderNameMatch,
             google_batch: googleBatch,
         });
