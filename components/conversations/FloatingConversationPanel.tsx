@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AtSign,
   ChevronDown,
   ExternalLink,
   History,
@@ -66,7 +67,8 @@ type SavedTicketTarget = FloatingConversationTarget & {
 };
 
 type ConversationMessage = SharedChatMessage & {
-  client_id: string;
+  client_id: string | null;
+  instagram_user_id: string | null;
   conversation_id: string | null;
   thread_id: string | null;
   sender_type: string;
@@ -87,7 +89,8 @@ type FloatingConversationResponse = {
   } | null;
   thread: {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     latest_conversation_id: string | null;
     status: string;
     channel: string;
@@ -104,6 +107,9 @@ type FloatingConversationResponse = {
     name: string | null;
     phone: string | null;
     email: string | null;
+    identity_type: "client" | "instagram";
+    is_clickable: boolean;
+    instagram_username: string | null;
   } | null;
   analysis: unknown | null;
   messages: ConversationMessage[];
@@ -2310,7 +2316,12 @@ function TicketFloatingPanel({
   onOpenClientProfile: (clientId: string) => void;
 }) {
   const clientName = data?.client?.name ?? target.name ?? "Cliente sem nome";
-  const phone = formatPhone(data?.client?.phone ?? target.phone ?? null);
+  const isInstagram = data?.client?.identity_type === "instagram";
+  const phone = isInstagram
+    ? data?.client?.instagram_username
+      ? `@${data.client.instagram_username.replace(/^@+/, "")}`
+      : "Instagram"
+    : formatPhone(data?.client?.phone ?? target.phone ?? null);
   const isLive = target.type === "thread";
   const detailsLabel = isLive ? "Abrir inbox" : "Abrir detalhes";
   const attendantName = data?.conversation?.attendant_chat_name ?? null;
@@ -2362,7 +2373,7 @@ function TicketFloatingPanel({
 
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                {data?.client?.id ? (
+                {data?.client?.id && data.client.is_clickable ? (
                   <button
                     type="button"
                     title={clientName}
@@ -2393,7 +2404,7 @@ function TicketFloatingPanel({
               </div>
 
               <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                <Phone size={12} />
+                {isInstagram ? <AtSign size={12} /> : <Phone size={12} />}
                 <span className="truncate">{phone}</span>
               </div>
             </div>

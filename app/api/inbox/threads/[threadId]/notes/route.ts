@@ -49,6 +49,15 @@ export async function POST(
             { status: 404 }
         );
     }
+    if (!thread.client_id) {
+        return NextResponse.json(
+            {
+                ok: false,
+                error: "Instagram users do not have CRM client notes",
+            },
+            { status: 422 },
+        );
+    }
 
     if (
         thread.assigned_attendant_id &&

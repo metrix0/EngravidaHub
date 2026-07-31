@@ -910,6 +910,7 @@ async function loadAttributionBackfillConversations() {
             .select(
                 "id, client_id, started_at, ended_at, tunnel, origin",
             )
+            .eq("channel", "WhatsApp")
             .order("id", { ascending: true })
             .range(from, from + pageSize - 1);
 
@@ -1100,6 +1101,7 @@ async function getConversationsToMatch({
                 )
             `,
             )
+            .eq("channel", "WhatsApp")
             .not("ended_at", "is", null)
             .order("ended_at", { ascending: true })
             .limit(limit);

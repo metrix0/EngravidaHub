@@ -9,6 +9,7 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
             {
                 conversation_id: analysis.conversation_id,
                 client_id: analysis.client_id,
+                instagram_user_id: analysis.instagram_user_id,
                 started_at: analysis.started_at,
                 ended_at: analysis.ended_at,
                 attendant_id: nullableUuid(analysis.attendant_id),

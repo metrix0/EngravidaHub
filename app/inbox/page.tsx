@@ -19,7 +19,7 @@ import {
     Search,
     Send,
     SlidersHorizontal,
-    Smile, SquareArrowOutUpRight,
+    Smile,
     UserRound,
     X,
 } from "lucide-react";
@@ -761,6 +761,7 @@ export default function InboxPage() {
         try {
             const response = await fetchPreviousInboxConversation({
                 clientId: selectedThread.client_id,
+                instagramUserId: selectedThread.instagram_user_id,
                 before: historyBefore,
             });
 
@@ -1247,7 +1248,7 @@ function ChatPanel({
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const headerName = headerConversation?.name ?? "Carregando conversa";
-    const headerChannel = headerConversation?.channel ?? "-";
+    const headerChannel = headerConversation?.channel ?? "WhatsApp";
 
     useEffect(() => {
         setMessageText("");
@@ -1338,11 +1339,14 @@ function ChatPanel({
                     </div>
 
                     <div className="min-w-0">
-                        <div
-                            title={headerName}
-                            className="truncate whitespace-nowrap text-xl font-bold text-slate-950"
-                        >
-                            {headerName}
+                        <div className="flex min-w-0 items-center gap-2">
+                            <div
+                                title={headerName}
+                                className="truncate whitespace-nowrap text-xl font-bold text-slate-950"
+                            >
+                                {headerName}
+                            </div>
+                            <ChannelBadge channel={headerChannel} />
                         </div>
                     </div>
                 </div>
@@ -1619,13 +1623,21 @@ function CustomerPanel({
         <aside
             className={`h-full min-h-0 min-w-0 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${scrollbarClass}`}
         >
-            <h2 className="mb-4 text-lg font-bold text-slate-950">Cliente</h2>
+            <h2 className="mb-4 text-lg font-bold text-slate-950">
+                {headerChannel === "Instagram"
+                    ? "Usuário do Instagram"
+                    : "Cliente"}
+            </h2>
 
             <button
                 type="button"
                 onClick={onOpenClientProfile}
                 disabled={!clientId}
-                className="mb-5 flex w-full cursor-pointer items-center justify-between px-1 py-2 text-left transition-opacity hover:opacity-80 disabled:cursor-default disabled:opacity-60">
+                className={`mb-5 flex w-full items-center justify-between px-1 py-2 text-left ${
+                    clientId
+                        ? "cursor-pointer transition-opacity hover:opacity-80"
+                        : "cursor-default"
+                }`}>
                 <div className="flex min-w-0 items-center gap-4">
                     <InitialsAvatar name={headerName}/>
 
@@ -1640,7 +1652,11 @@ function CustomerPanel({
                         {conversation ? (
                             <>
                                 <div className="mt-1 text-sm text-slate-500">
-                                    {conversation.phone ?? "Sem telefone"}
+                                    {headerChannel === "Instagram"
+                                        ? conversation.instagram_username
+                                            ? `@${conversation.instagram_username.replace(/^@+/, "")}`
+                                            : "Instagram"
+                                        : conversation.phone ?? "Sem telefone"}
                                 </div>
 
                                 <div className="flex gap-3">
@@ -1663,11 +1679,17 @@ function CustomerPanel({
                     </div>
                 </div>
 
-                <ChevronRight size={18} className="shrink-0 text-slate-400"/>
+                {clientId ? (
+                    <ChevronRight
+                        size={18}
+                        className="shrink-0 text-slate-400"
+                    />
+                ) : null}
             </button>
 
             {conversation ? (
-                <>
+                clientId ? (
+                    <>
                     <button
                         type="button"
                         onClick={onSchedule}
@@ -1801,7 +1823,8 @@ function CustomerPanel({
                             <CrmDataRow icon={<UserRound size={16}/>} label="Último responsável:" value={conversation.responsible}/>
                         </div>
                     </PanelBlock>
-                </>
+                    </>
+                ) : null
             ) : (
                 <CustomerPanelBodySkeleton />
             )}
@@ -1936,7 +1959,7 @@ function getAttachmentMimeType(file: File) {
 
 function validateAttachmentFile(file: File, mimeType: string) {
     if (!mimeType || !SUPPORTED_ATTACHMENT_MIME_TYPES.has(mimeType)) {
-        return "Este tipo de arquivo não é compatível com o WhatsApp.";
+        return "Este tipo de arquivo não é compatível com este canal.";
     }
 
     if (file.size <= 0) return "O anexo está vazio.";

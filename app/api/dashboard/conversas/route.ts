@@ -12,7 +12,8 @@ type ConversationResult =
 
 type ConversationRow = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     started_at: string;
     ended_at: string | null;
     attendant_id: string | null;
@@ -21,16 +22,22 @@ type ConversationRow = {
     conversation_analysis_id: string | null;
     tunnel: string | null;
     origin: string | null;
+    source: string | null;
+    channel: string | null;
+    last_message_at: string | null;
 };
 
 type ThreadRow = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     assigned_attendant_id: string | null;
     last_message_at: string | null;
     queued_at: string | null;
     created_at: string;
     updated_at: string;
+    source: string | null;
+    channel: string | null;
 };
 
 type ClientRow = {
@@ -50,6 +57,12 @@ type AnalysisRow = {
     notable: boolean | null;
 };
 
+type InstagramUserRow = {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+};
+
 type AttendantRow = {
     id: string;
     name: string;
@@ -63,6 +76,7 @@ type InternalConversationRow = {
     started_at: string;
     ended_at: string | null;
     client_name: string;
+    channel: "WhatsApp" | "Instagram";
     objective: string;
     result: ConversationResult;
     notable: boolean;
@@ -131,7 +145,14 @@ export async function GET(request: Request) {
             ...new Set(
                 [...conversations, ...threads]
                     .map((item) => item.client_id)
-                    .filter(Boolean),
+                    .filter((value): value is string => Boolean(value)),
+            ),
+        ];
+        const instagramUserIds = [
+            ...new Set(
+                [...conversations, ...threads]
+                    .map((item) => item.instagram_user_id)
+                    .filter((value): value is string => Boolean(value)),
             ),
         ];
         const analysisIds = [
@@ -149,11 +170,13 @@ export async function GET(request: Request) {
             ),
         ];
 
-        const [clients, analyses, attendants] = await Promise.all([
+        const [clients, instagramUsers, analyses, attendants] =
+            await Promise.all([
             fetchClientsByIds(clientIds),
+            fetchInstagramUsersByIds(instagramUserIds),
             fetchAnalysesByIds(analysisIds),
             fetchAttendantsByIds(liveAttendantIds),
-        ]);
+            ]);
 
         const clientsById = new Map(
             clients.map((client) => [client.id, client]),
@@ -161,13 +184,21 @@ export async function GET(request: Request) {
         const analysesById = new Map(
             analyses.map((analysis) => [analysis.id, analysis]),
         );
+        const instagramUsersById = new Map(
+            instagramUsers.map((user) => [user.id, user]),
+        );
         const attendantsById = new Map(
             attendants.map((attendant) => [attendant.id, attendant]),
         );
 
         const rows: InternalConversationRow[] = [
             ...conversations.map((conversation) => {
-                const client = clientsById.get(conversation.client_id);
+                const client = conversation.client_id
+                    ? clientsById.get(conversation.client_id)
+                    : null;
+                const instagramUser = conversation.instagram_user_id
+                    ? instagramUsersById.get(conversation.instagram_user_id)
+                    : null;
                 const analysis = conversation.conversation_analysis_id
                     ? analysesById.get(
                           conversation.conversation_analysis_id,
@@ -186,13 +217,20 @@ export async function GET(request: Request) {
                     phone: client?.phone ?? "-",
                     started_at: conversation.started_at,
                     ended_at: conversation.ended_at,
-                    client_name: client?.name ?? "Cliente sem nome",
+                    client_name: getIdentityName(client, instagramUser),
+                    channel: normalizeConversationChannel(
+                        conversation.channel,
+                        conversation.source,
+                    ),
                     objective: getConversationGoalLabel(
                         analysis?.conversation_goal,
                     ),
                     result,
                     notable: isNotable,
-                    _sort_at: conversation.started_at,
+                    _sort_at:
+                        conversation.last_message_at ??
+                        conversation.ended_at ??
+                        conversation.started_at,
                     _unit_id: client?.unit_id ?? null,
                     _tunnel: emptyToNull(conversation.tunnel),
                     _origin: emptyToNull(conversation.origin),
@@ -204,7 +242,12 @@ export async function GET(request: Request) {
                 };
             }),
             ...threads.map((thread) => {
-                const client = clientsById.get(thread.client_id);
+                const client = thread.client_id
+                    ? clientsById.get(thread.client_id)
+                    : null;
+                const instagramUser = thread.instagram_user_id
+                    ? instagramUsersById.get(thread.instagram_user_id)
+                    : null;
                 const attendant = thread.assigned_attendant_id
                     ? attendantsById.get(thread.assigned_attendant_id)
                     : null;
@@ -220,8 +263,12 @@ export async function GET(request: Request) {
                     phone: client?.phone ?? "-",
                     started_at: startedAt,
                     ended_at: null,
-                    client_name: client?.name ?? "Cliente sem nome",
-                    objective: "Conversa ao vivo",
+                    client_name: getIdentityName(client, instagramUser),
+                    channel: normalizeConversationChannel(
+                        thread.channel,
+                        thread.source,
+                    ),
+                    objective: "—",
                     result: "pendente" as const,
                     notable: false,
                     _sort_at: activityAt,
@@ -354,6 +401,7 @@ async function fetchConversations({
                 [
                     "id",
                     "client_id",
+                    "instagram_user_id",
                     "started_at",
                     "ended_at",
                     "attendant_id",
@@ -362,6 +410,9 @@ async function fetchConversations({
                     "conversation_analysis_id",
                     "tunnel",
                     "origin",
+                    "source",
+                    "channel",
+                    "last_message_at",
                 ].join(","),
             )
             .gte("started_at", dateRange.start.toISOString())
@@ -408,11 +459,14 @@ async function fetchLiveThreads({
                 [
                     "id",
                     "client_id",
+                    "instagram_user_id",
                     "assigned_attendant_id",
                     "last_message_at",
                     "queued_at",
                     "created_at",
                     "updated_at",
+                    "source",
+                    "channel",
                 ].join(","),
             )
             .eq("status", "open")
@@ -456,6 +510,20 @@ async function fetchClientsByIds(ids: string[]) {
         if (error) throw error;
         return (data ?? []) as ClientRow[];
     });
+}
+
+async function fetchInstagramUsersByIds(ids: string[]) {
+    return fetchRelationsInBatches<InstagramUserRow>(
+        ids,
+        async (batch) => {
+            const { data, error } = await supabase
+                .from("instagram_users")
+                .select("id, username, display_name")
+                .in("id", batch);
+            if (error) throw error;
+            return (data ?? []) as InstagramUserRow[];
+        },
+    );
 }
 
 async function fetchAnalysesByIds(ids: string[]) {
@@ -512,6 +580,31 @@ function getConversationResult(
     if (value === "partial") return "parcial";
     if (value === "not_resolved") return "nao_resolvida";
     return "pendente";
+}
+
+function normalizeConversationChannel(
+    channel: string | null | undefined,
+    source: string | null | undefined,
+): "WhatsApp" | "Instagram" {
+    if (channel === "Instagram" || source === "zernio") {
+        return "Instagram";
+    }
+
+    return "WhatsApp";
+}
+
+function getIdentityName(
+    client: ClientRow | null | undefined,
+    instagramUser: InstagramUserRow | null | undefined,
+) {
+    return (
+        instagramUser?.display_name?.trim() ||
+        (instagramUser?.username
+            ? `@${instagramUser.username.replace(/^@+/, "")}`
+            : null) ||
+        client?.name?.trim() ||
+        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+    );
 }
 
 function parseIds(value: string | null): string[] {

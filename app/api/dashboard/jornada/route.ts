@@ -555,6 +555,7 @@ async function loadPaidWhatsappConversations(
             .select(
                 "id, thread_id, client_id, started_at, origin, clients!conversations_client_id_fkey(last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
+            .eq("channel", "WhatsApp")
             .gte("started_at", range.startAt)
             .lt("started_at", range.endAt)
             .order("started_at", { ascending: true })

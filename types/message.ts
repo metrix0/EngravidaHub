@@ -4,7 +4,8 @@ export type SenderType = "client" | "attendant" | "bot" | "system";
 export type Message = {
     id: string;
 
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     conversation_id: string | null;
 
     sender_type: SenderType;

@@ -94,7 +94,8 @@ async function getConversationTextOptions(
 ): Promise<FilterOption[]> {
     const { data, error } = await supabase
         .from("conversations")
-        .select(column);
+        .select(column)
+        .eq("channel", "WhatsApp");
 
     if (error) throw error;
 
@@ -131,4 +132,3 @@ function buildNullableTextOptions(values: Array<string | null>) {
         ...definedOptions,
     ];
 }
-

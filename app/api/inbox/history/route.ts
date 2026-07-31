@@ -11,14 +11,26 @@ import type {
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get("client_id")?.trim() ?? "";
+    const instagramUserId =
+        searchParams.get("instagram_user_id")?.trim() ?? "";
     const before = searchParams.get("before")?.trim() ?? "";
 
-    if (!clientId || !before || Number.isNaN(new Date(before).getTime())) {
+    if (
+        Boolean(clientId) === Boolean(instagramUserId) ||
+        !before ||
+        Number.isNaN(new Date(before).getTime())
+    ) {
         return NextResponse.json(
-            { ok: false, error: "client_id and a valid before date are required" },
+            {
+                ok: false,
+                error:
+                    "Exactly one identity and a valid before date are required",
+            },
             { status: 400 },
         );
     }
+    const identityColumn = clientId ? "client_id" : "instagram_user_id";
+    const identityId = clientId || instagramUserId;
 
     const { attendant } = await getCurrentAttendantFromRequest();
 
@@ -29,9 +41,10 @@ export async function GET(request: Request) {
         );
     }
 
-    const hasAccess = await attendantCanAccessClient(
+    const hasAccess = await attendantCanAccessIdentity(
         attendant.id,
-        clientId,
+        identityColumn,
+        identityId,
     );
 
     if (!hasAccess) {
@@ -44,7 +57,7 @@ export async function GET(request: Request) {
     const { data: conversation, error: conversationError } = await supabase
         .from("conversations")
         .select("id, started_at, ended_at")
-        .eq("client_id", clientId)
+        .eq(identityColumn, identityId)
         .lt("started_at", before)
         .order("started_at", { ascending: false })
         .limit(1)
@@ -97,7 +110,7 @@ export async function GET(request: Request) {
         await supabase
             .from("conversations")
             .select("id")
-            .eq("client_id", clientId)
+            .eq(identityColumn, identityId)
             .lt("started_at", conversation.started_at)
             .order("started_at", { ascending: false })
             .limit(1)
@@ -128,23 +141,24 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
 }
 
-async function attendantCanAccessClient(
+async function attendantCanAccessIdentity(
     attendantId: string,
-    clientId: string,
+    identityColumn: "client_id" | "instagram_user_id",
+    identityId: string,
 ) {
     const [{ data: assignedThread, error: threadError }, { data: ownConversation, error: conversationError }] =
         await Promise.all([
             supabase
                 .from("thread")
                 .select("id")
-                .eq("client_id", clientId)
+                .eq(identityColumn, identityId)
                 .eq("assigned_attendant_id", attendantId)
                 .limit(1)
                 .maybeSingle(),
             supabase
                 .from("conversations")
                 .select("id")
-                .eq("client_id", clientId)
+                .eq(identityColumn, identityId)
                 .eq("attendant_id", attendantId)
                 .limit(1)
                 .maybeSingle(),

@@ -25,6 +25,7 @@ import {
     type DataTableColumn,
 } from "@/components";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { ConversationChannelBadge } from "@/components/conversations/ConversationChannelBadge";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import {
     CONVERSATION_GOAL_OPTIONS,
@@ -39,6 +40,7 @@ type ConversationRow = {
     started_at: string;
     ended_at: string | null;
     client_name: string;
+    channel: "WhatsApp" | "Instagram";
     objective: string;
     result: ConversationResult;
     notable: boolean;
@@ -57,7 +59,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "client",
         label: "Cliente",
-        width: "15%",
+        width: "14%",
         render: (conversation) => (
             <div className="flex min-w-0 items-center gap-3">
                 <InitialsAvatar
@@ -75,9 +77,18 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         ),
     },
     {
+        id: "platform",
+        label: "Plataforma",
+        width: "9%",
+        align: "center",
+        render: (conversation) => (
+            <ConversationChannelBadge channel={conversation.channel} />
+        ),
+    },
+    {
         id: "phone",
         label: "Telefone",
-        width: "11%",
+        width: "10%",
         render: (conversation) => (
             <div title={formatPhone(conversation.phone)} className="truncate text-slate-600">
                 {formatPhone(conversation.phone)}
@@ -87,13 +98,13 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "date",
         label: "Data",
-        width: "21%",
+        width: "18%",
         render: (conversation) => <DateRangeCell start={conversation.started_at} end={conversation.ended_at}/>,
     },
     {
         id: "attendant",
         label: "Atendente",
-        width: "15%",
+        width: "13%",
         render: (conversation) => (
             <div title={conversation.attendant_name} className="truncate text-slate-700">{conversation.attendant_name}</div>
         ),
@@ -101,7 +112,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "objective",
         label: "Objetivo",
-        width: "15%",
+        width: "13%",
         render: (conversation) => (
             <div title={conversation.objective} className="truncate text-slate-700">{conversation.objective}</div>
         ),
@@ -109,7 +120,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "result",
         label: "Resultado",
-        width: "11%",
+        width: "10%",
         render: (conversation) => (
             <ConversationResultCell conversation={conversation} />
         ),
@@ -117,13 +128,13 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "notable",
         label: "Notável",
-        width: "6%",
+        width: "8%",
         render: (conversation) => <NotableBadge notable={conversation.notable}/>,
     },
     {
         id: "action",
         label: "",
-        width: "6%",
+        width: "5%",
         align: "right",
         render: () => (
             <div className="flex justify-end">
@@ -325,7 +336,10 @@ function MessagesPageContent() {
                                     { label: "Resolvida", value: "resolvida" },
                                     { label: "Parcial", value: "parcial" },
                                     { label: "Não resolvida", value: "nao_resolvida" },
-                                    { label: "Pendente", value: "pendente" },
+                                    {
+                                        label: "Pendente",
+                                        value: "pendente",
+                                    },
                                 ],
                             },
                             {
@@ -436,6 +450,7 @@ function ConversationResultCell({
         );
     }
 
+
     return <Badge value={conversation.result} />;
 }
 
@@ -457,12 +472,12 @@ function MessagesSkeleton() {
 function MessagesTableSkeleton() {
     return (
         <div className="overflow-hidden">
-            <div className="grid grid-cols-[1.35fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.7fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
-                {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
+            <div className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
+                {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
             </div>
             {Array.from({ length: 8 }).map((_, rowIndex) => (
-                <div key={rowIndex} className="grid grid-cols-[1.35fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.7fr_48px] items-center border-b border-slate-100 px-6 py-4">
-                    {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
+                <div key={rowIndex} className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
+                    {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
                 </div>
             ))}
         </div>

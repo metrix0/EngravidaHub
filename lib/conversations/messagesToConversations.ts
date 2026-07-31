@@ -14,7 +14,13 @@ export async function messageToConversations({ inactivityHours = 6, limit = 1000
         .order("sent_at", { ascending: true }).limit(limit);
     if (candidates.error) throw new Error(`Failed to fetch pending message clients: ${candidates.error.message}`);
 
-    const clientIds = Array.from(new Set((candidates.data ?? []).map((row) => row.client_id).filter(Boolean)));
+    const clientIds = Array.from(
+        new Set(
+            (candidates.data ?? [])
+                .map((row) => row.client_id)
+                .filter((value): value is string => Boolean(value)),
+        ),
+    );
     const pending: Message[] = [];
     for (const ids of chunk(clientIds, BATCH_SIZE)) {
         const result = await supabase.from("messages").select("*").in("client_id", ids)
@@ -32,7 +38,13 @@ export async function messageToConversations({ inactivityHours = 6, limit = 1000
 
 function endedGroups(messages: Message[], cutoff: Date, inactivityHours: number) {
     const byClient = new Map<string, Message[]>();
-    for (const message of messages) byClient.set(message.client_id, [...(byClient.get(message.client_id) ?? []), message]);
+    for (const message of messages) {
+        if (!message.client_id) continue;
+        byClient.set(message.client_id, [
+            ...(byClient.get(message.client_id) ?? []),
+            message,
+        ]);
+    }
     const result: Message[][] = [];
     for (const clientMessages of byClient.values()) {
         let current: Message[] = [];
@@ -59,12 +71,15 @@ async function createAndAttach(sourceMessages: Message[]): Promise<AnalyzeConver
     const first = messages[0];
     const last = messages.at(-1);
     if (!first || !last) throw new Error("Cannot create conversation from empty messages array");
+    if (!first.client_id) {
+        throw new Error("Legacy message conversion requires a CRM client");
+    }
     const effectiveEnd = getConversationEffectiveEndMessage(messages);
 
     const attendantMessage = messages.find((message) => message.sender_type === "attendant");
     const attendant = attendantMessage?.external_attendant_id ? await getAttendant(attendantMessage.external_attendant_id) : null;
     const created = await supabase.from("conversations").insert({
-        client_id: first.client_id, source: "blip", started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
+        client_id: first.client_id, instagram_user_id: null, source: "blip", channel: "WhatsApp", started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
         attendant_id: attendant?.id ?? null, attendant_chat_name: attendant?.name ?? attendantMessage?.sender_name ?? null,
         unit_id: null, service_id: null, last_message_text: last.text, last_message_at: last.sent_at,
     }).select("id").single();
@@ -82,7 +97,7 @@ async function createAndAttach(sourceMessages: Message[]): Promise<AnalyzeConver
     }
 
     return {
-        conversation_id: created.data.id, client_id: first.client_id, started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
+        conversation_id: created.data.id, client_id: first.client_id, instagram_user_id: null, started_at: first.sent_at, ended_at: effectiveEnd.sent_at,
         attendant_id: attendant?.id ?? null, unit_id: null, service_id: null,
         conversationText: buildText(messages),
         messages: messages.map((message, index) => ({ id: message.id, sender_type: message.sender_type, sender_name: message.sender_name, text: message.text, sent_at: message.sent_at, sequence_index: index + 1 })),

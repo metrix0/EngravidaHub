@@ -720,6 +720,7 @@ async function loadRawConversationCount(
         let query = supabase
             .from("conversations")
             .select("id", { count: "exact", head: true })
+            .eq("channel", "WhatsApp")
             .gte("started_at", startAt)
             .lt("started_at", endAt);
 
@@ -826,6 +827,7 @@ async function loadRawConversationCountsByUnit(
                 .select(
                     "id, unit_id, clients!conversations_client_id_fkey(unit_id)",
                 )
+                .eq("channel", "WhatsApp")
                 .gte("started_at", range.startAt)
                 .lt("started_at", range.endAt)
                 .order("id", { ascending: true })

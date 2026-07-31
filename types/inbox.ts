@@ -18,7 +18,10 @@ export type InboxThreadListItem = {
     id: string;
     item_type: InboxItemType;
     thread_id: string | null;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
+    identity_type: "client" | "instagram";
+    instagram_username: string | null;
     conversation_id: string | null;
     name: string;
     initials: string;

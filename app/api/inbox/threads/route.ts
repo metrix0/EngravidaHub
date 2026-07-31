@@ -104,6 +104,11 @@ async function loadOpenThreads(attendantId: string) {
                     )
                 )
             ),
+            instagram_user:instagram_users!thread_instagram_user_id_fkey (
+                id,
+                username,
+                display_name
+            ),
             attendants (
                 id,
                 name
@@ -149,6 +154,7 @@ async function loadClosedConversations(attendantId: string) {
         .select(`
             id,
             client_id,
+            instagram_user_id,
             thread_id,
             source,
             channel,
@@ -188,6 +194,11 @@ async function loadClosedConversations(attendantId: string) {
                     )
                 )
             ),
+            instagram_user:instagram_users!conversations_instagram_user_id_fkey (
+                id,
+                username,
+                display_name
+            ),
             attendants (
                 id,
                 name
@@ -223,39 +234,49 @@ async function loadClosedConversations(attendantId: string) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapOpenThread(row: any): InboxThreadListItem {
-    const client = row.clients;
+    const client = normalizeRelation(row.clients);
+    const instagramUser = normalizeRelation(row.instagram_user);
     const attendant = row.attendants;
     const latestConversation = normalizeRelation(row.conversations);
     const analysis = normalizeRelation(latestConversation?.analysis);
     const stage = normalizeRelation(client?.funnel_stages);
     const funnel = normalizeRelation(stage?.funnels);
-    const name = client?.name ?? "Cliente sem nome";
+    const channel = normalizeChannel(row.channel);
+    const isInstagram = channel === "Instagram";
+    const name = getIdentityName(client, instagramUser);
 
     return {
         id: row.id,
         item_type: "thread",
         thread_id: row.id,
-        client_id: row.client_id,
+        client_id: row.client_id ?? null,
+        instagram_user_id: row.instagram_user_id ?? null,
+        identity_type: isInstagram ? "instagram" : "client",
+        instagram_username: instagramUser?.username ?? null,
         conversation_id: null,
         name,
         initials: getInitials(name),
         phone: client?.phone ?? null,
-        channel: normalizeChannel(row.channel),
+        channel,
         preview: cleanMessageText(row.last_message_text ?? "Sem mensagens"),
         time: formatTimeAgo(row.last_message_at ?? row.updated_at),
         unread: row.unread_count ?? 0,
         status: "open",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: funnel?.name ?? "Sem funil",
-        funnelStage: stage?.name ?? "Sem etapa",
+        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isInstagram
+            ? "Usuário do Instagram"
+            : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: latestConversation?.origin ?? client?.last_origin ?? null,
-        campaign: client?.utm_campaign ?? null,
+        origin: isInstagram
+            ? null
+            : latestConversation?.origin ?? client?.last_origin ?? null,
+        campaign: isInstagram ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? null,
         lastContact: formatTimeAgo(row.last_message_at ?? row.updated_at),
     };
@@ -263,24 +284,30 @@ function mapOpenThread(row: any): InboxThreadListItem {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapClosedConversation(row: any): InboxThreadListItem {
-    const client = row.clients;
+    const client = normalizeRelation(row.clients);
+    const instagramUser = normalizeRelation(row.instagram_user);
     const attendant = row.attendants;
     const analysis = row.analysis;
     const stage = normalizeRelation(client?.funnel_stages);
     const funnel = normalizeRelation(stage?.funnels);
-    const name = client?.name ?? "Cliente sem nome";
+    const channel = normalizeChannel(row.channel);
+    const isInstagram = channel === "Instagram" || row.source === "zernio";
+    const name = getIdentityName(client, instagramUser);
     const lastActivity = row.last_message_at ?? row.ended_at ?? row.started_at;
 
     return {
         id: row.id,
         item_type: "conversation",
         thread_id: row.thread_id ?? null,
-        client_id: row.client_id,
+        client_id: row.client_id ?? null,
+        instagram_user_id: row.instagram_user_id ?? null,
+        identity_type: isInstagram ? "instagram" : "client",
+        instagram_username: instagramUser?.username ?? null,
         conversation_id: row.id,
         name,
         initials: getInitials(name),
         phone: client?.phone ?? null,
-        channel: normalizeChannel(row.channel),
+        channel,
         preview: cleanMessageText(
             row.last_message_text ?? analysis?.short_label ?? "Conversa finalizada",
         ),
@@ -289,15 +316,17 @@ function mapClosedConversation(row: any): InboxThreadListItem {
         status: "closed",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: funnel?.name ?? "Sem funil",
-        funnelStage: stage?.name ?? "Sem etapa",
+        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isInstagram
+            ? "Usuário do Instagram"
+            : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: row.origin ?? client?.last_origin ?? null,
-        campaign: client?.utm_campaign ?? null,
+        origin: isInstagram ? null : row.origin ?? client?.last_origin ?? null,
+        campaign: isInstagram ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? row.attendant_chat_name ?? null,
         lastContact: formatTimeAgo(lastActivity),
     };
@@ -305,6 +334,23 @@ function mapClosedConversation(row: any): InboxThreadListItem {
 
 function normalizeRelation<T>(value: T | T[] | null | undefined) {
     return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getIdentityName(
+    client: { name?: string | null } | null,
+    instagramUser: {
+        display_name?: string | null;
+        username?: string | null;
+    } | null,
+) {
+    return (
+        instagramUser?.display_name?.trim() ||
+        (instagramUser?.username
+            ? `@${instagramUser.username.replace(/^@+/, "")}`
+            : null) ||
+        client?.name?.trim() ||
+        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+    );
 }
 
 function getUnitName(value: unknown) {

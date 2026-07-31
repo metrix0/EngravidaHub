@@ -12,7 +12,7 @@ export type ResolutionReasoningCategory = "customer_got_answer" | "customer_sche
 export type EvidenceIds = string[];
 
 export type ConversationAnalysis = {
-    conversation_id: string; client_id: string; started_at: string; ended_at: string;
+    conversation_id: string; client_id: string | null; instagram_user_id: string | null; started_at: string; ended_at: string;
     attendant_id: string | null; unit_id: string | null; service_id: string | null;
     customer_start_intent: CustomerStartIntent; conversation_goal: ConversationGoal;
     goal_status: GoalStatus; customer_final_state: CustomerFinalState;

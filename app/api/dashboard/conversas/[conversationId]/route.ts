@@ -5,7 +5,8 @@ import { supabase } from "@/lib";
 
 type ThreadDetailRow = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     status: string;
     source: string | null;
     channel: string | null;
@@ -63,15 +64,15 @@ async function fetchConversationDetail(conversationId: string) {
         );
     }
 
-    const [client, messages, analysis] = await Promise.all([
-        fetchClient(conversation.client_id),
+    const [identity, messages, analysis] = await Promise.all([
+        fetchConversationIdentity(conversation),
         fetchConversationMessages(conversationId),
         fetchAnalysis(conversation.conversation_analysis_id),
     ]);
 
-    if (!client) {
+    if (!identity) {
         return NextResponse.json(
-            { error: "Client not found" },
+            { error: "Conversation identity not found" },
             { status: 404 },
         );
     }
@@ -79,7 +80,7 @@ async function fetchConversationDetail(conversationId: string) {
     return NextResponse.json({
         item_type: "conversation",
         conversation,
-        client,
+        client: identity,
         messages: cleanMessages(messages),
         analysis,
     });
@@ -92,6 +93,7 @@ async function fetchThreadDetail(threadId: string) {
             [
                 "id",
                 "client_id",
+                "instagram_user_id",
                 "status",
                 "source",
                 "channel",
@@ -115,15 +117,15 @@ async function fetchThreadDetail(threadId: string) {
     }
     const typedThread = thread as unknown as ThreadDetailRow;
 
-    const [client, attendant, messages] = await Promise.all([
-        fetchClient(typedThread.client_id),
+    const [identity, attendant, messages] = await Promise.all([
+        fetchConversationIdentity(typedThread),
         fetchAttendant(typedThread.assigned_attendant_id),
         fetchThreadMessages(typedThread.id),
     ]);
 
-    if (!client) {
+    if (!identity) {
         return NextResponse.json(
-            { error: "Client not found" },
+            { error: "Conversation identity not found" },
             { status: 404 },
         );
     }
@@ -138,18 +140,19 @@ async function fetchThreadDetail(threadId: string) {
         conversation: {
             id: typedThread.id,
             client_id: typedThread.client_id,
+            instagram_user_id: typedThread.instagram_user_id,
             source: typedThread.source,
             channel: typedThread.channel,
             started_at: startedAt,
             ended_at: null,
             attendant_id: typedThread.assigned_attendant_id,
             attendant_chat_name: attendant?.name ?? null,
-            tunnel: client.last_tunnel ?? null,
-            origin: client.last_origin ?? null,
+            tunnel: identity.last_tunnel ?? null,
+            origin: identity.last_origin ?? null,
             conversation_analysis_id: null,
             analysis_status: "pending",
         },
-        client,
+        client: identity,
         messages: cleanMessages(messages),
         analysis: null,
     });
@@ -163,7 +166,51 @@ async function fetchClient(clientId: string) {
         .maybeSingle();
 
     if (error) throw error;
-    return data ?? null;
+    return data
+        ? {
+              ...data,
+              identity_type: "client" as const,
+              is_clickable: true,
+              instagram_username: null,
+          }
+        : null;
+}
+
+async function fetchInstagramUser(instagramUserId: string) {
+    const { data, error } = await supabase
+        .from("instagram_users")
+        .select("id, username, display_name")
+        .eq("id", instagramUserId)
+        .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+        id: data.id,
+        name:
+            data.display_name?.trim() ||
+            (data.username
+                ? `@${data.username.replace(/^@+/, "")}`
+                : "Usuário do Instagram"),
+        phone: null,
+        identity_type: "instagram" as const,
+        is_clickable: false,
+        instagram_username: data.username ?? null,
+        last_tunnel: null,
+        last_origin: null,
+    };
+}
+
+async function fetchConversationIdentity(row: {
+    client_id?: string | null;
+    instagram_user_id?: string | null;
+}) {
+    if (row.client_id) return fetchClient(row.client_id);
+    if (row.instagram_user_id) {
+        return fetchInstagramUser(row.instagram_user_id);
+    }
+    return null;
 }
 
 async function fetchAttendant(attendantId: string | null) {

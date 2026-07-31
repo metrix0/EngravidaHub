@@ -145,6 +145,11 @@ async function loadThreadDetail({
                     )
                 )
             ),
+            instagram_user:instagram_users!thread_instagram_user_id_fkey (
+                id,
+                username,
+                display_name
+            ),
             attendants (
                 id,
                 name
@@ -206,10 +211,11 @@ async function loadThreadDetail({
     const mappedMessages = (messages ?? []).map(mapMessage);
     const historyBefore =
         mappedMessages[0]?.sent_at ?? new Date().toISOString();
-    const hasOlder = await hasOlderConversations(
-        thread.client_id,
-        historyBefore,
-    );
+    const hasOlder = await hasOlderConversations({
+        clientId: thread.client_id ?? null,
+        instagramUserId: thread.instagram_user_id ?? null,
+        before: historyBefore,
+    });
     const replyState = getReplyState(thread.last_client_message_at);
 
     const response: InboxThreadDetailResponse = {
@@ -221,7 +227,7 @@ async function loadThreadDetail({
             conversation_id: null,
             status: "open",
             messages: mappedMessages,
-            notes: mapClientNotes(thread.clients?.notes),
+            notes: mapClientNotes(normalizeRelation(thread.clients)?.notes),
             can_reply: replyState.canReply,
             reply_window_ends_at: replyState.windowEndsAt,
             has_older_conversations: hasOlder,
@@ -244,6 +250,7 @@ async function loadConversationDetail({
         .select(`
             id,
             client_id,
+            instagram_user_id,
             thread_id,
             source,
             channel,
@@ -280,6 +287,11 @@ async function loadConversationDetail({
                         name
                     )
                 )
+            ),
+            instagram_user:instagram_users!conversations_instagram_user_id_fkey (
+                id,
+                username,
+                display_name
             ),
             attendants (
                 id,
@@ -327,10 +339,11 @@ async function loadConversationDetail({
 
     const thread = await findThreadForConversation(conversation);
     const historyBefore = conversation.started_at;
-    const hasOlder = await hasOlderConversations(
-        conversation.client_id,
-        historyBefore,
-    );
+    const hasOlder = await hasOlderConversations({
+        clientId: conversation.client_id ?? null,
+        instagramUserId: conversation.instagram_user_id ?? null,
+        before: historyBefore,
+    });
     const replyState = getReplyState(thread?.last_client_message_at ?? null);
     const canReply =
         Boolean(thread) &&
@@ -359,7 +372,9 @@ async function loadConversationDetail({
             conversation_id: conversation.id,
             status: "closed",
             messages: mappedMessages,
-            notes: mapClientNotes(conversation.clients[0]?.notes),
+            notes: mapClientNotes(
+                normalizeRelation(conversation.clients)?.notes,
+            ),
             can_reply: canReply,
             reply_window_ends_at: replyState.windowEndsAt,
             has_older_conversations: hasOlder,
@@ -379,7 +394,12 @@ async function findThreadForConversation(conversation: any) {
 
     query = conversation.thread_id
         ? query.eq("id", conversation.thread_id)
-        : query.eq("client_id", conversation.client_id);
+        : conversation.client_id
+          ? query.eq("client_id", conversation.client_id)
+          : query.eq(
+                "instagram_user_id",
+                conversation.instagram_user_id,
+            );
 
     const { data, error } = await query.maybeSingle();
 
@@ -390,15 +410,29 @@ async function findThreadForConversation(conversation: any) {
     return data;
 }
 
-async function hasOlderConversations(clientId: string, before: string) {
-    const { data, error } = await supabase
+async function hasOlderConversations({
+    clientId,
+    instagramUserId,
+    before,
+}: {
+    clientId: string | null;
+    instagramUserId: string | null;
+    before: string;
+}) {
+    if (!clientId && !instagramUserId) return false;
+
+    let query = supabase
         .from("conversations")
         .select("id")
-        .eq("client_id", clientId)
         .lt("started_at", before)
         .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+
+    query = clientId
+        ? query.eq("client_id", clientId)
+        : query.eq("instagram_user_id", instagramUserId);
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
         throw error;
@@ -442,6 +476,12 @@ async function moveClientByDirection({
 
     if (!thread) {
         return { ok: false, error: "Thread not found" };
+    }
+    if (!thread.client_id) {
+        return {
+            ok: false,
+            error: "Instagram users do not have a CRM funnel stage",
+        };
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -514,6 +554,12 @@ async function moveClientToStage({
     if (!thread) {
         return { ok: false, error: "Thread not found" };
     }
+    if (!thread.client_id) {
+        return {
+            ok: false,
+            error: "Instagram users do not have a CRM funnel stage",
+        };
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const client = thread.clients as any;
@@ -569,42 +615,53 @@ function mapThreadBase(row: any): Omit<
     | "has_older_conversations"
     | "history_before"
 > {
-    const client = row.clients;
-    const attendant = row.attendants;
-    const latestConversation = row.conversations;
-    const analysis = latestConversation?.analysis;
-    const stage = client?.funnel_stages;
-    const funnel = stage?.funnels;
-    const name = client?.name ?? "Cliente sem nome";
+    const client = normalizeRelation(row.clients);
+    const instagramUser = normalizeRelation(row.instagram_user);
+    const attendant = normalizeRelation(row.attendants);
+    const latestConversation = normalizeRelation(row.conversations);
+    const analysis = normalizeRelation(latestConversation?.analysis);
+    const stage = normalizeRelation(client?.funnel_stages);
+    const funnel = normalizeRelation(stage?.funnels);
+    const channel = normalizeChannel(row.channel);
+    const isInstagram = channel === "Instagram";
+    const name = getIdentityName(client, instagramUser);
 
     return {
-        client_id: row.client_id,
+        client_id: row.client_id ?? null,
+        instagram_user_id: row.instagram_user_id ?? null,
+        identity_type: isInstagram ? "instagram" : "client",
+        instagram_username: instagramUser?.username ?? null,
         name,
         initials: getInitials(name),
         phone: client?.phone ?? null,
-        channel: normalizeChannel(row.channel),
+        channel,
         preview: cleanMessageText(row.last_message_text ?? "Sem mensagens"),
         time: formatTimeAgo(row.last_message_at ?? row.updated_at),
         unread: row.unread_count ?? 0,
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: funnel?.name ?? "Sem funil",
-        funnelStage: stage?.name ?? "Sem etapa",
+        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isInstagram
+            ? "Usuário do Instagram"
+            : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: latestConversation?.origin ?? client?.utm_source ?? null,
-        campaign: client?.utm_campaign ?? null,
+        origin: isInstagram
+            ? null
+            : latestConversation?.origin ?? client?.utm_source ?? null,
+        campaign: isInstagram ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? null,
         lastContact: formatTimeAgo(row.last_message_at ?? row.updated_at),
     };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapConversationBase(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     conversation: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     thread: any,
 ): Omit<
     InboxThreadDetail,
@@ -620,23 +677,32 @@ function mapConversationBase(
     | "has_older_conversations"
     | "history_before"
 > {
-    const client = conversation.clients;
-    const attendant = conversation.attendants;
-    const analysis = conversation.analysis;
-    const stage = client?.funnel_stages;
-    const funnel = stage?.funnels;
-    const name = client?.name ?? "Cliente sem nome";
+    const client = normalizeRelation(conversation.clients);
+    const instagramUser = normalizeRelation(conversation.instagram_user);
+    const attendant = normalizeRelation(conversation.attendants);
+    const analysis = normalizeRelation(conversation.analysis);
+    const stage = normalizeRelation(client?.funnel_stages);
+    const funnel = normalizeRelation(stage?.funnels);
+    const channel = normalizeChannel(
+        conversation.channel ?? thread?.channel,
+    );
+    const isInstagram =
+        channel === "Instagram" || conversation.source === "zernio";
+    const name = getIdentityName(client, instagramUser);
     const lastActivity =
         conversation.last_message_at ??
         conversation.ended_at ??
         conversation.started_at;
 
     return {
-        client_id: conversation.client_id,
+        client_id: conversation.client_id ?? null,
+        instagram_user_id: conversation.instagram_user_id ?? null,
+        identity_type: isInstagram ? "instagram" : "client",
+        instagram_username: instagramUser?.username ?? null,
         name,
         initials: getInitials(name),
         phone: client?.phone ?? null,
-        channel: normalizeChannel(conversation.channel ?? thread?.channel),
+        channel,
         preview: cleanMessageText(
             conversation.last_message_text ??
             analysis?.short_label ??
@@ -646,15 +712,19 @@ function mapConversationBase(
         unread: 0,
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: funnel?.name ?? "Sem funil",
-        funnelStage: stage?.name ?? "Sem etapa",
+        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isInstagram
+            ? "Usuário do Instagram"
+            : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: conversation.source ?? client?.utm_source ?? null,
-        campaign: client?.utm_campaign ?? null,
+        origin: isInstagram
+            ? null
+            : conversation.source ?? client?.utm_source ?? null,
+        campaign: isInstagram ? null : client?.utm_campaign ?? null,
         responsible:
             attendant?.name ?? conversation.attendant_chat_name ?? null,
         lastContact: formatTimeAgo(lastActivity),
@@ -675,6 +745,27 @@ function mapMessage(message: any): InboxMessage {
         external_id: message.external_id ?? null,
         external_contact_id: message.external_contact_id ?? null,
     };
+}
+
+function normalizeRelation<T>(value: T | T[] | null | undefined) {
+    return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getIdentityName(
+    client: { name?: string | null } | null,
+    instagramUser: {
+        display_name?: string | null;
+        username?: string | null;
+    } | null,
+) {
+    return (
+        instagramUser?.display_name?.trim() ||
+        (instagramUser?.username
+            ? `@${instagramUser.username.replace(/^@+/, "")}`
+            : null) ||
+        client?.name?.trim() ||
+        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+    );
 }
 
 function mapClientNotes(value: unknown): InboxNote[] {

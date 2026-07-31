@@ -6,7 +6,8 @@ import { processPendingConversationsToAnalysisAndAdEvents } from "@/lib/conversa
 
 type ConversationRow = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     attendant_id: string | null;
     attendant_chat_name: string | null;
     conversation_analysis_id: string | null;
@@ -21,6 +22,11 @@ type MessageRow = {
 
 type ClientRow = {
     name: string | null;
+};
+
+type InstagramUserRow = {
+    display_name: string | null;
+    username: string | null;
 };
 
 type AttendantRow = {
@@ -190,7 +196,7 @@ async function prepareConversationSenderNames(
         await supabase
             .from("conversations")
             .select(
-                "id, client_id, attendant_id, attendant_chat_name, conversation_analysis_id",
+                "id, client_id, instagram_user_id, attendant_id, attendant_chat_name, conversation_analysis_id",
             )
             .eq("id", conversationId)
             .maybeSingle();
@@ -255,21 +261,17 @@ async function prepareConversationSenderNames(
 
     const typedMessages = (messages ?? []) as MessageRow[];
 
-    const [{ data: client, error: clientError }, assignedAttendant] =
+    const [identityResult, assignedAttendant] =
         await Promise.all([
-            supabase
-                .from("clients")
-                .select("name")
-                .eq("id", typedConversation.client_id)
-                .maybeSingle(),
+            loadConversationIdentity(typedConversation),
             typedConversation.attendant_id
                 ? loadAttendantById(typedConversation.attendant_id)
                 : Promise.resolve(null),
         ]);
 
-    if (clientError) {
+    if (identityResult.error) {
         throw new Error(
-            `Failed to load conversation client before analysis: ${clientError.message}`,
+            `Failed to load conversation identity before analysis: ${identityResult.error.message}`,
         );
     }
 
@@ -291,7 +293,7 @@ async function prepareConversationSenderNames(
         await loadAttendantsByExternalIds(externalAttendantIds);
 
     const clientName =
-        normalizeName((client as ClientRow | null)?.name) ?? "Cliente";
+        normalizeName(identityResult.name) ?? "Cliente";
 
     const assignedAttendantName =
         normalizeName(assignedAttendant?.name) ??
@@ -402,7 +404,7 @@ async function prepareConversationSenderNames(
             updated_messages: updates.length,
             client_fallback_used:
                 clientName === "Cliente" &&
-                !normalizeName((client as ClientRow | null)?.name),
+                !normalizeName(identityResult.name),
             missing_attendant_message_id: null,
         },
     );
@@ -412,6 +414,44 @@ async function prepareConversationSenderNames(
         conversation_id: conversationId,
         already_analyzed: false,
         conversation_analysis_id: null,
+    };
+}
+
+async function loadConversationIdentity(conversation: ConversationRow) {
+    if (conversation.client_id) {
+        const { data, error } = await supabase
+            .from("clients")
+            .select("name")
+            .eq("id", conversation.client_id)
+            .maybeSingle();
+
+        return {
+            name: (data as ClientRow | null)?.name ?? null,
+            error,
+        };
+    }
+
+    if (conversation.instagram_user_id) {
+        const { data, error } = await supabase
+            .from("instagram_users")
+            .select("display_name, username")
+            .eq("id", conversation.instagram_user_id)
+            .maybeSingle();
+        const instagramUser = data as InstagramUserRow | null;
+
+        return {
+            name:
+                instagramUser?.display_name ??
+                (instagramUser?.username
+                    ? `@${instagramUser.username.replace(/^@+/, "")}`
+                    : null),
+            error,
+        };
+    }
+
+    return {
+        name: null,
+        error: new Error("Conversation has no identity"),
     };
 }
 

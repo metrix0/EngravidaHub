@@ -43,8 +43,8 @@ async function fetchConversationPanel(conversationId: string) {
         );
     }
 
-    const [client, analysis, messages] = await Promise.all([
-        fetchClient(conversation.client_id),
+    const [identity, analysis, messages] = await Promise.all([
+        fetchIdentity(conversation),
         fetchAnalysis(conversation.conversation_analysis_id),
         fetchMessagesByConversationId(conversation.id),
     ]);
@@ -53,7 +53,7 @@ async function fetchConversationPanel(conversationId: string) {
         type: "conversation",
         conversation,
         thread: null,
-        client,
+        client: identity,
         analysis,
         messages,
     });
@@ -74,8 +74,8 @@ async function fetchThreadPanel(threadId: string) {
         return NextResponse.json({ error: "Thread not found" }, { status: 404 });
     }
 
-    const [client, conversation, messages] = await Promise.all([
-        fetchClient(thread.client_id),
+    const [identity, conversation, messages] = await Promise.all([
+        fetchIdentity(thread),
         thread.latest_conversation_id
             ? fetchConversation(thread.latest_conversation_id)
             : Promise.resolve(null),
@@ -90,7 +90,7 @@ async function fetchThreadPanel(threadId: string) {
         type: "thread",
         conversation,
         thread,
-        client,
+        client: identity,
         analysis,
         messages,
     });
@@ -119,7 +119,50 @@ async function fetchClient(clientId: string) {
 
     if (error) throw error;
 
-    return data ?? null;
+    return data
+        ? {
+              ...data,
+              identity_type: "client" as const,
+              is_clickable: true,
+              instagram_username: null,
+          }
+        : null;
+}
+
+async function fetchInstagramUser(instagramUserId: string) {
+    const { data, error } = await supabase
+        .from("instagram_users")
+        .select("id, username, display_name")
+        .eq("id", instagramUserId)
+        .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+        id: data.id,
+        name:
+            data.display_name?.trim() ||
+            (data.username
+                ? `@${data.username.replace(/^@+/, "")}`
+                : "Usuário do Instagram"),
+        phone: null,
+        email: null,
+        identity_type: "instagram" as const,
+        is_clickable: false,
+        instagram_username: data.username ?? null,
+    };
+}
+
+async function fetchIdentity(row: {
+    client_id?: string | null;
+    instagram_user_id?: string | null;
+}) {
+    if (row.client_id) return fetchClient(row.client_id);
+    if (row.instagram_user_id) {
+        return fetchInstagramUser(row.instagram_user_id);
+    }
+    return null;
 }
 
 async function fetchConversation(conversationId: string) {
@@ -155,6 +198,7 @@ async function fetchMessagesByConversationId(conversationId: string) {
             `
             id,
             client_id,
+            instagram_user_id,
             conversation_id,
             thread_id,
             sender_type,
@@ -185,6 +229,7 @@ async function fetchMessagesByThreadId(threadId: string) {
             `
             id,
             client_id,
+            instagram_user_id,
             conversation_id,
             thread_id,
             sender_type,
@@ -207,4 +252,3 @@ async function fetchMessagesByThreadId(threadId: string) {
 
     return data ?? [];
 }
-

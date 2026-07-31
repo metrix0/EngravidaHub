@@ -9,7 +9,7 @@ import {
     type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
+import { AtSign, Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
 
 import {
@@ -35,6 +35,7 @@ import {
 } from "@/components";
 import { InitialsAvatar } from "./InitialsAvatar";
 import { ChatMessageContent } from "./ChatMessageBubble";
+import { ConversationChannelBadge } from "./ConversationChannelBadge";
 import { OPEN_CONVERSATION_DETAILS_EVENT } from "./FloatingConversationPanel";
 
 type SenderType = "client" | "attendant" | "bot" | "system";
@@ -58,12 +59,17 @@ type PanelData = {
         attendant_chat_name: string | null;
         tunnel: string | null;
         origin: string | null;
+        source: string | null;
+        channel: string | null;
         analysis_status: "pending" | "processing" | "completed" | "failed";
     };
     client: {
         id: string;
         name: string | null;
         phone: string | null;
+        identity_type: "client" | "instagram";
+        is_clickable: boolean;
+        instagram_username: string | null;
     };
     messages: PanelMessage[];
     analysis: any | null;
@@ -217,9 +223,23 @@ export function ConversationPanel({
         <DetailsSidePanel
             open={panelOpen}
             title={
-                activeItemType === "thread"
-                    ? "Conversa ao vivo"
-                    : "Detalhes da conversa"
+                <span className="inline-flex min-w-0 items-center gap-2">
+                    <span className="truncate">
+                        {activeItemType === "thread"
+                            ? "Conversa ao vivo"
+                            : "Detalhes da conversa"}
+                    </span>
+                    {data ? (
+                        <ConversationChannelBadge
+                            channel={
+                                data.conversation.channel ??
+                                (data.conversation.source === "zernio"
+                                    ? "Instagram"
+                                    : "WhatsApp")
+                            }
+                        />
+                    ) : null}
+                </span>
             }
             onClose={handleClose}
             headerContent={
@@ -230,13 +250,23 @@ export function ConversationPanel({
                         <div className="mb-5 flex items-start justify-between gap-4">
                             <button
                                 type="button"
-                                onClick={() =>
+                                disabled={!data.client.is_clickable}
+                                onClick={() => {
+                                    if (!data.client.is_clickable) return;
                                     router.push(
                                         `/clientes?client_id=${encodeURIComponent(data.client.id)}`,
-                                    )
+                                    );
+                                }}
+                                className={`flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
+                                    data.client.is_clickable
+                                        ? "cursor-pointer transition-opacity hover:opacity-80"
+                                        : "cursor-default"
+                                }`}
+                                aria-label={
+                                    data.client.is_clickable
+                                        ? `Abrir perfil de ${clientName}`
+                                        : undefined
                                 }
-                                className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 text-left transition-opacity hover:opacity-80"
-                                aria-label={`Abrir perfil de ${clientName}`}
                             >
                                 <div className="flex min-w-0 items-center gap-4">
                                     <InitialsAvatar
@@ -257,8 +287,21 @@ export function ConversationPanel({
                                         </div>
 
                                         <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                                            <Phone size={15} />
-                                            <span>{data.client.phone ?? "-"}</span>
+                                            {data.client.identity_type ===
+                                            "instagram" ? (
+                                                <AtSign size={15} />
+                                            ) : (
+                                                <Phone size={15} />
+                                            )}
+                                            <span>
+                                                {data.client.identity_type ===
+                                                "instagram"
+                                                    ? data.client
+                                                          .instagram_username
+                                                        ? `@${data.client.instagram_username.replace(/^@+/, "")}`
+                                                        : "Instagram"
+                                                    : data.client.phone ?? "-"}
+                                            </span>
                                         </div>
 
                                         <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
@@ -278,22 +321,19 @@ export function ConversationPanel({
                                         </div>
                                     </div>
                                 </div>
-                                <ChevronRight size={18} className="shrink-0 text-slate-400" />
+                                {data.client.is_clickable ? (
+                                    <ChevronRight
+                                        size={18}
+                                        className="shrink-0 text-slate-400"
+                                    />
+                                ) : null}
                             </button>
 
-                            {data.item_type === "thread" ? (
-                                <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                                    Ao vivo
-                                </span>
-                            ) : result ? (
+                            {result ? (
                                 <span title={`Resolução ${result}`}>
                                     <Badge value={result} />
                                 </span>
-                            ) : (
-                                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">
-                                    Não analisada
-                                </span>
-                            )}
+                            ) : null}
                         </div>
 
                         <div className="grid grid-cols-3 gap-4 text-xs">
@@ -304,11 +344,15 @@ export function ConversationPanel({
                             />
                             <InfoItem
                                 icon={<Target size={18} />}
-                                label="Resolução"
+                                label={data.analysis ? "Resolução" : "Status"}
                                 value={
-                                    data.analysis?.resolution_score == null
-                                        ? "—"
-                                        : `${data.analysis.resolution_score}%`
+                                    data.analysis
+                                        ? data.analysis.resolution_score == null
+                                            ? "—"
+                                            : `${data.analysis.resolution_score}%`
+                                        : data.item_type === "thread"
+                                            ? "Ao vivo"
+                                            : "Não analisada"
                                 }
                             />
                             <InfoItem
@@ -581,8 +625,25 @@ function DetailsTab({ data }: { data: PanelData }) {
                 <InfoGrid
                     items={[
                         ["ID", data.conversation.id],
-                        ["Cliente", data.client.name ?? "Cliente sem nome"],
-                        ["Telefone", data.client.phone ?? "-"],
+                        [
+                            data.client.identity_type === "instagram"
+                                ? "Usuário"
+                                : "Cliente",
+                            data.client.name ??
+                                (data.client.identity_type === "instagram"
+                                    ? "Usuário do Instagram"
+                                    : "Cliente sem nome"),
+                        ],
+                        [
+                            data.client.identity_type === "instagram"
+                                ? "Instagram"
+                                : "Telefone",
+                            data.client.identity_type === "instagram"
+                                ? data.client.instagram_username
+                                    ? `@${data.client.instagram_username.replace(/^@+/, "")}`
+                                    : "-"
+                                : data.client.phone ?? "-",
+                        ],
                         ["Data inicial", formatDateTime(data.conversation.started_at)],
                         [
                             "Data final",
@@ -603,6 +664,13 @@ function DetailsTab({ data }: { data: PanelData }) {
                         ],
                         ["Túnel", data.conversation.tunnel ?? "Não definido"],
                         ["Origem", data.conversation.origin ?? "Não definido"],
+                        [
+                            "Plataforma",
+                            data.conversation.channel ??
+                                (data.conversation.source === "zernio"
+                                    ? "Instagram"
+                                    : "WhatsApp"),
+                        ],
                     ]}
                 />
             </SummaryCard>

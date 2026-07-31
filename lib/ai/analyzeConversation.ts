@@ -688,6 +688,7 @@ function validateAndNormalize(
     return {
         conversation_id: input.conversation_id,
         client_id: input.client_id,
+        instagram_user_id: input.instagram_user_id,
         started_at: first.sent_at,
         ended_at: last.sent_at,
         attendant_id: input.attendant_id,
@@ -1326,6 +1327,7 @@ function metadata(input: AnalyzeConversationInput) {
     return {
         conversation_id: input.conversation_id,
         client_id: input.client_id,
+        instagram_user_id: input.instagram_user_id,
         started_at: input.started_at,
         ended_at: input.ended_at,
         attendant_id: input.attendant_id,

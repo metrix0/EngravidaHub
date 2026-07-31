@@ -371,6 +371,7 @@ async function loadPaidJourneyConversations(
             .select(
                 "client_id, started_at, origin, clients!conversations_client_id_fkey(last_origin)",
             )
+            .eq("channel", "WhatsApp")
             .gte("started_at", brazilDayBoundary(dateFrom))
             .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)))
             .order("started_at", { ascending: true })

@@ -665,6 +665,7 @@ async function searchConversations(args: JsonRecord): Promise<ToolExecution> {
             last_message_text,
             conversation_analysis_id
         `)
+        .eq("channel", "WhatsApp")
         .order("started_at", { ascending: false })
         .limit(500);
 
@@ -988,11 +989,13 @@ async function getBusinessOverview(
         supabase
             .from("conversations")
             .select("id", { count: "exact", head: true })
+            .eq("channel", "WhatsApp")
             .gte("started_at", fromIso)
             .lt("started_at", toIso),
         supabase
             .from("conversation_analysis")
             .select("id", { count: "exact", head: true })
+            .not("client_id", "is", null)
             .gte("started_at", fromIso)
             .lt("started_at", toIso),
         supabase
@@ -1008,6 +1011,7 @@ async function getBusinessOverview(
         supabase
             .from("thread")
             .select("id", { count: "exact", head: true })
+            .eq("channel", "WhatsApp")
             .eq("status", "open"),
         supabase
             .from("active_message_sends")

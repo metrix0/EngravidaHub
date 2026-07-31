@@ -12,7 +12,8 @@ export type AnalyzeConversationMessage = {
 
 export type AnalyzeConversationInput = {
     conversation_id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     started_at: string;
     ended_at: string;
     attendant_id: string | null;

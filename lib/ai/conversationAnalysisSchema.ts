@@ -6,7 +6,8 @@ const nullableScore = z.number().int().min(0).max(100).nullable();
 
 export const conversationAnalysisSchema = z.object({
     conversation_id: z.string(),
-    client_id: z.string(),
+    client_id: z.string().nullable(),
+    instagram_user_id: z.string().nullable().default(null),
     started_at: z.string(),
     ended_at: z.string(),
     attendant_id: z.string().nullable(),

@@ -248,15 +248,19 @@ export async function finalizeInboxThread(threadId: string) {
 
 export async function fetchPreviousInboxConversation({
     clientId,
+    instagramUserId,
     before,
 }: {
-    clientId: string;
+    clientId: string | null;
+    instagramUserId: string | null;
     before: string;
 }) {
-    const params = new URLSearchParams({
-        client_id: clientId,
-        before,
-    });
+    const params = new URLSearchParams({ before });
+
+    if (clientId) params.set("client_id", clientId);
+    if (instagramUserId) {
+        params.set("instagram_user_id", instagramUserId);
+    }
 
     const response = await fetch(`/api/inbox/history?${params.toString()}`, {
         credentials: "include",

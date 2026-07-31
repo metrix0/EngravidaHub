@@ -90,6 +90,7 @@ async function processConversation(conversation: Conversation) {
         const input: AnalyzeConversationInput = {
             conversation_id: conversation.id,
             client_id: conversation.client_id,
+            instagram_user_id: conversation.instagram_user_id,
             started_at: first.sent_at,
             ended_at: effectiveEnd.sent_at,
             attendant_id: conversation.attendant_id,
@@ -270,6 +271,7 @@ async function sendAdsSafely(
     let google = null;
     const errors: string[] = [];
     if (!events.length || await hasExistingAdEvents(conversation.id)) return { meta, google, errors };
+    if (!analysis.client_id) return { meta, google, errors };
 
     try {
         const result = await supabase.from("clients").select("phone, email, name").eq("id", analysis.client_id).single();

@@ -411,6 +411,7 @@ function buildModelInput(input: AnalyzeConversationInput) {
                         metadata: {
                             conversation_id: input.conversation_id,
                             client_id: input.client_id,
+                            instagram_user_id: input.instagram_user_id,
                             started_at: input.started_at,
                             ended_at: input.ended_at,
                             attendant_id: input.attendant_id,
@@ -428,7 +429,7 @@ function buildModelInput(input: AnalyzeConversationInput) {
 }
 
 function analysisSystemPrompt() {
-    return `Você analisa conversas completas de WhatsApp de uma clínica de fertilidade.
+    return `Você analisa conversas completas de atendimento de uma clínica de fertilidade.
 
 Retorne SOMENTE JSON estrito no output_schema fornecido. Antes de decidir, forme internamente um registro factual de evidências baseado exclusivamente nos message_ids existentes.
 
@@ -475,12 +476,16 @@ async function persistCompletedAnalysis(
     if (parsed.client_id !== conversation.client_id) {
         throw new Error("Google returned a mismatched client_id");
     }
+    if (parsed.instagram_user_id !== conversation.instagram_user_id) {
+        throw new Error("Google returned a mismatched instagram_user_id");
+    }
 
     const effectiveEnd = getConversationEffectiveEndMessage(normalizedMessages);
     const normalizedAnalysis: ConversationAnalysis = {
         ...parsed,
         conversation_id: conversationId,
         client_id: conversation.client_id,
+        instagram_user_id: conversation.instagram_user_id,
         started_at: normalizedMessages[0]!.sent_at,
         ended_at: effectiveEnd.sent_at,
         attendant_id: conversation.attendant_id,
@@ -537,6 +542,7 @@ async function buildAnalysisInput(
     return {
         conversation_id: conversation.id,
         client_id: conversation.client_id,
+        instagram_user_id: conversation.instagram_user_id,
         started_at: normalized[0]!.sent_at,
         ended_at: effectiveEnd.sent_at,
         attendant_id: conversation.attendant_id,
@@ -747,6 +753,7 @@ async function sendAdsSafely(
     events: ReturnType<typeof deriveAdEventsFromAnalysis>,
 ) {
     if (!events.length || (await hasExistingAdEvents(conversation.id))) return;
+    if (!analysis.client_id) return;
 
     const client = await supabase
         .from("clients")

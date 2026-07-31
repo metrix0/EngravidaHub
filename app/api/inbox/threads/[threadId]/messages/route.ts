@@ -12,12 +12,18 @@ import {
     type SentBlipMessage,
 } from "@/lib/blip/sendBlipTextMessage";
 import { supabase } from "@/lib/supabase/client";
+import {
+    sendZernioInboxMessage,
+    ZernioApiError,
+    ZernioConfigurationError,
+    zernioExternalMessageId,
+} from "@/lib/zernio/client";
 import type { InboxItemType } from "@/types/inbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ATTACHMENT_BUCKET = "inbox-attachments";
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const ATTACHMENT_URL_TTL_SECONDS = 24 * 60 * 60;
@@ -70,6 +76,7 @@ type SendDebug = {
     item_type: InboxItemType;
     recipient_input: string;
     recipient_identity: string | null;
+    transport: "blip" | "zernio" | null;
     local_window: {
         last_client_message_at: string | null;
         age_ms: number | null;
@@ -125,6 +132,7 @@ export async function POST(
         item_type: itemType,
         recipient_input: "",
         recipient_identity: null,
+        transport: null,
         local_window: null,
         blip: null,
         steps: [],
@@ -223,33 +231,82 @@ export async function POST(
     }
 
     const thread = threadResult.thread;
+    const isInstagram =
+        thread.channel === "Instagram" || thread.source === "zernio";
+    debug.transport = isInstagram ? "zernio" : "blip";
+
     log("Thread resolved", {
         thread_id: thread.id,
         client_id: thread.client_id,
+        instagram_user_id: thread.instagram_user_id,
         status: thread.status,
         assigned_attendant_id: thread.assigned_attendant_id,
         last_client_message_at: thread.last_client_message_at,
+        channel: thread.channel,
+        source: thread.source,
+        transport: debug.transport,
     });
 
-    const { data: customer, error: customerError } = await supabase
-        .from("clients")
-        .select("phone")
-        .eq("id", thread.client_id)
-        .maybeSingle();
+    let customer: {
+        phone: string | null;
+        external_contact_id: string | null;
+    } | null = null;
 
-    if (customerError) {
-        log("Failed to resolve customer phone", customerError);
-        return errorResponse(500, customerError.message, debug, startedAt);
+    if (!isInstagram) {
+        if (!thread.client_id) {
+            log("Rejected: WhatsApp thread has no CRM client");
+            return errorResponse(
+                422,
+                "A conversa do WhatsApp não possui um cliente vinculado.",
+                debug,
+                startedAt,
+            );
+        }
+
+        const { data, error } = await supabase
+            .from("clients")
+            .select("phone, external_contact_id")
+            .eq("id", thread.client_id)
+            .maybeSingle();
+
+        if (error) {
+            log("Failed to resolve customer identity", error);
+            return errorResponse(500, error.message, debug, startedAt);
+        }
+
+        customer = data;
     }
 
     const recipientNumber = customer?.phone?.trim() ?? "";
-    if (!recipientNumber) {
+    const zernioConversationId = thread.external_thread_id?.trim() ?? "";
+    const zernioAccountId = thread.external_account_id?.trim() ?? "";
+
+    if (isInstagram && (!zernioConversationId || !zernioAccountId)) {
+        log("Rejected: Instagram thread has no Zernio identifiers");
+        return errorResponse(
+            422,
+            "A conversa do Instagram não possui os identificadores do Zernio.",
+            debug,
+            startedAt,
+        );
+    }
+
+    if (!isInstagram && !recipientNumber) {
         log("Rejected: customer has no phone number");
         return errorResponse(422, "O cliente não possui telefone cadastrado.", debug, startedAt);
     }
 
-    debug.recipient_input = recipientNumber;
-    log("Customer phone resolved", { raw_number: recipientNumber });
+    debug.recipient_input = isInstagram
+        ? zernioConversationId
+        : recipientNumber;
+    log("Customer identity resolved", {
+        channel: thread.channel,
+        phone: isInstagram ? null : recipientNumber,
+        zernio_conversation_id: isInstagram
+            ? zernioConversationId
+            : null,
+        zernio_account_id: isInstagram ? zernioAccountId : null,
+    });
 
     const lastClientMessageAt = thread.last_client_message_at
         ? new Date(thread.last_client_message_at).getTime()
@@ -258,7 +315,7 @@ export async function POST(
     const localWindowOpen =
         lastClientMessageAt > 0 &&
         windowAgeMs !== null &&
-        windowAgeMs <= WHATSAPP_WINDOW_MS;
+        windowAgeMs <= RESPONSE_WINDOW_MS;
     const bypassed =
         TEST_MODE && BYPASS_LOCAL_WINDOW_IN_TEST_MODE && !localWindowOpen;
 
@@ -358,11 +415,20 @@ export async function POST(
         log("Thread reopened", { thread_id: thread.id });
     }
 
-    let blipMessage: SentBlipMessage;
+    let blipMessage: SentBlipMessage | null = null;
+    let providerMessageId = "";
+    let providerExternalId = "";
+    let providerRecipient = isInstagram
+        ? zernioConversationId
+        : recipientNumber;
+    let providerSentAt = new Date().toISOString();
     let persistedText = text;
 
     try {
-        log("Calling Blip HTTP Messages API", { action });
+        log(
+            `Calling ${isInstagram ? "Zernio" : "Blip"} messages API`,
+            { action },
+        );
 
         if (action === "send_attachment" && attachment) {
             if (!attachment.path.startsWith(`${thread.id}/`)) {
@@ -377,17 +443,46 @@ export async function POST(
                 throw signedError ?? new Error("Não foi possível acessar o anexo.");
             }
 
-            blipMessage = await sendBlipMediaMessage({
-                recipientNumber,
-                title: isCaptionlessMedia(attachment.mimeType)
-                    ? undefined
-                    : attachment.name,
-                uri: signedData.signedUrl,
-                mimeType: attachment.mimeType,
-                size: attachment.size,
-                requestId,
-            });
+            if (isInstagram) {
+                const zernioMessage = await sendZernioInboxMessage({
+                    conversationId: zernioConversationId,
+                    accountId: zernioAccountId,
+                    attachmentUrl: signedData.signedUrl,
+                    attachmentType: getZernioAttachmentType(
+                        attachment.mimeType,
+                    ),
+                });
+
+                providerMessageId = zernioMessage.id;
+                providerExternalId = zernioExternalMessageId(
+                    zernioMessage.id,
+                );
+                providerRecipient = zernioMessage.conversationId;
+                providerSentAt = zernioMessage.sentAt;
+            } else {
+                blipMessage = await sendBlipMediaMessage({
+                    recipientNumber,
+                    title: isCaptionlessMedia(attachment.mimeType)
+                        ? undefined
+                        : attachment.name,
+                    uri: signedData.signedUrl,
+                    mimeType: attachment.mimeType,
+                    size: attachment.size,
+                    requestId,
+                });
+            }
             persistedText = attachmentHistoryText(attachment);
+        } else if (isInstagram) {
+            const zernioMessage = await sendZernioInboxMessage({
+                conversationId: zernioConversationId,
+                accountId: zernioAccountId,
+                message: text,
+            });
+
+            providerMessageId = zernioMessage.id;
+            providerExternalId = zernioExternalMessageId(zernioMessage.id);
+            providerRecipient = zernioMessage.conversationId;
+            providerSentAt = zernioMessage.sentAt;
         } else {
             blipMessage = await sendBlipTextMessage({
                 recipientNumber,
@@ -395,24 +490,39 @@ export async function POST(
                 requestId,
             });
         }
-        debug.blip = blipMessage.debug;
-        debug.recipient_identity = blipMessage.to;
 
-        log("Blip accepted the envelope", {
-            blip_message_id: blipMessage.id,
-            sender: blipMessage.from,
-            recipient: blipMessage.to,
-            http_status: blipMessage.debug.response.status,
-            http_body: blipMessage.debug.response.body,
-            duration_ms: blipMessage.debug.duration_ms,
-            delivery_state: blipMessage.delivery.state,
-            delivery_event: blipMessage.delivery.final_event,
-            delivery_reason: blipMessage.delivery.reason,
-            notification_events: blipMessage.delivery.events,
-            notification_attempts: blipMessage.delivery.attempts,
-            notification_command_status: blipMessage.delivery.command_status,
-            notification_command_reason: blipMessage.delivery.command_reason,
-        });
+        if (blipMessage) {
+            providerMessageId = blipMessage.id;
+            providerExternalId = blipMessage.id;
+            providerRecipient = blipMessage.to;
+            debug.blip = blipMessage.debug;
+
+            log("Blip accepted the envelope", {
+                blip_message_id: blipMessage.id,
+                sender: blipMessage.from,
+                recipient: blipMessage.to,
+                http_status: blipMessage.debug.response.status,
+                http_body: blipMessage.debug.response.body,
+                duration_ms: blipMessage.debug.duration_ms,
+                delivery_state: blipMessage.delivery.state,
+                delivery_event: blipMessage.delivery.final_event,
+                delivery_reason: blipMessage.delivery.reason,
+                notification_events: blipMessage.delivery.events,
+                notification_attempts: blipMessage.delivery.attempts,
+                notification_command_status:
+                    blipMessage.delivery.command_status,
+                notification_command_reason:
+                    blipMessage.delivery.command_reason,
+            });
+        } else {
+            log("Zernio accepted the Instagram message", {
+                zernio_message_id: providerMessageId,
+                conversation_id: providerRecipient,
+                sent_at: providerSentAt,
+            });
+        }
+
+        debug.recipient_identity = providerRecipient;
     } catch (error) {
         if (error instanceof BlipApiError || error instanceof BlipConfigurationError) {
             debug.blip = error.debug;
@@ -420,7 +530,7 @@ export async function POST(
         }
 
         if (reopened) {
-            log("Blip send failed; rolling the temporary reopen back");
+            log("Send failed; rolling the temporary reopen back");
             await rollbackReopenedThread(thread.id, attendant.id, requestId);
         }
 
@@ -428,16 +538,29 @@ export async function POST(
             await supabase.storage.from(ATTACHMENT_BUCKET).remove([attachment.path]);
         }
 
-        console.error(`[inbox-send:${requestId}] Blip send failed`, error);
+        console.error(
+            `[inbox-send:${requestId}] ${
+                isInstagram ? "Zernio" : "Blip"
+            } send failed`,
+            error,
+        );
 
-        const status = error instanceof BlipConfigurationError ? 500 : 502;
+        const status =
+            error instanceof BlipConfigurationError ||
+            error instanceof ZernioConfigurationError
+                ? 500
+                : 502;
         const message =
             error instanceof BlipApiError ||
-            error instanceof BlipConfigurationError
+            error instanceof BlipConfigurationError ||
+            error instanceof ZernioApiError ||
+            error instanceof ZernioConfigurationError
                 ? error.message
                 : error instanceof Error
                     ? error.message
-                    : "Não foi possível enviar a mensagem pela Blip.";
+                    : `Não foi possível enviar a mensagem pelo ${
+                          isInstagram ? "Zernio" : "Blip"
+                      }.`;
 
         log("Sending failed", {
             error_name: error instanceof Error ? error.name : typeof error,
@@ -452,18 +575,30 @@ export async function POST(
         thread,
         attendantName: attendant.name,
         text: persistedText,
-        blipMessage,
+        sentAt: providerSentAt,
+        externalId: providerExternalId,
+        externalContactId: isInstagram
+            ? null
+            : providerRecipient,
+        externalThreadId: isInstagram ? zernioConversationId : null,
     });
 
     if (!persistenceResult.ok) {
         console.error(
-            `[inbox-send:${requestId}] Message was accepted by Blip but local persistence failed`,
+            `[inbox-send:${requestId}] Message was accepted by ${
+                isInstagram ? "Zernio" : "Blip"
+            } but local persistence failed`,
             persistenceResult.error,
         );
 
-        log("WARNING: Blip accepted the message, but local persistence failed", {
-            error: serializeError(persistenceResult.error),
-        });
+        log(
+            `WARNING: ${
+                isInstagram ? "Zernio" : "Blip"
+            } accepted the message, but local persistence failed`,
+            {
+                error: serializeError(persistenceResult.error),
+            },
+        );
 
         return NextResponse.json(
             {
@@ -472,12 +607,18 @@ export async function POST(
                 thread_id: thread.id,
                 reopened,
                 persisted: false,
-                blip_message_id: blipMessage.id,
-                recipient: blipMessage.to,
+                provider: debug.transport,
+                provider_message_id: providerMessageId,
+                ...(blipMessage
+                    ? { blip_message_id: blipMessage.id }
+                    : { zernio_message_id: providerMessageId }),
+                recipient: providerRecipient,
                 test_mode: TEST_MODE,
-                delivery: blipMessage.delivery,
+                delivery: blipMessage?.delivery ?? null,
                 warning:
-                    "A mensagem foi aceita pela Blip, mas o histórico local ainda não foi atualizado.",
+                    `A mensagem foi aceita pelo ${
+                        isInstagram ? "Zernio" : "Blip"
+                    }, mas o histórico local ainda não foi atualizado.`,
                 debug: finishDebug(debug, startedAt),
             },
             { status: 202 },
@@ -495,10 +636,14 @@ export async function POST(
         thread_id: thread.id,
         reopened,
         persisted: true,
-        blip_message_id: blipMessage.id,
-        recipient: blipMessage.to,
+        provider: debug.transport,
+        provider_message_id: providerMessageId,
+        ...(blipMessage
+            ? { blip_message_id: blipMessage.id }
+            : { zernio_message_id: providerMessageId }),
+        recipient: providerRecipient,
         test_mode: TEST_MODE,
-        delivery: blipMessage.delivery,
+        delivery: blipMessage?.delivery ?? null,
         debug: finishDebug(debug, startedAt),
     });
 }
@@ -507,15 +652,22 @@ async function persistSentMessage({
     thread,
     attendantName,
     text,
-    blipMessage,
+    sentAt,
+    externalId,
+    externalContactId,
+    externalThreadId,
 }: {
     thread: {
         id: string;
-        client_id: string;
+        client_id: string | null;
+        instagram_user_id: string | null;
     };
     attendantName: string;
     text: string;
-    blipMessage: SentBlipMessage;
+    sentAt: string;
+    externalId: string;
+    externalContactId: string | null;
+    externalThreadId: string | null;
 }) {
     const { data: lastMessage, error: lastMessageError } = await supabase
         .from("messages")
@@ -542,15 +694,17 @@ async function persistSentMessage({
         .upsert(
             {
                 client_id: thread.client_id,
+                instagram_user_id: thread.instagram_user_id,
                 conversation_id: null,
                 thread_id: thread.id,
                 sender_type: "attendant",
                 sender_name: attendantName,
                 text,
-                sent_at: new Date().toISOString(),
+                sent_at: sentAt,
                 sequence_index: sequenceIndex,
-                external_id: blipMessage.id,
-                external_contact_id: blipMessage.to,
+                external_id: externalId,
+                external_contact_id: externalContactId,
+                external_thread_id: externalThreadId,
             },
             {
                 onConflict: "external_id",
@@ -587,7 +741,7 @@ async function rollbackReopenedThread(
 
     if (error) {
         console.error(
-            `[inbox-send:${requestId}] Failed to roll back reopened thread after Blip failure`,
+            `[inbox-send:${requestId}] Failed to roll back reopened thread after send failure`,
             error,
         );
     }
@@ -661,7 +815,7 @@ function validateAttachmentMetadata(attachment: AttachmentInput | null) {
     if (!attachment) return "Os dados do anexo são obrigatórios.";
     if (!attachment.name) return "O anexo precisa ter um nome.";
     if (!attachment.mimeType || !ALLOWED_ATTACHMENT_MIME_TYPES.has(attachment.mimeType)) {
-        return "Este tipo de arquivo não é compatível com o WhatsApp.";
+        return "Este tipo de arquivo não é compatível com este canal.";
     }
     if (!Number.isFinite(attachment.size) || attachment.size <= 0) {
         return "O anexo está vazio.";
@@ -721,6 +875,15 @@ function isCaptionlessMedia(mimeType: string) {
     );
 }
 
+function getZernioAttachmentType(
+    mimeType: string,
+): "image" | "video" | "audio" | "file" {
+    if (mimeType.startsWith("image/")) return "image";
+    if (mimeType.startsWith("video/")) return "video";
+    if (mimeType.startsWith("audio/")) return "audio";
+    return "file";
+}
+
 async function resolveThread({
     itemId,
     itemType,
@@ -736,9 +899,14 @@ async function resolveThread({
             .select(`
                 id,
                 client_id,
+                instagram_user_id,
                 status,
+                source,
+                channel,
                 assigned_attendant_id,
-                last_client_message_at
+                last_client_message_at,
+                external_thread_id,
+                external_account_id
             `)
             .eq("id", itemId)
             .eq("assigned_attendant_id", attendantId)
@@ -768,7 +936,7 @@ async function resolveThread({
 
     const { data: conversation, error: conversationError } = await supabase
         .from("conversations")
-        .select("id, client_id, thread_id")
+        .select("id, client_id, instagram_user_id, thread_id")
         .eq("id", itemId)
         .eq("attendant_id", attendantId)
         .maybeSingle();
@@ -794,15 +962,25 @@ async function resolveThread({
         .select(`
             id,
             client_id,
+            instagram_user_id,
             status,
+            source,
+            channel,
             assigned_attendant_id,
-            last_client_message_at
+            last_client_message_at,
+            external_thread_id,
+            external_account_id
         `)
         .limit(1);
 
     query = conversation.thread_id
         ? query.eq("id", conversation.thread_id)
-        : query.eq("client_id", conversation.client_id);
+        : conversation.client_id
+          ? query.eq("client_id", conversation.client_id)
+          : query.eq(
+                "instagram_user_id",
+                conversation.instagram_user_id,
+            );
 
     const { data: thread, error: threadError } = await query.maybeSingle();
 

@@ -13,7 +13,8 @@ type PendingConversation = {
 type MessageRow = {
     id: string;
     conversation_id: string | null;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     sender_type: SenderType;
     sender_name: string | null;
     external_contact_id: string | null;
@@ -30,6 +31,12 @@ type AttendantRow = {
     id: string;
     name: string;
     external_attendant_id: string | null;
+};
+
+type InstagramUserRow = {
+    id: string;
+    display_name: string | null;
+    username: string | null;
 };
 
 const QUERY_BATCH_SIZE = 100;
@@ -74,7 +81,18 @@ export async function matchMessagesSenderName({
     const messages = await fetchMessagesByConversationIds(conversationIds);
 
     const clientIds = Array.from(
-        new Set(messages.map((message) => message.client_id).filter(Boolean)),
+        new Set(
+            messages
+                .map((message) => message.client_id)
+                .filter((value): value is string => Boolean(value)),
+        ),
+    );
+    const instagramUserIds = Array.from(
+        new Set(
+            messages
+                .map((message) => message.instagram_user_id)
+                .filter((value): value is string => Boolean(value)),
+        ),
     );
 
     const externalContactIds = Array.from(
@@ -98,7 +116,10 @@ export async function matchMessagesSenderName({
         externalContactIds,
     });
 
-    const attendants = await fetchAttendants(externalAttendantIds);
+    const [instagramUsers, attendants] = await Promise.all([
+        fetchInstagramUsers(instagramUserIds),
+        fetchAttendants(externalAttendantIds),
+    ]);
 
     const clientsById = new Map(clients.map((client) => [client.id, client]));
     const clientsByExternalContactId = new Map(
@@ -112,6 +133,9 @@ export async function matchMessagesSenderName({
             .filter((attendant) => attendant.external_attendant_id)
             .map((attendant) => [attendant.external_attendant_id, attendant]),
     );
+    const instagramUsersById = new Map(
+        instagramUsers.map((user) => [user.id, user]),
+    );
 
     const skippedConversationIds = new Set<string>();
     const updates: { id: string; sender_name: string }[] = [];
@@ -123,6 +147,7 @@ export async function matchMessagesSenderName({
             message,
             clientsById,
             clientsByExternalContactId,
+            instagramUsersById,
             attendantsByExternalId,
         });
 
@@ -180,7 +205,7 @@ async function fetchMessagesByConversationIds(
             supabase
                 .from("messages")
                 .select(
-                    "id, conversation_id, client_id, sender_type, sender_name, external_contact_id, external_attendant_id",
+                    "id, conversation_id, client_id, instagram_user_id, sender_type, sender_name, external_contact_id, external_attendant_id",
                 )
                 .in("conversation_id", ids)
                 .is("sender_name", null)
@@ -243,6 +268,24 @@ async function fetchClients({
     return Array.from(clientsById.values());
 }
 
+async function fetchInstagramUsers(ids: string[]): Promise<InstagramUserRow[]> {
+    const users: InstagramUserRow[] = [];
+
+    for (const chunkIds of chunk(ids, QUERY_BATCH_SIZE)) {
+        const { data, error } = await withSupabaseRetry(() =>
+            supabase
+                .from("instagram_users")
+                .select("id, display_name, username")
+                .in("id", chunkIds),
+        );
+
+        if (error) throw error;
+        users.push(...((data ?? []) as InstagramUserRow[]));
+    }
+
+    return users;
+}
+
 async function fetchAttendants(
     externalAttendantIds: string[],
 ): Promise<AttendantRow[]> {
@@ -272,16 +315,31 @@ function getSenderNameForMessage({
     message,
     clientsById,
     clientsByExternalContactId,
+    instagramUsersById,
     attendantsByExternalId,
 }: {
     message: MessageRow;
     clientsById: Map<string, ClientRow>;
     clientsByExternalContactId: Map<string | null, ClientRow>;
+    instagramUsersById: Map<string, InstagramUserRow>;
     attendantsByExternalId: Map<string | null, AttendantRow>;
 }) {
     if (message.sender_type === "client") {
+        if (message.instagram_user_id) {
+            const user = instagramUsersById.get(message.instagram_user_id);
+            return (
+                user?.display_name?.trim() ||
+                (user?.username
+                    ? `@${user.username.replace(/^@+/, "")}`
+                    : null) ||
+                "Usuário do Instagram"
+            );
+        }
+
         const client =
-            clientsById.get(message.client_id) ??
+            (message.client_id
+                ? clientsById.get(message.client_id)
+                : null) ??
             clientsByExternalContactId.get(message.external_contact_id);
 
         return client?.name?.trim() || "Cliente";
