@@ -202,8 +202,33 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
         let ineligible = 0;
         let retryScheduled = 0;
         let retryExhausted = 0;
+        let alreadyCompleted = 0;
+        let retryLimitSkipped = 0;
+        let stateConflicts = 0;
         const seenRecordIds = new Set<string>();
         const expectedRecordIds = await getJobRecordIds(job);
+
+        const countFailure = (outcome: FailureRecordingOutcome) => {
+            if (outcome.kind === "retry_scheduled") {
+                failed += 1;
+                retryScheduled += 1;
+                return;
+            }
+            if (outcome.kind === "retry_exhausted") {
+                failed += 1;
+                retryExhausted += 1;
+                return;
+            }
+            if (outcome.kind === "already_completed") {
+                alreadyCompleted += 1;
+                return;
+            }
+            if (outcome.kind === "retry_limit_reached") {
+                retryLimitSkipped += 1;
+                return;
+            }
+            stateConflicts += 1;
+        };
 
         for (const key of outputKeys) {
             const text = await getGcsText(key);
@@ -230,13 +255,12 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
 
                     const recordError = getBatchRecordError(record);
                     if (recordError) {
-                        const failure = await recordConversationAnalysisFailure(
-                            conversationId,
-                            `Google batch record failed: ${recordError}`,
+                        countFailure(
+                            await recordConversationAnalysisFailure(
+                                conversationId,
+                                `Google batch record failed: ${recordError}`,
+                            ),
                         );
-                        if (failure.retry_scheduled) retryScheduled += 1;
-                        else retryExhausted += 1;
-                        failed += 1;
                         continue;
                     }
 
@@ -248,16 +272,20 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
 
                     const result = await persistCompletedAnalysis(conversationId, content);
                     if (result === "saved") succeeded += 1;
-                    else ineligible += 1;
+                    else if (result === "ineligible") ineligible += 1;
+                    else if (result === "already_completed") alreadyCompleted += 1;
+                    else if (result === "retry_limit_reached") retryLimitSkipped += 1;
+                    else stateConflicts += 1;
                 } catch (error) {
-                    failed += 1;
                     if (conversationId) {
-                        const failure = await recordConversationAnalysisFailure(
-                            conversationId,
-                            `Failed to import Google batch result: ${formatError(error)}`,
+                        countFailure(
+                            await recordConversationAnalysisFailure(
+                                conversationId,
+                                `Failed to import Google batch result: ${formatError(error)}`,
+                            ),
                         );
-                        if (failure.retry_scheduled) retryScheduled += 1;
-                        else retryExhausted += 1;
+                    } else {
+                        failed += 1;
                     }
                     console.error("[google-batch] failed to import output record", {
                         job_name: job.displayName,
@@ -276,28 +304,28 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
         );
         failed += missing;
 
-        await putGcsJson(markerKey, {
-            job_name: job.name,
+        const summary = {
             status: job.state,
             succeeded,
             failed,
             ineligible,
             retry_scheduled: retryScheduled,
             retry_exhausted: retryExhausted,
+            already_completed: alreadyCompleted,
+            retry_limit_skipped: retryLimitSkipped,
+            state_conflicts: stateConflicts,
             missing_restored: missing,
+        };
+
+        await putGcsJson(markerKey, {
+            job_name: job.name,
+            ...summary,
             processed_at: new Date().toISOString(),
         });
         await cleanupJobObjects(job, allOutputKeys);
-
         results.push({
             job_name: job.displayName,
-            status: job.state,
-            succeeded,
-            failed,
-            ineligible,
-            retry_scheduled: retryScheduled,
-            retry_exhausted: retryExhausted,
-            missing_restored: missing,
+            ...summary,
         });
     }
 
@@ -484,7 +512,16 @@ REGRAS ABSOLUTAS
 async function persistCompletedAnalysis(
     conversationId: string,
     rawContent: string,
-): Promise<"saved" | "ineligible"> {
+): Promise<
+    | "saved"
+    | "ineligible"
+    | "already_completed"
+    | "retry_limit_reached"
+    | "state_conflict"
+> {
+    const readiness = await ensureConversationReadyForBatchResult(conversationId);
+    if (readiness.kind !== "ready") return readiness.kind;
+
     const conversation = await getConversation(conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}`);
 
@@ -545,13 +582,14 @@ async function persistCompletedAnalysis(
     );
 
     const analysisId = await saveConversationAnalysis(analysis);
-    await completeConversation(
+    const completion = await completeConversation(
         conversationId,
         String(analysisId),
         analysis.started_at,
         analysis.ended_at,
         String(normalizedMessages.at(-1)?.text ?? ""),
     );
+    if (completion !== "saved") return completion;
 
     const events = deriveAdEventsFromAnalysis(analysis).filter(
         (event) => event.type === "lead",
@@ -668,38 +706,117 @@ async function claimConversation(conversationId: string) {
     return result.data === true;
 }
 
+type ConversationAnalysisState = {
+    analysis_status: string;
+    analysis_failure_count: number;
+    conversation_analysis_id: string | null;
+};
+
+type BatchResultReadiness =
+    | { kind: "ready" }
+    | { kind: "already_completed" }
+    | { kind: "retry_limit_reached" }
+    | { kind: "state_conflict" };
+
+type FailureRecordingOutcome =
+    | { kind: "retry_scheduled"; failure_count: number }
+    | { kind: "retry_exhausted"; failure_count: number }
+    | { kind: "already_completed" }
+    | { kind: "retry_limit_reached"; failure_count: number }
+    | { kind: "state_conflict"; analysis_status: string };
+
 async function completeConversation(
     conversationId: string,
     analysisId: string,
     startedAt: string,
     endedAt: string,
     lastText: string,
-) {
-    const result = await supabase.rpc("complete_conversation_analysis", {
-        p_conversation_id: conversationId,
-        p_analysis_id: analysisId,
-        p_started_at: startedAt,
-        p_ended_at: endedAt,
-        p_last_message_text: lastText,
-    });
-    if (result.error) throw new Error(`Failed to complete analysis: ${result.error.message}`);
-    if (result.data !== true) {
-        throw new Error("Conversation analysis completion was rejected by database guard");
+): Promise<"saved" | "already_completed" | "retry_limit_reached" | "state_conflict"> {
+    const complete = async () => {
+        const result = await supabase.rpc("complete_conversation_analysis", {
+            p_conversation_id: conversationId,
+            p_analysis_id: analysisId,
+            p_started_at: startedAt,
+            p_ended_at: endedAt,
+            p_last_message_text: lastText,
+        });
+        if (result.error) {
+            throw new Error(`Failed to complete analysis: ${result.error.message}`);
+        }
+        return result.data === true;
+    };
+
+    if (await complete()) return "saved";
+
+    // A previous migration temporarily released old batch claims. If an old,
+    // still-valid output reaches a pending conversation, reclaim it once and
+    // complete normally. This does not bypass the retry limit.
+    const readiness = await ensureConversationReadyForBatchResult(conversationId);
+    if (readiness.kind !== "ready") return readiness.kind;
+    if (await complete()) return "saved";
+
+    const current = await getConversationAnalysisState(conversationId);
+    if (isCompletedState(current)) return "already_completed";
+    if (hasReachedRetryLimit(current)) return "retry_limit_reached";
+    return "state_conflict";
+}
+
+async function ensureConversationReadyForBatchResult(
+    conversationId: string,
+): Promise<BatchResultReadiness> {
+    let current = await getConversationAnalysisState(conversationId);
+    if (!current) throw new Error(`Conversation not found: ${conversationId}`);
+
+    if (isCompletedState(current)) return { kind: "already_completed" };
+    if (current.analysis_status === "processing") return { kind: "ready" };
+    if (hasReachedRetryLimit(current)) return { kind: "retry_limit_reached" };
+
+    if (current.analysis_status === "pending") {
+        if (await claimConversation(conversationId)) return { kind: "ready" };
+
+        current = await getConversationAnalysisState(conversationId);
+        if (!current) throw new Error(`Conversation not found: ${conversationId}`);
+        if (isCompletedState(current)) return { kind: "already_completed" };
+        if (current.analysis_status === "processing") return { kind: "ready" };
+        if (hasReachedRetryLimit(current)) return { kind: "retry_limit_reached" };
     }
+
+    console.warn("[google-batch] output could not acquire conversation state", {
+        conversation_id: conversationId,
+        analysis_status: current.analysis_status,
+        analysis_failure_count: current.analysis_failure_count,
+    });
+    return { kind: "state_conflict" };
 }
 
 async function recordConversationAnalysisFailure(
     conversationId: string,
     reason: string,
-) {
-    const result = await supabase.rpc(
-        "record_conversation_analysis_failure",
-        {
-            p_conversation_id: conversationId,
-            p_error: reason,
-            p_max_failures: MAX_ANALYSIS_FAILURES,
-        },
-    );
+): Promise<FailureRecordingOutcome> {
+    const readiness = await ensureConversationReadyForBatchResult(conversationId);
+    if (readiness.kind === "already_completed") {
+        return { kind: "already_completed" };
+    }
+    if (readiness.kind === "retry_limit_reached") {
+        const current = await getConversationAnalysisState(conversationId);
+        return {
+            kind: "retry_limit_reached",
+            failure_count: current?.analysis_failure_count ?? MAX_ANALYSIS_FAILURES,
+        };
+    }
+    if (readiness.kind === "state_conflict") {
+        const current = await getConversationAnalysisState(conversationId);
+        return {
+            kind: "state_conflict",
+            analysis_status: current?.analysis_status ?? "missing",
+        };
+    }
+
+    const result = await supabase.rpc("record_conversation_analysis_failure", {
+        p_conversation_id: conversationId,
+        p_error: reason,
+        p_max_failures: MAX_ANALYSIS_FAILURES,
+    });
 
     if (result.error) {
         throw new Error(
@@ -708,17 +825,69 @@ async function recordConversationAnalysisFailure(
     }
 
     const row = Array.isArray(result.data) ? result.data[0] : result.data;
-    if (!row || typeof row.failure_count !== "number") {
-        throw new Error(
-            `Analysis failure for ${conversationId} was not accepted by the database guard`,
-        );
+    if (row && typeof row.failure_count === "number") {
+        return row.retry_scheduled === true
+            ? { kind: "retry_scheduled", failure_count: row.failure_count }
+            : { kind: "retry_exhausted", failure_count: row.failure_count };
     }
 
+    // A concurrent collector may have completed or released the row after the
+    // readiness check. Do not abort the entire pipeline or invent a failure.
+    const current = await getConversationAnalysisState(conversationId);
+    if (!current) {
+        return { kind: "state_conflict", analysis_status: "missing" };
+    }
+    if (isCompletedState(current)) return { kind: "already_completed" };
+    if (hasReachedRetryLimit(current)) {
+        return {
+            kind: "retry_limit_reached",
+            failure_count: current.analysis_failure_count,
+        };
+    }
     return {
-        retry_scheduled: row.retry_scheduled === true,
-        failure_count: row.failure_count as number,
-        analysis_status: String(row.analysis_status ?? ""),
+        kind: "state_conflict",
+        analysis_status: current.analysis_status,
     };
+}
+
+async function getConversationAnalysisState(
+    conversationId: string,
+): Promise<ConversationAnalysisState | null> {
+    const result = await supabase
+        .from("conversations")
+        .select("analysis_status,analysis_failure_count,conversation_analysis_id")
+        .eq("id", conversationId)
+        .maybeSingle();
+
+    if (result.error) {
+        throw new Error(
+            `Failed to read analysis state for ${conversationId}: ${result.error.message}`,
+        );
+    }
+    if (!result.data) return null;
+
+    return {
+        analysis_status: String(result.data.analysis_status ?? ""),
+        analysis_failure_count: Number(result.data.analysis_failure_count ?? 0),
+        conversation_analysis_id: result.data.conversation_analysis_id
+            ? String(result.data.conversation_analysis_id)
+            : null,
+    };
+}
+
+function isCompletedState(state: ConversationAnalysisState | null) {
+    return Boolean(
+        state &&
+            (state.conversation_analysis_id || state.analysis_status === "completed"),
+    );
+}
+
+function hasReachedRetryLimit(state: ConversationAnalysisState | null) {
+    return Boolean(
+        state &&
+            state.analysis_status !== "processing" &&
+            state.analysis_failure_count >= MAX_ANALYSIS_FAILURES,
+    );
 }
 
 async function restoreConversation(conversationId: string, reason: string) {
@@ -732,7 +901,9 @@ async function restoreConversation(conversationId: string, reason: string) {
             updated_at: new Date().toISOString(),
         })
         .eq("id", conversationId)
-        .is("conversation_analysis_id", null);
+        .is("conversation_analysis_id", null)
+        .eq("analysis_status", "processing")
+        .lt("analysis_failure_count", MAX_ANALYSIS_FAILURES);
     if (result.error) {
         console.error("[google-batch] failed to restore conversation", {
             conversation_id: conversationId,
