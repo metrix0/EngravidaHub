@@ -54,8 +54,18 @@ export type ActiveMessageSendHistory = {
     completed_at: string | null;
 };
 
+export type ActiveMessageTemplateSender = "primary" | "secondary";
+
+export type ActiveMessageTemplateSenderOption = {
+    value: ActiveMessageTemplateSender;
+    number: string;
+    label: string;
+    description: string;
+};
+
 export type ActiveMessagesPageResponse = {
     templates: ActiveMessageTemplate[];
+    template_senders: ActiveMessageTemplateSenderOption[];
     clients: ActiveMessageClient[];
     stages: ActiveMessageFunnelStage[];
     history: ActiveMessageSendHistory[];

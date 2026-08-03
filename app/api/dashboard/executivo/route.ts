@@ -109,6 +109,25 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
     schedule_creation_evolution: ScheduleCreationEvolutionPoint[];
     schedules_by_unit: ScheduleUnitDistribution[];
     schedule_unit_table: ScheduleUnitTable;
+    word_map: ExecutiveWordMap;
+};
+
+type ExecutiveWordMap = {
+    words: {
+        word: string;
+        mentions: number;
+        conversations: number;
+    }[];
+    by_unit: {
+        unit_id: string | null;
+        unit_name: string;
+        total_mentions: number;
+        words: {
+            word: string;
+            mentions: number;
+            percentage: number | null;
+        }[];
+    }[];
 };
 
 type ScheduleSummary = {
@@ -269,6 +288,7 @@ export async function GET(request: Request) {
         previousScheduleCount,
         previousConversationCount,
         rawConversationSummary,
+        wordMap,
     ] = await Promise.all([
         loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         loadScheduleCreationEvolution(range, selectedUnitNames, request.signal),
@@ -280,6 +300,7 @@ export async function GET(request: Request) {
         ),
         loadRawConversationCount(range, filters, "previous", request.signal),
         loadRawConversationSummary(range, filters, request.signal),
+        loadExecutiveWordMap(currentParams, request.signal),
     ]);
     const currentConversationCount = rawConversationSummary.currentCount;
     const rawConversationCountsByUnit = rawConversationSummary.byUnit;
@@ -327,12 +348,80 @@ export async function GET(request: Request) {
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
+        word_map: wordMap,
         by_unit: byUnit,
     };
 
     return NextResponse.json(response, {
         headers: { "Cache-Control": "private, no-store" },
     });
+}
+
+async function loadExecutiveWordMap(
+    params: ReturnType<typeof executiveRpcParams>,
+    signal: AbortSignal,
+): Promise<ExecutiveWordMap> {
+    const { data, error } = await supabase
+        .rpc("dashboard_word_map_v1", params)
+        .abortSignal(signal);
+
+    if (error) {
+        console.warn(
+            "[dashboard/executivo] word map unavailable",
+            { code: error.code, message: error.message },
+        );
+        return emptyExecutiveWordMap();
+    }
+
+    return normalizeExecutiveWordMap(data);
+}
+
+function normalizeExecutiveWordMap(value: unknown): ExecutiveWordMap {
+    const payload = asObject(value);
+    const words = arrayOrEmpty(payload.words).flatMap((item) => {
+        const row = asObject(item);
+        const word = typeof row.word === "string" ? row.word.trim() : "";
+        if (!word) return [];
+
+        return [{
+            word,
+            mentions: numberOrZero(row, "mentions"),
+            conversations: numberOrZero(row, "conversations"),
+        }];
+    });
+    const byUnit = arrayOrEmpty(payload.by_unit).flatMap((item) => {
+        const row = asObject(item);
+        const unitName =
+            typeof row.unit_name === "string" && row.unit_name.trim()
+                ? row.unit_name.trim()
+                : "Sem unidade";
+
+        return [{
+            unit_id:
+                typeof row.unit_id === "string" ? row.unit_id : null,
+            unit_name: unitName,
+            total_mentions: numberOrZero(row, "total_mentions"),
+            words: arrayOrEmpty(row.words).flatMap((item) => {
+                const wordRow = asObject(item);
+                const word =
+                    typeof wordRow.word === "string"
+                        ? wordRow.word.trim()
+                        : "";
+                if (!word) return [];
+                return [{
+                    word,
+                    mentions: numberOrZero(wordRow, "mentions"),
+                    percentage: nullableNumber(wordRow, "percentage"),
+                }];
+            }),
+        }];
+    });
+
+    return { words, by_unit: byUnit };
+}
+
+function emptyExecutiveWordMap(): ExecutiveWordMap {
+    return { words: [], by_unit: [] };
 }
 
 async function runExecutiveMetricsRpc(

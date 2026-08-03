@@ -655,7 +655,7 @@ export function RevenueEvolutionComparisonCard({
 
             <div className="h-[300px]">
                 {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ComposedChart data={chartData}>
                             <defs>
                                 <linearGradient

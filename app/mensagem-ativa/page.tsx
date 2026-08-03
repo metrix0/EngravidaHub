@@ -3,7 +3,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ComposedChart,
+    Line,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from "recharts";
+import {
     Check,
+    ChartNoAxesCombined,
     Clock3,
     FileText,
     FileUp,
@@ -43,6 +55,8 @@ import type {
     ActiveMessageFunnelStage,
     ActiveMessageSendHistory,
     ActiveMessageSendResponse,
+    ActiveMessageTemplateSender,
+    ActiveMessageTemplateSenderOption,
     ActiveMessagesPageResponse,
 } from "@/types/activeMessages";
 
@@ -84,6 +98,8 @@ export default function MensagemAtivaPage() {
     const [loadError, setLoadError] = useState<string | null>(null);
 
     const [templateId, setTemplateId] = useState("");
+    const [templateSender, setTemplateSender] =
+        useState<ActiveMessageTemplateSender>("secondary");
     const [dynamicValuesByTemplate, setDynamicValuesByTemplate] = useState<
         Record<string, Record<string, string>>
     >({});
@@ -144,6 +160,13 @@ export default function MensagemAtivaPage() {
                 nextData.templates.some((item) => item.id === current)
                     ? current
                     : nextData.templates[0]?.id ?? "",
+            );
+            setTemplateSender((current) =>
+                nextData.template_senders.some(
+                    (option) => option.value === current,
+                )
+                    ? current
+                    : nextData.template_senders[0]?.value ?? "secondary",
             );
         } catch (error) {
             console.error("[mensagem-ativa] failed to load", error);
@@ -651,6 +674,7 @@ export default function MensagemAtivaPage() {
                         client_ids: clientIds,
                         filters,
                         dynamic_values: dynamicValues,
+                        template_sender: templateSender,
                     }),
                 },
             );
@@ -891,7 +915,10 @@ export default function MensagemAtivaPage() {
                     value={templateId}
                     dynamicFields={dynamicFields}
                     dynamicValues={dynamicValues}
+                    senderOptions={data?.template_senders ?? []}
+                    senderValue={templateSender}
                     onChange={setTemplateId}
+                    onSenderChange={setTemplateSender}
                     onDynamicValueChange={updateDynamicValue}
                 />
 
@@ -1072,6 +1099,7 @@ export default function MensagemAtivaPage() {
                 </section>
 
                 <HistoryTable history={data?.history ?? []} />
+                <ActiveMessageAnalytics history={data?.history ?? []} />
                 <div className="pt-16" />
             </section>
 
@@ -1117,7 +1145,10 @@ function TemplateCard({
     value,
     dynamicFields,
     dynamicValues,
+    senderOptions,
+    senderValue,
     onChange,
+    onSenderChange,
     onDynamicValueChange,
 }: {
     templates: ActiveMessageTemplate[];
@@ -1125,7 +1156,10 @@ function TemplateCard({
     value: string;
     dynamicFields: DynamicTemplateField[];
     dynamicValues: Record<string, string>;
+    senderOptions: ActiveMessageTemplateSenderOption[];
+    senderValue: ActiveMessageTemplateSender;
     onChange: (value: string) => void;
+    onSenderChange: (value: ActiveMessageTemplateSender) => void;
     onDynamicValueChange: (
         fieldId: string,
         value: string,
@@ -1204,6 +1238,27 @@ function TemplateCard({
                             ))}
                         </div>
                     ) : null}
+
+                    <div className="border-t border-slate-100 pt-4">
+                        <label className="mb-1.5 block text-xs font-bold text-slate-600">
+                            Número para envios por template
+                        </label>
+                        <DropdownSelect
+                            value={senderValue}
+                            onChange={(value) =>
+                                onSenderChange(
+                                    value as ActiveMessageTemplateSender,
+                                )
+                            }
+                            options={senderOptions.map((option) => ({
+                                label: option.label,
+                                value: option.value,
+                            }))}
+                            placeholder="Selecionar número"
+                            widthClassName="w-full"
+                            dropdownWidthClassName="w-full"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -1216,6 +1271,233 @@ function TemplateCard({
                 </div>
             ) : null}
         </section>
+    );
+}
+
+function ActiveMessageAnalytics({
+    history,
+}: {
+    history: ActiveMessageSendHistory[];
+}) {
+    const templateData = useMemo(() => {
+        const totals = new Map<
+            string,
+            { name: string; sent: number; responses: number; schedules: number }
+        >();
+
+        for (const send of history) {
+            const key = send.template_id || send.template_name;
+            const current = totals.get(key) ?? {
+                name: send.template_name,
+                sent: 0,
+                responses: 0,
+                schedules: 0,
+            };
+
+            current.sent += send.sent_count;
+            current.responses += send.response_count;
+            current.schedules += send.schedule_count;
+            totals.set(key, current);
+        }
+
+        return [...totals.values()].sort(
+            (first, second) => second.sent - first.sent,
+        );
+    }, [history]);
+
+    const dailyData = useMemo(() => {
+        const totals = new Map<
+            string,
+            { date: string; sent: number; responses: number; schedules: number }
+        >();
+
+        for (const send of history) {
+            const timestamp = new Date(send.created_at);
+            if (!Number.isFinite(timestamp.getTime())) continue;
+
+            const date = new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/Sao_Paulo",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            }).format(timestamp);
+            const current = totals.get(date) ?? {
+                date,
+                sent: 0,
+                responses: 0,
+                schedules: 0,
+            };
+
+            current.sent += send.sent_count;
+            current.responses += send.response_count;
+            current.schedules += send.schedule_count;
+            totals.set(date, current);
+        }
+
+        return [...totals.values()]
+            .sort((first, second) => first.date.localeCompare(second.date))
+            .map((item) => ({
+                ...item,
+                label: formatChartDate(item.date),
+            }));
+    }, [history]);
+
+    const hasData = templateData.length > 0;
+
+    return (
+        <section className="mt-10">
+            <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand">
+                    <ChartNoAxesCombined size={19} />
+                </div>
+                <div>
+                    <h2 className="font-bold text-slate-950">
+                        Desempenho dos envios
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Uso dos templates, volume enviado e resultados.
+                    </p>
+                </div>
+            </div>
+
+            <div className="grid items-start gap-6 xl:grid-cols-2">
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-950">
+                        Templates utilizados
+                    </h3>
+                    {hasData ? (
+                        <div
+                            style={{
+                                height: Math.max(280, templateData.length * 54),
+                            }}
+                            className="mt-5 w-full"
+                        >
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                    data={templateData}
+                                    layout="vertical"
+                                    margin={{ top: 0, right: 18, bottom: 0, left: 8 }}
+                                >
+                                    <CartesianGrid
+                                        strokeDasharray="4 4"
+                                        stroke="#e2e8f0"
+                                        horizontal={false}
+                                    />
+                                    <XAxis
+                                        type="number"
+                                        allowDecimals={false}
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                    />
+                                    <YAxis
+                                        type="category"
+                                        dataKey="name"
+                                        width={138}
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                    />
+                                    <Tooltip
+                                        formatter={(value) => [
+                                            Number(value).toLocaleString("pt-BR"),
+                                            "Envios",
+                                        ]}
+                                    />
+                                    <Bar
+                                        dataKey="sent"
+                                        name="Envios"
+                                        fill="#06b6d4"
+                                        radius={[0, 6, 6, 0]}
+                                    />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <ActiveMessageChartEmpty />
+                    )}
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-950">
+                        Volume e resultados
+                    </h3>
+                    {dailyData.length > 0 ? (
+                        <div className="mt-5 h-[320px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart
+                                    data={dailyData}
+                                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                                >
+                                    <CartesianGrid
+                                        strokeDasharray="4 4"
+                                        stroke="#e2e8f0"
+                                    />
+                                    <XAxis
+                                        dataKey="label"
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                        minTickGap={18}
+                                    />
+                                    <YAxis
+                                        allowDecimals={false}
+                                        tick={{ fontSize: 11 }}
+                                        stroke="#94a3b8"
+                                        width={42}
+                                    />
+                                    <Tooltip />
+                                    <Bar
+                                        dataKey="sent"
+                                        name="Envios"
+                                        fill="#06b6d4"
+                                        radius={[5, 5, 0, 0]}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="responses"
+                                        name="Respostas"
+                                        stroke="#10b981"
+                                        strokeWidth={3}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="schedules"
+                                        name="Agendamentos"
+                                        stroke="#8b5cf6"
+                                        strokeWidth={3}
+                                    />
+                                </ComposedChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <ActiveMessageChartEmpty />
+                    )}
+                    <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
+                        <ChartLegend color="#06b6d4" label="Envios" />
+                        <ChartLegend color="#10b981" label="Respostas" />
+                        <ChartLegend color="#8b5cf6" label="Agendamentos" />
+                    </div>
+                </section>
+            </div>
+        </section>
+    );
+}
+
+function ChartLegend({ color, label }: { color: string; label: string }) {
+    return (
+        <span className="inline-flex items-center gap-2">
+            <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: color }}
+            />
+            {label}
+        </span>
+    );
+}
+
+function ActiveMessageChartEmpty() {
+    return (
+        <div className="mt-5 flex h-[280px] items-center justify-center rounded-xl bg-slate-50 px-6 text-center text-sm text-slate-500">
+            Os gráficos serão preenchidos após os primeiros envios.
+        </div>
     );
 }
 
@@ -1914,11 +2196,23 @@ function formatDateTime(value: string | null) {
     }).format(date);
 }
 
+function formatChartDate(value: string) {
+    const date = new Date(`${value}T12:00:00-03:00`);
+
+    if (!Number.isFinite(date.getTime())) {
+        return value;
+    }
+
+    return new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "America/Sao_Paulo",
+    }).format(date);
+}
+
 function normalize(value: string) {
     return value
         .toLowerCase()
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "");
 }
-
-

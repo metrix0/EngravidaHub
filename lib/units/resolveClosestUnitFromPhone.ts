@@ -28,6 +28,11 @@ const UNIT_COORDS_BY_NAME: Record<string, Coordinates> = {
         lat: -15.7939,
         lng: -47.8828,
     },
+    campinas: {
+        city: "Campinas",
+        lat: -22.9056,
+        lng: -47.0608,
+    },
     "juiz de fora": {
         city: "Juiz de Fora",
         lat: -21.7642,

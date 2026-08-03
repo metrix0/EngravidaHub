@@ -11,6 +11,10 @@ import {
     getActiveMessageDynamicFields,
     getActiveMessageTemplate,
 } from "@/lib/active-messages/templates";
+import {
+    DEFAULT_ACTIVE_MESSAGE_TEMPLATE_SENDER,
+    parseActiveMessageTemplateSender,
+} from "@/lib/active-messages/templateSenders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +25,7 @@ type SendBody = {
     client_ids?: unknown;
     filters?: unknown;
     dynamic_values?: unknown;
+    template_sender?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -51,6 +56,18 @@ export async function POST(request: Request) {
     if (!template) {
         return NextResponse.json(
             { error: "Selecione um template válido" },
+            { status: 400 },
+        );
+    }
+
+    const templateSender =
+        body.template_sender === undefined
+            ? DEFAULT_ACTIVE_MESSAGE_TEMPLATE_SENDER
+            : parseActiveMessageTemplateSender(body.template_sender);
+
+    if (!templateSender) {
+        return NextResponse.json(
+            { error: "Selecione um número de envio válido" },
             { status: 400 },
         );
     }
@@ -91,6 +108,7 @@ export async function POST(request: Request) {
             clientIds,
             filters: isRecord(body.filters) ? body.filters : {},
             dynamicValues: dynamicValuesResult.values,
+            templateSender,
             actor: {
                 id: access.actor.id,
                 name: access.actor.name,

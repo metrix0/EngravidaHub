@@ -349,7 +349,7 @@ function PersistentSidePanel({
     return (
         <div
             className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
-            style={{ width: layoutWidth }}
+            style={{ width: layoutWidth, willChange: "width" }}
         >
             <aside
                 className="group fixed left-0 top-0 z-50 h-screen max-h-screen overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow] duration-300 ease-out"

@@ -90,7 +90,7 @@ export default function FinancialDashboardPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("30");
+    } = useDashboardDateFilter("current_month");
     const financialSummary = useFinancialUnitSummary({
         unitIds,
         categories,
@@ -291,7 +291,8 @@ export default function FinancialDashboardPage() {
                             <StatusCard data={data} />
                         </section>
 
-                        <section className="mb-6">
+                        <section className="mb-6 grid grid-cols-1 items-stretch gap-5 xl:grid-cols-[1.55fr_0.85fr]">
+                            <TwelveMonthRevenueCard data={data} />
                             <CategoryCard data={data} />
                         </section>
 
@@ -576,7 +577,7 @@ function AdsEvolutionCard({ data }: { data: FinancialDashboardData }) {
 
             <div className="h-[310px]">
                 {data.ads.evolution.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ComposedChart data={data.ads.evolution}>
                             <CartesianGrid
                                 strokeDasharray="4 4"
@@ -783,7 +784,7 @@ function AdsPlatformRoasCard({ data }: { data: FinancialDashboardData }) {
 
             {chartData.length > 0 ? (
                 <div className="h-[320px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ComposedChart
                             data={chartData}
                             margin={{ top: 18, right: 18, bottom: 0, left: 6 }}
@@ -968,7 +969,7 @@ function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Verba de mídia por cidade"
-                tooltip="As campanhas são associadas às cidades por nomes e siglas identificados no nome da campanha. Os valores refletem o período selecionado."
+                tooltip="No Google, a cidade é identificada no nome da campanha. Na Meta, usamos o nome de cada conjunto de anúncios e, se necessário, o nome da campanha. Os valores refletem o período selecionado."
             />
 
             {rows.length === 0 ? (
@@ -988,7 +989,7 @@ function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
                                 <div>Projeção mensal</div>
                                 <div>Ritmo</div>
                                 <div>Agendamentos</div>
-                                <div>Custo/agend.</div>
+                                <div>Custo/agend. U.</div>
                             </div>
 
                             {rows.map((row) => (
@@ -1003,10 +1004,10 @@ function MediaBudgetByCityCard({ data }: { data: FinancialDashboardData }) {
                     {data.ads.unmatched_city_spend > 0 ? (
                         <p
                             className="mt-3 text-right text-[11px] text-slate-400"
-                            title="Campanhas nacionais ou sem uma cidade ou sigla reconhecível no nome não são distribuídas entre as unidades."
+                            title="Campanhas ou conjuntos de anúncios sem uma cidade reconhecível não são distribuídos entre as unidades."
                         >
                             {formatCurrency(data.ads.unmatched_city_spend)} sem
-                            cidade identificada no nome da campanha
+                            cidade identificada
                         </p>
                     ) : null}
                 </>
@@ -1147,7 +1148,7 @@ function PaidCityReturnCard({ data }: { data: FinancialDashboardData }) {
                     </div>
 
                     <div className="h-[360px] w-full min-w-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" debounce={200}>
                                 <ComposedChart
                                     data={rows}
                                     margin={{
@@ -1227,7 +1228,7 @@ function StatusCard({ data }: { data: FinancialDashboardData }) {
             {data.by_status.length > 0 ? (
                 <div className="grid grid-cols-[155px_1fr] items-center gap-4">
                     <div className="relative h-[210px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" debounce={200}>
                             <PieChart>
                                 <Pie
                                     data={data.by_status}
@@ -1294,6 +1295,123 @@ function StatusCard({ data }: { data: FinancialDashboardData }) {
     );
 }
 
+function TwelveMonthRevenueCard({
+    data,
+}: {
+    data: FinancialDashboardData;
+}) {
+    return (
+        <Card>
+            <CardTitle title="Faturamento e investimento — 12 meses" />
+
+            <div className="mb-4 flex flex-wrap items-center gap-5 text-xs text-slate-500">
+                <LegendDot color="#1683ff" label="Faturamento autorizado" />
+                <LegendDot color="#d97706" label="Investimento em mídia" />
+            </div>
+
+            <div className="h-[335px]">
+                {data.twelve_month_trend.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                        <ComposedChart
+                            data={data.twelve_month_trend}
+                            margin={{ top: 10, right: 8, bottom: 0, left: 0 }}
+                        >
+                            <CartesianGrid
+                                strokeDasharray="4 4"
+                                stroke="#e2e8f0"
+                            />
+                            <XAxis
+                                dataKey="month"
+                                tick={{ fontSize: 10 }}
+                                stroke="#94a3b8"
+                                interval={0}
+                                tickFormatter={(value) =>
+                                    formatMonthName(String(value))
+                                }
+                            />
+                            <YAxis
+                                yAxisId="revenue"
+                                tick={{ fontSize: 10 }}
+                                stroke="#1683ff"
+                                tickFormatter={formatCompactCurrency}
+                                width={58}
+                            />
+                            <YAxis
+                                yAxisId="investment"
+                                orientation="right"
+                                tick={{ fontSize: 10 }}
+                                stroke="#d97706"
+                                tickFormatter={formatCompactCurrency}
+                                width={58}
+                            />
+                            <Tooltip content={<TwelveMonthRevenueTooltip />} />
+                            <Bar
+                                yAxisId="revenue"
+                                dataKey="revenue"
+                                fill="#1683ff"
+                                radius={[5, 5, 0, 0]}
+                                isAnimationActive={false}
+                            />
+                            <Line
+                                yAxisId="investment"
+                                type="monotone"
+                                dataKey="investment"
+                                stroke="#d97706"
+                                strokeWidth={3}
+                                dot={{ r: 3, fill: "#d97706" }}
+                                isAnimationActive={false}
+                            />
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <EmptyState message="Nenhum histórico disponível." />
+                )}
+            </div>
+        </Card>
+    );
+}
+
+function TwelveMonthRevenueTooltip({
+    active,
+    payload,
+    label,
+}: {
+    active?: boolean;
+    payload?: Array<{
+        dataKey?: string;
+        value?: number | string;
+    }>;
+    label?: string;
+}) {
+    if (!active || !payload?.length) return null;
+
+    const values = new Map(
+        payload.map((item) => [item.dataKey, Number(item.value ?? 0)]),
+    );
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs shadow-lg">
+            <div className="mb-2 text-sm font-bold text-slate-800">
+                {label ? formatMonthName(label, "long") : ""}
+            </div>
+            <div className="space-y-1.5 text-slate-600">
+                <div className="flex items-center justify-between gap-6">
+                    <span>Faturamento autorizado</span>
+                    <strong className="text-blue-600">
+                        {formatCurrency(values.get("revenue") ?? 0)}
+                    </strong>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <span>Investimento em mídia</span>
+                    <strong className="text-amber-600">
+                        {formatCurrency(values.get("investment") ?? 0)}
+                    </strong>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function CategoryCard({ data }: { data: FinancialDashboardData }) {
     const chartHeight = Math.min(
         335,
@@ -1308,7 +1426,7 @@ function CategoryCard({ data }: { data: FinancialDashboardData }) {
 
             <div style={{ height: chartHeight }}>
                 {data.by_category.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <BarChart
                             data={data.by_category}
                             layout="vertical"
@@ -1814,6 +1932,19 @@ function formatCompactCurrency(value: number) {
         notation: "compact",
         maximumFractionDigits: 1,
     }).format(value);
+}
+
+function formatMonthName(value: string, length: "short" | "long" = "short") {
+    const match = /^(\d{4})-(\d{2})$/.exec(value);
+    if (!match) return value;
+
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+    const formatted = new Intl.DateTimeFormat("pt-BR", {
+        month: length,
+        timeZone: "UTC",
+    }).format(date);
+
+    return length === "short" ? formatted.replace(".", "") : formatted;
 }
 
 function formatNullableCurrency(value: number | null) {

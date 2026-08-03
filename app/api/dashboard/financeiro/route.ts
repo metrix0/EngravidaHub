@@ -64,7 +64,11 @@ type UnitRow = {
 };
 
 type ScheduleRow = {
+    id: string;
     client_id: string | null;
+    normalized_phone: string | null;
+    patient_name: string | null;
+    source_hash: string | null;
     unit_name: string | null;
 };
 
@@ -97,6 +101,19 @@ type AdMetricRow = {
     reported_conversions: number | string;
     reported_conversion_value: number | string;
     reported_conversion_type: string | null;
+    synced_at: string;
+};
+
+type AdCityMetricRow = {
+    platform: "google_ads" | "meta_ads";
+    account_id: string;
+    campaign_id: string;
+    campaign_name: string;
+    subdivision_id: string;
+    subdivision_name: string;
+    city_key: string;
+    metric_date: string;
+    spend: number | string;
     synced_at: string;
 };
 
@@ -141,6 +158,11 @@ export async function GET(request: Request) {
             range.previousStartAt,
             range.previousEndAt,
         );
+        const currentCityAdMetricsPromise = loadCityAdMetrics(
+            range.startAt,
+            range.endAt,
+        );
+        const twelveMonthTrendPromise = loadTwelveMonthTrend(filters);
         const schedulesPromise = unitsPromise.then((units) =>
             loadSchedules(
                 range.startAt,
@@ -171,6 +193,8 @@ export async function GET(request: Request) {
             lastAdsSyncedAt,
             schedules,
             previousSchedules,
+            currentCityAdMetrics,
+            twelveMonthTrend,
         ] = await Promise.all([
             unitsPromise,
             doctorsPromise,
@@ -182,6 +206,8 @@ export async function GET(request: Request) {
             loadLastAdsSyncedAt(),
             schedulesPromise,
             previousSchedulesPromise,
+            currentCityAdMetricsPromise,
+            twelveMonthTrendPromise,
         ]);
 
         const clientIds = Array.from(
@@ -220,6 +246,7 @@ export async function GET(request: Request) {
         });
         const mediaByCity = buildMediaBudgetByCity({
             adMetrics: currentAdMetrics,
+            cityAdMetrics: currentCityAdMetrics,
             schedules,
             invoices: currentInvoices,
             clients,
@@ -245,6 +272,7 @@ export async function GET(request: Request) {
             kpis: currentKpis,
             previous_kpis: previousKpis,
             evolution: buildEvolution(currentInvoices, range.startAt, range.endAt),
+            twelve_month_trend: twelveMonthTrend,
             by_status: buildStatusBreakdown(currentInvoices),
             by_category: buildCategoryBreakdown(currentInvoices),
             by_unit: buildUnitBreakdown(currentInvoices, schedules, units),
@@ -386,7 +414,7 @@ async function loadSchedules(
     for (let from = 0; ; from += PAGE_SIZE) {
         let query = supabase
             .from("schedules")
-            .select("client_id, unit_name")
+            .select("id, client_id, normalized_phone, patient_name, source_hash, unit_name")
             .gte("scheduled_for", startDate)
             .lte("scheduled_for", endDate)
             .range(from, from + PAGE_SIZE - 1);
@@ -402,6 +430,67 @@ async function loadSchedules(
     }
 
     return rows;
+}
+
+async function loadCityAdMetrics(startAt: string, endAt: string) {
+    const rows: AdCityMetricRow[] = [];
+    const startDate = saoPauloDate(startAt);
+    const endDate = saoPauloDate(
+        new Date(new Date(endAt).getTime() - 1).toISOString(),
+    );
+
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("ad_daily_city_metrics")
+            .select(
+                "platform, account_id, campaign_id, campaign_name, subdivision_id, subdivision_name, city_key, metric_date, spend, synced_at",
+            )
+            .gte("metric_date", startDate)
+            .lte("metric_date", endDate)
+            .order("metric_date", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) {
+            if (isMissingCityAdsTable(error)) return [];
+            throw error;
+        }
+
+        const page = (data ?? []) as AdCityMetricRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadTwelveMonthTrend(
+    filters: FinancialFilters,
+): Promise<FinancialDashboardData["twelve_month_trend"]> {
+    const { data, error } = await supabase.rpc(
+        "dashboard_financial_twelve_month_trend_v1",
+        {
+            p_unit_ids: filters.unitIds,
+            p_categories: filters.categories,
+        },
+    );
+
+    if (error) {
+        if (isMissingFinancialTrendRpc(error)) return [];
+        throw error;
+    }
+
+    return (data ?? []).flatMap((value: unknown) => {
+        const row = isRecord(value) ? value : {};
+        const month = typeof row.month === "string" ? row.month : "";
+        if (!month) return [];
+
+        return [{
+            month,
+            label: typeof row.label === "string" ? row.label : month,
+            revenue: roundMoney(numeric(row.revenue)),
+            investment: roundMoney(numeric(row.investment)),
+        }];
+    });
 }
 
 async function loadClients(clientIds: string[]) {
@@ -501,6 +590,29 @@ function isMissingAdsTable(error: { code?: string; message?: string }) {
         error.code === "42P01" ||
         error.code === "PGRST205" ||
         Boolean(error.message?.includes("ad_daily_metrics"))
+    );
+}
+
+function isMissingCityAdsTable(error: { code?: string; message?: string }) {
+    return (
+        error.code === "42P01" ||
+        error.code === "PGRST205" ||
+        Boolean(error.message?.includes("ad_daily_city_metrics"))
+    );
+}
+
+function isMissingFinancialTrendRpc(error: {
+    code?: string;
+    message?: string;
+}) {
+    return (
+        error.code === "42883" ||
+        error.code === "PGRST202" ||
+        Boolean(
+            error.message?.includes(
+                "dashboard_financial_twelve_month_trend_v1",
+            ),
+        )
     );
 }
 
@@ -1161,6 +1273,7 @@ function buildTopAdCampaigns(
 
 function buildMediaBudgetByCity({
     adMetrics,
+    cityAdMetrics,
     schedules,
     invoices,
     clients,
@@ -1170,6 +1283,7 @@ function buildMediaBudgetByCity({
     endAt,
 }: {
     adMetrics: AdMetricRow[];
+    cityAdMetrics: AdCityMetricRow[];
     schedules: ScheduleRow[];
     invoices: InvoiceRow[];
     clients: ClientAttributionRow[];
@@ -1187,8 +1301,19 @@ function buildMediaBudgetByCity({
         const unit = unitByName.get(normalizeCampaignMatchText(city.city));
         return Boolean(unit && selectedUnitIdSet.has(unit.id));
     });
-    const visibleCityKeys = new Set(visibleCities.map((city) => city.key));
-    const accumulators = new Map(
+    const visibleCityKeys = new Set<string>(
+        visibleCities.map((city) => city.key),
+    );
+    const accumulators: Map<
+        string,
+        {
+            spend: number;
+            googleSpend: number;
+            metaSpend: number;
+            campaignKeys: Set<string>;
+            campaignNames: Map<string, string>;
+        }
+    > = new Map(
         visibleCities.map((city) => [
             city.key,
             {
@@ -1202,7 +1327,15 @@ function buildMediaBudgetByCity({
     );
     let unmatchedSpend = 0;
 
+    const detailedPlatformDates = new Set(
+        cityAdMetrics.map((metric) =>
+            [metric.platform, metric.metric_date].join(":"),
+        ),
+    );
+
     for (const metric of adMetrics) {
+        const platformDate = [metric.platform, metric.metric_date].join(":");
+        if (detailedPlatformDates.has(platformDate)) continue;
         const spend = numeric(metric.spend);
         const city = matchMediaBudgetCity(metric.campaign_name);
 
@@ -1230,13 +1363,65 @@ function buildMediaBudgetByCity({
         );
     }
 
-    const scheduleCounts = new Map<string, number>();
+    for (const metric of cityAdMetrics) {
+        if (!visibleCityKeys.has(metric.city_key)) {
+            if (
+                selectedUnitIds.length === 0 &&
+                metric.city_key === "__unmatched__"
+            ) {
+                unmatchedSpend += numeric(metric.spend);
+            }
+            continue;
+        }
+        const accumulator = accumulators.get(metric.city_key);
+        if (!accumulator) continue;
+
+        const spend = numeric(metric.spend);
+        accumulator.spend += spend;
+        if (metric.platform === "google_ads") accumulator.googleSpend += spend;
+        else accumulator.metaSpend += spend;
+        const campaignKey = [
+            metric.platform,
+            metric.account_id,
+            metric.campaign_id,
+        ].join(":");
+        accumulator.campaignKeys.add(campaignKey);
+        accumulator.campaignNames.set(
+            campaignKey,
+            metric.campaign_name?.trim() || "Campanha sem nome",
+        );
+    }
+
+    if (selectedUnitIds.length === 0) {
+        for (const platformDate of detailedPlatformDates) {
+            const [platform, metricDate] = platformDate.split(":");
+            const totalPlatformSpend = adMetrics
+                .filter(
+                    (metric) =>
+                        metric.platform === platform &&
+                        metric.metric_date === metricDate,
+                )
+                .reduce((total, metric) => total + numeric(metric.spend), 0);
+            const detailedSpend = cityAdMetrics
+                .filter(
+                    (metric) =>
+                        metric.platform === platform &&
+                        metric.metric_date === metricDate,
+                )
+                .reduce((total, metric) => total + numeric(metric.spend), 0);
+            unmatchedSpend += Math.max(0, totalPlatformSpend - detailedSpend);
+        }
+    }
+
+    const scheduleCounts = new Map<string, Set<string>>();
     const paidScheduleClients = new Map<string, Set<string>>();
     const clientsById = new Map(clients.map((client) => [client.id, client]));
     for (const schedule of schedules) {
         const key = normalizeCampaignMatchText(schedule.unit_name);
         if (!key) continue;
-        scheduleCounts.set(key, (scheduleCounts.get(key) ?? 0) + 1);
+        const uniqueSchedules = scheduleCounts.get(key) ?? new Set<string>();
+        uniqueSchedules.add(scheduleIdentity(schedule));
+        scheduleCounts.set(key, uniqueSchedules);
         if (
             schedule.client_id &&
             resolveClientAdPlatform(clientsById.get(schedule.client_id))
@@ -1287,7 +1472,8 @@ function buildMediaBudgetByCity({
             };
             const unit = unitByName.get(normalizeCampaignMatchText(city.city));
             const schedulesForCity =
-                scheduleCounts.get(normalizeCampaignMatchText(city.city)) ?? 0;
+                scheduleCounts.get(normalizeCampaignMatchText(city.city))
+                    ?.size ?? 0;
             const paidSchedulesForCity =
                 paidScheduleClients.get(
                     normalizeCampaignMatchText(city.city),
@@ -1354,6 +1540,15 @@ function buildMediaBudgetByCity({
         }),
         unmatchedSpend: roundMoney(unmatchedSpend),
     };
+}
+
+function scheduleIdentity(schedule: ScheduleRow) {
+    const phone = schedule.normalized_phone?.replace(/\D/g, "");
+    if (phone) return `phone:${phone}`;
+    if (schedule.client_id) return `client:${schedule.client_id}`;
+    const patient = normalizeCampaignMatchText(schedule.patient_name);
+    if (patient) return `patient:${patient}`;
+    return `source:${schedule.source_hash || schedule.id}`;
 }
 
 function matchMediaBudgetCity(campaignName: string | null | undefined) {
@@ -1462,7 +1657,7 @@ function sumAmounts(invoices: InvoiceRow[]) {
     );
 }
 
-function numeric(value: number | string | null | undefined) {
+function numeric(value: unknown) {
     const parsed = Number(value ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -1541,4 +1736,8 @@ function chunk<T>(items: T[], size: number) {
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
     if (Array.isArray(value)) return value[0] ?? null;
     return value ?? null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

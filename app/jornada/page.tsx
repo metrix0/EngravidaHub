@@ -8,7 +8,6 @@ import {
     CalendarCheck2,
     CircleDollarSign,
     HelpCircle,
-    MessageCircle,
     MousePointerClick,
     ReceiptText,
     UserCheck,
@@ -86,7 +85,6 @@ type JourneyDashboardData = {
 type PipelineStageKey =
     | "paid_impressions"
     | "paid_clicks"
-    | "whatsapp"
     | "tracked_whatsapp"
     | "scheduled"
     | "attended"
@@ -123,10 +121,29 @@ type FullJourneyPipeline = {
         lost: number | null;
         estimated: boolean;
     }[];
+    acquisition_branches: {
+        platform: "google_ads" | "meta_ads";
+        label: string;
+        impressions: number;
+        clicks: number;
+        click_through_rate: number | null;
+        tracked_clients: number;
+        click_to_tracked_rate: number | null;
+    }[];
+    procedure_branches: {
+        key: string;
+        procedure_name: string;
+        event_kind: string;
+        scheduled_appointments: number;
+        attended_appointments: number;
+        schedule_to_attendance_rate: number | null;
+        lost_appointments: number;
+    }[];
     platform_breakdown: {
         platform: "google_ads" | "meta_ads";
         label: string;
         spend: number;
+        impressions: number;
         whatsapp_clicks: number;
         platform_whatsapp_conversations: number;
         tracked_clients: number;
@@ -181,6 +198,8 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
     currency_code: "BRL",
     stages: [],
     transitions: [],
+    acquisition_branches: [],
+    procedure_branches: [],
     platform_breakdown: [],
     audit: {
         platform_whatsapp_conversations: 0,
@@ -229,7 +248,7 @@ export default function JourneyPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("yesterday");
+    } = useDashboardDateFilter("current_month");
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -436,11 +455,6 @@ const PIPELINE_STAGE_STYLE: Record<
         soft: "#e5f1ff",
         eyebrow: "Aquisição",
     },
-    whatsapp: {
-        accent: "#16a66a",
-        soft: "#e8fbf1",
-        eyebrow: "Plataforma",
-    },
     tracked_whatsapp: {
         accent: "#0f9f94",
         soft: "#e6f8f6",
@@ -470,13 +484,12 @@ const PIPELINE_STAGE_STYLE: Record<
 
 function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
     const pipeline = data.full_pipeline;
-    const clinicalTransitions = pipeline.transitions.filter(
+    const clinicalTransitions = (pipeline.transitions ?? []).filter(
         (transition) =>
             !transition.estimated &&
-            transition.key !== "paid_ctr" &&
             transition.rate !== null,
     );
-    const bottleneck = clinicalTransitions.reduce<
+    const aggregateBottleneck = clinicalTransitions.reduce<
         FullJourneyPipeline["transitions"][number] | null
     >((current, transition) => {
         if (!current) return transition;
@@ -484,6 +497,22 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
             ? transition
             : current;
     }, null);
+    const procedureBottleneck = (pipeline.procedure_branches ?? [])
+        .filter(
+            (branch) =>
+                branch.scheduled_appointments > 0 &&
+                branch.schedule_to_attendance_rate !== null,
+        )
+        .reduce<FullJourneyPipeline["procedure_branches"][number] | null>(
+            (current, branch) => {
+                if (!current) return branch;
+                return (branch.schedule_to_attendance_rate ?? Infinity) <
+                    (current.schedule_to_attendance_rate ?? Infinity)
+                    ? branch
+                    : current;
+            },
+            null,
+        );
     const trackedWhatsappStage = pipeline.stages.find(
         (stage) => stage.key === "tracked_whatsapp",
     );
@@ -536,44 +565,31 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
                 {pipeline.stages.length === 0 ? (
                     <EmptyCardMessage message="Nenhum dado rastreável no período." />
                 ) : (
-                    <div className="w-full overflow-x-auto pb-4">
-                        <div className="flex min-w-max items-stretch">
-                            {pipeline.stages.map((stage, index) => {
-                                const transition = pipeline.transitions[index];
-                                return (
-                                    <div
-                                        key={stage.key}
-                                        className="flex shrink-0 items-stretch"
-                                    >
-                                        <PipelineStageCard stage={stage} />
-                                        {transition ? (
-                                            <PipelineTransitionCard
-                                                transition={transition}
-                                            />
-                                        ) : null}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
+                    <JourneyPipelineTree pipeline={pipeline} />
                 )}
 
                 <div className="mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
                     <PipelineInsight
                         label="Maior gargalo clínico"
                         value={
-                            bottleneck
-                                ? formatRate(bottleneck.rate)
-                                : "—"
+                            procedureBottleneck
+                                ? formatRate(
+                                      procedureBottleneck.schedule_to_attendance_rate,
+                                  )
+                                : aggregateBottleneck
+                                  ? formatRate(aggregateBottleneck.rate)
+                                  : "—"
                         }
                         detail={
-                            bottleneck
-                                ? `${bottleneck.label}${
-                                      bottleneck.lost === null
-                                          ? ""
-                                          : ` · ${bottleneck.lost} clientes não avançaram`
-                                  }`
-                                : "Sem base suficiente"
+                            procedureBottleneck
+                                ? procedureBottleneckDetail(
+                                      procedureBottleneck,
+                                  )
+                                : aggregateBottleneck
+                                  ? aggregateBottleneckDetail(
+                                        aggregateBottleneck,
+                                    )
+                                  : "Sem base suficiente"
                         }
                     />
                     <PipelineInsight
@@ -595,6 +611,26 @@ function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
             </div>
         </Card>
     );
+}
+
+function procedureBottleneckDetail(
+    branch: FullJourneyPipeline["procedure_branches"][number],
+) {
+    const loss =
+        branch.lost_appointments > 0
+            ? ` · ${branch.lost_appointments} agendamentos sem presença`
+            : "";
+    return `${branch.procedure_name} · Agenda → presença${loss}`;
+}
+
+function aggregateBottleneckDetail(
+    transition: FullJourneyPipeline["transitions"][number],
+) {
+    const loss =
+        transition.lost !== null
+            ? ` · ${transition.lost} clientes não avançaram`
+            : "";
+    return `${transition.label}${loss}`;
 }
 
 const TRACKED_WHATSAPP_PLATFORM_STYLE = {
@@ -695,7 +731,7 @@ function WhatsappCoverageCard({
             ) : (
                 <div className="mt-4 grid grid-cols-1 items-center gap-6 lg:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1.1fr)] lg:gap-10">
                     <div className="relative h-[270px] min-w-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" debounce={200}>
                             <PieChart>
                                 <Pie
                                     data={chartData}
@@ -886,7 +922,7 @@ function TrackedWhatsappSourcesCard({
                 <EmptyCardMessage message="Nenhum cliente rastreado no período." />
             ) : (
                 <div className="w-full" style={{ height: chartHeight }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <BarChart
                             data={chartData}
                             layout="vertical"
@@ -1020,17 +1056,280 @@ function shortenChartLabel(value: string, maximumLength: number) {
     return `${value.slice(0, maximumLength - 1)}…`;
 }
 
+const PIPELINE_TREE_ROW_HEIGHT = 210;
+const PIPELINE_TREE_ROW_GAP = 16;
+
+function JourneyPipelineTree({
+    pipeline,
+}: {
+    pipeline: FullJourneyPipeline;
+}) {
+    const stages = new Map(
+        pipeline.stages.map((stage) => [stage.key, stage]),
+    );
+    const tracked = stages.get("tracked_whatsapp");
+    const invoiced = stages.get("invoiced");
+    const authorized = stages.get("authorized");
+    const acquisitionBranches = pipeline.acquisition_branches ?? [];
+    const procedureBranches = pipeline.procedure_branches ?? [];
+    const invoiceTransition = pipeline.transitions.find(
+        (transition) => transition.key === "invoice_to_authorized",
+    );
+
+    if (!tracked || !invoiced || !authorized) {
+        return (
+            <EmptyCardMessage message="A jornada clínica está incompleta neste período." />
+        );
+    }
+
+    return (
+        <div className="w-full overflow-x-auto overflow-y-visible pb-4">
+            <div className="flex min-w-max items-center py-2">
+                <div className="space-y-4">
+                    {acquisitionBranches.map((branch) => (
+                        <div
+                            key={branch.platform}
+                            className="flex items-stretch"
+                        >
+                            <PipelineStageCard
+                                stage={clientPipelineStage(
+                                    "paid_impressions",
+                                    "Impressões pagas",
+                                    branch.impressions,
+                                )}
+                                eyebrow={branch.label}
+                            />
+                            <PipelineTransitionCard
+                                transition={clientPipelineTransition({
+                                    key: branch.platform + "_ctr",
+                                    label: "CTR pago",
+                                    fromValue: branch.impressions,
+                                    toValue: branch.clicks,
+                                    rate: branch.click_through_rate,
+                                })}
+                            />
+                            <PipelineStageCard
+                                stage={clientPipelineStage(
+                                    "paid_clicks",
+                                    "Cliques pagos",
+                                    branch.clicks,
+                                )}
+                                eyebrow={branch.label}
+                                detail="cliques elegíveis"
+                            />
+                        </div>
+                    ))}
+                </div>
+
+                <PipelineTreeConnector
+                    direction="merge"
+                    rowCount={Math.max(1, acquisitionBranches.length)}
+                />
+
+                <PipelineStageCard stage={tracked} />
+
+                <PipelineTreeConnector
+                    direction="split"
+                    rowCount={Math.max(1, procedureBranches.length)}
+                />
+
+                <div className="space-y-4">
+                    {procedureBranches.length > 0 ? (
+                        procedureBranches.map((branch) => (
+                            <div
+                                key={branch.key}
+                                className="flex items-stretch"
+                            >
+                                <PipelineStageCard
+                                    stage={clientPipelineStage(
+                                        "scheduled",
+                                        "Agendaram",
+                                        branch.scheduled_appointments,
+                                    )}
+                                    detail={branch.procedure_name}
+                                />
+                                <PipelineTransitionCard
+                                    transition={clientPipelineTransition({
+                                        key: branch.key + "_attendance",
+                                        label: "Agenda → presença",
+                                        fromValue:
+                                            branch.scheduled_appointments,
+                                        toValue:
+                                            branch.attended_appointments,
+                                        rate:
+                                            branch.schedule_to_attendance_rate,
+                                        lost: branch.lost_appointments,
+                                    })}
+                                    lossUnit="agendamentos"
+                                />
+                                <PipelineStageCard
+                                    stage={clientPipelineStage(
+                                        "attended",
+                                        "Compareceram",
+                                        branch.attended_appointments,
+                                    )}
+                                    detail={branch.procedure_name}
+                                />
+                            </div>
+                        ))
+                    ) : (
+                        <div className="flex h-[210px] w-[454px] items-center justify-center rounded-2xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-400">
+                            Nenhum procedimento dessa coorte foi encontrado no
+                            CliniSys.
+                        </div>
+                    )}
+                </div>
+
+                <PipelineTreeConnector
+                    direction="merge"
+                    rowCount={Math.max(1, procedureBranches.length)}
+                />
+
+                <div className="flex items-stretch">
+                    <PipelineStageCard stage={invoiced} />
+                    {invoiceTransition ? (
+                        <PipelineTransitionCard
+                            transition={invoiceTransition}
+                        />
+                    ) : null}
+                    <PipelineStageCard stage={authorized} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function PipelineTreeConnector({
+    direction,
+    rowCount,
+}: {
+    direction: "merge" | "split";
+    rowCount: number;
+}) {
+    const height =
+        rowCount * PIPELINE_TREE_ROW_HEIGHT +
+        (rowCount - 1) * PIPELINE_TREE_ROW_GAP;
+    const firstCenter = PIPELINE_TREE_ROW_HEIGHT / 2;
+    const lastCenter = height - PIPELINE_TREE_ROW_HEIGHT / 2;
+    const midpoint = height / 2;
+    const trunkLeft = direction === "merge" ? 48 : 24;
+
+    return (
+        <div
+            className="relative w-[72px] shrink-0"
+            style={{ height }}
+            aria-hidden="true"
+        >
+            <span
+                className="absolute w-px bg-blue-300"
+                style={{
+                    left: trunkLeft,
+                    top: firstCenter,
+                    height: Math.max(1, lastCenter - firstCenter),
+                }}
+            />
+            {Array.from({ length: rowCount }).map((_, index) => {
+                const top =
+                    index *
+                        (PIPELINE_TREE_ROW_HEIGHT +
+                            PIPELINE_TREE_ROW_GAP) +
+                    PIPELINE_TREE_ROW_HEIGHT / 2;
+                return (
+                    <span
+                        key={index}
+                        className="absolute h-px bg-blue-300"
+                        style={{
+                            top,
+                            left:
+                                direction === "merge"
+                                    ? 0
+                                    : trunkLeft,
+                            width:
+                                direction === "merge"
+                                    ? trunkLeft
+                                    : 72 - trunkLeft,
+                        }}
+                    />
+                );
+            })}
+            <span
+                className="absolute h-px bg-blue-300"
+                style={{
+                    top: midpoint,
+                    left: direction === "merge" ? trunkLeft : 0,
+                    width:
+                        direction === "merge"
+                            ? 72 - trunkLeft
+                            : trunkLeft,
+                }}
+            />
+            {direction === "split" ? (
+                <ArrowRight
+                    size={15}
+                    className="absolute right-0 -translate-y-1/2 text-blue-400"
+                    style={{ top: midpoint }}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+function clientPipelineStage(
+    key: PipelineStageKey,
+    label: string,
+    value: number,
+): FullJourneyPipeline["stages"][number] {
+    return {
+        key,
+        label,
+        value,
+        secondary_value: null,
+        secondary_kind: null,
+        secondary_label: null,
+    };
+}
+
+function clientPipelineTransition({
+    key,
+    label,
+    fromValue,
+    toValue,
+    rate,
+    lost = null,
+}: {
+    key: string;
+    label: string;
+    fromValue: number;
+    toValue: number;
+    rate: number | null;
+    lost?: number | null;
+}): FullJourneyPipeline["transitions"][number] {
+    return {
+        key,
+        label,
+        rate,
+        from_value: fromValue,
+        to_value: toValue,
+        lost,
+        estimated: false,
+    };
+}
+
 function PipelineStageCard({
     stage,
+    eyebrow,
+    detail,
 }: {
     stage: FullJourneyPipeline["stages"][number];
+    eyebrow?: string;
+    detail?: string;
 }) {
     const style = PIPELINE_STAGE_STYLE[stage.key];
 
     return (
         <div
-            className="relative flex min-h-[190px] w-[168px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
-            title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}`}
+            className="relative flex h-[210px] w-[168px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+            title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}${detail ? ` — ${detail}` : ""}`}
         >
             <span
                 className="absolute inset-x-0 top-0 h-1"
@@ -1041,13 +1340,16 @@ function PipelineStageCard({
                     className="flex h-10 w-10 items-center justify-center rounded-xl"
                     style={{ backgroundColor: style.soft, color: style.accent }}
                 >
-                    <PipelineStageIcon stageKey={stage.key} />
+                    <PipelineStageIcon
+                        stageKey={stage.key}
+                        platformLabel={eyebrow}
+                    />
                 </span>
                 <span
                     className="rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
                     style={{ backgroundColor: style.soft, color: style.accent }}
                 >
-                    {style.eyebrow}
+                    {eyebrow ?? style.eyebrow}
                 </span>
             </div>
 
@@ -1057,8 +1359,8 @@ function PipelineStageCard({
             <div className="mt-1 text-[28px] font-black tracking-tight text-slate-900">
                 {formatPipelineStageValue(stage)}
             </div>
-            <div className="mt-auto min-h-5 pt-3 text-[11px] font-medium text-slate-500">
-                {formatPipelineSecondary(stage)}
+            <div className="mt-3 line-clamp-3 min-h-12 text-[11px] font-medium leading-4 text-slate-500">
+                {detail ?? formatPipelineSecondary(stage)}
             </div>
         </div>
     );
@@ -1066,8 +1368,10 @@ function PipelineStageCard({
 
 function PipelineTransitionCard({
     transition,
+    lossUnit = "clientes",
 }: {
     transition: FullJourneyPipeline["transitions"][number];
+    lossUnit?: "clientes" | "agendamentos";
 }) {
     return (
         <div className="flex w-[118px] flex-col items-center justify-center px-2 text-center">
@@ -1098,14 +1402,22 @@ function PipelineTransitionCard({
                     ? transition.estimated
                         ? "bases distintas"
                         : ""
-                    : `−${transition.lost} clientes`}
+                    : `−${transition.lost} ${lossUnit}`}
             </span>
         </div>
     );
 }
 
-function PipelineStageIcon({ stageKey }: { stageKey: PipelineStageKey }) {
+function PipelineStageIcon({
+    stageKey,
+    platformLabel,
+}: {
+    stageKey: PipelineStageKey;
+    platformLabel?: string;
+}) {
     if (stageKey === "paid_impressions") {
+        if (platformLabel === "Meta Ads") return <FaMeta size={20} />;
+        if (platformLabel === "Google Ads") return <FaGoogle size={20} />;
         return (
             <span className="flex items-center gap-1">
                 <FaMeta size={14} />
@@ -1114,7 +1426,6 @@ function PipelineStageIcon({ stageKey }: { stageKey: PipelineStageKey }) {
         );
     }
     if (stageKey === "paid_clicks") return <MousePointerClick size={20} />;
-    if (stageKey === "whatsapp") return <MessageCircle size={20} />;
     if (stageKey === "tracked_whatsapp") return <UserCheck size={20} />;
     if (stageKey === "scheduled") return <CalendarCheck2 size={20} />;
     if (stageKey === "attended") return <UserCheck size={20} />;
@@ -1152,7 +1463,7 @@ function JourneyFunnelCard({ data }: { data: JourneyDashboardData }) {
 
             <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(245px,0.65fr)] items-center gap-5">
                 <div className="h-[330px] min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <FunnelChart
                             margin={{ top: 10, right: 64, bottom: 10, left: 6 }}
                         >
@@ -1265,12 +1576,12 @@ function IntentPathsCard({ data }: { data: JourneyDashboardData }) {
                 </div>
             </div>
 
-            <div className="h-[340px]">
-                <ResponsiveContainer width="100%" height="100%">
+            <div className="h-[470px] overflow-visible">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <BarChart
                         data={chartData}
                         barCategoryGap="28%"
-                        margin={{ left: 10, bottom: 8 }}
+                        margin={{ top: 8, right: 8, bottom: 28, left: 10 }}
                     >
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                         <XAxis
@@ -1418,7 +1729,7 @@ function JourneyBodySkeleton() {
                         <div className="flex min-w-max gap-4">
                                 {Array.from({ length: 5 }).map((_, index) => (
                                     <div key={index} className="flex shrink-0 items-center gap-4">
-                                        <Skeleton className="h-[190px] w-[168px] rounded-2xl" />
+                                        <Skeleton className="h-[210px] w-[168px] rounded-2xl" />
                                         {index < 4 ? (
                                             <Skeleton className="h-10 w-[90px]" />
                                         ) : null}
@@ -1506,14 +1817,21 @@ function buildPipelineSourceTooltip(pipeline: FullJourneyPipeline) {
             stages.get(key)?.secondary_value ?? 0,
             pipeline.currency_code,
         );
+    const acquisition = new Map(
+        (pipeline.acquisition_branches ?? []).map((branch) => [
+            branch.platform,
+            branch,
+        ]),
+    );
+    const google = acquisition.get("google_ads");
+    const meta = acquisition.get("meta_ads");
 
     return [
-        `Impressões pagas ${count("paid_impressions")} — dados das APIs Meta e Google Ads para campanhas e ações elegíveis ao WhatsApp.`,
-        `Cliques pagos ${count("paid_clicks")} — dados das APIs Meta e Google Ads para cliques elegíveis ao WhatsApp.`,
-        `Conversas WhatsApp ${count("whatsapp")} — ações de conversa reportadas pelas próprias plataformas de anúncios.`,
+        `Meta Ads: ${(meta?.impressions ?? 0).toLocaleString("pt-BR")} impressões e ${(meta?.clicks ?? 0).toLocaleString("pt-BR")} cliques — dados da API Meta Ads.`,
+        `Google Ads: ${(google?.impressions ?? 0).toLocaleString("pt-BR")} impressões e ${(google?.clicks ?? 0).toLocaleString("pt-BR")} cliques — dados da API Google Ads.`,
         `WhatsApp rastreado ${count("tracked_whatsapp")} — clientes únicos atribuídos por evidência da própria conversa. Primeiro usamos a Origem registrada; depois, a plataforma e a origem enviadas pelo TinTim para o mesmo cliente e a conversa mais próxima. Na ausência desses sinais, usamos somente UTM paga ou ID de clique salvo no cliente até 7 dias antes ou depois da conversa.`,
-        `Agendaram ${count("scheduled")} — clientes dessa coorte com agendamento importado do CliniSys após a entrada pelo WhatsApp.`,
-        `Compareceram ${count("attended")} — clientes agendados com presença confirmada pelo status do CliniSys.`,
+        `Agendamentos por procedimento — cada ramo conta todos os eventos de avaliação ou procedimento importados do CliniSys após a entrada pelo WhatsApp, inclusive novos agendamentos do mesmo cliente. ${count("scheduled")} clientes únicos tiveram ao menos um evento.`,
+        `Presenças por procedimento — cada ramo conta todos os eventos com presença confirmada pelo status do CliniSys. ${count("attended")} clientes únicos compareceram ao menos uma vez.`,
         `Faturados ${count("invoiced")} · ${money("invoiced")} — clientes presentes com nota emitida no CliniSys após a entrada paga.`,
         `Liberados ${count("authorized")} · ${money("authorized")} — notas dessa coorte com autorização fiscal confirmada no CliniSys.`,
     ].join("\n");
@@ -1527,8 +1845,6 @@ function formatPipelineSecondary(
             ? ""
             : stage.key === "paid_clicks"
               ? "cliques elegíveis"
-              : stage.key === "whatsapp"
-                ? "ações reportadas pelas plataformas"
                 : stage.key === "tracked_whatsapp"
                   ? "clientes únicos identificados"
               : stage.key === "scheduled"

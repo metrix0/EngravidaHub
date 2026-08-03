@@ -46,6 +46,12 @@ export type FinancialDashboardData = {
         authorized_invoices: number;
         average_ticket: number | null;
     }[];
+    twelve_month_trend: {
+        month: string;
+        label: string;
+        revenue: number;
+        investment: number;
+    }[];
     by_status: {
         status: "authorized" | "cancelled" | "pending" | "denied" | "other";
         label: string;

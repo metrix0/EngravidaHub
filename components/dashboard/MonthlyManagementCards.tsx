@@ -493,7 +493,7 @@ export function RevenueEvolutionComparisonCard({
 
             <div className="h-[300px]">
                 {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ComposedChart data={chartData}>
                             <defs>
                                 <linearGradient
@@ -1037,4 +1037,3 @@ function formatPercentage(value: number | null) {
 function capitalize(value: string) {
     return value.charAt(0).toLocaleUpperCase("pt-BR") + value.slice(1);
 }
-

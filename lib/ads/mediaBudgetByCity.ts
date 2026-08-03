@@ -62,6 +62,12 @@ export const MEDIA_BUDGET_CITIES: MediaBudgetCityConfig[] = [
         monthlyBudget: 20_000,
         aliases: ["bauru", "bau"],
     },
+    {
+        key: "campinas",
+        city: "Campinas",
+        monthlyBudget: 10_000,
+        aliases: ["campinas", "cpq"],
+    },
 ];
 
 export function matchMediaBudgetCity(

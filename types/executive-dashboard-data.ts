@@ -154,6 +154,24 @@ export type ExecutiveDashboardData = {
         percentage: number | null;
     }[];
 
+    word_map: {
+        words: {
+            word: string;
+            mentions: number;
+            conversations: number;
+        }[];
+        by_unit: {
+            unit_id: string | null;
+            unit_name: string;
+            total_mentions: number;
+            words: {
+                word: string;
+                mentions: number;
+                percentage: number | null;
+            }[];
+        }[];
+    };
+
     by_unit: {
         unit_id: string | null;
         unit_name: string;

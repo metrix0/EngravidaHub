@@ -1,5 +1,6 @@
 // lib/ads/finance/syncAdsFinance.ts
 import { supabase } from "@/lib";
+import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 
 export type AdsFinancePlatform = "google_ads" | "meta_ads";
 export type AdsFinancePlatformFilter = AdsFinancePlatform | "all";
@@ -21,6 +22,19 @@ type AdsFinanceMetricRow = {
     synced_at: string;
 };
 
+type AdsFinanceCityMetricRow = {
+    platform: AdsFinancePlatform;
+    account_id: string;
+    campaign_id: string;
+    campaign_name: string;
+    subdivision_id: string;
+    subdivision_name: string;
+    city_key: string;
+    metric_date: string;
+    spend: number;
+    synced_at: string;
+};
+
 type PlatformSyncResult = {
     platform: AdsFinancePlatform;
     ok: boolean;
@@ -29,6 +43,11 @@ type PlatformSyncResult = {
     accounts: number;
     fetched: number;
     upserted: number;
+    city_upserted: number;
+    city_fetched: number;
+    city_matched: number;
+    city_unmatched: number;
+    unmatched_subdivisions: string[];
 };
 
 type GoogleAdsRow = {
@@ -62,6 +81,8 @@ type MetaInsightsRow = {
     account_currency?: string;
     campaign_id?: string;
     campaign_name?: string;
+    adset_id?: string;
+    adset_name?: string;
     date_start?: string;
     impressions?: string | number;
     clicks?: string | number;
@@ -105,9 +126,9 @@ const META_RESULT_PRIORITY = [
 ] as const;
 
 export async function syncAdsFinance({
-    daysBack = 30,
-    platform = "all",
-}: {
+                                         daysBack = 30,
+                                         platform = "all",
+                                     }: {
     daysBack?: number;
     platform?: AdsFinancePlatformFilter;
 } = {}) {
@@ -137,6 +158,22 @@ export async function syncAdsFinance({
         platforms,
         fetched: platforms.reduce((total, item) => total + item.fetched, 0),
         upserted: platforms.reduce((total, item) => total + item.upserted, 0),
+        city_upserted: platforms.reduce(
+            (total, item) => total + item.city_upserted,
+            0,
+        ),
+        city_fetched: platforms.reduce(
+            (total, item) => total + item.city_fetched,
+            0,
+        ),
+        city_matched: platforms.reduce(
+            (total, item) => total + item.city_matched,
+            0,
+        ),
+        city_unmatched: platforms.reduce(
+            (total, item) => total + item.city_unmatched,
+            0,
+        ),
         duration_ms: Date.now() - startedAt,
     };
 
@@ -162,14 +199,19 @@ async function runPlatformSync(
             accounts: 0,
             fetched: 0,
             upserted: 0,
+            city_upserted: 0,
+            city_fetched: 0,
+            city_matched: 0,
+            city_unmatched: 0,
+            unmatched_subdivisions: [],
         };
     }
 }
 
 async function syncGoogleAdsFinance({
-    startDate,
-    endDate,
-}: {
+                                        startDate,
+                                        endDate,
+                                    }: {
     startDate: string;
     endDate: string;
 }): Promise<PlatformSyncResult> {
@@ -201,6 +243,9 @@ async function syncGoogleAdsFinance({
     );
     const rows = dedupeMetricRows(rowsByAccount.flat());
     const upserted = await upsertMetricRows(rows);
+    const cityRows = rows.flatMap(toGoogleCityMetricRow);
+    const cityUpserted = await upsertCityMetricRows(cityRows);
+    const cityDiagnostics = summarizeCityRows(cityRows);
 
     return {
         platform: "google_ads",
@@ -209,6 +254,8 @@ async function syncGoogleAdsFinance({
         accounts: config.customerIds.length,
         fetched: rows.length,
         upserted,
+        city_upserted: cityUpserted,
+        ...cityDiagnostics,
     };
 }
 
@@ -242,14 +289,14 @@ async function getGoogleAccessToken(config: ReturnType<typeof googleAdsConfig>) 
 }
 
 async function fetchGoogleAdsRows({
-    customerId,
-    accessToken,
-    developerToken,
-    loginCustomerId,
-    startDate,
-    endDate,
-    syncedAt,
-}: {
+                                      customerId,
+                                      accessToken,
+                                      developerToken,
+                                      loginCustomerId,
+                                      startDate,
+                                      endDate,
+                                      syncedAt,
+                                  }: {
     customerId: string;
     accessToken: string;
     developerToken: string;
@@ -343,9 +390,9 @@ async function fetchGoogleAdsRows({
 }
 
 async function syncMetaAdsFinance({
-    startDate,
-    endDate,
-}: {
+                                      startDate,
+                                      endDate,
+                                  }: {
     startDate: string;
     endDate: string;
 }): Promise<PlatformSyncResult> {
@@ -372,6 +419,20 @@ async function syncMetaAdsFinance({
     );
     const rows = dedupeMetricRows(rowsByAccount.flat());
     const upserted = await upsertMetricRows(rows);
+    const cityRowsByAccount = await Promise.all(
+        config.accountIds.map((accountId) =>
+            fetchMetaAdsCityRows({
+                accountId,
+                accessToken: config.accessToken!,
+                startDate,
+                endDate,
+                syncedAt,
+            }),
+        ),
+    );
+    const cityRows = dedupeCityMetricRows(cityRowsByAccount.flat());
+    const cityUpserted = await upsertCityMetricRows(cityRows);
+    const cityDiagnostics = summarizeCityRows(cityRows);
 
     return {
         platform: "meta_ads",
@@ -380,16 +441,154 @@ async function syncMetaAdsFinance({
         accounts: config.accountIds.length,
         fetched: rows.length,
         upserted,
+        city_upserted: cityUpserted,
+        ...cityDiagnostics,
     };
 }
 
+async function fetchMetaAdsCityRows({
+                                        accountId,
+                                        accessToken,
+                                        startDate,
+                                        endDate,
+                                        syncedAt,
+                                    }: {
+    accountId: string;
+    accessToken: string;
+    startDate: string;
+    endDate: string;
+    syncedAt: string;
+}) {
+    const rows: AdsFinanceCityMetricRow[] = [];
+    let windowStart = startDate;
+
+    while (windowStart <= endDate) {
+        const candidateEnd = addCalendarDays(windowStart, 30);
+        const windowEnd = candidateEnd < endDate ? candidateEnd : endDate;
+        rows.push(
+            ...(await fetchMetaAdsCityWindow({
+                accountId,
+                accessToken,
+                startDate: windowStart,
+                endDate: windowEnd,
+                syncedAt,
+            })),
+        );
+        windowStart = addCalendarDays(windowEnd, 1);
+    }
+
+    return rows;
+}
+
+async function fetchMetaAdsCityWindow({
+                                          accountId,
+                                          accessToken,
+                                          startDate,
+                                          endDate,
+                                          syncedAt,
+                                      }: {
+    accountId: string;
+    accessToken: string;
+    startDate: string;
+    endDate: string;
+    syncedAt: string;
+}) {
+    const endpoint = new URL(
+        `https://graph.facebook.com/${META_API_VERSION}/act_${accountId}/insights`,
+    );
+    endpoint.searchParams.set(
+        "fields",
+        [
+            "account_id",
+            "campaign_id",
+            "campaign_name",
+            "adset_id",
+            "adset_name",
+            "date_start",
+            "spend",
+        ].join(","),
+    );
+    endpoint.searchParams.set("level", "adset");
+    endpoint.searchParams.set("time_increment", "1");
+    endpoint.searchParams.set("limit", "500");
+    endpoint.searchParams.set(
+        "time_range",
+        JSON.stringify({ since: startDate, until: endDate }),
+    );
+
+    const rawRows: MetaInsightsRow[] = [];
+    let after: string | null = null;
+
+    do {
+        if (after) endpoint.searchParams.set("after", after);
+        else endpoint.searchParams.delete("after");
+
+        const response = await fetch(endpoint, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(90_000),
+        });
+        const json = (await response.json()) as MetaInsightsResponse;
+
+        if (!response.ok || json.error) {
+            throw new Error(
+                `Meta Ads ad-set report failed for account ${accountId} (${response.status}): ${
+                    json.error?.message ?? json.error?.type ?? "unknown error"
+                }`,
+            );
+        }
+
+        rawRows.push(...(json.data ?? []));
+        after = json.paging?.next
+            ? cleanText(json.paging.cursors?.after)
+            : null;
+    } while (after);
+
+    return rawRows.flatMap((row): AdsFinanceCityMetricRow[] => {
+        const campaignId = cleanText(row.campaign_id);
+        const subdivisionId = cleanText(row.adset_id);
+        const metricDate = cleanText(row.date_start);
+        const campaignName =
+            cleanText(row.campaign_name) ??
+            (campaignId ? `Campanha ${campaignId}` : null);
+        const subdivisionName =
+            cleanText(row.adset_name) ??
+            (subdivisionId ? `Conjunto ${subdivisionId}` : null);
+        const city =
+            matchMediaBudgetCity(subdivisionName) ??
+            matchMediaBudgetCity(campaignName);
+
+        if (
+            !campaignId ||
+            !subdivisionId ||
+            !campaignName ||
+            !subdivisionName ||
+            !isDate(metricDate)
+        ) {
+            return [];
+        }
+
+        return [{
+            platform: "meta_ads",
+            account_id: cleanText(row.account_id) ?? accountId,
+            campaign_id: campaignId,
+            campaign_name: campaignName,
+            subdivision_id: subdivisionId,
+            subdivision_name: subdivisionName,
+            city_key: city?.key ?? "__unmatched__",
+            metric_date: metricDate,
+            spend: roundMoney(numberValue(row.spend)),
+            synced_at: syncedAt,
+        }];
+    });
+}
+
 async function fetchMetaAdsRows({
-    accountId,
-    accessToken,
-    startDate,
-    endDate,
-    syncedAt,
-}: {
+                                    accountId,
+                                    accessToken,
+                                    startDate,
+                                    endDate,
+                                    syncedAt,
+                                }: {
     accountId: string;
     accessToken: string;
     startDate: string;
@@ -524,6 +723,86 @@ async function upsertMetricRows(rows: AdsFinanceMetricRow[]) {
     return upserted;
 }
 
+async function upsertCityMetricRows(rows: AdsFinanceCityMetricRow[]) {
+    let upserted = 0;
+
+    for (const batch of chunk(rows, UPSERT_BATCH_SIZE)) {
+        const { error } = await supabase
+            .from("ad_daily_city_metrics")
+            .upsert(batch, {
+                onConflict:
+                    "platform,account_id,subdivision_id,metric_date",
+            });
+
+        if (error) {
+            if (isMissingCityMetricsTable(error)) {
+                throw new Error(
+                    "ad_daily_city_metrics is not installed; run the supplied Supabase migration before syncing city detail",
+                );
+            }
+            throw new Error(
+                `Failed to store city ad metrics: ${error.message}`,
+            );
+        }
+        upserted += batch.length;
+    }
+
+    return upserted;
+}
+
+function toGoogleCityMetricRow(
+    row: AdsFinanceMetricRow,
+): AdsFinanceCityMetricRow[] {
+    const city = matchMediaBudgetCity(row.campaign_name);
+
+    return [{
+        platform: "google_ads",
+        account_id: row.account_id,
+        campaign_id: row.campaign_id,
+        campaign_name: row.campaign_name,
+        subdivision_id: row.campaign_id,
+        subdivision_name: row.campaign_name,
+        city_key: city?.key ?? "__unmatched__",
+        metric_date: row.metric_date,
+        spend: row.spend,
+        synced_at: row.synced_at,
+    }];
+}
+
+function isMissingCityMetricsTable(error: {
+    code?: string;
+    message?: string;
+}) {
+    return (
+        error.code === "42P01" ||
+        error.code === "PGRST205" ||
+        Boolean(error.message?.includes("ad_daily_city_metrics"))
+    );
+}
+
+function summarizeCityRows(rows: AdsFinanceCityMetricRow[]) {
+    const cityMatched = rows.filter(
+        (row) => row.city_key !== "__unmatched__",
+    ).length;
+    const unmatchedSubdivisions = [
+        ...new Set(
+            rows
+                .filter((row) => row.city_key === "__unmatched__")
+                .map(
+                    (row) =>
+                        `${row.subdivision_name} — ${row.campaign_name}`,
+                ),
+        ),
+    ].slice(0, 12);
+
+    return {
+        city_fetched: rows.length,
+        city_matched: cityMatched,
+        city_unmatched: rows.length - cityMatched,
+        unmatched_subdivisions: unmatchedSubdivisions,
+    };
+}
+
 function googleAdsConfig() {
     const clientId = firstEnv("GOOGLE_ADS_CLIENT_ID", "GOOGLE_CLIENT_ID");
     const clientSecret = firstEnv(
@@ -547,10 +826,10 @@ function googleAdsConfig() {
     );
     const hasAnyConfiguration = Boolean(
         clientId ||
-            clientSecret ||
-            refreshToken ||
-            developerToken ||
-            customerIds.length,
+        clientSecret ||
+        refreshToken ||
+        developerToken ||
+        customerIds.length,
     );
     const missing = [
         !clientId ? "GOOGLE_ADS_CLIENT_ID (or GOOGLE_CLIENT_ID)" : null,
@@ -607,6 +886,11 @@ function skippedResult(
         accounts: 0,
         fetched: 0,
         upserted: 0,
+        city_upserted: 0,
+        city_fetched: 0,
+        city_matched: 0,
+        city_unmatched: 0,
+        unmatched_subdivisions: [],
     };
 }
 
@@ -678,6 +962,22 @@ function dedupeMetricRows(rows: AdsFinanceMetricRow[]) {
             row.platform,
             row.account_id,
             row.campaign_id,
+            row.metric_date,
+        ].join(":");
+        byIdentity.set(identity, row);
+    }
+
+    return [...byIdentity.values()];
+}
+
+function dedupeCityMetricRows(rows: AdsFinanceCityMetricRow[]) {
+    const byIdentity = new Map<string, AdsFinanceCityMetricRow>();
+
+    for (const row of rows) {
+        const identity = [
+            row.platform,
+            row.account_id,
+            row.subdivision_id,
             row.metric_date,
         ].join(":");
         byIdentity.set(identity, row);

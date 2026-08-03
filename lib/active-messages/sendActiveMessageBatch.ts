@@ -4,12 +4,15 @@ import {
     getActiveMessageTemplateParameters,
     renderActiveMessageText,
 } from "@/lib/active-messages/templates";
+import { DEFAULT_ACTIVE_MESSAGE_TEMPLATE_SENDER } from "@/lib/active-messages/templateSenders";
 import { sendBlipActiveTemplateMessage } from "@/lib/blip/sendBlipActiveTemplateMessage";
+import { sendBlipTemplateMessage } from "@/lib/blip/sendBlipTemplateMessage";
 import { sendBlipTextMessage } from "@/lib/blip/sendBlipTextMessage";
 import { supabase } from "@/lib/supabase/client";
 import type {
     ActiveMessageRecipientResult,
     ActiveMessageSendResponse,
+    ActiveMessageTemplateSender,
 } from "@/types/activeMessages";
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -55,12 +58,14 @@ export async function sendActiveMessageBatch({
     clientIds,
     filters = {},
     dynamicValues = {},
+    templateSender = DEFAULT_ACTIVE_MESSAGE_TEMPLATE_SENDER,
     actor,
 }: {
     template: ActiveMessageTemplate;
     clientIds: string[];
     filters?: Record<string, unknown>;
     dynamicValues?: Record<string, string>;
+    templateSender?: ActiveMessageTemplateSender;
     actor: ActiveMessageActor;
 }): Promise<ActiveMessageSendResponse> {
     const normalizedClientIds = normalizeClientIds(clientIds);
@@ -85,7 +90,10 @@ export async function sendActiveMessageBatch({
             template_name: template.name,
             requested_count: normalizedClientIds.length,
             status: "processing",
-            filters,
+            filters: {
+                ...filters,
+                template_sender: templateSender,
+            },
             client_ids: normalizedClientIds,
             created_by: actor.id,
             created_by_name: actor.name,
@@ -238,16 +246,27 @@ export async function sendActiveMessageBatch({
                               text: renderedText,
                               requestId: `${batch.id}:${client.id}`,
                           })
-                        : await sendBlipActiveTemplateMessage({
-                              recipientNumber: client.phone,
-                              template,
-                              messageParams:
-                                  getActiveMessageTemplateParameters({
-                                      template,
-                                      clientName: client.name,
-                                      dynamicValues,
-                                  }),
-                          });
+                        : templateSender === "primary"
+                          ? await sendBlipTemplateMessage({
+                                recipientNumber: client.phone,
+                                template,
+                                messageParams:
+                                    getActiveMessageTemplateParameters({
+                                        template,
+                                        clientName: client.name,
+                                        dynamicValues,
+                                    }),
+                            })
+                          : await sendBlipActiveTemplateMessage({
+                                recipientNumber: client.phone,
+                                template,
+                                messageParams:
+                                    getActiveMessageTemplateParameters({
+                                        template,
+                                        clientName: client.name,
+                                        dynamicValues,
+                                    }),
+                            });
                     const thread =
                         threadByClientId.get(client.id) ?? null;
 

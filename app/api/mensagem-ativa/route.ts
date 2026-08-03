@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { requireActiveMessageAccess } from "@/lib/active-messages/access";
 import { ACTIVE_MESSAGE_TEMPLATES } from "@/lib/active-messages/templates";
+import { getActiveMessageTemplateSenderOptions } from "@/lib/active-messages/templateSenders";
 import { supabase } from "@/lib/supabase/client";
 import type {
     ActiveMessageClient,
@@ -269,6 +270,7 @@ export async function GET() {
 
         const response: ActiveMessagesPageResponse = {
             templates: ACTIVE_MESSAGE_TEMPLATES,
+            template_senders: getActiveMessageTemplateSenderOptions(),
             clients,
             stages,
             history,

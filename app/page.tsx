@@ -66,7 +66,7 @@ export default function ExecutiveDashboardPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("yesterday");
+    } = useDashboardDateFilter("current_month");
 
     useEffect(() => {
         if (!dateFilterReady) return;
@@ -283,7 +283,7 @@ export default function ExecutiveDashboardPage() {
                                 <div className="min-w-[260px]">
                                     <KpiCard
                                         icon={<Smile size={26} />}
-                                        label="Clientes claramente satisfeitos"
+                                        label="Clientes satisfeitos"
                                         currentValue={data.kpis.clear_satisfaction_rate}
                                         previousValue={data.previous_kpis.clear_satisfaction_rate}
                                         suffix="%"
@@ -294,7 +294,7 @@ export default function ExecutiveDashboardPage() {
                                 <div className="min-w-[260px]">
                                     <KpiCard
                                         icon={<Calendar size={26} />}
-                                        label="Taxa de agendamento"
+                                        label="Taxa agendamentos"
                                         currentValue={data.kpis.scheduling_rate}
                                         previousValue={data.previous_kpis.scheduling_rate}
                                         suffix="%"
@@ -306,7 +306,7 @@ export default function ExecutiveDashboardPage() {
                                 <div className="min-w-[260px]">
                                     <KpiCard
                                         icon={<Clock size={26} />}
-                                        label="1ª resposta humana média"
+                                        label="1ª resposta humana"
                                         currentValue={averageResponseMinutes}
                                         previousValue={previousAverageResponseMinutes}
                                         suffix=" min"
@@ -357,6 +357,11 @@ export default function ExecutiveDashboardPage() {
                         <section className="mt-6 min-w-0 max-w-full">
                             <UnitEfficiencyMapCard data={data} />
                         </section>
+
+                        <section className="mt-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
+                            <WordMapCard data={data} />
+                            <UnitWordCorrelationCard data={data} />
+                        </section>
                     </div>
                 )}
             </section>
@@ -377,7 +382,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
             </div>
 
             <div className="h-[290px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <AreaChart data={data.daily_evolution}>
                         <defs>
                             <linearGradient id="conversationFill" x1="0" y1="0" x2="0" y2="1">
@@ -432,7 +437,7 @@ function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
             </div>
 
             <div className="h-[290px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <BarChart
                         data={data.schedule_evolution}
                         margin={{ top: 18, right: 8, bottom: 0, left: 0 }}
@@ -495,7 +500,7 @@ function ScheduleCreationEvolutionCard({
             </div>
 
             <div className="h-[290px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <BarChart
                         data={data.schedule_creation_evolution}
                         margin={{ top: 18, right: 8, bottom: 0, left: 0 }}
@@ -587,7 +592,7 @@ function ConversationGoalsCard({ data }: { data: ExecutiveDashboardData }) {
 
             <div className="grid grid-cols-[180px_1fr] items-center gap-4">
                 <div className="relative h-48">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <PieChart>
                             <Pie
                                 data={data.conversation_goals}
@@ -684,6 +689,13 @@ function UnitEfficiencyMapCard({
     data: ExecutiveDashboardData;
 }) {
     const rows = data.by_unit.flatMap((unit) => {
+        const normalizedUnitName = normalizeUnitName(unit.unit_name);
+        if (
+            normalizedUnitName === "campinas" ||
+            normalizedUnitName === "sem unidade"
+        ) {
+            return [];
+        }
         if (unit.raw_conversations <= 0 || unit.resolution_rate === null) {
             return [];
         }
@@ -711,6 +723,28 @@ function UnitEfficiencyMapCard({
     const averageScheduling = average(
         rows.map((row) => row.real_schedule_rate),
     );
+    const minimumResolution = Math.min(
+        25,
+        ...rows.map((row) => row.resolution_rate),
+    );
+    const maximumResolution = Math.max(
+        75,
+        ...rows.map((row) => row.resolution_rate),
+    );
+    const resolutionDomain: [number, number] = [
+        minimumResolution < 25
+            ? Math.max(
+                  0,
+                  Math.floor((minimumResolution - 5) / 5) * 5,
+              )
+            : 25,
+        maximumResolution > 75
+            ? Math.min(
+                  100,
+                  Math.ceil((maximumResolution + 5) / 5) * 5,
+              )
+            : 75,
+    ];
     const maximumScheduling = Math.max(
         10,
         ...rows.map((row) => row.real_schedule_rate),
@@ -742,7 +776,7 @@ function UnitEfficiencyMapCard({
                 </div>
             ) : (
                 <div className="h-[390px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ScatterChart
                             margin={{ top: 20, right: 24, bottom: 28, left: 8 }}
                         >
@@ -755,7 +789,7 @@ function UnitEfficiencyMapCard({
                                 dataKey="resolution_rate"
                                 name="Resolução"
                                 unit="%"
-                                domain={[0, 100]}
+                                domain={resolutionDomain}
                                 tick={{ fontSize: 11 }}
                                 stroke="#94a3b8"
                                 label={{
@@ -781,6 +815,7 @@ function UnitEfficiencyMapCard({
                                     value: "Agendamentos por conversa (%)",
                                     angle: -90,
                                     position: "insideLeft",
+                                    dy: 44,
                                     fontSize: 12,
                                     fill: "#64748b",
                                 }}
@@ -804,18 +839,219 @@ function UnitEfficiencyMapCard({
                                 cursor={{ strokeDasharray: "4 4" }}
                                 content={<UnitEfficiencyTooltip />}
                             />
-                            <Scatter data={rows}>
-                                {rows.map((row) => (
-                                    <Cell
-                                        key={row.unit}
-                                        fill={row.fill}
-                                        fillOpacity={0.82}
-                                        stroke={row.fill}
-                                    />
-                                ))}
-                            </Scatter>
+                            <Scatter
+                                data={rows}
+                                shape={<UnitEfficiencyBubble />}
+                                isAnimationActive={false}
+                            />
                         </ScatterChart>
                     </ResponsiveContainer>
+                </div>
+            )}
+        </Card>
+    );
+}
+
+type UnitEfficiencyBubbleProps = {
+    cx?: number;
+    cy?: number;
+    size?: number;
+    payload?: {
+        unit?: string;
+        fill?: string;
+    };
+};
+
+function UnitEfficiencyBubble({
+    cx = 0,
+    cy = 0,
+    size = 90,
+    payload,
+}: UnitEfficiencyBubbleProps) {
+    const radius = Math.max(7, Math.sqrt(Math.max(size, 1) / Math.PI));
+    const label = unitAbbreviation(payload?.unit ?? "");
+    const color = payload?.fill ?? "#94a3b8";
+
+    return (
+        <g>
+            <circle
+                cx={cx}
+                cy={cy}
+                r={radius}
+                fill={color}
+                fillOpacity={0.82}
+                stroke={color}
+                strokeWidth={1.5}
+            />
+            <text
+                x={cx}
+                y={cy - radius - 6}
+                textAnchor="middle"
+                fill="#334155"
+                fontSize={10}
+                fontWeight={800}
+                style={{
+                    paintOrder: "stroke",
+                    stroke: "white",
+                    strokeWidth: 3,
+                }}
+            >
+                {label}
+            </text>
+        </g>
+    );
+}
+
+function unitAbbreviation(unitName: string) {
+    const normalized = normalizeUnitName(unitName);
+    const abbreviations: Record<string, string> = {
+        "sao paulo": "SP",
+        "rio de janeiro": "RJ",
+        salvador: "SA",
+        brasilia: "BR",
+        "juiz de fora": "JF",
+        "belo horizonte": "BH",
+        manaus: "MA",
+        vitoria: "VI",
+        bauru: "BA",
+    };
+
+    return (
+        abbreviations[normalized] ??
+        normalized
+            .split(/\s+/)
+            .filter((part) => part.length > 2)
+            .slice(0, 2)
+            .map((part) => part[0]?.toLocaleUpperCase("pt-BR"))
+            .join("")
+            .slice(0, 2)
+    );
+}
+
+function normalizeUnitName(unitName: string) {
+    return unitName
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR");
+}
+
+function WordMapCard({ data }: { data: ExecutiveDashboardData }) {
+    const words = data.word_map?.words ?? [];
+    const maximum = Math.max(1, ...words.map((word) => word.mentions));
+    const minimum = Math.min(maximum, ...words.map((word) => word.mentions));
+    const palette = ["#0866ff", "#1683ff", "#8b5cf6", "#0f9f94", "#d97706"];
+
+    return (
+        <Card>
+            <h2 className="text-lg font-bold">Mapa de palavras</h2>
+
+            {words.length === 0 ? (
+                <div className="flex h-[300px] items-center justify-center text-sm text-slate-400">
+                    Nenhuma palavra disponível neste período.
+                </div>
+            ) : (
+                <div className="flex min-h-[300px] flex-wrap content-center items-center justify-center gap-x-4 gap-y-3 px-3 py-6 text-center">
+                    {words.map((word, index) => {
+                        const scale =
+                            maximum === minimum
+                                ? 0.5
+                                : (word.mentions - minimum) /
+                                  (maximum - minimum);
+                        return (
+                            <span
+                                key={word.word}
+                                className="cursor-default font-bold leading-none"
+                                style={{
+                                    color: palette[index % palette.length],
+                                    fontSize: `${14 + scale * 24}px`,
+                                    opacity: 0.68 + scale * 0.32,
+                                }}
+                                title={`${word.mentions.toLocaleString("pt-BR")} citações em ${word.conversations.toLocaleString("pt-BR")} conversas`}
+                            >
+                                {word.word}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function UnitWordCorrelationCard({
+    data,
+}: {
+    data: ExecutiveDashboardData;
+}) {
+    const words = (data.word_map?.words ?? []).slice(0, 6);
+    const units = data.word_map?.by_unit ?? [];
+    const maximum = Math.max(
+        1,
+        ...units.flatMap((unit) => unit.words.map((word) => word.mentions)),
+    );
+
+    return (
+        <Card>
+            <h2 className="text-lg font-bold">Palavras por unidade</h2>
+
+            {words.length === 0 || units.length === 0 ? (
+                <div className="flex h-[300px] items-center justify-center text-sm text-slate-400">
+                    Nenhuma correlação disponível neste período.
+                </div>
+            ) : (
+                <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100">
+                    <div className="min-w-[620px]">
+                        <div
+                            className="grid items-center gap-2 bg-slate-50 px-3 py-3 text-[10px] font-bold text-slate-500"
+                            style={{
+                                gridTemplateColumns: `minmax(130px, 1.25fr) repeat(${words.length}, minmax(66px, 1fr))`,
+                            }}
+                        >
+                            <span>Unidade</span>
+                            {words.map((word) => (
+                                <span key={word.word} className="truncate text-center" title={word.word}>
+                                    {word.word}
+                                </span>
+                            ))}
+                        </div>
+
+                        {units.map((unit) => {
+                            const byWord = new Map(
+                                unit.words.map((word) => [word.word, word]),
+                            );
+                            return (
+                                <div
+                                    key={unit.unit_id ?? unit.unit_name}
+                                    className="grid items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-xs"
+                                    style={{
+                                        gridTemplateColumns: `minmax(130px, 1.25fr) repeat(${words.length}, minmax(66px, 1fr))`,
+                                    }}
+                                >
+                                    <span className="truncate font-semibold text-slate-700" title={unit.unit_name}>
+                                        {unit.unit_name}
+                                    </span>
+                                    {words.map((word) => {
+                                        const value = byWord.get(word.word)?.mentions ?? 0;
+                                        const intensity = value / maximum;
+                                        return (
+                                            <span
+                                                key={word.word}
+                                                className="rounded-lg px-2 py-2 text-center font-bold"
+                                                style={{
+                                                    backgroundColor: `rgba(22, 131, 255, ${0.06 + intensity * 0.76})`,
+                                                    color: intensity > 0.5 ? "#ffffff" : "#334155",
+                                                }}
+                                                title={`${unit.unit_name}: ${value.toLocaleString("pt-BR")} citações de “${word.word}”`}
+                                            >
+                                                {value.toLocaleString("pt-BR")}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
         </Card>
