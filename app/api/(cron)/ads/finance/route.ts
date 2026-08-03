@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 import {
+    ADS_FINANCE_SYNC_VERSION,
     syncAdsFinance,
     type AdsFinancePlatformFilter,
 } from "@/lib/ads/finance/syncAdsFinance";
@@ -31,7 +32,10 @@ export async function GET(request: Request) {
 
         return NextResponse.json(result, {
             status: result.ok ? 200 : 500,
-            headers: { "Cache-Control": "private, no-store" },
+            headers: {
+                "Cache-Control": "private, no-store",
+                "X-Ads-Finance-Sync-Version": ADS_FINANCE_SYNC_VERSION,
+            },
         });
     } catch (error) {
         console.error("[sync-ads-finance] failed", error);

@@ -1,16 +1,13 @@
 // lib/attendants/getCurrentAttendantFromRequest.ts
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerAuthClient } from "@/lib/auth/getCurrentAuthUser";
 
 export async function getCurrentAttendantFromRequest() {
-    const supabase = await createRouteSupabaseClient();
+    const supabase = await createServerAuthClient();
 
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
+    const { data, error: userError } = await supabase.auth.getClaims();
+    const claims = data?.claims ?? null;
 
-    if (userError || !user) {
+    if (userError || !claims?.sub) {
         return {
             supabase,
             user: null,
@@ -28,7 +25,7 @@ export async function getCurrentAttendantFromRequest() {
             is_online,
             auth_user_id
         `)
-        .eq("auth_user_id", user.id)
+        .eq("auth_user_id", claims.sub)
         .eq("active", true)
         .maybeSingle();
 
@@ -38,28 +35,11 @@ export async function getCurrentAttendantFromRequest() {
 
     return {
         supabase,
-        user,
+        user: {
+            id: claims.sub,
+            email:
+                typeof claims.email === "string" ? claims.email : null,
+        },
         attendant,
     };
-}
-
-async function createRouteSupabaseClient() {
-    const cookieStore = await cookies();
-
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() {
-                    return cookieStore.getAll();
-                },
-                setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        cookieStore.set(name, value, options);
-                    });
-                },
-            },
-        }
-    );
 }

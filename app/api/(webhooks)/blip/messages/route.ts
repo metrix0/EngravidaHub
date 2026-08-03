@@ -167,23 +167,34 @@ export async function POST(request: Request) {
             has_media: Boolean(parsedMessage.media),
         });
 
-        const { error: messageError } = await supabase.from("messages").insert({
-            id: randomUUID(),
-            client_id: client.id,
-            conversation_id: null,
-            thread_id: thread.id,
-            sender_type: parsedMessage.sender_type,
-            sender_name: parsedMessage.sender_name,
-            text: persistedText,
-            sent_at: parsedMessage.sent_at,
-            sequence_index: sequenceIndex,
-            external_id: parsedMessage.external_id,
-            external_contact_id: parsedMessage.external_contact_id,
-            external_thread_id: parsedMessage.external_thread_id,
-            external_attendant_id:
-                parsedMessage.external_attendant_id || parsedMessage.sender_name,
-            interactive_option_id: parsedMessage.interactive_option_id,
-        });
+        const { data: savedMessage, error: messageError } = await supabase
+            .from("messages")
+            .upsert(
+                {
+                    id: randomUUID(),
+                    client_id: client.id,
+                    conversation_id: null,
+                    thread_id: thread.id,
+                    sender_type: parsedMessage.sender_type,
+                    sender_name: parsedMessage.sender_name,
+                    text: persistedText,
+                    sent_at: parsedMessage.sent_at,
+                    sequence_index: sequenceIndex,
+                    external_id: parsedMessage.external_id,
+                    external_contact_id: parsedMessage.external_contact_id,
+                    external_thread_id: parsedMessage.external_thread_id,
+                    external_attendant_id:
+                        parsedMessage.external_attendant_id ||
+                        parsedMessage.sender_name,
+                    interactive_option_id: parsedMessage.interactive_option_id,
+                },
+                {
+                    onConflict: "external_id",
+                    ignoreDuplicates: true,
+                },
+            )
+            .select("id")
+            .maybeSingle();
 
         if (messageError) {
             if (messageError.code === "23505") {
@@ -201,6 +212,21 @@ export async function POST(request: Request) {
             }
 
             throw messageError;
+        }
+
+        if (!savedMessage && parsedMessage.external_id) {
+            console.info(
+                `[blip-webhook:${webhookRequestId}] Concurrent duplicate ignored`,
+                { external_id: parsedMessage.external_id },
+            );
+
+            return NextResponse.json({
+                ok: true,
+                received: true,
+                duplicate: true,
+                external_id: parsedMessage.external_id,
+                request_id: webhookRequestId,
+            });
         }
 
         console.info(`[blip-webhook:${webhookRequestId}] Completed successfully`, {

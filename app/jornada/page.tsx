@@ -254,20 +254,31 @@ export default function JourneyPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadFilters() {
             try {
                 const response = await fetch(
                     "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
+                    { signal: controller.signal },
                 );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros da jornada.");
+                }
                 const json: FiltersResponse = await response.json();
                 setFilters(json);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[jornada] filters failed", error);
             } finally {
-                setLoadingFilters(false);
+                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
 
         void loadFilters();
-    }, []);
+        return () => controller.abort();
+    }, [dateFilterReady]);
 
     useEffect(() => {
         if (!dateFilterReady) return;

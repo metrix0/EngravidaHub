@@ -224,15 +224,23 @@ export async function GET(request: Request) {
         filters,
     );
 
+    if (searchParams.get("section") === "word_map") {
+        const wordMap = await loadExecutiveWordMap(
+            currentParams,
+            request.signal,
+        );
+
+        return NextResponse.json(
+            { word_map: wordMap },
+            { headers: { "Cache-Control": "private, no-store" } },
+        );
+    }
+
     // The current period needs the complete executive payload. The comparison
     // period only needs KPI fields, so its smaller RPC can run alongside v3
     // without repeating the expensive chart and per-unit calculations.
     const [currentResult, previousResult] = await Promise.all([
-        runExecutiveMetricsRpc(
-            currentParams,
-            request.signal,
-            "current",
-        ),
+        runExecutiveMetricsRpc(currentParams, request.signal),
         runExecutiveComparisonRpc(previousParams, request.signal),
     ]);
 
@@ -288,7 +296,6 @@ export async function GET(request: Request) {
         previousScheduleCount,
         previousConversationCount,
         rawConversationSummary,
-        wordMap,
     ] = await Promise.all([
         loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         loadScheduleCreationEvolution(range, selectedUnitNames, request.signal),
@@ -300,7 +307,6 @@ export async function GET(request: Request) {
         ),
         loadRawConversationCount(range, filters, "previous", request.signal),
         loadRawConversationSummary(range, filters, request.signal),
-        loadExecutiveWordMap(currentParams, request.signal),
     ]);
     const currentConversationCount = rawConversationSummary.currentCount;
     const rawConversationCountsByUnit = rawConversationSummary.byUnit;
@@ -348,7 +354,7 @@ export async function GET(request: Request) {
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
-        word_map: wordMap,
+        word_map: emptyExecutiveWordMap(),
         by_unit: byUnit,
     };
 
@@ -427,22 +433,10 @@ function emptyExecutiveWordMap(): ExecutiveWordMap {
 async function runExecutiveMetricsRpc(
     params: ReturnType<typeof executiveRpcParams>,
     signal: AbortSignal,
-    period: "current" | "previous",
 ) {
-    let result = await supabase
+    return supabase
         .rpc("dashboard_executive_metrics_v3", params)
         .abortSignal(signal);
-
-    if (!signal.aborted && isStatementTimeout(result.error)) {
-        console.warn(
-            `[dashboard/executivo] ${period} metric RPC timed out; retrying once`,
-        );
-        result = await supabase
-            .rpc("dashboard_executive_metrics_v3", params)
-            .abortSignal(signal);
-    }
-
-    return result;
 }
 
 async function runExecutiveComparisonRpc(
@@ -457,15 +451,7 @@ async function runExecutiveComparisonRpc(
         return result;
     }
 
-    return runExecutiveMetricsRpc(params, signal, "previous");
-}
-
-function isStatementTimeout(error: { code?: string; message?: string } | null) {
-    return (
-        error?.code === "57014" ||
-        error?.message?.toLocaleLowerCase("pt-BR").includes("statement timeout") ===
-            true
-    );
+    return runExecutiveMetricsRpc(params, signal);
 }
 
 function isMissingRpcFunction(error: {

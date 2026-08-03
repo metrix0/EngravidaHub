@@ -37,6 +37,7 @@ import type { FiltersResponse } from "@/types";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import ClientPanel from "@/components/clientes/ClientPanel";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 
 type FunnelStage = {
     id: string;
@@ -221,11 +222,13 @@ export default function ClientesPage() {
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("always");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
-    });
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("always", CLIENTES_DATE_PRESETS);
 
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -234,63 +237,81 @@ export default function ClientesPage() {
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
+    function resetPageAndSet<T>(setter: (value: T) => void) {
+        return (value: T) => {
+            setCurrentPage(1);
+            setter(value);
+        };
+    }
+
     useEffect(() => {
         const clientId = new URLSearchParams(window.location.search).get("client_id");
         if (clientId) setSelectedClientId(clientId);
     }, []);
 
-    async function load() {
-        setLoading(true);
-
-        try {
-            const response = await fetch("/api/clientes", {
-                cache: "no-store",
-            });
-
-            const text = await response.text();
-            const data = text ? (JSON.parse(text) as ClientsResponse) : null;
-
-            if (!response.ok) {
-                console.error("[clientes] failed to load", {
-                    status: response.status,
-                    statusText: response.statusText,
-                    data,
-                });
-                return;
-            }
-
-            setClients(data?.clients ?? []);
-            setStages(data?.stages ?? []);
-            setInteractionReferenceTime(Date.now());
-        } catch (error) {
-            console.error("[clientes] unexpected load error", error);
-            setClients([]);
-            setStages([]);
-            setInteractionReferenceTime(Date.now());
-        } finally {
-            setLoading(false);
-        }
-    }
-
     useEffect(() => {
+        const controller = new AbortController();
+
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=attendants,origins,tunnels"
+                    "/api/dashboard/filters?entities=attendants,origins,tunnels",
+                    { signal: controller.signal },
                 );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros de clientes.");
+                }
                 const json: FiltersResponse = await response.json();
 
                 setFilters(json);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[clientes] filters failed", error);
             } finally {
-                setLoadingFilters(false);
+                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
 
-        loadFilters();
+        void loadFilters();
+        return () => controller.abort();
     }, []);
 
     useEffect(() => {
-        load();
+        const controller = new AbortController();
+
+        async function loadClients() {
+            try {
+                const response = await fetch("/api/clientes", {
+                    cache: "no-store",
+                    signal: controller.signal,
+                });
+                const text = await response.text();
+                const data = text
+                    ? (JSON.parse(text) as ClientsResponse)
+                    : null;
+
+                if (!response.ok) {
+                    throw new Error(
+                        "Não foi possível carregar os clientes.",
+                    );
+                }
+
+                setClients(data?.clients ?? []);
+                setStages(data?.stages ?? []);
+                setInteractionReferenceTime(Date.now());
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[clientes] unexpected load error", error);
+                setClients([]);
+                setStages([]);
+                setInteractionReferenceTime(Date.now());
+            } finally {
+                if (!controller.signal.aborted) setLoading(false);
+            }
+        }
+
+        void loadClients();
+        return () => controller.abort();
     }, []);
 
     const stageById = useMemo(() => {
@@ -356,34 +377,17 @@ export default function ClientesPage() {
 
     const totalClients = filteredClients.length;
 
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [
-        search,
-        stageValues,
-        sourceValues,
-        tunnelValues,
-        period,
-        selectedRange.start,
-        selectedRange.end,
-    ]);
-
     const totalPages = Math.max(
         1,
         Math.ceil(filteredClients.length / CLIENTS_PER_PAGE),
     );
-
-    useEffect(() => {
-        if (currentPage > totalPages) {
-            setCurrentPage(totalPages);
-        }
-    }, [currentPage, totalPages]);
+    const visiblePage = Math.min(currentPage, totalPages);
 
     const paginatedClients = useMemo(() => {
-        const start = (currentPage - 1) * CLIENTS_PER_PAGE;
+        const start = (visiblePage - 1) * CLIENTS_PER_PAGE;
         const end = start + CLIENTS_PER_PAGE;
         return filteredClients.slice(start, end);
-    }, [filteredClients, currentPage]);
+    }, [filteredClients, visiblePage]);
 
     const paginatedClientRows = useMemo(() => {
         return paginatedClients.map((client) => ({
@@ -395,10 +399,10 @@ export default function ClientesPage() {
     }, [paginatedClients, stageById]);
 
     const pageStart =
-        filteredClients.length === 0 ? 0 : (currentPage - 1) * CLIENTS_PER_PAGE + 1;
+        filteredClients.length === 0 ? 0 : (visiblePage - 1) * CLIENTS_PER_PAGE + 1;
 
     const pageEnd = Math.min(
-        currentPage * CLIENTS_PER_PAGE,
+        visiblePage * CLIENTS_PER_PAGE,
         filteredClients.length,
     );
 
@@ -508,10 +512,12 @@ export default function ClientesPage() {
                     title="Clientes"
                     description="Visualize e gerencie todos os clientes do CRM"
                     period={period}
-                    setPeriod={setPeriod}
+                    setPeriod={resetPageAndSet(setPeriod)}
                     selectedRange={selectedRange}
-                    setSelectedRange={setSelectedRange}
+                    setSelectedRange={resetPageAndSet(setSelectedRange)}
                     presets={CLIENTES_DATE_PRESETS}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
@@ -520,9 +526,9 @@ export default function ClientesPage() {
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
                         originValues={sourceValues}
-                        setOriginValues={setSourceValues}
+                        setOriginValues={resetPageAndSet(setSourceValues)}
                         tunnelValues={tunnelValues}
-                        setTunnelValues={setTunnelValues}
+                        setTunnelValues={resetPageAndSet(setTunnelValues)}
                         show={{
                             units: false,
                             attendants: true,
@@ -540,7 +546,7 @@ export default function ClientesPage() {
                         icon={<Filter size={16} />}
                         label="Todos os estágios"
                         values={stageValues}
-                        onChange={setStageValues}
+                        onChange={resetPageAndSet(setStageValues)}
                         options={stages.map((stage) => ({
                             label: stage.name,
                             value: stage.id,
@@ -598,7 +604,7 @@ export default function ClientesPage() {
                         title="Clientes"
                         count={totalClients}
                         searchValue={search}
-                        onSearchChange={setSearch}
+                        onSearchChange={resetPageAndSet(setSearch)}
                         searchPlaceholder="Buscar por cliente ou telefone..."
                     >
                         <AdvancedFilterButton
@@ -607,7 +613,7 @@ export default function ClientesPage() {
                                     id: "stage",
                                     title: "Estágio",
                                     values: stageValues,
-                                    onChange: setStageValues,
+                                    onChange: resetPageAndSet(setStageValues),
                                     options: stages.map((stage) => ({
                                         label: stage.name,
                                         value: stage.id,
@@ -617,14 +623,14 @@ export default function ClientesPage() {
                                     id: "source",
                                     title: "Origem",
                                     values: sourceValues,
-                                    onChange: setSourceValues,
+                                    onChange: resetPageAndSet(setSourceValues),
                                     options: filters?.origins ?? [],
                                 },
                                 {
                                     id: "tunnel",
                                     title: "Túnel",
                                     values: tunnelValues,
-                                    onChange: setTunnelValues,
+                                    onChange: resetPageAndSet(setTunnelValues),
                                     options: filters?.tunnels ?? [],
                                 },
                             ]}
@@ -646,7 +652,7 @@ export default function ClientesPage() {
 
                             <Pagination
                                 totalPages={totalPages}
-                                currentPage={currentPage}
+                                currentPage={visiblePage}
                                 onPageChange={setCurrentPage}
                             />
                         </div>

@@ -27,8 +27,8 @@ import {
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
 const MAX_PIPELINE_ROWS = 50_000;
-const CLINISYS_QUERY_CONCURRENCY = 3;
-const CONVERSATION_PAGE_CONCURRENCY = 4;
+const CLINISYS_QUERY_CONCURRENCY = 2;
+const CONVERSATION_PAGE_CONCURRENCY = 2;
 
 type JourneyAttributionEvidence =
     | PaidMediaAttributionEvidence
@@ -148,9 +148,14 @@ type WhatsappConversationRow = {
     client_id: string | null;
     started_at: string;
     origin: string | null;
+    tunnel: string | null;
+    unit_id: string | null;
+    service_id: string | null;
+    attendant_id: string | null;
 };
 
 type PipelineClientOriginRow = {
+    unit_id: string | null;
     last_origin: string | null;
     utm_source: string | null;
     utm_medium: string | null;
@@ -164,6 +169,21 @@ type PipelineClientOriginRow = {
     fbc: string | null;
     ctwa_clid: string | null;
     tracking_updated_at: string | null;
+};
+
+type JourneyAnalysisRow = {
+    conversation_id: string;
+    started_at: string;
+    unit_id: string | null;
+    service_id: string | null;
+    attendant_id: string | null;
+    outcome_events: unknown;
+    objections: unknown;
+    dropoff_happened: boolean | null;
+    dropoff_moment: string | null;
+    customer_start_intent: string | null;
+    resolution_result: string | null;
+    resolution_reasoning_category: string | null;
 };
 
 type WhatsappConversationSourceRow = WhatsappConversationRow & {
@@ -264,67 +284,512 @@ export async function GET(request: Request) {
     const range = resolveDashboardDateRange(searchParams);
     const filters = readDashboardFilters(searchParams);
 
-    const [canonicalResult, fullPipeline] = await Promise.all([
-        supabase
-            .rpc(
-                "dashboard_journey_metrics_v2",
-                executiveRpcParams(
-                    { startAt: range.startAt, endAt: range.endAt },
-                    filters,
-                ),
-            )
-            .abortSignal(request.signal),
-        loadFullJourneyPipeline(range, filters, request.signal).catch(
-            (error) => {
-                console.error(
-                    "[dashboard/jornada] full pipeline failed",
-                    error,
-                );
-                return emptyFullJourneyPipeline(
-                    range,
-                    filters,
+    try {
+        // Load each source once. The previous implementation ran a large JSON
+        // aggregate RPC while independently downloading the same conversation
+        // cohort for the pipeline; under load those two scans timed each other
+        // out. The in-memory aggregate below mirrors that RPC's rules exactly.
+        const startDate = range.startDate ?? saoPauloDate(range.startAt);
+        const endDate =
+            range.endDate ??
+            saoPauloDate(
+                new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+            );
+        const [paidMedia, whatsappData, analysisRows] = await Promise.all([
+            loadPaidMediaTotals(startDate, endDate, request.signal),
+            loadPaidWhatsappConversations(range, filters, request.signal),
+            loadJourneyAnalysisRows(range, request.signal),
+        ]);
+        const payload = buildJourneyConversationMetrics({
+            conversations: whatsappData.rows,
+            analyses: analysisRows,
+            filters,
+        });
+        const fullPipeline = await loadFullJourneyPipeline(
+            range,
+            filters,
+            request.signal,
+            paidMedia,
+            whatsappData,
+        ).catch((error) => {
+            console.error("[dashboard/jornada] full pipeline failed", error);
+            return emptyFullJourneyPipeline(
+                range,
+                filters,
+                error instanceof Error
+                    ? error.message
+                    : "Falha ao carregar a jornada completa.",
+            );
+        });
+
+        return NextResponse.json(
+            {
+                full_pipeline: fullPipeline,
+                journey_funnel: payload.journey_funnel,
+                dropoff_moments: payload.dropoff_moments,
+                intent_paths: payload.intent_paths,
+                objections: payload.objections,
+                audit: payload.audit,
+            },
+            {
+                headers: {
+                    "Cache-Control": "private, no-store",
+                },
+            },
+        );
+    } catch (error) {
+        if (request.signal.aborted) {
+            return new NextResponse(null, { status: 499 });
+        }
+        console.error("[dashboard/jornada] GET failed", error);
+        return NextResponse.json(
+            {
+                error:
                     error instanceof Error
                         ? error.message
-                        : "Falha ao carregar a jornada completa.",
-                );
+                        : "Falha ao carregar a jornada.",
             },
-        ),
-    ]);
-
-    if (canonicalResult.error) {
-        console.error(
-            "[dashboard/jornada] canonical metric RPC failed",
-            canonicalResult.error,
-        );
-        return NextResponse.json(
-            { error: canonicalResult.error.message },
             { status: 500 },
         );
     }
+}
 
-    const payload = asObject(canonicalResult.data);
+async function loadJourneyAnalysisRows(
+    range: DashboardDateRange,
+    signal: AbortSignal,
+) {
+    const rows: JourneyAnalysisRow[] = [];
 
-    return NextResponse.json(
-        {
-            full_pipeline: fullPipeline,
-            journey_funnel: arrayOrEmpty(payload.journey_funnel),
-            dropoff_moments: arrayOrEmpty(payload.dropoff_moments),
-            intent_paths: arrayOrEmpty(payload.intent_paths),
-            objections: arrayOrEmpty(payload.objections),
-            audit: payload.audit ?? null,
-        },
-        {
-            headers: {
-                "Cache-Control": "private, no-store",
-            },
-        },
+    async function loadPage(from: number) {
+        const { data, error } = await supabase
+            .from("conversation_analysis")
+            .select(
+                "conversation_id, started_at, unit_id, service_id, attendant_id, outcome_events, objections, dropoff_happened, dropoff_moment, customer_start_intent, resolution_result, resolution_reasoning_category",
+            )
+            .gte("started_at", range.startAt)
+            .lt("started_at", range.endAt)
+            .order("started_at", { ascending: true })
+            .order("conversation_id", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+            .abortSignal(signal);
+
+        if (error) throw error;
+        return (data ?? []) as JourneyAnalysisRow[];
+    }
+
+    const firstPage = await loadPage(0);
+    rows.push(...firstPage);
+
+    if (firstPage.length === PAGE_SIZE) {
+        for (
+            let from = PAGE_SIZE;
+            from < MAX_PIPELINE_ROWS;
+            from += PAGE_SIZE * CONVERSATION_PAGE_CONCURRENCY
+        ) {
+            const offsets = Array.from(
+                { length: CONVERSATION_PAGE_CONCURRENCY },
+                (_, index) => from + index * PAGE_SIZE,
+            ).filter((offset) => offset < MAX_PIPELINE_ROWS);
+            const pages = await Promise.all(offsets.map(loadPage));
+
+            for (const page of pages) rows.push(...page);
+            if (pages.some((page) => page.length < PAGE_SIZE)) break;
+        }
+    }
+
+    return rows;
+}
+
+function buildJourneyConversationMetrics({
+    conversations,
+    analyses,
+    filters,
+}: {
+    conversations: WhatsappConversationSourceRow[];
+    analyses: JourneyAnalysisRow[];
+    filters: DashboardFilters;
+}) {
+    const conversationById = new Map(
+        conversations.map((conversation) => [conversation.id, conversation]),
     );
+    const base = analyses.flatMap((analysis) => {
+        const conversation = conversationById.get(analysis.conversation_id);
+        if (!conversation) return [];
+
+        const client = Array.isArray(conversation.clients)
+            ? conversation.clients[0]
+            : conversation.clients;
+        const effectiveUnitId =
+            client?.unit_id ?? conversation.unit_id ?? analysis.unit_id;
+        const effectiveServiceId =
+            conversation.service_id ?? analysis.service_id;
+        const effectiveAttendantId =
+            conversation.attendant_id ?? analysis.attendant_id;
+
+        if (
+            filters.unitIds.length > 0 &&
+            !filters.unitIds.includes(effectiveUnitId ?? "")
+        ) {
+            return [];
+        }
+        if (
+            filters.serviceIds.length > 0 &&
+            !filters.serviceIds.includes(effectiveServiceId ?? "")
+        ) {
+            return [];
+        }
+        if (
+            filters.attendantIds.length > 0 &&
+            !filters.attendantIds.includes(effectiveAttendantId ?? "")
+        ) {
+            return [];
+        }
+        if (
+            filters.tunnels.length > 0 &&
+            !filters.tunnels.includes(
+                conversation.tunnel?.trim() || "__NULL__",
+            )
+        ) {
+            return [];
+        }
+        if (
+            filters.origins.length > 0 &&
+            !filters.origins.includes(
+                conversation.origin?.trim() || "__NULL__",
+            )
+        ) {
+            return [];
+        }
+
+        return [
+            {
+                conversationId: analysis.conversation_id,
+                clientKey:
+                    conversation.client_id ??
+                    `conversation:${conversation.id}`,
+                startedAt: analysis.started_at,
+                outcomeEvents: arrayOrEmpty(analysis.outcome_events),
+                objections: arrayOrEmpty(analysis.objections),
+                dropoffHappened: analysis.dropoff_happened === true,
+                dropoffMoment: analysis.dropoff_moment,
+                customerStartIntent: analysis.customer_start_intent ?? "other",
+                resolutionResult: analysis.resolution_result,
+                resolutionReasoningCategory:
+                    analysis.resolution_reasoning_category,
+            },
+        ];
+    });
+
+    const eventsByClient = new Map<
+        string,
+        Array<{ type: string; eventAt: number }>
+    >();
+    for (const row of base) {
+        const events = eventsByClient.get(row.clientKey) ?? [];
+        for (const rawEvent of row.outcomeEvents) {
+            const event = asObject(rawEvent);
+            const type =
+                typeof event.type === "string" ? event.type.trim() : "";
+            if (!type) continue;
+
+            const rawEventAt =
+                typeof event.event_at === "string" ? event.event_at : "";
+            const parsedEventAt = /^\d{4}-\d{2}-\d{2}T/.test(rawEventAt)
+                ? new Date(rawEventAt).getTime()
+                : Number.NaN;
+            events.push({
+                type,
+                eventAt: Number.isFinite(parsedEventAt)
+                    ? parsedEventAt
+                    : new Date(row.startedAt).getTime(),
+            });
+        }
+        eventsByClient.set(row.clientKey, events);
+    }
+
+    const requested = firstStage(eventsByClient, ["information_requested"]);
+    const answered = nextStage(eventsByClient, requested, [
+        "information_answered",
+    ]);
+    const priced = nextStage(eventsByClient, answered, ["price_presented"]);
+    const offered = nextStage(eventsByClient, priced, [
+        "consultation_offered",
+    ]);
+    const scheduled = nextStage(eventsByClient, offered, [
+        "appointment_scheduled",
+        "appointment_rescheduled",
+        "attendance_confirmed",
+    ]);
+    const started = new Set(base.map((row) => row.clientKey)).size;
+
+    const journeyFunnel = [
+        funnelStage("started", "Iniciou conversa", started, started, started, "#ddd6fe"),
+        funnelStage(
+            "information_requested",
+            "Pediu informação",
+            requested.size,
+            started,
+            started,
+            "#bbf7d0",
+        ),
+        funnelStage(
+            "information_answered",
+            "Informação respondida",
+            answered.size,
+            started,
+            requested.size,
+            "#bfdbfe",
+        ),
+        funnelStage(
+            "price_presented",
+            "Preço apresentado",
+            priced.size,
+            started,
+            answered.size,
+            "#c4b5fd",
+        ),
+        funnelStage(
+            "consultation_offered",
+            "Consulta oferecida",
+            offered.size,
+            started,
+            priced.size,
+            "#fed7aa",
+        ),
+        funnelStage(
+            "appointment_scheduled",
+            "Agendamento realizado",
+            scheduled.size,
+            started,
+            offered.size,
+            "#fbcfe8",
+        ),
+    ];
+
+    const dropoffCounts = new Map<string, number>();
+    const intentCounts = new Map<
+        string,
+        { resolved: number; partial: number; notResolved: number; abandoned: number }
+    >();
+    const objectionConversations = new Map<string, Set<string>>();
+    const conversationsWithObjections = new Set<string>();
+
+    for (const row of base) {
+        if (row.dropoffHappened && row.dropoffMoment) {
+            dropoffCounts.set(
+                row.dropoffMoment,
+                (dropoffCounts.get(row.dropoffMoment) ?? 0) + 1,
+            );
+        }
+
+        const abandoned =
+            row.dropoffHappened ||
+            row.resolutionReasoningCategory === "customer_abandoned";
+        const intent = intentCounts.get(row.customerStartIntent) ?? {
+            resolved: 0,
+            partial: 0,
+            notResolved: 0,
+            abandoned: 0,
+        };
+        if (abandoned) intent.abandoned += 1;
+        if (!abandoned && row.resolutionResult === "resolved") {
+            intent.resolved += 1;
+        }
+        if (
+            !abandoned &&
+            row.resolutionResult !== null &&
+            row.resolutionResult !== "resolved"
+        ) {
+            intent.partial += 1;
+        }
+        if (!abandoned && row.resolutionResult === "not_resolved") {
+            intent.notResolved += 1;
+        }
+        intentCounts.set(row.customerStartIntent, intent);
+
+        const uniqueTypes = new Set(
+            row.objections
+                .map((value) => asObject(value))
+                .map((value) =>
+                    typeof value.type === "string" ? value.type.trim() : "",
+                )
+                .filter(Boolean),
+        );
+        for (const type of uniqueTypes) {
+            conversationsWithObjections.add(row.conversationId);
+            const conversationIds = objectionConversations.get(type) ?? new Set();
+            conversationIds.add(row.conversationId);
+            objectionConversations.set(type, conversationIds);
+        }
+    }
+
+    const totalDropoffs = [...dropoffCounts.values()].reduce(
+        (sum, value) => sum + value,
+        0,
+    );
+    const dropoffMoments = [...dropoffCounts]
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 5)
+        .map(([moment, count]) => ({
+            moment,
+            label: dropoffLabel(moment),
+            count,
+            percentage: integerPercentage(count, totalDropoffs),
+        }));
+    const intentPaths = [...intentCounts]
+        .map(([intent, counts]) => ({
+            intent: intentLabel(intent),
+            resolved: counts.resolved,
+            partial: counts.partial,
+            not_resolved: counts.notResolved,
+            abandoned: counts.abandoned,
+        }))
+        .sort(
+            (left, right) =>
+                right.resolved +
+                right.partial +
+                right.not_resolved +
+                right.abandoned -
+                (left.resolved +
+                    left.partial +
+                    left.not_resolved +
+                    left.abandoned),
+        );
+    const objections = [...objectionConversations]
+        .map(([type, conversationIds]) => ({
+            type,
+            label: objectionLabel(type),
+            value: conversationIds.size,
+            percentage: integerPercentage(
+                conversationIds.size,
+                conversationsWithObjections.size,
+            ),
+        }))
+        .sort((left, right) => right.value - left.value);
+
+    return {
+        journey_funnel: journeyFunnel,
+        dropoff_moments: dropoffMoments,
+        intent_paths: intentPaths,
+        objections,
+        audit: {
+            conversations: base.length,
+            clients: started,
+            conversations_with_objections: conversationsWithObjections.size,
+        },
+    };
+}
+
+function firstStage(
+    eventsByClient: Map<string, Array<{ type: string; eventAt: number }>>,
+    eventTypes: string[],
+) {
+    const accepted = new Set(eventTypes);
+    const result = new Map<string, number>();
+
+    for (const [clientKey, events] of eventsByClient) {
+        const times = events
+            .filter((event) => accepted.has(event.type))
+            .map((event) => event.eventAt);
+        if (times.length > 0) result.set(clientKey, Math.min(...times));
+    }
+
+    return result;
+}
+
+function nextStage(
+    eventsByClient: Map<string, Array<{ type: string; eventAt: number }>>,
+    previousStage: Map<string, number>,
+    eventTypes: string[],
+) {
+    const accepted = new Set(eventTypes);
+    const result = new Map<string, number>();
+
+    for (const [clientKey, previousAt] of previousStage) {
+        const times = (eventsByClient.get(clientKey) ?? [])
+            .filter(
+                (event) =>
+                    accepted.has(event.type) && event.eventAt >= previousAt,
+            )
+            .map((event) => event.eventAt);
+        if (times.length > 0) result.set(clientKey, Math.min(...times));
+    }
+
+    return result;
+}
+
+function funnelStage(
+    key: string,
+    name: string,
+    value: number,
+    started: number,
+    previous: number,
+    fill: string,
+) {
+    return {
+        key,
+        name,
+        value,
+        percentage: integerPercentage(value, started),
+        relative_percentage: integerPercentage(value, previous),
+        fill,
+    };
+}
+
+function integerPercentage(value: number, total: number) {
+    return total > 0 ? Math.round((value * 100) / total) : null;
+}
+
+function dropoffLabel(moment: string) {
+    const labels: Record<string, string> = {
+        after_price: "Após preço",
+        after_consultation_online: "Após apresentação da consulta online",
+        after_unit_presented: "Após unidade apresentada",
+        after_schedule_options: "Após opções de agendamento",
+        after_payment_info: "Após informação de pagamento",
+        after_medical_question: "Após pergunta médica",
+        after_delay: "Após demora no atendimento",
+    };
+    return labels[moment] ?? "Desconhecido";
+}
+
+function intentLabel(intent: string) {
+    const labels: Record<string, string> = {
+        information: "Informação",
+        schedule: "Agendamento",
+        reschedule: "Reagendamento",
+        confirmation: "Confirmação",
+        price: "Preço",
+        treatment: "Tratamento",
+    };
+    return (
+        labels[intent] ??
+        intent
+            .replace(/_/g, " ")
+            .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase("pt-BR"))
+    );
+}
+
+function objectionLabel(type: string) {
+    const labels: Record<string, string> = {
+        price: "Preço",
+        distance: "Distância",
+        online_consultation: "Consulta online",
+        time_availability: "Disponibilidade de horário",
+        trust: "Confiança",
+        medical_uncertainty: "Incerteza médica",
+        partner_or_family: "Parceiro ou família",
+        already_treating_elsewhere: "Tratamento em outro local",
+    };
+    return labels[type] ?? "Outra";
 }
 
 async function loadFullJourneyPipeline(
     range: DashboardDateRange,
     filters: DashboardFilters,
     signal: AbortSignal,
+    paidMedia: PaidMediaTotals,
+    whatsappData: Awaited<ReturnType<typeof loadPaidWhatsappConversations>>,
 ): Promise<FullJourneyPipeline> {
     const startDate = range.startDate ?? saoPauloDate(range.startAt);
     const endDate =
@@ -332,10 +797,6 @@ async function loadFullJourneyPipeline(
         saoPauloDate(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
-    const [paidMedia, whatsappData] = await Promise.all([
-        loadPaidMediaTotals(startDate, endDate, signal),
-        loadPaidWhatsappConversations(range, filters, signal),
-    ]);
     const whatsappEntries = whatsappData.paidEntries;
     const cohort = new Map<string, PaidWhatsappCohortEntry>();
 
@@ -628,10 +1089,10 @@ async function loadPaidWhatsappConversations(
         loadTintimConversationAttribution(range, filters, signal);
 
     async function loadPage(from: number) {
-        let query = supabase
+        const query = supabase
             .from("conversations")
             .select(
-                "id, thread_id, client_id, started_at, origin, clients!conversations_client_id_fkey(last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
+                "id, thread_id, client_id, started_at, origin, tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
             .eq("channel", "WhatsApp")
             .gte("started_at", range.startAt)
@@ -640,18 +1101,6 @@ async function loadPaidWhatsappConversations(
             .order("id", { ascending: true })
             .range(from, from + PAGE_SIZE - 1);
 
-        if (filters.unitIds.length > 0) {
-            query = query.in("unit_id", filters.unitIds);
-        }
-        if (filters.serviceIds.length > 0) {
-            query = query.in("service_id", filters.serviceIds);
-        }
-        if (filters.attendantIds.length > 0) {
-            query = query.in("attendant_id", filters.attendantIds);
-        }
-        if (filters.tunnels.length > 0) {
-            query = query.in("tunnel", filters.tunnels);
-        }
         const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
 
@@ -691,6 +1140,33 @@ async function loadPaidWhatsappConversations(
         const client = Array.isArray(conversation.clients)
             ? conversation.clients[0]
             : conversation.clients;
+
+        if (
+            filters.unitIds.length > 0 &&
+            !filters.unitIds.includes(conversation.unit_id ?? "")
+        ) {
+            continue;
+        }
+        if (
+            filters.serviceIds.length > 0 &&
+            !filters.serviceIds.includes(conversation.service_id ?? "")
+        ) {
+            continue;
+        }
+        if (
+            filters.attendantIds.length > 0 &&
+            !filters.attendantIds.includes(conversation.attendant_id ?? "")
+        ) {
+            continue;
+        }
+        if (
+            filters.tunnels.length > 0 &&
+            !filters.tunnels.includes(
+                conversation.tunnel?.trim() || "__NULL__",
+            )
+        ) {
+            continue;
+        }
         const directPlatform =
             paidMediaPlatformFromOrigin(conversationOrigin) ??
             paidMediaPlatformFromTintimSource(conversationOrigin);
@@ -787,6 +1263,7 @@ async function loadPaidWhatsappConversations(
     }
 
     return {
+        rows,
         paidEntries,
         coverage: buildWhatsappCoverage(coverageByConversation),
     };

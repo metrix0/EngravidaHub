@@ -76,11 +76,19 @@ export async function withSupabaseRetry<
 export function isTransientSupabaseError(error: unknown) {
     const text = supabaseErrorText(error);
 
-    return (
+    // A PostgreSQL statement timeout means the query itself exceeded its
+    // budget. Retrying it immediately multiplies the same expensive work and
+    // makes contention worse for every other page. Only transport-level
+    // failures are retried here.
+    if (
         errorCode(error) === "57014" ||
-        /ResponseAborted|UND_ERR_RES_ABORTED|UND_ERR|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|network connection|connection terminated|statement timeout|canceling statement|HTTP 5(?:02|03|04|20|21|22|23|24|25|26|27)/i.test(
-            text,
-        )
+        /statement timeout|canceling statement/i.test(text)
+    ) {
+        return false;
+    }
+
+    return /ResponseAborted|UND_ERR_RES_ABORTED|UND_ERR|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|network connection|connection terminated|HTTP 5(?:02|03|04|20|21|22|23|24|25|26|27)/i.test(
+        text,
     );
 }
 

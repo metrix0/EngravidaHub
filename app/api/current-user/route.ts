@@ -1,9 +1,8 @@
 // app/api/current-user/route.ts
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 
 import { supabase as adminSupabase } from "@/lib";
+import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import { normalizeAllowedTabs } from "@/lib/auth/userAccess";
 
 type UserPermissionRow = {
@@ -15,17 +14,12 @@ type UserPermissionRow = {
 };
 
 export async function GET() {
-    const supabase = await createRouteSupabaseClient();
-
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
+    const user = await getCurrentAuthUser();
 
     // Having no session is an expected application state, not an API failure.
     // Returning 200 prevents noisy 401 errors in the browser; the client guard
     // is responsible for redirecting unauthenticated users to /login.
-    if (userError || !user) {
+    if (!user) {
         return NextResponse.json({
             ok: true,
             user: null,
@@ -84,25 +78,4 @@ function getMetadataString(
     const value = metadata[key];
 
     return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-async function createRouteSupabaseClient() {
-    const cookieStore = await cookies();
-
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() {
-                    return cookieStore.getAll();
-                },
-                setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        cookieStore.set(name, value, options);
-                    });
-                },
-            },
-        },
-    );
 }

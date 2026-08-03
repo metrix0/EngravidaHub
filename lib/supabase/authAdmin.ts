@@ -85,27 +85,22 @@ async function fetchAuthUsers({
         headers.set("Authorization", `Bearer ${adminKey}`);
     }
 
-    let lastError: Error | null = null;
+    const response = await fetch(url, {
+        headers,
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+    });
+    const body = await readJson(response);
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        const response = await fetch(url, {
-            headers,
-            cache: "no-store",
-        });
-        const body = await readJson(response);
-
-        if (response.ok && Array.isArray(body.users)) {
-            return body.users as User[];
-        }
-
-        lastError = new Error(
-            response.ok
-                ? "Supabase Auth Admin returned an invalid user list"
-                : readAuthAdminError(body, response.status),
-        );
+    if (response.ok && Array.isArray(body.users)) {
+        return body.users as User[];
     }
 
-    throw lastError ?? new Error("Supabase Auth Admin request failed");
+    throw new Error(
+        response.ok
+            ? "Supabase Auth Admin returned an invalid user list"
+            : readAuthAdminError(body, response.status),
+    );
 }
 
 async function readJson(response: Response): Promise<AuthUsersResponse> {

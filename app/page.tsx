@@ -59,6 +59,7 @@ export default function ExecutiveDashboardPage() {
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
+    const [wordMapLoading, setWordMapLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const {
         period,
@@ -70,16 +71,27 @@ export default function ExecutiveDashboardPage() {
 
     useEffect(() => {
         if (!dateFilterReady) return;
+        const controller = new AbortController();
 
         async function loadFilters() {
-            const response = await fetch(
-                "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
-            );
-            const json: FiltersResponse = await response.json();
-            setFilters(json);
+            try {
+                const response = await fetch(
+                    "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
+                    { signal: controller.signal },
+                );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros do dashboard.");
+                }
+                const json: FiltersResponse = await response.json();
+                setFilters(json);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[dashboard] filters failed", error);
+            }
         }
 
         void loadFilters();
+        return () => controller.abort();
     }, [dateFilterReady]);
 
     useEffect(() => {
@@ -122,6 +134,8 @@ export default function ExecutiveDashboardPage() {
 
                 hasDataRef.current = true;
                 setData(json);
+                setWordMapLoading(true);
+                void loadWordMap(params);
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[dashboard] load failed", error);
@@ -130,6 +144,36 @@ export default function ExecutiveDashboardPage() {
                     setLoading(false);
                     setIsRefreshing(false);
                 }
+            }
+        }
+
+        async function loadWordMap(params: URLSearchParams) {
+            const wordParams = new URLSearchParams(params);
+            wordParams.set("section", "word_map");
+
+            try {
+                const response = await fetch(
+                    `/api/dashboard/executivo?${wordParams.toString()}`,
+                    {
+                        cache: "no-store",
+                        signal: controller.signal,
+                    },
+                );
+                const json = (await response.json()) as {
+                    word_map?: ExecutiveDashboardData["word_map"];
+                };
+                if (!response.ok || !json.word_map) return;
+
+                setData((current) =>
+                    current
+                        ? { ...current, word_map: json.word_map! }
+                        : current,
+                );
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[dashboard] word map failed", error);
+            } finally {
+                if (!controller.signal.aborted) setWordMapLoading(false);
             }
         }
 
@@ -359,8 +403,14 @@ export default function ExecutiveDashboardPage() {
                         </section>
 
                         <section className="mt-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
-                            <WordMapCard data={data} />
-                            <UnitWordCorrelationCard data={data} />
+                            <WordMapCard
+                                data={data}
+                                loading={wordMapLoading}
+                            />
+                            <UnitWordCorrelationCard
+                                data={data}
+                                loading={wordMapLoading}
+                            />
                         </section>
                     </div>
                 )}
@@ -936,7 +986,13 @@ function normalizeUnitName(unitName: string) {
         .toLocaleLowerCase("pt-BR");
 }
 
-function WordMapCard({ data }: { data: ExecutiveDashboardData }) {
+function WordMapCard({
+    data,
+    loading,
+}: {
+    data: ExecutiveDashboardData;
+    loading: boolean;
+}) {
     const words = data.word_map?.words ?? [];
     const maximum = Math.max(1, ...words.map((word) => word.mentions));
     const minimum = Math.min(maximum, ...words.map((word) => word.mentions));
@@ -946,7 +1002,9 @@ function WordMapCard({ data }: { data: ExecutiveDashboardData }) {
         <Card>
             <h2 className="text-lg font-bold">Mapa de palavras</h2>
 
-            {words.length === 0 ? (
+            {loading ? (
+                <Skeleton className="mt-5 h-[300px] w-full rounded-2xl" />
+            ) : words.length === 0 ? (
                 <div className="flex h-[300px] items-center justify-center text-sm text-slate-400">
                     Nenhuma palavra disponível neste período.
                 </div>
@@ -981,8 +1039,10 @@ function WordMapCard({ data }: { data: ExecutiveDashboardData }) {
 
 function UnitWordCorrelationCard({
     data,
+    loading,
 }: {
     data: ExecutiveDashboardData;
+    loading: boolean;
 }) {
     const words = (data.word_map?.words ?? []).slice(0, 6);
     const units = data.word_map?.by_unit ?? [];
@@ -995,7 +1055,9 @@ function UnitWordCorrelationCard({
         <Card>
             <h2 className="text-lg font-bold">Palavras por unidade</h2>
 
-            {words.length === 0 || units.length === 0 ? (
+            {loading ? (
+                <Skeleton className="mt-5 h-[300px] w-full rounded-2xl" />
+            ) : words.length === 0 || units.length === 0 ? (
                 <div className="flex h-[300px] items-center justify-center text-sm text-slate-400">
                     Nenhuma correlação disponível neste período.
                 </div>

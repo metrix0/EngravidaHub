@@ -4,12 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib";
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import {
+    getInternalConversationSummaries,
     getInternalChatUserById,
-    getInternalChatUsers,
-    getPeerUserId,
     makeParticipantKey,
 } from "@/lib/internal-chat/internalChatServer";
-import type { InternalConversationSummary } from "@/types/internalChat";
 
 export async function GET() {
     try {
@@ -22,58 +20,7 @@ export async function GET() {
             );
         }
 
-        const { data: conversations, error: conversationsError } = await supabase
-            .from("internal_conversations")
-            .select("*")
-            .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
-            .order("last_message_at", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false });
-
-        if (conversationsError) throw conversationsError;
-
-        const rows = conversations ?? [];
-        const conversationIds = rows.map((row) => row.id);
-        const allUsers = await getInternalChatUsers();
-        const usersById = new Map(allUsers.map((item) => [item.id, item]));
-
-        let unreadCounts = new Map<string, number>();
-
-        if (conversationIds.length > 0) {
-            const { data: unreadMessages, error: unreadError } = await supabase
-                .from("internal_messages")
-                .select("conversation_id")
-                .in("conversation_id", conversationIds)
-                .neq("sender_auth_user_id", user.id)
-                .is("read_at", null);
-
-            if (unreadError) throw unreadError;
-
-            unreadCounts = new Map<string, number>();
-            for (const message of unreadMessages ?? []) {
-                unreadCounts.set(
-                    message.conversation_id,
-                    (unreadCounts.get(message.conversation_id) ?? 0) + 1,
-                );
-            }
-        }
-
-        const summaries = rows
-            .map((conversation) => {
-                const peerId = getPeerUserId(conversation, user.id);
-                const peer = usersById.get(peerId);
-                if (!peer) return null;
-
-                return {
-                    id: conversation.id,
-                    peer,
-                    last_message_text: conversation.last_message_text,
-                    last_message_at: conversation.last_message_at,
-                    unread_count: unreadCounts.get(conversation.id) ?? 0,
-                    created_at: conversation.created_at,
-                    updated_at: conversation.updated_at,
-                } satisfies InternalConversationSummary;
-            })
-            .filter((item): item is InternalConversationSummary => Boolean(item));
+        const summaries = await getInternalConversationSummaries(user.id);
 
         return NextResponse.json({ conversations: summaries });
     } catch (error) {

@@ -5,6 +5,8 @@ import Image from "next/image";
 import { Download, FileAudio, FileText } from "lucide-react";
 import { useState } from "react";
 
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
+
 export type SharedChatMessage = {
     id: string;
     text: string;
@@ -22,6 +24,7 @@ export type SharedChatMessage = {
 
 type ChatMessageBubbleProps = {
     message: SharedChatMessage;
+    attachmentAccess?: "inbox" | "conversation";
 };
 
 type MessageAttachment = {
@@ -30,6 +33,7 @@ type MessageAttachment = {
     name: string;
     mimeType: string;
     size: number | null;
+    imageHint: boolean;
 };
 
 const LEGACY_ATTACHMENT_MARKER = "\n::engravida-attachment::";
@@ -37,10 +41,11 @@ const ATTACHMENT_METADATA_PREFIX = "engravida-attachment:";
 const TAG_CHARACTER_PATTERN = /[\u{E0020}-\u{E007E}]+\u{E007F}/u;
 const LEGACY_MEDIA_PATTERN =
     /^\[(Imagem|Vídeo|Áudio|Arquivo) enviado\](?:\s+([\s\S]+))?$/i;
-const PRESERVED_MESSAGE_PATTERN = /^\[Mensagem preservada:/i;
-
-export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
-    if (PRESERVED_MESSAGE_PATTERN.test(message.text.trim())) return null;
+export function ChatMessageBubble({
+    message,
+    attachmentAccess = "inbox",
+}: ChatMessageBubbleProps) {
+    if (isPreservedMessageText(message.text)) return null;
 
     const isAttendant = isAttendantMessage(message);
     const senderLabel = getSenderLabel(message, isAttendant);
@@ -50,7 +55,7 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
     return (
         <div className={`flex ${isAttendant ? "justify-end" : "justify-start"}`}>
             <div
-                className={`max-w-[min(72%,520px)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                className={`min-w-0 max-w-[min(72%,520px)] overflow-hidden rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                     isAttendant
                         ? "rounded-br-sm bg-brand text-white"
                         : "rounded-bl-sm bg-white text-slate-800"
@@ -67,6 +72,7 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
                 <ChatMessageContent
                     message={message}
                     isAttendant={isAttendant}
+                    attachmentAccess={attachmentAccess}
                     attachmentMessage={attachmentMessage}
                 />
 
@@ -93,6 +99,8 @@ export function ChatMessageContent({
     attachmentAccess?: "inbox" | "conversation";
     attachmentMessage?: ReturnType<typeof parseAttachmentMessage>;
 }) {
+    if (isPreservedMessageText(message.text)) return null;
+
     return attachmentMessage ? (
         <AttachmentContent
             attachment={attachmentMessage.attachment}
@@ -100,7 +108,9 @@ export function ChatMessageContent({
             attachmentAccess={attachmentAccess}
         />
     ) : (
-        <p className="whitespace-pre-wrap">{message.text}</p>
+        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {message.text}
+        </p>
     );
 }
 
@@ -122,7 +132,7 @@ function AttachmentContent({
         : `/api/conversations/media?message_id=${encodeURIComponent(
               attachment.legacyMessageId ?? "",
           )}`;
-    const isImage = attachment.mimeType.startsWith("image/");
+    const isImage = isImageAttachment(attachment);
     const isAudio = attachment.mimeType.startsWith("audio/");
 
     if (isAudio) {
@@ -157,14 +167,14 @@ function AttachmentContent({
     }
 
     return (
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full overflow-hidden">
             {isImage && !imageFailed ? (
                 <a
                     href={attachmentUrl}
                     target="_blank"
                     rel="noreferrer"
                     title="Abrir imagem"
-                    className="block overflow-hidden rounded-xl bg-white"
+                    className="block max-w-full overflow-hidden rounded-xl bg-white"
                 >
                     <Image
                         src={attachmentUrl}
@@ -173,7 +183,7 @@ function AttachmentContent({
                         height={480}
                         unoptimized
                         onError={() => setImageFailed(true)}
-                        className="h-auto max-h-72 w-auto max-w-full object-contain"
+                        className="block h-auto max-h-72 w-full max-w-full object-contain"
                     />
                 </a>
             ) : (
@@ -287,6 +297,7 @@ function parseAttachmentMessage(message: SharedChatMessage) {
             name,
             mimeType,
             size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : null,
+            imageHint: /^📷\s*Imagem\b/i.test(message.text.trim()),
         } satisfies MessageAttachment,
     };
 }
@@ -318,6 +329,7 @@ function parseLegacyMediaMessage(message: SharedChatMessage) {
             name: suppliedName ?? properties.name,
             mimeType: properties.mimeType,
             size: null,
+            imageHint: kind === "imagem",
         } satisfies MessageAttachment,
     };
 }
@@ -351,6 +363,16 @@ function formatAttachmentSize(bytes: number) {
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
 
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageAttachment(attachment: MessageAttachment) {
+    if (attachment.imageHint || attachment.mimeType.startsWith("image/")) {
+        return true;
+    }
+
+    return /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i.test(
+        attachment.name.split(/[?#]/, 1)[0] ?? "",
+    );
 }
 
 function isEmail(value: string) {

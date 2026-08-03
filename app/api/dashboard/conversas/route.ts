@@ -25,6 +25,9 @@ type ConversationRow = {
     source: string | null;
     channel: string | null;
     last_message_at: string | null;
+    clients: Relation<ClientRow>;
+    instagram_users: Relation<InstagramUserRow>;
+    conversation_analysis: Relation<AnalysisRow>;
 };
 
 type ThreadRow = {
@@ -38,7 +41,12 @@ type ThreadRow = {
     updated_at: string;
     source: string | null;
     channel: string | null;
+    clients: Relation<ClientRow>;
+    instagram_users: Relation<InstagramUserRow>;
+    attendants: Relation<AttendantRow>;
 };
+
+type Relation<T> = T | T[] | null;
 
 type ClientRow = {
     id: string;
@@ -91,8 +99,6 @@ type InternalConversationRow = {
 };
 
 const PAGE_FETCH_SIZE = 1_000;
-const RELATION_FILTER_BATCH_SIZE = 100;
-const RELATION_QUERY_CONCURRENCY = 6;
 const NULL_FILTER_VALUE = "__NULL__";
 
 export async function GET(request: Request) {
@@ -121,6 +127,7 @@ export async function GET(request: Request) {
         const dropoffMoments = parseIds(
             searchParams.get("dropoff_moments"),
         );
+        const platforms = parseIds(searchParams.get("platforms"));
         const notable = searchParams.get("notable");
         const dateRange = getDateRange({
             days,
@@ -133,77 +140,25 @@ export async function GET(request: Request) {
                 dateRange,
                 serviceIds,
                 attendantIds,
+                signal: request.signal,
             }),
             fetchLiveThreads({
                 dateRange,
                 serviceIds,
                 attendantIds,
+                signal: request.signal,
             }),
         ]);
 
-        const clientIds = [
-            ...new Set(
-                [...conversations, ...threads]
-                    .map((item) => item.client_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ];
-        const instagramUserIds = [
-            ...new Set(
-                [...conversations, ...threads]
-                    .map((item) => item.instagram_user_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ];
-        const analysisIds = [
-            ...new Set(
-                conversations
-                    .map((item) => item.conversation_analysis_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ];
-        const liveAttendantIds = [
-            ...new Set(
-                threads
-                    .map((item) => item.assigned_attendant_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ];
-
-        const [clients, instagramUsers, analyses, attendants] =
-            await Promise.all([
-            fetchClientsByIds(clientIds),
-            fetchInstagramUsersByIds(instagramUserIds),
-            fetchAnalysesByIds(analysisIds),
-            fetchAttendantsByIds(liveAttendantIds),
-            ]);
-
-        const clientsById = new Map(
-            clients.map((client) => [client.id, client]),
-        );
-        const analysesById = new Map(
-            analyses.map((analysis) => [analysis.id, analysis]),
-        );
-        const instagramUsersById = new Map(
-            instagramUsers.map((user) => [user.id, user]),
-        );
-        const attendantsById = new Map(
-            attendants.map((attendant) => [attendant.id, attendant]),
-        );
-
         const rows: InternalConversationRow[] = [
             ...conversations.map((conversation) => {
-                const client = conversation.client_id
-                    ? clientsById.get(conversation.client_id)
-                    : null;
-                const instagramUser = conversation.instagram_user_id
-                    ? instagramUsersById.get(conversation.instagram_user_id)
-                    : null;
-                const analysis = conversation.conversation_analysis_id
-                    ? analysesById.get(
-                          conversation.conversation_analysis_id,
-                      )
-                    : null;
+                const client = oneRelation(conversation.clients);
+                const instagramUser = oneRelation(
+                    conversation.instagram_users,
+                );
+                const analysis = oneRelation(
+                    conversation.conversation_analysis,
+                );
                 const result = getConversationResult(
                     analysis?.resolution_result,
                 );
@@ -242,15 +197,9 @@ export async function GET(request: Request) {
                 };
             }),
             ...threads.map((thread) => {
-                const client = thread.client_id
-                    ? clientsById.get(thread.client_id)
-                    : null;
-                const instagramUser = thread.instagram_user_id
-                    ? instagramUsersById.get(thread.instagram_user_id)
-                    : null;
-                const attendant = thread.assigned_attendant_id
-                    ? attendantsById.get(thread.assigned_attendant_id)
-                    : null;
+                const client = oneRelation(thread.clients);
+                const instagramUser = oneRelation(thread.instagram_users);
+                const attendant = oneRelation(thread.attendants);
                 const startedAt =
                     thread.queued_at ?? thread.created_at;
                 const activityAt =
@@ -337,6 +286,12 @@ export async function GET(request: Request) {
                 ) {
                     return false;
                 }
+                if (
+                    platforms.length > 0 &&
+                    !platforms.includes(row.channel)
+                ) {
+                    return false;
+                }
                 if (notable === "true" && !row._notable) return false;
                 if (notable === "false" && row._notable) return false;
                 return true;
@@ -387,10 +342,12 @@ async function fetchConversations({
     dateRange,
     serviceIds,
     attendantIds,
+    signal,
 }: {
     dateRange: { start: Date; end: Date };
     serviceIds: string[];
     attendantIds: string[];
+    signal: AbortSignal;
 }) {
     const rows: ConversationRow[] = [];
 
@@ -413,6 +370,9 @@ async function fetchConversations({
                     "source",
                     "channel",
                     "last_message_at",
+                    "clients!conversations_client_id_fkey(id,name,phone,unit_id,last_tunnel,last_origin)",
+                    "instagram_users!conversations_instagram_user_id_fkey(id,username,display_name)",
+                    "conversation_analysis!conversations_conversation_analysis_id_fkey(id,conversation_goal,dropoff_moment,resolution_result,notable)",
                 ].join(","),
             )
             .gte("started_at", dateRange.start.toISOString())
@@ -428,7 +388,7 @@ async function fetchConversations({
             query = query.in("attendant_id", attendantIds);
         }
 
-        const { data, error } = await query;
+        const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
 
         const page = (data ?? []) as unknown as ConversationRow[];
@@ -443,10 +403,12 @@ async function fetchLiveThreads({
     dateRange,
     serviceIds,
     attendantIds,
+    signal,
 }: {
     dateRange: { start: Date; end: Date };
     serviceIds: string[];
     attendantIds: string[];
+    signal: AbortSignal;
 }) {
     if (serviceIds.length > 0) return [];
 
@@ -467,9 +429,15 @@ async function fetchLiveThreads({
                     "updated_at",
                     "source",
                     "channel",
+                    "clients!thread_client_id_fkey(id,name,phone,unit_id,last_tunnel,last_origin)",
+                    "instagram_users!thread_instagram_user_id_fkey(id,username,display_name)",
+                    "attendants!thread_assigned_attendant_id_fkey(id,name)",
                 ].join(","),
             )
             .eq("status", "open")
+            .or(
+                `and(last_message_at.gte.${dateRange.start.toISOString()},last_message_at.lte.${dateRange.end.toISOString()}),and(last_message_at.is.null,updated_at.gte.${dateRange.start.toISOString()},updated_at.lte.${dateRange.end.toISOString()})`,
+            )
             .order("last_message_at", {
                 ascending: false,
                 nullsFirst: false,
@@ -481,93 +449,12 @@ async function fetchLiveThreads({
             query = query.in("assigned_attendant_id", attendantIds);
         }
 
-        const { data, error } = await query;
+        const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
 
         const page = (data ?? []) as unknown as ThreadRow[];
-        rows.push(
-            ...page.filter((thread) =>
-                isWithinDateRange(
-                    thread.last_message_at ?? thread.updated_at,
-                    dateRange,
-                ),
-            ),
-        );
+        rows.push(...page);
         if (page.length < PAGE_FETCH_SIZE) break;
-    }
-
-    return rows;
-}
-
-async function fetchClientsByIds(ids: string[]) {
-    return fetchRelationsInBatches<ClientRow>(ids, async (batch) => {
-        const { data, error } = await supabase
-            .from("clients")
-            .select(
-                "id, name, phone, unit_id, last_tunnel, last_origin",
-            )
-            .in("id", batch);
-        if (error) throw error;
-        return (data ?? []) as ClientRow[];
-    });
-}
-
-async function fetchInstagramUsersByIds(ids: string[]) {
-    return fetchRelationsInBatches<InstagramUserRow>(
-        ids,
-        async (batch) => {
-            const { data, error } = await supabase
-                .from("instagram_users")
-                .select("id, username, display_name")
-                .in("id", batch);
-            if (error) throw error;
-            return (data ?? []) as InstagramUserRow[];
-        },
-    );
-}
-
-async function fetchAnalysesByIds(ids: string[]) {
-    return fetchRelationsInBatches<AnalysisRow>(ids, async (batch) => {
-        const { data, error } = await supabase
-            .from("conversation_analysis")
-            .select(
-                "id, conversation_goal, dropoff_moment, resolution_result, notable",
-            )
-            .in("id", batch);
-        if (error) throw error;
-        return (data ?? []) as AnalysisRow[];
-    });
-}
-
-async function fetchAttendantsByIds(ids: string[]) {
-    return fetchRelationsInBatches<AttendantRow>(ids, async (batch) => {
-        const { data, error } = await supabase
-            .from("attendants")
-            .select("id, name")
-            .in("id", batch);
-        if (error) throw error;
-        return (data ?? []) as AttendantRow[];
-    });
-}
-
-async function fetchRelationsInBatches<T>(
-    ids: string[],
-    fetchBatch: (batch: string[]) => Promise<T[]>,
-) {
-    const batches = chunk(ids, RELATION_FILTER_BATCH_SIZE);
-    const rows: T[] = [];
-
-    for (
-        let index = 0;
-        index < batches.length;
-        index += RELATION_QUERY_CONCURRENCY
-    ) {
-        const results = await Promise.all(
-            batches
-                .slice(index, index + RELATION_QUERY_CONCURRENCY)
-                .map(fetchBatch),
-        );
-        rows.push(...results.flat());
     }
 
     return rows;
@@ -639,28 +526,12 @@ function getDateRange({
     return { start, end };
 }
 
-function isWithinDateRange(
-    value: string,
-    range: { start: Date; end: Date },
-) {
-    const timestamp = new Date(value).getTime();
-    return (
-        Number.isFinite(timestamp) &&
-        timestamp >= range.start.getTime() &&
-        timestamp <= range.end.getTime()
-    );
-}
-
 function emptyToNull(value: unknown) {
     if (value === null || value === undefined) return null;
     const trimmed = String(value).trim();
     return trimmed || null;
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-    for (let index = 0; index < items.length; index += size) {
-        chunks.push(items.slice(index, index + size));
-    }
-    return chunks;
+function oneRelation<T>(value: Relation<T>) {
+    return Array.isArray(value) ? (value[0] ?? null) : value;
 }

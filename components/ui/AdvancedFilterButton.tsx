@@ -53,16 +53,6 @@ export default function AdvancedFilterButton({
                 : `${activeCount} filtros`;
 
     useEffect(() => {
-        const nextDrafts: Record<string, string[]> = {};
-
-        for (const section of sections) {
-            nextDrafts[section.id] = section.values;
-        }
-
-        setDraftValuesBySection(nextDrafts);
-    }, [sections]);
-
-    useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (!wrapperRef.current) return;
 
@@ -80,17 +70,12 @@ export default function AdvancedFilterButton({
         };
     }, [open]);
 
-    useEffect(() => {
-        if (open) return;
-
-        const nextDrafts: Record<string, string[]> = {};
-
-        for (const section of sections) {
-            nextDrafts[section.id] = section.values;
+    function handleToggleOpen() {
+        if (!open) {
+            setDraftValuesBySection(buildDraftValues(sections));
         }
-
-        setTimeout(() => setDraftValuesBySection(nextDrafts), 200);
-    }, [open, sections]);
+        setOpen((current) => !current);
+    }
 
     function toggleOption(section: AdvancedFilterSection, value: string) {
         const currentValues = draftValuesBySection[section.id] ?? [];
@@ -129,7 +114,7 @@ export default function AdvancedFilterButton({
         <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
             <button
                 type="button"
-                onClick={() => setOpen((current) => !current)}
+                onClick={handleToggleOpen}
                 className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!border-brand !bg-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}
             >
                 <span className="flex shrink-0 items-center text-current">
@@ -232,6 +217,12 @@ function toggleSingleValue(values: string[], value: string) {
     if (values.includes(value)) return [];
 
     return [value];
+}
+
+function buildDraftValues(sections: AdvancedFilterSection[]) {
+    return Object.fromEntries(
+        sections.map((section) => [section.id, [...section.values]]),
+    );
 }
 
 export const __uiDemo = {

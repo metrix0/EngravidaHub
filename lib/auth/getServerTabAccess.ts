@@ -1,8 +1,6 @@
 // lib/auth/getServerTabAccess.ts
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-
 import { supabase as adminSupabase } from "@/lib";
+import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import {
     normalizeAllowedTabs,
     type AppTabId,
@@ -38,14 +36,9 @@ export type ServerTabAccess =
 export async function getServerTabAccess(
     tabId: AppTabId,
 ): Promise<ServerTabAccess> {
-    const routeSupabase = await createRouteSupabaseClient();
+    const user = await getCurrentAuthUser();
 
-    const {
-        data: { user },
-        error: userError,
-    } = await routeSupabase.auth.getUser();
-
-    if (userError || !user) {
+    if (!user) {
         return {
             ok: false,
             status: 401,
@@ -109,27 +102,6 @@ export async function getServerTabAccess(
             active: permissionRow.active,
         },
     };
-}
-
-async function createRouteSupabaseClient() {
-    const cookieStore = await cookies();
-
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() {
-                    return cookieStore.getAll();
-                },
-                setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        cookieStore.set(name, value, options);
-                    });
-                },
-            },
-        },
-    );
 }
 
 function metadataString(

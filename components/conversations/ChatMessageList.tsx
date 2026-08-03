@@ -12,9 +12,13 @@ import { Send } from "lucide-react";
 
 import InboxPrewrittenMessagesController from "@/components/inbox/InboxPrewrittenMessagesController";
 import { sendInboxMessage } from "@/lib/inbox/inboxApi";
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 import { supabase } from "@/lib/supabase/client";
 
-import { ChatMessageBubble, type SharedChatMessage } from "./ChatMessageBubble";
+import {
+    ChatMessageBubble,
+    type SharedChatMessage,
+} from "./ChatMessageBubble";
 
 export type { SharedChatMessage };
 
@@ -25,9 +29,6 @@ const FLOATING_TICKET_LIST_CLASS =
 const FLOATING_CHAT_RAIL_STORAGE_KEY = "engravida:floating-chat-rail:v2";
 const OPEN_FLOATING_CONVERSATION_EVENT =
     "engravida:open-floating-conversation";
-const HIDDEN_BLIP_MESSAGE_TEXT =
-    "[Mensagem preservada: application/vnd.iris.ticket+json]";
-
 type ChatMessageListProps = {
     messages: SharedChatMessage[];
     isLoading?: boolean;
@@ -38,6 +39,7 @@ type ChatMessageListProps = {
     topContent?: ReactNode;
     enablePrewrittenMessages?: boolean;
     autoScrollToBottom?: boolean;
+    attachmentAccess?: "inbox" | "conversation";
 };
 
 type LocalFloatingMessage = SharedChatMessage & {
@@ -66,6 +68,7 @@ export function ChatMessageList({
     topContent,
     enablePrewrittenMessages = true,
     autoScrollToBottom = true,
+    attachmentAccess = "inbox",
 }: ChatMessageListProps) {
     const rootRef = useRef<HTMLDivElement>(null);
     const floatingThreadIdRef = useRef<string | null>(null);
@@ -154,7 +157,7 @@ export function ChatMessageList({
         );
 
         return dedupeMessages([...messages, ...localOnly]).filter(
-            (message) => message.text.trim() !== HIDDEN_BLIP_MESSAGE_TEXT,
+            (message) => !isPreservedMessageText(message.text),
         );
     }, [localFloatingMessages, messages]);
 
@@ -276,7 +279,7 @@ export function ChatMessageList({
         <>
             <div
                 ref={rootRef}
-                className={`${className} ${scrollbarClassName}`}
+                className={`min-w-0 overflow-x-hidden ${className} ${scrollbarClassName}`}
             >
                 {topContent ? <div className="mb-5">{topContent}</div> : null}
 
@@ -287,7 +290,7 @@ export function ChatMessageList({
                         {emptyMessage}
                     </div>
                 ) : (
-                    <div className="space-y-6">
+                    <div className="min-w-0 space-y-6">
                         {groups.map((group) => (
                             <div key={group.key} className="space-y-6">
                                 <DateDivider label={group.label} />
@@ -301,7 +304,10 @@ export function ChatMessageList({
                                                 />
                                             ) : null}
 
-                                            <ChatMessageBubble message={message} />
+                                            <ChatMessageBubble
+                                                message={message}
+                                                attachmentAccess={attachmentAccess}
+                                            />
                                         </div>
                                     ))}
                                 </div>
@@ -500,12 +506,12 @@ function ConversationDivider({ label }: { label: string }) {
 
 function DateDivider({ label }: { label: string }) {
     return (
-        <div className="flex items-center justify-center gap-4">
-            <div className="h-px w-44 bg-slate-200" />
-            <span className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
+        <div className="flex min-w-0 items-center justify-center gap-3">
+            <div className="h-px min-w-0 flex-1 bg-slate-200" />
+            <span className="shrink-0 rounded-lg bg-white px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
                 {label}
             </span>
-            <div className="h-px w-44 bg-slate-200" />
+            <div className="h-px min-w-0 flex-1 bg-slate-200" />
         </div>
     );
 }

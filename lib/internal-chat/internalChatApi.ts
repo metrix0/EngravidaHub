@@ -9,6 +9,16 @@ import type {
     InternalGroupSummary,
 } from "@/types/internalChat";
 
+type InternalFetchOptions = {
+    background?: boolean;
+};
+
+function loadingHeaders(options?: InternalFetchOptions) {
+    return options?.background
+        ? { "X-Loading-Scope": "background" }
+        : undefined;
+}
+
 export async function heartbeatInternalPresence() {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
         return false;
@@ -45,10 +55,28 @@ export async function fetchInternalUsers() {
     return (json?.users ?? []) as InternalChatUser[];
 }
 
-export async function fetchInternalConversations() {
+export async function fetchInternalDirectory() {
+    const response = await fetch("/api/internal-chat/directory", {
+        credentials: "include",
+        cache: "no-store",
+    });
+    const json = await safeJson(response);
+
+    if (!response.ok) {
+        throw new Error(json?.error ?? "Failed to load internal directory");
+    }
+
+    return {
+        users: (json?.users ?? []) as InternalChatUser[],
+        groups: (json?.groups ?? []) as InternalGroupSummary[],
+    };
+}
+
+export async function fetchInternalConversations(options?: InternalFetchOptions) {
     const response = await fetch("/api/internal-chat/conversations", {
         credentials: "include",
         cache: "no-store",
+        headers: loadingHeaders(options),
     });
     const json = await safeJson(response);
 
@@ -57,6 +85,24 @@ export async function fetchInternalConversations() {
     }
 
     return (json?.conversations ?? []) as InternalConversationSummary[];
+}
+
+export async function fetchInternalOverview() {
+    const response = await fetch("/api/internal-chat/overview", {
+        credentials: "include",
+        cache: "no-store",
+        headers: { "X-Loading-Scope": "background" },
+    });
+    const json = await safeJson(response);
+
+    if (!response.ok) {
+        throw new Error(json?.error ?? "Failed to load internal chats");
+    }
+
+    return {
+        conversations: (json?.conversations ?? []) as InternalConversationSummary[],
+        groups: (json?.groups ?? []) as InternalGroupSummary[],
+    };
 }
 
 export async function openInternalConversation(peerUserId: string) {
@@ -79,12 +125,16 @@ export async function openInternalConversation(peerUserId: string) {
     };
 }
 
-export async function fetchInternalMessages(conversationId: string) {
+export async function fetchInternalMessages(
+    conversationId: string,
+    options?: InternalFetchOptions,
+) {
     const response = await fetch(
         `/api/internal-chat/conversations/${encodeURIComponent(conversationId)}/messages`,
         {
             credentials: "include",
             cache: "no-store",
+            headers: loadingHeaders(options),
         },
     );
     const json = await safeJson(response);
@@ -135,10 +185,11 @@ export async function markInternalConversationRead(conversationId: string) {
     }
 }
 
-export async function fetchInternalGroups() {
+export async function fetchInternalGroups(options?: InternalFetchOptions) {
     const response = await fetch("/api/internal-chat/groups", {
         credentials: "include",
         cache: "no-store",
+        headers: loadingHeaders(options),
     });
     const json = await safeJson(response);
 
@@ -149,12 +200,16 @@ export async function fetchInternalGroups() {
     return (json?.groups ?? []) as InternalGroupSummary[];
 }
 
-export async function fetchInternalGroupMessages(groupId: string) {
+export async function fetchInternalGroupMessages(
+    groupId: string,
+    options?: InternalFetchOptions,
+) {
     const response = await fetch(
         `/api/internal-chat/groups/${encodeURIComponent(groupId)}/messages`,
         {
             credentials: "include",
             cache: "no-store",
+            headers: loadingHeaders(options),
         },
     );
     const json = await safeJson(response);

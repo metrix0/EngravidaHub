@@ -24,6 +24,7 @@ import {
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import ClientInformationCard from "@/components/clientes/ClientInformationCard";
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 
 type FunnelStage = {
     id: string;
@@ -388,7 +389,7 @@ function LiveConversationButton({
                 </div>
 
                 <div className="truncate text-sm text-slate-700">
-                    {thread.last_message_text ?? "Sem prévia"}
+                    {visibleMessagePreview(thread.last_message_text)}
                 </div>
 
                 <div className="mt-1 text-xs text-muted">
@@ -407,6 +408,13 @@ function LiveConversationButton({
             />
         </button>
     );
+}
+
+function visibleMessagePreview(value: string | null | undefined) {
+    const preview = value?.trim() ?? "";
+    return preview && !isPreservedMessageText(preview)
+        ? preview
+        : "Sem prévia";
 }
 
 function ConversationHistorySection({

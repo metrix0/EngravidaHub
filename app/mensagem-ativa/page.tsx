@@ -16,6 +16,7 @@ import {
 import {
     Check,
     ChartNoAxesCombined,
+    ChevronDown,
     Clock3,
     FileText,
     FileUp,
@@ -128,7 +129,22 @@ export default function MensagemAtivaPage() {
     const [feedback, setFeedback] = useState<SendFeedback | null>(null);
     const deepLinkAppliedRef = useRef(false);
 
-    async function loadPage({ silent = false } = {}) {
+    function resetPageAndSet<T>(setter: (value: T) => void) {
+        return (value: T) => {
+            setCurrentPage(1);
+            setter(value);
+        };
+    }
+
+    async function loadPage({
+        silent = false,
+        refresh = false,
+        signal,
+    }: {
+        silent?: boolean;
+        refresh?: boolean;
+        signal?: AbortSignal;
+    } = {}) {
         if (!silent) {
             setLoading(true);
         }
@@ -136,10 +152,14 @@ export default function MensagemAtivaPage() {
         try {
             setLoadError(null);
 
-            const response = await fetch("/api/mensagem-ativa", {
+            const response = await fetch(
+                refresh ? "/api/mensagem-ativa?refresh=1" : "/api/mensagem-ativa",
+                {
                 credentials: "include",
                 cache: "no-store",
-            });
+                    signal,
+                },
+            );
             const json = (await response.json()) as
                 | ActiveMessagesPageResponse
                 | { error?: string };
@@ -169,6 +189,7 @@ export default function MensagemAtivaPage() {
                     : nextData.template_senders[0]?.value ?? "secondary",
             );
         } catch (error) {
+            if (signal?.aborted) return;
             console.error("[mensagem-ativa] failed to load", error);
             setLoadError(
                 error instanceof Error
@@ -176,14 +197,17 @@ export default function MensagemAtivaPage() {
                     : "Não foi possível carregar a Mensagem Ativa",
             );
         } finally {
-            if (!silent) {
+            if (!silent && !signal?.aborted) {
                 setLoading(false);
             }
         }
     }
 
     useEffect(() => {
-        void loadPage();
+        const controller = new AbortController();
+        void loadPage({ signal: controller.signal });
+
+        return () => controller.abort();
     }, []);
 
     useEffect(() => {
@@ -460,38 +484,20 @@ export default function MensagemAtivaPage() {
         windowValues,
     ]);
 
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [
-        search,
-        stageValues,
-        tunnelValues,
-        originValues,
-        closingTagValues,
-        lastClientMessageRange,
-        windowValues,
-        activeSendValues,
-    ]);
-
     const totalPages = Math.max(
         1,
         Math.ceil(filteredClients.length / CLIENTS_PER_PAGE),
     );
-
-    useEffect(() => {
-        if (currentPage > totalPages) {
-            setCurrentPage(totalPages);
-        }
-    }, [currentPage, totalPages]);
+    const visiblePage = Math.min(currentPage, totalPages);
 
     const pageClients = useMemo(() => {
-        const start = (currentPage - 1) * CLIENTS_PER_PAGE;
+        const start = (visiblePage - 1) * CLIENTS_PER_PAGE;
 
         return filteredClients.slice(
             start,
             start + CLIENTS_PER_PAGE,
         );
-    }, [currentPage, filteredClients]);
+    }, [filteredClients, visiblePage]);
 
     const pageRows = useMemo<ClientRow[]>(
         () =>
@@ -707,7 +713,7 @@ export default function MensagemAtivaPage() {
                         : ""
                 }`,
             });
-            await loadPage({ silent: true });
+            await loadPage({ silent: true, refresh: true });
             return true;
         } catch (error) {
             console.error("[mensagem-ativa] send failed", error);
@@ -935,7 +941,7 @@ export default function MensagemAtivaPage() {
                             <div className="flex flex-wrap items-center justify-end gap-2">
                                 <SearchFilter
                                     value={search}
-                                    onChange={setSearch}
+                                    onChange={resetPageAndSet(setSearch)}
                                     placeholder="Buscar por nome, telefone ou e-mail..."
                                     widthClassName="w-full sm:w-[360px]"
                                 />
@@ -950,28 +956,28 @@ export default function MensagemAtivaPage() {
                                             id: "tunnel",
                                             title: "Túneis",
                                             values: tunnelValues,
-                                            onChange: setTunnelValues,
+                                            onChange: resetPageAndSet(setTunnelValues),
                                             options: tunnelOptions,
                                         },
                                         {
                                             id: "source",
                                             title: "Origem",
                                             values: originValues,
-                                            onChange: setOriginValues,
+                                            onChange: resetPageAndSet(setOriginValues),
                                             options: originOptions,
                                         },
                                         {
                                             id: "closing-tag",
                                             title: "Tag de fechamento",
                                             values: closingTagValues,
-                                            onChange: setClosingTagValues,
+                                            onChange: resetPageAndSet(setClosingTagValues),
                                             options: closingTagOptions,
                                         },
                                         {
                                             id: "window",
                                             title: "Janela do WhatsApp",
                                             values: windowValues,
-                                            onChange: setWindowValues,
+                                            onChange: resetPageAndSet(setWindowValues),
                                             options: [
                                                 {
                                                     label: "Dentro das últimas 24h",
@@ -987,7 +993,7 @@ export default function MensagemAtivaPage() {
                                             id: "active-send",
                                             title: "Mensagem ativa",
                                             values: activeSendValues,
-                                            onChange: setActiveSendValues,
+                                            onChange: resetPageAndSet(setActiveSendValues),
                                             options: [
                                                 {
                                                     label: "Já recebeu mensagem ativa",
@@ -1004,7 +1010,7 @@ export default function MensagemAtivaPage() {
 
                                 <CalendarButton
                                     value={lastClientMessageRange}
-                                    onChange={setLastClientMessageRange}
+                                    onChange={resetPageAndSet(setLastClientMessageRange)}
                                     className="shrink-0"
                                 />
                             </div>
@@ -1091,14 +1097,17 @@ export default function MensagemAtivaPage() {
                         {totalPages > 1 ? (
                             <Pagination
                                 totalPages={totalPages}
-                                currentPage={currentPage}
+                                currentPage={visiblePage}
                                 onPageChange={setCurrentPage}
                             />
                         ) : null}
                     </div>
                 </section>
 
-                <HistoryTable history={data?.history ?? []} />
+                <HistoryTable
+                    key={data?.history[0]?.id ?? "empty-history"}
+                    history={data?.history ?? []}
+                />
                 <ActiveMessageAnalytics history={data?.history ?? []} />
                 <div className="pt-16" />
             </section>
@@ -1279,15 +1288,28 @@ function ActiveMessageAnalytics({
 }: {
     history: ActiveMessageSendHistory[];
 }) {
+    const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<
+        Set<string> | null
+    >(null);
+    const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+    const templateMenuRef = useRef<HTMLDivElement | null>(null);
+
     const templateData = useMemo(() => {
         const totals = new Map<
             string,
-            { name: string; sent: number; responses: number; schedules: number }
+            {
+                key: string;
+                name: string;
+                sent: number;
+                responses: number;
+                schedules: number;
+            }
         >();
 
         for (const send of history) {
             const key = send.template_id || send.template_name;
             const current = totals.get(key) ?? {
+                key,
                 name: send.template_name,
                 sent: 0,
                 responses: 0,
@@ -1305,6 +1327,20 @@ function ActiveMessageAnalytics({
         );
     }, [history]);
 
+    const visibleTemplateKeys = useMemo(() => {
+        const availableKeys = new Set(templateData.map((item) => item.key));
+
+        if (selectedTemplateKeys === null) {
+            return availableKeys;
+        }
+
+        return new Set(
+            [...selectedTemplateKeys].filter((key) =>
+                availableKeys.has(key),
+            ),
+        );
+    }, [selectedTemplateKeys, templateData]);
+
     const dailyData = useMemo(() => {
         const totals = new Map<
             string,
@@ -1312,6 +1348,9 @@ function ActiveMessageAnalytics({
         >();
 
         for (const send of history) {
+            const templateKey = send.template_id || send.template_name;
+            if (!visibleTemplateKeys.has(templateKey)) continue;
+
             const timestamp = new Date(send.created_at);
             if (!Number.isFinite(timestamp.getTime())) continue;
 
@@ -1340,7 +1379,51 @@ function ActiveMessageAnalytics({
                 ...item,
                 label: formatChartDate(item.date),
             }));
-    }, [history]);
+    }, [history, visibleTemplateKeys]);
+
+    useEffect(() => {
+        if (!templateMenuOpen) return;
+
+        function closeOnOutsideClick(event: MouseEvent) {
+            if (
+                templateMenuRef.current &&
+                !templateMenuRef.current.contains(event.target as Node)
+            ) {
+                setTemplateMenuOpen(false);
+            }
+        }
+
+        document.addEventListener("mousedown", closeOnOutsideClick);
+        return () =>
+            document.removeEventListener("mousedown", closeOnOutsideClick);
+    }, [templateMenuOpen]);
+
+    const allTemplatesSelected =
+        templateData.length > 0 &&
+        visibleTemplateKeys.size === templateData.length;
+    const templateSelectionLabel = allTemplatesSelected
+        ? "Todos os templates"
+        : `${visibleTemplateKeys.size} de ${templateData.length}`;
+
+    function toggleTemplate(templateKey: string) {
+        setSelectedTemplateKeys((current) => {
+            const next = new Set(
+                current ?? templateData.map((item) => item.key),
+            );
+
+            if (next.has(templateKey)) {
+                next.delete(templateKey);
+            } else {
+                next.add(templateKey);
+            }
+
+            return next.size === templateData.length ? null : next;
+        });
+    }
+
+    function toggleAllTemplates() {
+        setSelectedTemplateKeys(allTemplatesSelected ? new Set() : null);
+    }
 
     const hasData = templateData.length > 0;
 
@@ -1417,9 +1500,99 @@ function ActiveMessageAnalytics({
                 </section>
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h3 className="font-bold text-slate-950">
-                        Volume e resultados
-                    </h3>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <h3 className="font-bold text-slate-950">
+                            Volume e resultados
+                        </h3>
+
+                        {templateData.length > 0 ? (
+                            <div ref={templateMenuRef} className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setTemplateMenuOpen((open) => !open)
+                                    }
+                                    className="flex min-w-[172px] items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-slate-800"
+                                    aria-haspopup="listbox"
+                                    aria-expanded={templateMenuOpen}
+                                >
+                                    <span className="truncate">
+                                        {templateSelectionLabel}
+                                    </span>
+                                    <ChevronDown
+                                        size={14}
+                                        className={`shrink-0 text-slate-400 transition-transform ${
+                                            templateMenuOpen ? "rotate-180" : ""
+                                        }`}
+                                    />
+                                </button>
+
+                                {templateMenuOpen ? (
+                                    <div
+                                        className="absolute right-0 z-50 mt-2 w-[280px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)]"
+                                        role="listbox"
+                                        aria-label="Templates exibidos no gráfico"
+                                        aria-multiselectable="true"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={toggleAllTemplates}
+                                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                                                allTemplatesSelected
+                                                    ? "bg-cyan-50 font-semibold text-cyan-700"
+                                                    : "text-slate-600 hover:bg-slate-50"
+                                            }`}
+                                            role="option"
+                                            aria-selected={allTemplatesSelected}
+                                        >
+                                            <span>Todos os templates</span>
+                                            {allTemplatesSelected ? (
+                                                <Check size={15} />
+                                            ) : null}
+                                        </button>
+                                        <div className="my-1 border-t border-slate-100" />
+                                        <div className="max-h-[286px] overflow-y-auto pr-1">
+                                            {templateData.map((template) => {
+                                                const selected =
+                                                    visibleTemplateKeys.has(
+                                                        template.key,
+                                                    );
+
+                                                return (
+                                                    <button
+                                                        key={template.key}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            toggleTemplate(
+                                                                template.key,
+                                                            )
+                                                        }
+                                                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                                                            selected
+                                                                ? "bg-cyan-50 font-semibold text-cyan-700"
+                                                                : "text-slate-600 hover:bg-slate-50"
+                                                        }`}
+                                                        role="option"
+                                                        aria-selected={selected}
+                                                    >
+                                                        <span className="truncate">
+                                                            {template.name}
+                                                        </span>
+                                                        {selected ? (
+                                                            <Check
+                                                                size={15}
+                                                                className="shrink-0"
+                                                            />
+                                                        ) : null}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+                    </div>
                     {dailyData.length > 0 ? (
                         <div className="mt-5 h-[320px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
@@ -1467,6 +1640,10 @@ function ActiveMessageAnalytics({
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </div>
+                    ) : templateData.length > 0 ? (
+                        <div className="mt-5 flex h-[280px] items-center justify-center rounded-xl bg-slate-50 px-6 text-center text-sm text-slate-500">
+                            Selecione ao menos um template.
+                        </div>
                     ) : (
                         <ActiveMessageChartEmpty />
                     )}
@@ -1513,27 +1690,19 @@ function HistoryTable({
         Math.ceil(history.length / HISTORY_PER_PAGE),
     );
 
-    useEffect(() => {
-        if (currentPage > totalPages) {
-            setCurrentPage(totalPages);
-        }
-    }, [currentPage, totalPages]);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [history]);
+    const visiblePage = Math.min(currentPage, totalPages);
 
     const pageHistory = useMemo(() => {
-        const start = (currentPage - 1) * HISTORY_PER_PAGE;
+        const start = (visiblePage - 1) * HISTORY_PER_PAGE;
         return history.slice(start, start + HISTORY_PER_PAGE);
-    }, [currentPage, history]);
+    }, [history, visiblePage]);
 
     const pageStart =
         history.length === 0
             ? 0
-            : (currentPage - 1) * HISTORY_PER_PAGE + 1;
+            : (visiblePage - 1) * HISTORY_PER_PAGE + 1;
     const pageEnd = Math.min(
-        currentPage * HISTORY_PER_PAGE,
+        visiblePage * HISTORY_PER_PAGE,
         history.length,
     );
 
@@ -1717,7 +1886,7 @@ function HistoryTable({
                     {totalPages > 1 ? (
                         <Pagination
                             totalPages={totalPages}
-                            currentPage={currentPage}
+                            currentPage={visiblePage}
                             onPageChange={setCurrentPage}
                         />
                     ) : null}

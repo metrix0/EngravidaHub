@@ -314,7 +314,8 @@ async function findOpenThreads({
               )
             : Promise.resolve([]),
     ]);
-    const byThreadId = new Map<string, any>();
+    type OpenThreadRow = (typeof resultSets)[number][number];
+    const byThreadId = new Map<string, OpenThreadRow>();
 
     for (const rows of resultSets) {
         for (const row of rows) {

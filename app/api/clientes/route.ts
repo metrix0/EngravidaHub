@@ -2,14 +2,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 
-type Body = {
-    client_id: string;
-    funnel_id: string;
-    from_stage_id: string | null;
-    to_stage_id: string;
-    moved_by_attendant_id?: string | null;
-};
-
 type LatestAttendantRow = {
     client_id: string;
     attendant_name: string | null;

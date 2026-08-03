@@ -29,6 +29,7 @@ import {
   fetchInternalGroupMessages,
   fetchInternalGroups,
   fetchInternalMessages,
+  fetchInternalOverview,
   heartbeatInternalPresence,
   markInternalConversationRead,
   markInternalGroupRead,
@@ -41,6 +42,7 @@ import {
   type InternalChatRealtimeMessageChange,
   type InternalGroupRealtimeMessageChange,
 } from "@/lib/internal-chat/useInternalChatRealtime";
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 import { supabase } from "@/lib/supabase/client";
 import type {
   InternalChatUser,
@@ -176,8 +178,8 @@ const PENDING_INTERNAL_GROUP_KEY =
   "engravida:floating-chat-pending-internal-group";
 const ANIMATION_MS = 360;
 const COLLAPSED_VISIBLE_HEIGHT_PX = 42;
-const PRESENCE_INTERVAL_MS = 30_000;
-const REFRESH_INTERVAL_MS = 60_000;
+const PRESENCE_INTERVAL_MS = 60_000;
+const INTERNAL_REFRESH_STALE_MS = 5 * 60_000;
 const SCROLLBAR_CLASS =
   "[scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]";
 
@@ -235,6 +237,7 @@ export function FloatingConversationPanel() {
   const internalUnreadSnapshotReadyRef = useRef(false);
   const groupUnreadSnapshotRef = useRef(new Map<string, number>());
   const groupUnreadSnapshotReadyRef = useRef(false);
+  const lastInternalOverviewRefreshRef = useRef(0);
 
   const [tickets, setTickets] = useState<SavedTicketTarget[]>([]);
   const [hiddenInternalConversationIds, setHiddenInternalConversationIds] =
@@ -346,16 +349,8 @@ export function FloatingConversationPanel() {
     showDock(true);
   }, [showDock]);
 
-  const loadInternalConversations = useCallback(async () => {
-    if (!currentUserId) {
-      setInternalConversations([]);
-      internalUnreadSnapshotRef.current.clear();
-      internalUnreadSnapshotReadyRef.current = false;
-      return;
-    }
-
-    try {
-      const conversations = await fetchInternalConversations();
+  const applyInternalConversations = useCallback(
+    (conversations: InternalConversationSummary[]) => {
       const previousUnread = internalUnreadSnapshotRef.current;
       const snapshotWasReady = internalUnreadSnapshotReadyRef.current;
       const unreadIncreases = conversations
@@ -409,24 +404,33 @@ export function FloatingConversationPanel() {
         setSelected(nextSelection);
         showDockCollapsedForUnread();
       }
+    },
+    [showDockCollapsedForUnread],
+  );
+
+  const loadInternalConversations = useCallback(async () => {
+    if (!currentUserId) {
+      setInternalConversations([]);
+      internalUnreadSnapshotRef.current.clear();
+      internalUnreadSnapshotReadyRef.current = false;
+      return;
+    }
+
+    try {
+      applyInternalConversations(
+        await fetchInternalConversations({ background: true }),
+      );
+      lastInternalOverviewRefreshRef.current = Date.now();
     } catch (error) {
       console.error(
         "[FloatingConversationPanel] failed to load internal chats",
         error,
       );
     }
-  }, [currentUserId, showDockCollapsedForUnread]);
+  }, [applyInternalConversations, currentUserId]);
 
-  const loadInternalGroups = useCallback(async () => {
-    if (!currentUserId) {
-      setInternalGroups([]);
-      groupUnreadSnapshotRef.current.clear();
-      groupUnreadSnapshotReadyRef.current = false;
-      return;
-    }
-
-    try {
-      const groups = await fetchInternalGroups();
+  const applyInternalGroups = useCallback(
+    (groups: InternalGroupSummary[]) => {
       const previousUnread = groupUnreadSnapshotRef.current;
       const snapshotWasReady = groupUnreadSnapshotReadyRef.current;
       const unreadIncreases = groups
@@ -461,13 +465,52 @@ export function FloatingConversationPanel() {
         setSelected(nextSelection);
         showDockCollapsedForUnread();
       }
+    },
+    [showDockCollapsedForUnread],
+  );
+
+  const loadInternalGroups = useCallback(async () => {
+    if (!currentUserId) {
+      setInternalGroups([]);
+      groupUnreadSnapshotRef.current.clear();
+      groupUnreadSnapshotReadyRef.current = false;
+      return;
+    }
+
+    try {
+      applyInternalGroups(await fetchInternalGroups({ background: true }));
+      lastInternalOverviewRefreshRef.current = Date.now();
     } catch (error) {
       console.error(
         "[FloatingConversationPanel] failed to load internal groups",
         error,
       );
     }
-  }, [currentUserId, showDockCollapsedForUnread]);
+  }, [applyInternalGroups, currentUserId]);
+
+  const loadInternalOverview = useCallback(async () => {
+    if (!currentUserId) {
+      setInternalConversations([]);
+      setInternalGroups([]);
+      internalUnreadSnapshotRef.current.clear();
+      groupUnreadSnapshotRef.current.clear();
+      internalUnreadSnapshotReadyRef.current = false;
+      groupUnreadSnapshotReadyRef.current = false;
+      return;
+    }
+
+    try {
+      const overview = await fetchInternalOverview();
+      applyInternalConversations(overview.conversations);
+      applyInternalGroups(overview.groups);
+      lastInternalOverviewRefreshRef.current = Date.now();
+    } catch (error) {
+      console.error(
+        "[FloatingConversationPanel] failed to load internal overview",
+        error,
+      );
+    }
+  }, [applyInternalConversations, applyInternalGroups, currentUserId]);
 
   const loadSelectedGroup = useCallback(
     async ({
@@ -487,7 +530,9 @@ export function FloatingConversationPanel() {
       if (showLoading) setGroupLoading(true);
 
       try {
-        const detail = await fetchInternalGroupMessages(selected.groupId);
+        const detail = await fetchInternalGroupMessages(selected.groupId, {
+          background: true,
+        });
         if (requestId !== groupRequestRef.current) return;
 
         setGroupDetail(detail);
@@ -543,7 +588,9 @@ export function FloatingConversationPanel() {
       if (showLoading) setInternalLoading(true);
 
       try {
-        const detail = await fetchInternalMessages(selected.conversationId);
+        const detail = await fetchInternalMessages(selected.conversationId, {
+          background: true,
+        });
         if (requestId !== internalRequestRef.current) return;
 
         setInternalDetail(detail);
@@ -666,7 +713,7 @@ export function FloatingConversationPanel() {
       showDockExpanded();
 
       try {
-        const groups = await fetchInternalGroups();
+        const groups = await fetchInternalGroups({ background: true });
         setInternalGroups(groups);
       } catch (error) {
         console.error(
@@ -1049,10 +1096,11 @@ export function FloatingConversationPanel() {
     if (!currentUserId) return;
 
     function heartbeat() {
+      if (document.visibilityState !== "visible") return;
       void heartbeatInternalPresence();
     }
 
-    heartbeat();
+    const initialHeartbeatTimer = window.setTimeout(heartbeat, 2_000);
     const interval = window.setInterval(heartbeat, PRESENCE_INTERVAL_MS);
 
     function handleVisibilityChange() {
@@ -1070,6 +1118,7 @@ export function FloatingConversationPanel() {
     window.addEventListener("online", handleOnline);
 
     return () => {
+      window.clearTimeout(initialHeartbeatTimer);
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
@@ -1079,16 +1128,24 @@ export function FloatingConversationPanel() {
   useEffect(() => {
     if (!currentUserId) return;
 
-    function refreshInternalLists() {
+    function refreshInternalLists(force = false) {
       if (document.visibilityState !== "visible") return;
-      void Promise.all([loadInternalConversations(), loadInternalGroups()]);
+      if (
+        !force &&
+        Date.now() - lastInternalOverviewRefreshRef.current <
+          INTERNAL_REFRESH_STALE_MS
+      ) {
+        return;
+      }
+      void loadInternalOverview();
     }
 
-    refreshInternalLists();
-    const interval = window.setInterval(
-      refreshInternalLists,
-      REFRESH_INTERVAL_MS,
-    );
+    // Let the foreground page claim the database connection first. Realtime is
+    // already subscribed, so delaying this non-visible directory snapshot does
+    // not delay incoming messages.
+    const initialRefreshTimer = window.setTimeout(() => {
+      refreshInternalLists(true);
+    }, 1_500);
 
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") refreshInternalLists();
@@ -1102,11 +1159,11 @@ export function FloatingConversationPanel() {
     window.addEventListener("online", handleOnline);
 
     return () => {
-      window.clearInterval(interval);
+      window.clearTimeout(initialRefreshTimer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     };
-  }, [currentUserId, loadInternalConversations, loadInternalGroups]);
+  }, [currentUserId, loadInternalOverview]);
 
   useEffect(() => {
     if (!selectedTicket) {
@@ -1131,10 +1188,11 @@ export function FloatingConversationPanel() {
                   ...ticket,
                   name: data.client?.name ?? "Cliente sem nome",
                   phone: data.client?.phone ?? null,
-                  preview:
-                    data.thread?.last_message_text ??
-                    data.messages.at(-1)?.text ??
+                  preview: resolveTicketPreview(
+                    data.thread?.last_message_text,
+                    data.messages,
                     null,
+                  ),
                   channel: data.thread?.channel ?? null,
                   status:
                     data.thread?.status ??
@@ -1195,10 +1253,7 @@ export function FloatingConversationPanel() {
 
               return {
                 ...item,
-                preview:
-                  typeof message.text === "string" && message.text.trim()
-                    ? message.text
-                    : item.preview,
+                preview: resolveVisiblePreview(message.text, item.preview),
                 unread_count:
                   incoming && !activelyReading
                     ? (item.unread_count ?? 0) + 1
@@ -1248,7 +1303,10 @@ export function FloatingConversationPanel() {
                 ? {
                     ...item,
                     status: next?.status ?? item.status,
-                    preview: next?.last_message_text ?? item.preview,
+                    preview: resolveVisiblePreview(
+                      next?.last_message_text,
+                      item.preview,
+                    ),
                   }
                 : item,
             ),
@@ -1320,10 +1378,11 @@ export function FloatingConversationPanel() {
                 ...ticket,
                 name: data.client?.name ?? ticket.name,
                 phone: data.client?.phone ?? ticket.phone,
-                preview:
-                  data.thread?.last_message_text ??
-                  data.messages.at(-1)?.text ??
+                preview: resolveTicketPreview(
+                  data.thread?.last_message_text,
+                  data.messages,
                   ticket.preview,
+                ),
                 channel: data.thread?.channel ?? ticket.channel,
                 status: data.thread?.status ?? ticket.status,
               }
@@ -2003,12 +2062,12 @@ function ChatRail({
               <SavedChatRow
                 key={ticketKey(ticket)}
                 name={ticket.name ?? "Conversa"}
-                preview={
-                  ticket.preview ??
-                  (ticket.type === "thread"
+                preview={resolveVisiblePreview(
+                  ticket.preview,
+                  ticket.type === "thread"
                     ? "Atendimento em andamento"
-                    : "Conversa do histórico")
-                }
+                    : "Conversa do histórico",
+                )}
                 active={
                   selected?.kind === "ticket" &&
                   selected.key === ticketKey(ticket)
@@ -2446,6 +2505,7 @@ function TicketFloatingPanel({
             : "Nenhuma mensagem encontrada."
         }
         className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-4 py-4"
+        attachmentAccess="conversation"
       />
     </div>
   );
@@ -2875,6 +2935,30 @@ function PanelControls({
       </button>
     </div>
   );
+}
+
+function resolveTicketPreview(
+  primary: string | null | undefined,
+  messages: ConversationMessage[],
+  fallback: string | null,
+) {
+  const primaryPreview = resolveVisiblePreview(primary, null);
+  if (primaryPreview) return primaryPreview;
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const preview = resolveVisiblePreview(messages[index]?.text, null);
+    if (preview) return preview;
+  }
+
+  return fallback;
+}
+
+function resolveVisiblePreview(
+  value: string | null | undefined,
+  fallback: string | null,
+) {
+  const text = value?.trim() ?? "";
+  return text && !isPreservedMessageText(text) ? text : fallback;
 }
 
 async function loadTicketConversation(target: FloatingConversationTarget) {

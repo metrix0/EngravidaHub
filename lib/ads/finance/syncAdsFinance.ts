@@ -5,6 +5,8 @@ import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 export type AdsFinancePlatform = "google_ads" | "meta_ads";
 export type AdsFinancePlatformFilter = AdsFinancePlatform | "all";
 
+export const ADS_FINANCE_SYNC_VERSION = "meta-city-adset-v2";
+
 type AdsFinanceMetricRow = {
     platform: AdsFinancePlatform;
     account_id: string;
@@ -151,6 +153,7 @@ export async function syncAdsFinance({
     const platforms = await Promise.all(jobs);
     const attempted = platforms.filter((item) => !item.skipped);
     const result = {
+        sync_version: ADS_FINANCE_SYNC_VERSION,
         ok: attempted.length > 0 && attempted.every((item) => item.ok),
         start_date: startDate,
         end_date: endDate,

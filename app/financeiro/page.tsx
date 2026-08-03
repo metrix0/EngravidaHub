@@ -1,7 +1,7 @@
 // app/financeiro/page.tsx
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
     BadgeDollarSign,
     Ban,
@@ -83,6 +83,7 @@ export default function FinancialDashboardPage() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [completedQueryKey, setCompletedQueryKey] = useState<string | null>(null);
     const hasLoadedOnce = useRef(false);
     const {
         period,
@@ -91,34 +92,66 @@ export default function FinancialDashboardPage() {
         setSelectedRange,
         ready: dateFilterReady,
     } = useDashboardDateFilter("current_month");
+    const dashboardQueryKey = useMemo(() => {
+        if (!dateFilterReady) return "";
+
+        const params = new URLSearchParams();
+        applyCalendarDateParams({
+            params,
+            selectedRange,
+            selectedPreset: period,
+        });
+        applyArrayParams(params, {
+            unit_ids: unitIds,
+            categories,
+        });
+        return params.toString();
+    }, [
+        categories,
+        dateFilterReady,
+        period,
+        selectedRange,
+        unitIds,
+    ]);
     const financialSummary = useFinancialUnitSummary({
         unitIds,
         categories,
         period,
         selectedRange,
-        enabled: dateFilterReady,
+        // The summary reads the same invoice population as the main route.
+        // Start it only after the main payload finishes so both expensive
+        // requests never compete for the database pool.
+        enabled:
+            dateFilterReady &&
+            Boolean(dashboardQueryKey) &&
+            completedQueryKey === dashboardQueryKey,
     });
 
     useEffect(() => {
         if (!dateFilterReady) return;
+        const controller = new AbortController();
 
         async function loadFilters() {
             try {
                 const response = await fetch(
                     "/api/dashboard/filters?entities=units",
+                    { signal: controller.signal },
                 );
                 if (!response.ok) return;
                 setFilters((await response.json()) as FiltersResponse);
             } catch (loadError) {
+                if (controller.signal.aborted) return;
                 console.error("[financeiro] filters failed", loadError);
             }
         }
 
         void loadFilters();
+        return () => controller.abort();
     }, [dateFilterReady]);
 
     useEffect(() => {
         if (!dateFilterReady) return;
+        const controller = new AbortController();
 
         async function loadDashboard() {
             if (hasLoadedOnce.current) setIsRefreshing(true);
@@ -126,20 +159,9 @@ export default function FinancialDashboardPage() {
 
             try {
                 setError(null);
-                const params = new URLSearchParams();
-                applyCalendarDateParams({
-                    params,
-                    selectedRange,
-                    selectedPreset: period,
-                });
-                applyArrayParams(params, {
-                    unit_ids: unitIds,
-                    categories,
-                });
-
                 const response = await fetch(
-                    `/api/dashboard/financeiro?${params.toString()}`,
-                    { cache: "no-store" },
+                    `/api/dashboard/financeiro?${dashboardQueryKey}`,
+                    { cache: "no-store", signal: controller.signal },
                 );
                 const json = (await response.json()) as
                     | FinancialDashboardData
@@ -154,7 +176,9 @@ export default function FinancialDashboardPage() {
                 }
 
                 setData(json as FinancialDashboardData);
+                setCompletedQueryKey(dashboardQueryKey);
             } catch (loadError) {
+                if (controller.signal.aborted) return;
                 console.error("[financeiro] dashboard failed", loadError);
                 setError(
                     loadError instanceof Error
@@ -163,18 +187,23 @@ export default function FinancialDashboardPage() {
                 );
                 setData(null);
             } finally {
+                if (controller.signal.aborted) return;
                 hasLoadedOnce.current = true;
                 setLoading(false);
                 setIsRefreshing(false);
             }
         }
 
-        void loadDashboard();
+        const debounceId = window.setTimeout(() => {
+            void loadDashboard();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
     }, [
-        unitIds,
-        categories,
-        period,
-        selectedRange,
+        dashboardQueryKey,
         dateFilterReady,
     ]);
 

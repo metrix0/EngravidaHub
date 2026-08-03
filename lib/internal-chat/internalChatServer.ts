@@ -5,6 +5,7 @@ import { supabase } from "@/lib";
 import { listAuthUsers } from "@/lib/supabase/authAdmin";
 import type {
   InternalChatUser,
+  InternalConversationSummary,
   InternalGroupSummary,
 } from "@/types/internalChat";
 
@@ -159,6 +160,62 @@ export async function getInternalChatUserById(
   return users.find((user) => user.id === userId) ?? null;
 }
 
+export async function getInternalConversationSummaries(
+  authUserId: string,
+  allUsers?: InternalChatUser[],
+): Promise<InternalConversationSummary[]> {
+  const { data: conversations, error: conversationsError } = await supabase
+    .from("internal_conversations")
+    .select("*")
+    .or(`user_a_id.eq.${authUserId},user_b_id.eq.${authUserId}`)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (conversationsError) throw conversationsError;
+
+  const rows = conversations ?? [];
+  const conversationIds = rows.map((row) => row.id);
+  const users = allUsers ?? (await getInternalChatUsers());
+  const usersById = new Map(users.map((item) => [item.id, item]));
+  const unreadCounts = new Map<string, number>();
+
+  if (conversationIds.length > 0) {
+    const { data: unreadMessages, error: unreadError } = await supabase
+      .from("internal_messages")
+      .select("conversation_id")
+      .in("conversation_id", conversationIds)
+      .neq("sender_auth_user_id", authUserId)
+      .is("read_at", null);
+
+    if (unreadError) throw unreadError;
+
+    for (const message of unreadMessages ?? []) {
+      unreadCounts.set(
+        message.conversation_id,
+        (unreadCounts.get(message.conversation_id) ?? 0) + 1,
+      );
+    }
+  }
+
+  return rows
+    .map((conversation) => {
+      const peerId = getPeerUserId(conversation, authUserId);
+      const peer = usersById.get(peerId);
+      if (!peer) return null;
+
+      return {
+        id: conversation.id,
+        peer,
+        last_message_text: conversation.last_message_text,
+        last_message_at: conversation.last_message_at,
+        unread_count: unreadCounts.get(conversation.id) ?? 0,
+        created_at: conversation.created_at,
+        updated_at: conversation.updated_at,
+      } satisfies InternalConversationSummary;
+    })
+    .filter((item): item is InternalConversationSummary => Boolean(item));
+}
+
 export async function getInternalUserNamesByIds(userIds: string[]) {
   if (userIds.length === 0) return new Map<string, string>();
 
@@ -228,6 +285,7 @@ export async function requireInternalGroupMember({
 
 export async function getInternalGroupSummaries(
   authUserId: string,
+  allUsers?: InternalChatUser[],
 ): Promise<InternalGroupSummary[]> {
   const { data: memberships, error: membershipsError } = await supabase
     .from("internal_group_members")
@@ -267,9 +325,16 @@ export async function getInternalGroupSummaries(
       "group_id" | "auth_user_id" | "automatic" | "manual"
     >
   >;
-  const memberNamesById = await getInternalUserNamesByIds([
-    ...new Set(allMemberRows.map((row) => row.auth_user_id)),
-  ]);
+  const requestedMemberIds = new Set(
+    allMemberRows.map((row) => row.auth_user_id),
+  );
+  const memberNamesById = allUsers
+    ? new Map(
+        allUsers
+          .filter((user) => requestedMemberIds.has(user.id))
+          .map((user) => [user.id, user.name]),
+      )
+    : await getInternalUserNamesByIds([...requestedMemberIds]);
   const membersByGroup = new Map<string, Array<{ id: string; name: string }>>();
 
   for (const row of allMemberRows) {

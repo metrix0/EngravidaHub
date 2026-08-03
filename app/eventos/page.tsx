@@ -1,7 +1,7 @@
 // app/eventos/page.tsx
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
     AlertTriangle,
     BarChart3,
@@ -28,9 +28,8 @@ import { FaGoogle, FaMeta } from "react-icons/fa6";
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import {
@@ -140,16 +139,19 @@ export default function EventsPage() {
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
-    });
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("yesterday");
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const hasDataRef = useRef(false);
 
     function resetPageAndSet<T>(setter: (value: T) => void) {
         return (value: T) => {
@@ -159,24 +161,38 @@ export default function EventsPage() {
     }
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadFilters() {
             try {
                 const response = await fetch(
                     "/api/dashboard/filters?entities=tunnels,origins",
+                    { signal: controller.signal },
                 );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros de eventos.");
+                }
                 const json: FiltersResponse = await response.json();
                 setFilters(json);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[eventos] filters failed", error);
             } finally {
-                setLoadingFilters(false);
+                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
 
         void loadFilters();
-    }, []);
+        return () => controller.abort();
+    }, [dateFilterReady]);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadData() {
-            if (data) setIsRefreshing(true);
+            if (hasDataRef.current) setIsRefreshing(true);
             else setLoadingData(true);
 
             try {
@@ -207,24 +223,38 @@ export default function EventsPage() {
 
                 const response = await fetch(
                     `/api/dashboard/eventos?${params.toString()}`,
+                    { signal: controller.signal },
                 );
-                const json: EventsDashboardData = await response.json();
+                const json = (await response.json()) as EventsDashboardData & {
+                    error?: string;
+                };
 
                 if (!response.ok) {
-                    throw new Error((json as any).error ?? "Falha ao carregar eventos.");
+                    throw new Error(json.error ?? "Falha ao carregar eventos.");
                 }
 
                 setData(json);
+                hasDataRef.current = true;
             } catch (error) {
+                if (controller.signal.aborted) return;
                 console.error("[eventos] load failed", error);
                 setData(null);
             } finally {
-                setLoadingData(false);
-                setIsRefreshing(false);
+                if (!controller.signal.aborted) {
+                    setLoadingData(false);
+                    setIsRefreshing(false);
+                }
             }
         }
 
-        void loadData();
+        const debounceId = window.setTimeout(() => {
+            void loadData();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
     }, [
         currentPage,
         platformValues,
@@ -235,6 +265,7 @@ export default function EventsPage() {
         originValues,
         period,
         selectedRange,
+        dateFilterReady,
     ]);
 
     if (loadingFilters || loadingData) {
@@ -257,6 +288,8 @@ export default function EventsPage() {
                     setPeriod={resetPageAndSet(setPeriod)}
                     selectedRange={selectedRange}
                     setSelectedRange={resetPageAndSet(setSelectedRange)}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">

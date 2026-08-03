@@ -19,6 +19,8 @@ export const revalidate = 0;
 
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_RECENT_CLIENT_MESSAGES = 50_000;
+const PAGE_CACHE_MS = 15_000;
+const PAGE_STALE_MS = 2 * 60_000;
 const NO_CACHE_HEADERS = {
     "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
     Pragma: "no-cache",
@@ -69,7 +71,16 @@ type StoredRecipientResult = {
     status: "sent" | "failed";
 };
 
-export async function GET() {
+let pageCache:
+    | {
+          data: ActiveMessagesPageResponse;
+          expiresAt: number;
+          staleUntil: number;
+      }
+    | null = null;
+let pendingPageRequest: Promise<ActiveMessagesPageResponse> | null = null;
+
+export async function GET(request: Request) {
     const access = await requireActiveMessageAccess();
 
     if (access.ok === false) {
@@ -80,12 +91,60 @@ export async function GET() {
     }
 
     try {
+        if (new URL(request.url).searchParams.get("refresh") === "1") {
+            pageCache = null;
+        }
+        const response = await loadActiveMessagesPage();
+
+        return NextResponse.json(response, { headers: NO_CACHE_HEADERS });
+    } catch (error) {
+        console.error("[mensagem-ativa] GET failed", error);
+
+        return NextResponse.json(
+            {
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Não foi possível carregar a Mensagem Ativa",
+            },
+            { status: 500, headers: NO_CACHE_HEADERS },
+        );
+    }
+}
+
+async function loadActiveMessagesPage() {
+    const now = Date.now();
+    if (pageCache && pageCache.expiresAt > now) return pageCache.data;
+    if (pendingPageRequest) return pendingPageRequest;
+
+    const stale = pageCache;
+    pendingPageRequest = buildActiveMessagesPage()
+        .then((data) => {
+            const cachedAt = Date.now();
+            pageCache = {
+                data,
+                expiresAt: cachedAt + PAGE_CACHE_MS,
+                staleUntil: cachedAt + PAGE_STALE_MS,
+            };
+            return data;
+        })
+        .catch((error) => {
+            if (stale && stale.staleUntil > Date.now()) return stale.data;
+            throw error;
+        })
+        .finally(() => {
+            pendingPageRequest = null;
+        });
+
+    return pendingPageRequest;
+}
+
+async function buildActiveMessagesPage(): Promise<ActiveMessagesPageResponse> {
         const [
             clientsResult,
             stagesResult,
             funnelsResult,
             threadsResult,
-            recentMessagesResult,
             historyResult,
         ] =
             await Promise.all([
@@ -114,17 +173,9 @@ export async function GET() {
                     .order("name", { ascending: true }),
                 supabase
                     .from("thread")
-                    .select("client_id, last_client_message_at"),
-                supabase
-                    .from("messages")
-                    .select("client_id, sent_at")
-                    .eq("sender_type", "client")
-                    .gte(
-                        "sent_at",
-                        new Date(Date.now() - WHATSAPP_WINDOW_MS).toISOString(),
-                    )
-                    .order("sent_at", { ascending: false })
-                    .limit(MAX_RECENT_CLIENT_MESSAGES),
+                    .select("client_id, last_client_message_at")
+                    .not("client_id", "is", null)
+                    .not("last_client_message_at", "is", null),
                 supabase
                     .from("active_message_sends")
                     .select(`
@@ -152,7 +203,6 @@ export async function GET() {
             stagesResult.error,
             funnelsResult.error,
             threadsResult.error,
-            recentMessagesResult.error,
             historyResult.error,
         ].find(Boolean);
 
@@ -162,10 +212,25 @@ export async function GET() {
         const clientById = new Map(clientRows.map((client) => [client.id, client]));
         const historyRows = historyResult.data ?? [];
         const sendIds = historyRows.map((item) => item.id);
-        const [metricsBySendId, recipientDetailsByKey] = await Promise.all([
-            loadHistoryMetrics(sendIds),
-            loadRecipientDetails(sendIds),
-        ]);
+        const [metricsBySendId, recipientDetailsByKey, recentMessagesResult] =
+            await Promise.all([
+                loadHistoryMetrics(sendIds),
+                loadRecipientDetails(sendIds),
+                supabase
+                    .from("messages")
+                    .select("client_id, sent_at")
+                    .eq("sender_type", "client")
+                    .gte(
+                        "sent_at",
+                        new Date(
+                            Date.now() - WHATSAPP_WINDOW_MS,
+                        ).toISOString(),
+                    )
+                    .order("sent_at", { ascending: false })
+                    .limit(MAX_RECENT_CLIENT_MESSAGES),
+            ]);
+
+        if (recentMessagesResult.error) throw recentMessagesResult.error;
 
         const lastClientMessageByClientId = new Map<string, string | null>();
 
@@ -180,6 +245,9 @@ export async function GET() {
             }
         }
 
+        // Some legacy/imported messages predate the thread timestamp
+        // maintenance. This bounded 24-hour fallback keeps the send window and
+        // ordering exact without scanning historical messages.
         for (const message of (recentMessagesResult.data ?? []) as MessageApiRow[]) {
             if (!message.client_id || !message.sent_at) continue;
 
@@ -276,20 +344,7 @@ export async function GET() {
             history,
         };
 
-        return NextResponse.json(response, { headers: NO_CACHE_HEADERS });
-    } catch (error) {
-        console.error("[mensagem-ativa] GET failed", error);
-
-        return NextResponse.json(
-            {
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Não foi possível carregar a Mensagem Ativa",
-            },
-            { status: 500, headers: NO_CACHE_HEADERS },
-        );
-    }
+        return response;
 }
 
 async function loadHistoryMetrics(sendIds: string[]) {

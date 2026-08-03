@@ -8,9 +8,8 @@ import { ConversationPanel } from "@/components/conversations/ConversationPanel"
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import type { FiltersResponse } from "@/types";
 import {
     Badge,
@@ -167,8 +166,14 @@ function MessagesPageContent() {
     const [dropoffMomentValues, setDropoffMomentValues] = useState<string[]>([]);
     const [resultValues, setResultValues] = useState<string[]>([]);
     const [notableValues, setNotableValues] = useState<string[]>([]);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({ start: null, end: null });
+    const [platformValues, setPlatformValues] = useState<string[]>([]);
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("yesterday");
     const [search, setSearch] = useState("");
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [totalConversations, setTotalConversations] = useState(0);
@@ -184,18 +189,34 @@ function MessagesPageContent() {
     }
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadFilters() {
             try {
-                const response = await fetch("/api/dashboard/filters?entities=units,attendants,tunnels,origins");
+                const response = await fetch(
+                    "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
+                    { signal: controller.signal },
+                );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros de conversas.");
+                }
                 setFilters(await response.json());
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[conversas] filters failed", error);
             } finally {
-                setLoadingFilters(false);
+                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
         void loadFilters();
-    }, []);
+        return () => controller.abort();
+    }, [dateFilterReady]);
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadConversations() {
             setLoadingConversations(true);
             const params = new URLSearchParams();
@@ -213,21 +234,46 @@ function MessagesPageContent() {
             if (dropoffMomentValues.length > 0) params.set("dropoff_moments", dropoffMomentValues.join(","));
             if (resultValues.length > 0) params.set("results", resultValues.join(","));
             if (notableValues.length > 0) params.set("notable", notableValues[0]);
+            if (platformValues.length > 0) params.set("platforms", platformValues.join(","));
 
             try {
-                const response = await fetch(`/api/dashboard/conversas?${params.toString()}`);
-                const json: ConversationsResponse = await response.json();
+                const response = await fetch(
+                    `/api/dashboard/conversas?${params.toString()}`,
+                    { signal: controller.signal },
+                );
+                const json = (await response.json()) as ConversationsResponse & {
+                    error?: string;
+                };
+                if (!response.ok) {
+                    throw new Error(json.error ?? "Falha ao carregar conversas.");
+                }
                 setConversations(json.items ?? []);
                 setTotalConversations(json.total ?? 0);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[conversas] load failed", error);
+                setConversations([]);
+                setTotalConversations(0);
             } finally {
-                setLoadingConversations(false);
+                if (!controller.signal.aborted) {
+                    setLoadingConversations(false);
+                }
             }
         }
-        void loadConversations();
+
+        const debounceId = window.setTimeout(() => {
+            void loadConversations();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
     }, [
         currentPage, period, selectedRange, search, unitIds, attendantIds,
         tunnelValues, originValues, goalValues, dropoffMomentValues,
-        resultValues, notableValues,
+        resultValues, notableValues, platformValues,
+        dateFilterReady,
     ]);
 
     const totalPages = Math.max(1, Math.ceil(totalConversations / PAGE_SIZE));
@@ -286,6 +332,8 @@ function MessagesPageContent() {
                     setPeriod={resetPageAndSet(setPeriod)}
                     selectedRange={selectedRange}
                     setSelectedRange={resetPageAndSet(setSelectedRange)}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
@@ -313,6 +361,16 @@ function MessagesPageContent() {
                 >
                     <AdvancedFilterButton
                         sections={[
+                            {
+                                id: "platform",
+                                title: "Plataforma",
+                                values: platformValues,
+                                onChange: resetPageAndSet(setPlatformValues),
+                                options: [
+                                    { label: "WhatsApp", value: "WhatsApp" },
+                                    { label: "Instagram", value: "Instagram" },
+                                ],
+                            },
                             {
                                 id: "goal",
                                 title: "Objetivo",

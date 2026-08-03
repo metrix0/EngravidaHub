@@ -31,9 +31,8 @@ import SidePanel from "@/components/layout/SidePanel";
 import {
     applyArrayParams,
     applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
 } from "@/components/ui/CalendarButton";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import ClientPanel from "@/components/clientes/ClientPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
@@ -151,11 +150,13 @@ export default function FunnelPage() {
 
     const [loading, setLoading] = useState(true);
     const [loadingFilters, setLoadingFilters] = useState(true);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("30");
-    const [selectedRange, setSelectedRange] = useState<DateRange>({
-        start: null,
-        end: null,
-    });
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("30");
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -192,85 +193,116 @@ export default function FunnelPage() {
 
 
     useEffect(() => {
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=units,origins"
+                    "/api/dashboard/filters?entities=units,origins",
+                    { signal: controller.signal },
                 );
+                if (!response.ok) {
+                    throw new Error("Falha ao carregar filtros do funil.");
+                }
                 const json: FiltersResponse = await response.json();
 
                 setFilters(json);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("[funil] filters failed", error);
             } finally {
-                setLoadingFilters(false);
+                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
 
-        loadFilters();
-    }, []);
+        void loadFilters();
+        return () => controller.abort();
+    }, [dateFilterReady]);
 
     const loadFunnelData = useCallback(
-        async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+        async ({
+            showLoading = true,
+            signal,
+        }: {
+            showLoading?: boolean;
+            signal?: AbortSignal;
+        } = {}) => {
             if (showLoading) {
                 setLoading(true);
             }
 
-            const params = new URLSearchParams();
+            try {
+                const params = new URLSearchParams();
 
-            applyCalendarDateParams({
-                params,
-                selectedRange,
-                selectedPreset: period,
-            });
+                applyCalendarDateParams({
+                    params,
+                    selectedRange,
+                    selectedPreset: period,
+                });
 
-            applyArrayParams(params, {
-                unit_ids: unitIds,
-            });
+                applyArrayParams(params, {
+                    unit_ids: unitIds,
+                });
 
-            const response = await fetch(`/api/funnel?${params.toString()}`, {
-                cache: "no-store",
-            });
+                const response = await fetch(`/api/funnel?${params.toString()}`, {
+                    cache: "no-store",
+                    signal,
+                });
 
-            if (!response.ok) {
-                if (showLoading) {
-                    setLoading(false);
+                if (!response.ok) {
+                    const body = await response.json().catch(() => null);
+                    throw new Error(
+                        body?.error ?? "Falha ao carregar o funil.",
+                    );
                 }
 
-                console.error(await response.json());
-                return;
-            }
+                const data = (await response.json()) as FunnelResponse;
 
-            const data = (await response.json()) as FunnelResponse;
+                setFunnels(data.funnels ?? []);
+                setStages(data.stages ?? []);
+                setClients(data.clients ?? []);
+                setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
+                setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
 
-            setFunnels(data.funnels ?? []);
-            setStages(data.stages ?? []);
-            setClients(data.clients ?? []);
-            setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
-            setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
+                const defaultFunnel =
+                    data.funnels?.find(
+                        (funnel) => funnel.id === DEFAULT_FUNNEL_ID,
+                    ) ?? data.funnels?.[0];
 
-            const defaultFunnel =
-                data.funnels?.find((funnel) => funnel.id === DEFAULT_FUNNEL_ID) ??
-                data.funnels?.[0];
-
-            setFunnelIds((current) => {
-                const currentId = current[0];
-                const selectedFunnelStillExists = data.funnels?.some(
-                    (funnel) => funnel.id === currentId,
-                );
-                return !selectedFunnelStillExists && defaultFunnel?.id
-                    ? [defaultFunnel.id]
-                    : current;
-            });
-
-            if (showLoading) {
-                setLoading(false);
+                setFunnelIds((current) => {
+                    const currentId = current[0];
+                    const selectedFunnelStillExists = data.funnels?.some(
+                        (funnel) => funnel.id === currentId,
+                    );
+                    return !selectedFunnelStillExists && defaultFunnel?.id
+                        ? [defaultFunnel.id]
+                        : current;
+                });
+            } catch (error) {
+                if (signal?.aborted) return;
+                console.error("[funil] load failed", error);
+            } finally {
+                if (showLoading && !signal?.aborted) {
+                    setLoading(false);
+                }
             }
         },
         [period, unitIds, selectedRange],
     );
 
     useEffect(() => {
-        loadFunnelData();
-    }, [loadFunnelData]);
+        if (!dateFilterReady) return;
+        const controller = new AbortController();
+        const debounceId = window.setTimeout(() => {
+            void loadFunnelData({ signal: controller.signal });
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
+    }, [dateFilterReady, loadFunnelData]);
 
     const visibleStages = useMemo(() => {
         if (!selectedFunnelId) return [];
@@ -343,10 +375,6 @@ export default function FunnelPage() {
                     new Date(a.last_interaction_at).getTime()
             );
     }, [availableClients, clientSearch]);
-
-    useEffect(() => {
-        setAvailableClientsPage(1);
-    }, [clientSearch]);
 
     const selectedFunnel = funnels.find(
         (funnel) => funnel.id === selectedFunnelId
@@ -840,6 +868,8 @@ export default function FunnelPage() {
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
+                    storageManaged
+                    storageReady={dateFilterReady}
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
@@ -988,7 +1018,10 @@ export default function FunnelPage() {
                 currentPage={availableClientsPage}
                 onPageChange={setAvailableClientsPage}
                 search={clientSearch}
-                setSearch={setClientSearch}
+                setSearch={(value) => {
+                    setClientSearch(value);
+                    setAvailableClientsPage(1);
+                }}
                 loading={availableClientsLoading}
                 addingClientId={addingClientId}
                 addingManyClients={addingManyClients}

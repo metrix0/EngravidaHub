@@ -2,7 +2,13 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 import { usePathname } from "next/navigation";
 
 import ButtonGroup from "@/components/ui/ButtonGroup";
@@ -55,15 +61,18 @@ export function useDashboardDateFilter(
         writeStoredDateFilter(pathname, filter);
     }, [filter, pathname]);
 
+    const setPeriod = useCallback((period: CalendarPresetValue | null) => {
+        setFilter((current) => ({ ...current, period }));
+    }, []);
+    const setSelectedRange = useCallback((selectedRange: DateRange) => {
+        setFilter((current) => ({ ...current, selectedRange }));
+    }, []);
+
     return {
         period: filter.period,
-        setPeriod: (period: CalendarPresetValue | null) => {
-            setFilter((current) => ({ ...current, period }));
-        },
+        setPeriod,
         selectedRange: filter.selectedRange,
-        setSelectedRange: (selectedRange: DateRange) => {
-            setFilter((current) => ({ ...current, selectedRange }));
-        },
+        setSelectedRange,
         // The initial value is supplied by the server cookie. The cookie is
         // mirrored from localStorage before the first visible page paint.
         ready: true,
@@ -93,9 +102,16 @@ export function DashboardHeader({
 
     useBrowserLayoutEffect(() => {
         if (storageManaged) {
-            setInternalStorageReady(true);
+            if (!internalStorageReady) setInternalStorageReady(true);
             return;
         }
+
+        // Restore the persisted value only once. Several pages intentionally
+        // wrap their setters to reset pagination, so those callback references
+        // change after every render. Re-running the restoration in response to
+        // a new callback can repeatedly replace the range with an equivalent
+        // object and trigger React's maximum-update-depth guard.
+        if (internalStorageReady) return;
 
         const storedFilter = resolveStoredFilter(
             pathname,
@@ -120,6 +136,7 @@ export function DashboardHeader({
 
         setInternalStorageReady(true);
     }, [
+        internalStorageReady,
         pathname,
         presets,
         serverFilters,

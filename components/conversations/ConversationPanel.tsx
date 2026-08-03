@@ -27,6 +27,7 @@ import {
     getGoalStatusLabel,
     getOutcomeEventLabel,
 } from "@/lib/conversationAnalysisLabels";
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 import {
     Badge,
     DetailsSidePanel,
@@ -408,9 +409,7 @@ export function ConversationPanel({
 
 function MessagesTab({ messages }: { messages: PanelMessage[] }) {
     const visibleMessages = messages.filter(
-        (message) =>
-            message.text.trim() !==
-            "[Mensagem preservada: application/vnd.iris.ticket+json]",
+        (message) => !isPreservedMessageText(message.text),
     );
 
     if (visibleMessages.length === 0) {

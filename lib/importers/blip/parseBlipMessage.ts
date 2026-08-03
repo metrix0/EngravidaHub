@@ -64,12 +64,7 @@ export function parseBlipMessage(
 
 function isInvisibleControlPayload(payload: BlipPayload) {
     if (payload.type === "application/vnd.iris.ticket+json") return true;
-
-    return (
-        payload.type === "application/json" &&
-        typeof payload.id === "string" &&
-        payload.id.startsWith("activecampaign:")
-    );
+    return payload.type === "application/json";
 }
 
 function extractText(payload: BlipPayload): string | null {

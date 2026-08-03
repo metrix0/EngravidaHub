@@ -50,10 +50,6 @@ export default function FilterButton({
             : `${appliedValues.length} selecionados`;
 
     useEffect(() => {
-        setDraftValues(appliedValues.length === 0 ? allOptionValues : appliedValues);
-    }, [appliedValues, options.length]);
-
-    useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (!wrapperRef.current) return;
 
@@ -77,6 +73,17 @@ export default function FilterButton({
         }
 
         onChange?.(nextValues);
+    }
+
+    function handleToggleOpen() {
+        if (!open) {
+            setDraftValues(
+                appliedValues.length === 0
+                    ? allOptionValues
+                    : [...appliedValues],
+            );
+        }
+        setOpen((current) => !current);
     }
 
     function toggleOption(value: string) {
@@ -108,7 +115,7 @@ export default function FilterButton({
         <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
             <button
                 type="button"
-                onClick={() => setOpen((current) => !current)}
+                onClick={handleToggleOpen}
                 className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                 style={{borderColor: "var(--color-border)",
                     color: "var(--color-muted)",

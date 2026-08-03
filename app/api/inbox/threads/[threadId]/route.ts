@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
+import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 import { supabase } from "@/lib/supabase/client";
 import type {
     ClientNote,
@@ -635,7 +636,7 @@ function mapThreadBase(row: any): Omit<
         initials: getInitials(name),
         phone: client?.phone ?? null,
         channel,
-        preview: cleanMessageText(row.last_message_text ?? "Sem mensagens"),
+        preview: cleanMessagePreview(row.last_message_text, "Sem mensagens"),
         time: formatTimeAgo(row.last_message_at ?? row.updated_at),
         unread: row.unread_count ?? 0,
         city: client?.state ?? null,
@@ -703,10 +704,11 @@ function mapConversationBase(
         initials: getInitials(name),
         phone: client?.phone ?? null,
         channel,
-        preview: cleanMessageText(
-            conversation.last_message_text ??
-            analysis?.short_label ??
-            "Conversa finalizada",
+        preview: cleanMessagePreview(
+            conversation.last_message_text,
+            cleanMessageText(
+                analysis?.short_label ?? "Conversa finalizada",
+            ),
         ),
         time: formatTimeAgo(lastActivity),
         unread: 0,
@@ -892,4 +894,12 @@ function cleanMessageText(text: string) {
         .replace(/<\/?b>/gi, "")
         .replace(/<\/?strong>/gi, "")
         .trim();
+}
+
+function cleanMessagePreview(
+    text: string | null | undefined,
+    fallback: string,
+) {
+    const cleaned = cleanMessageText(text ?? "");
+    return cleaned && !isPreservedMessageText(cleaned) ? cleaned : fallback;
 }

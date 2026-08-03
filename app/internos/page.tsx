@@ -20,15 +20,14 @@ import {
   openInternalGroup,
 } from "@/components/conversations/FloatingConversationPanel";
 import {
-  fetchInternalGroups,
-  fetchInternalUsers,
+  fetchInternalDirectory,
 } from "@/lib/internal-chat/internalChatApi";
 import type {
   InternalChatUser,
   InternalGroupSummary,
 } from "@/types/internalChat";
 
-const REFRESH_INTERVAL_MS = 30_000;
+const REFRESH_INTERVAL_MS = 60_000;
 
 type RoleId = "admin" | "gestor" | "atendente" | "marketing";
 
@@ -70,12 +69,9 @@ export default function InternosPage() {
 
     try {
       setError(null);
-      const [nextUsers, nextGroups] = await Promise.all([
-        fetchInternalUsers(),
-        fetchInternalGroups(),
-      ]);
-      setUsers(nextUsers);
-      setGroups(nextGroups);
+      const directory = await fetchInternalDirectory();
+      setUsers(directory.users);
+      setGroups(directory.groups);
     } catch (loadError) {
       console.error("[internos] failed to load", loadError);
       setError(

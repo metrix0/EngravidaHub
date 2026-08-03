@@ -14,6 +14,21 @@ const allowedEntities: DashboardFilterEntity[] = [
 ];
 
 const NULL_FILTER_VALUE = "__NULL__";
+const FILTER_CACHE_MS = 5 * 60 * 1_000;
+
+type ConversationOptions = {
+    tunnels: FilterOption[];
+    origins: FilterOption[];
+};
+
+const filterCache = new Map<
+    string,
+    { value: FilterOption[] | ConversationOptions; expiresAt: number }
+>();
+const pendingFilters = new Map<
+    string,
+    Promise<FilterOption[] | ConversationOptions>
+>();
 
 export async function GET(request: Request) {
     try {
@@ -31,30 +46,34 @@ export async function GET(request: Request) {
             : allowedEntities;
 
         const response: FiltersResponse = {};
+        const entries = await Promise.all(
+            requestedEntities.map(async (entity) => {
+                if (entity === "tunnels" || entity === "origins") {
+                    const options = (await readFilterCache(
+                        "conversation-text-options",
+                        getConversationTextOptions,
+                    )) as ConversationOptions;
 
-        for (const entity of requestedEntities) {
-            if (entity === "units") {
-                response.units = await getActiveEntityOptions("units");
-            }
+                    return [entity, options[entity]] as const;
+                }
 
-            if (entity === "attendants") {
-                response.attendants = await getActiveEntityOptions("attendants");
-            }
+                const options = (await readFilterCache(entity, () =>
+                    getActiveEntityOptions(entity),
+                )) as FilterOption[];
 
-            if (entity === "services") {
-                response.services = await getActiveEntityOptions("services");
-            }
+                return [entity, options] as const;
+            }),
+        );
 
-            if (entity === "tunnels") {
-                response.tunnels = await getConversationTextOptions("tunnel");
-            }
-
-            if (entity === "origins") {
-                response.origins = await getConversationTextOptions("origin");
-            }
+        for (const [entity, options] of entries) {
+            response[entity] = options;
         }
 
-        return NextResponse.json(response);
+        return NextResponse.json(response, {
+            headers: {
+                "Cache-Control": "private, max-age=60, stale-while-revalidate=240",
+            },
+        });
     } catch (error) {
         console.error("[/api/dashboard/filters] Failed to load filters", error);
 
@@ -89,19 +108,54 @@ async function getActiveEntityOptions(
     );
 }
 
-async function getConversationTextOptions(
-    column: "tunnel" | "origin"
-): Promise<FilterOption[]> {
+async function getConversationTextOptions(): Promise<ConversationOptions> {
     const { data, error } = await supabase
         .from("conversations")
-        .select(column)
+        .select("tunnel, origin")
         .eq("channel", "WhatsApp");
 
     if (error) throw error;
 
-    return buildNullableTextOptions(
-        (data ?? []).map((item) => item[column] as string | null)
-    );
+    return {
+        tunnels: buildNullableTextOptions(
+            (data ?? []).map((item) => item.tunnel as string | null),
+        ),
+        origins: buildNullableTextOptions(
+            (data ?? []).map((item) => item.origin as string | null),
+        ),
+    };
+}
+
+async function readFilterCache<T extends FilterOption[] | ConversationOptions>(
+    key: string,
+    loader: () => Promise<T>,
+): Promise<T> {
+    const cached = filterCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.value as T;
+    }
+
+    const pending = pendingFilters.get(key);
+    if (pending) return pending as Promise<T>;
+
+    const request = loader()
+        .then((value) => {
+            filterCache.set(key, {
+                value,
+                expiresAt: Date.now() + FILTER_CACHE_MS,
+            });
+            return value;
+        })
+        .catch((error) => {
+            if (cached) return cached.value as T;
+            throw error;
+        })
+        .finally(() => {
+            pendingFilters.delete(key);
+        });
+
+    pendingFilters.set(key, request);
+    return request;
 }
 
 function buildNullableTextOptions(values: Array<string | null>) {

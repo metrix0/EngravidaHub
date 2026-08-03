@@ -1,15 +1,12 @@
 // app/api/current-attendant/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerAuthClient } from "@/lib/auth/getCurrentAuthUser";
 
 export async function GET() {
-    const supabase = await createRouteSupabaseClient();
+    const supabase = await createServerAuthClient();
 
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
+    const { data, error: userError } = await supabase.auth.getClaims();
+    const claims = data?.claims ?? null;
 
     if (userError) {
         return NextResponse.json(
@@ -24,7 +21,7 @@ export async function GET() {
         );
     }
 
-    if (!user) {
+    if (!claims?.sub) {
         return NextResponse.json({
             ok: true,
             user: null,
@@ -49,7 +46,7 @@ export async function GET() {
                 name
             )
         `)
-        .eq("auth_user_id", user.id)
+        .eq("auth_user_id", claims.sub)
         .maybeSingle();
 
     if (attendantError) {
@@ -59,7 +56,7 @@ export async function GET() {
                 error: attendantError.message,
                 debug: {
                     reason: "attendant_query_error",
-                    searchedAuthUserId: user.id,
+                    searchedAuthUserId: claims.sub,
                     code: attendantError.code,
                 },
             },
@@ -70,35 +67,14 @@ export async function GET() {
     return NextResponse.json({
         ok: true,
         user: {
-            id: user.id,
-            email: user.email ?? null,
+            id: claims.sub,
+            email: typeof claims.email === "string" ? claims.email : null,
         },
         attendant,
         debug: {
             reason: attendant ? "attendant_found" : "attendant_not_found",
-            searchedAuthUserId: user.id,
+            searchedAuthUserId: claims.sub,
             hasAttendant: !!attendant,
         },
     });
-}
-
-async function createRouteSupabaseClient() {
-    const cookieStore = await cookies();
-
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() {
-                    return cookieStore.getAll();
-                },
-                setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        cookieStore.set(name, value, options);
-                    });
-                },
-            },
-        }
-    );
 }
