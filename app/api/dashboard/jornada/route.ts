@@ -100,6 +100,19 @@ type FullJourneyPipeline = {
             conversations: number;
             clients: number;
         }[];
+        procedure_linkage: {
+            tracked_clients: number;
+            raw_events_read: number;
+            schedule_rows_read: number;
+            funnel_event_rows_read: number;
+            deduped_source_events: number;
+            eligible_source_events: number;
+            linked_unique_clients: number;
+            attended_unique_clients: number;
+            scheduled_branch_total: number;
+            attended_branch_total: number;
+            invariant_ok: boolean;
+        };
         cohort_start_date: string;
         cohort_end_date: string;
         matured_through: string;
@@ -262,13 +275,29 @@ type PaidMediaTotals = {
     >;
 };
 
+type PipelineProcedureEventSource =
+    | "schedules"
+    | "funnel_clinisys_events";
+
 type PipelineProcedureEventRow = {
+    source_table: PipelineProcedureEventSource;
+    source_external_id: string | null;
+    source_hash: string | null;
     client_id: string | null;
     created_in_source_at: string | null;
+    created_at: string | null;
     scheduled_for: string;
     status: string | null;
     procedure_name: string | null;
     event_kind: string | null;
+    unit_name: string | null;
+};
+
+type PipelineProcedureEventLoadResult = {
+    events: PipelineProcedureEventRow[];
+    scheduleRowsRead: number;
+    funnelEventRowsRead: number;
+    dedupedSourceEvents: number;
 };
 
 type PipelineInvoiceRow = {
@@ -285,10 +314,6 @@ export async function GET(request: Request) {
     const filters = readDashboardFilters(searchParams);
 
     try {
-        // Load each source once. The previous implementation ran a large JSON
-        // aggregate RPC while independently downloading the same conversation
-        // cohort for the pipeline; under load those two scans timed each other
-        // out. The in-memory aggregate below mirrors that RPC's rules exactly.
         const startDate = range.startDate ?? saoPauloDate(range.startAt);
         const endDate =
             range.endDate ??
@@ -331,16 +356,10 @@ export async function GET(request: Request) {
                 objections: payload.objections,
                 audit: payload.audit,
             },
-            {
-                headers: {
-                    "Cache-Control": "private, no-store",
-                },
-            },
+            { headers: { "Cache-Control": "private, no-store" } },
         );
     } catch (error) {
-        if (request.signal.aborted) {
-            return new NextResponse(null, { status: 499 });
-        }
+        if (request.signal.aborted) return new NextResponse(null, { status: 499 });
         console.error("[dashboard/jornada] GET failed", error);
         return NextResponse.json(
             {
@@ -429,55 +448,37 @@ function buildJourneyConversationMetrics({
         if (
             filters.unitIds.length > 0 &&
             !filters.unitIds.includes(effectiveUnitId ?? "")
-        ) {
-            return [];
-        }
+        ) return [];
         if (
             filters.serviceIds.length > 0 &&
             !filters.serviceIds.includes(effectiveServiceId ?? "")
-        ) {
-            return [];
-        }
+        ) return [];
         if (
             filters.attendantIds.length > 0 &&
             !filters.attendantIds.includes(effectiveAttendantId ?? "")
-        ) {
-            return [];
-        }
+        ) return [];
         if (
             filters.tunnels.length > 0 &&
-            !filters.tunnels.includes(
-                conversation.tunnel?.trim() || "__NULL__",
-            )
-        ) {
-            return [];
-        }
+            !filters.tunnels.includes(conversation.tunnel?.trim() || "__NULL__")
+        ) return [];
         if (
             filters.origins.length > 0 &&
-            !filters.origins.includes(
-                conversation.origin?.trim() || "__NULL__",
-            )
-        ) {
-            return [];
-        }
+            !filters.origins.includes(conversation.origin?.trim() || "__NULL__")
+        ) return [];
 
-        return [
-            {
-                conversationId: analysis.conversation_id,
-                clientKey:
-                    conversation.client_id ??
-                    `conversation:${conversation.id}`,
-                startedAt: analysis.started_at,
-                outcomeEvents: arrayOrEmpty(analysis.outcome_events),
-                objections: arrayOrEmpty(analysis.objections),
-                dropoffHappened: analysis.dropoff_happened === true,
-                dropoffMoment: analysis.dropoff_moment,
-                customerStartIntent: analysis.customer_start_intent ?? "other",
-                resolutionResult: analysis.resolution_result,
-                resolutionReasoningCategory:
-                    analysis.resolution_reasoning_category,
-            },
-        ];
+        return [{
+            conversationId: analysis.conversation_id,
+            clientKey:
+                conversation.client_id ?? `conversation:${conversation.id}`,
+            startedAt: analysis.started_at,
+            outcomeEvents: arrayOrEmpty(analysis.outcome_events),
+            objections: arrayOrEmpty(analysis.objections),
+            dropoffHappened: analysis.dropoff_happened === true,
+            dropoffMoment: analysis.dropoff_moment,
+            customerStartIntent: analysis.customer_start_intent ?? "other",
+            resolutionResult: analysis.resolution_result,
+            resolutionReasoningCategory: analysis.resolution_reasoning_category,
+        }];
     });
 
     const eventsByClient = new Map<
@@ -488,10 +489,8 @@ function buildJourneyConversationMetrics({
         const events = eventsByClient.get(row.clientKey) ?? [];
         for (const rawEvent of row.outcomeEvents) {
             const event = asObject(rawEvent);
-            const type =
-                typeof event.type === "string" ? event.type.trim() : "";
+            const type = typeof event.type === "string" ? event.type.trim() : "";
             if (!type) continue;
-
             const rawEventAt =
                 typeof event.event_at === "string" ? event.event_at : "";
             const parsedEventAt = /^\d{4}-\d{2}-\d{2}T/.test(rawEventAt)
@@ -508,13 +507,9 @@ function buildJourneyConversationMetrics({
     }
 
     const requested = firstStage(eventsByClient, ["information_requested"]);
-    const answered = nextStage(eventsByClient, requested, [
-        "information_answered",
-    ]);
+    const answered = nextStage(eventsByClient, requested, ["information_answered"]);
     const priced = nextStage(eventsByClient, answered, ["price_presented"]);
-    const offered = nextStage(eventsByClient, priced, [
-        "consultation_offered",
-    ]);
+    const offered = nextStage(eventsByClient, priced, ["consultation_offered"]);
     const scheduled = nextStage(eventsByClient, offered, [
         "appointment_scheduled",
         "appointment_rescheduled",
@@ -524,46 +519,11 @@ function buildJourneyConversationMetrics({
 
     const journeyFunnel = [
         funnelStage("started", "Iniciou conversa", started, started, started, "#ddd6fe"),
-        funnelStage(
-            "information_requested",
-            "Pediu informação",
-            requested.size,
-            started,
-            started,
-            "#bbf7d0",
-        ),
-        funnelStage(
-            "information_answered",
-            "Informação respondida",
-            answered.size,
-            started,
-            requested.size,
-            "#bfdbfe",
-        ),
-        funnelStage(
-            "price_presented",
-            "Preço apresentado",
-            priced.size,
-            started,
-            answered.size,
-            "#c4b5fd",
-        ),
-        funnelStage(
-            "consultation_offered",
-            "Consulta oferecida",
-            offered.size,
-            started,
-            priced.size,
-            "#fed7aa",
-        ),
-        funnelStage(
-            "appointment_scheduled",
-            "Agendamento realizado",
-            scheduled.size,
-            started,
-            offered.size,
-            "#fbcfe8",
-        ),
+        funnelStage("information_requested", "Pediu informação", requested.size, started, started, "#bbf7d0"),
+        funnelStage("information_answered", "Informação respondida", answered.size, started, requested.size, "#bfdbfe"),
+        funnelStage("price_presented", "Preço apresentado", priced.size, started, answered.size, "#c4b5fd"),
+        funnelStage("consultation_offered", "Consulta oferecida", offered.size, started, priced.size, "#fed7aa"),
+        funnelStage("appointment_scheduled", "Agendamento realizado", scheduled.size, started, offered.size, "#fbcfe8"),
     ];
 
     const dropoffCounts = new Map<string, number>();
@@ -592,19 +552,13 @@ function buildJourneyConversationMetrics({
             abandoned: 0,
         };
         if (abandoned) intent.abandoned += 1;
-        if (!abandoned && row.resolutionResult === "resolved") {
-            intent.resolved += 1;
-        }
+        if (!abandoned && row.resolutionResult === "resolved") intent.resolved += 1;
         if (
             !abandoned &&
             row.resolutionResult !== null &&
             row.resolutionResult !== "resolved"
-        ) {
-            intent.partial += 1;
-        }
-        if (!abandoned && row.resolutionResult === "not_resolved") {
-            intent.notResolved += 1;
-        }
+        ) intent.partial += 1;
+        if (!abandoned && row.resolutionResult === "not_resolved") intent.notResolved += 1;
         intentCounts.set(row.customerStartIntent, intent);
 
         const uniqueTypes = new Set(
@@ -646,14 +600,8 @@ function buildJourneyConversationMetrics({
         }))
         .sort(
             (left, right) =>
-                right.resolved +
-                right.partial +
-                right.not_resolved +
-                right.abandoned -
-                (left.resolved +
-                    left.partial +
-                    left.not_resolved +
-                    left.abandoned),
+                right.resolved + right.partial + right.not_resolved + right.abandoned -
+                (left.resolved + left.partial + left.not_resolved + left.abandoned),
         );
     const objections = [...objectionConversations]
         .map(([type, conversationIds]) => ({
@@ -686,14 +634,12 @@ function firstStage(
 ) {
     const accepted = new Set(eventTypes);
     const result = new Map<string, number>();
-
     for (const [clientKey, events] of eventsByClient) {
         const times = events
             .filter((event) => accepted.has(event.type))
             .map((event) => event.eventAt);
         if (times.length > 0) result.set(clientKey, Math.min(...times));
     }
-
     return result;
 }
 
@@ -704,17 +650,12 @@ function nextStage(
 ) {
     const accepted = new Set(eventTypes);
     const result = new Map<string, number>();
-
     for (const [clientKey, previousAt] of previousStage) {
         const times = (eventsByClient.get(clientKey) ?? [])
-            .filter(
-                (event) =>
-                    accepted.has(event.type) && event.eventAt >= previousAt,
-            )
+            .filter((event) => accepted.has(event.type) && event.eventAt >= previousAt)
             .map((event) => event.eventAt);
         if (times.length > 0) result.set(clientKey, Math.min(...times));
     }
-
     return result;
 }
 
@@ -801,10 +742,11 @@ async function loadFullJourneyPipeline(
     const cohort = new Map<string, PaidWhatsappCohortEntry>();
 
     for (const entry of whatsappEntries) {
-        if (!entry.client_id) continue;
-        const current = cohort.get(entry.client_id);
+        const clientId = normalizeClientId(entry.client_id);
+        if (!clientId) continue;
+        const current = cohort.get(clientId);
         if (!current || entry.started_at < current.enteredAt) {
-            cohort.set(entry.client_id, {
+            cohort.set(clientId, {
                 enteredAt: entry.started_at,
                 platform: entry.platform,
                 evidence: entry.evidence,
@@ -815,89 +757,66 @@ async function loadFullJourneyPipeline(
     }
 
     const clientIds = [...cohort.keys()];
-    const [procedureEvents, invoices] = await Promise.all([
-        loadPipelineProcedureEvents(clientIds, signal),
+    const [procedureEventLoad, invoices] = await Promise.all([
+        loadPipelineProcedureEvents(
+            clientIds,
+            startDate,
+            endDate,
+            signal,
+        ),
         loadPipelineInvoices(clientIds, signal),
     ]);
-    const scheduledClients = new Set<string>();
-    const attendedAtByClient = new Map<string, string>();
-    const outcomesByProcedure = new Map<
-        string,
-        {
-            key: string;
-            procedureName: string;
-            eventKind: string;
-            scheduledAppointments: number;
-            attendedAppointments: number;
-        }
-    >();
+    const procedureEvents = procedureEventLoad.events;
 
-    for (const event of procedureEvents) {
-        const clientId = event.client_id;
-        if (!clientId) continue;
+    // Main pipeline cards count unique clients. Procedure rows count every
+    // deduplicated qualifying appointment, so one tracked WhatsApp client may
+    // legitimately appear in multiple procedure rows (and more than once for
+    // the same procedure when they have separate appointments).
+    const eligibleProcedureEvents = procedureEvents.flatMap((event) => {
+        const clientId = normalizeClientId(event.client_id);
+        if (!clientId) return [];
 
         const cohortEntry = cohort.get(clientId);
-        if (!cohortEntry) continue;
+        if (!cohortEntry) return [];
+        if (!procedureEventBelongsToCohort(event, cohortEntry)) return [];
 
-        const enteredDate = saoPauloDate(cohortEntry.enteredAt);
-        const createdDate =
-            event.created_in_source_at ?? event.scheduled_for;
-        if (!createdDate || saoPauloDate(createdDate) < enteredDate) continue;
+        return [{ ...event, client_id: clientId }];
+    });
+    const scheduledClients = new Set(
+        eligibleProcedureEvents.flatMap((event) =>
+            event.client_id ? [event.client_id] : [],
+        ),
+    );
+    const attendedAtByClient = new Map<string, string>();
+    let attendedProcedureEvents = 0;
 
-        const procedureName = pipelineProcedureName(event);
-        const procedureKey = normalizeText(procedureName);
-        const outcome = outcomesByProcedure.get(procedureKey) ?? {
-            key: procedureKey,
-            procedureName,
-            eventKind: event.event_kind?.trim() || "procedure",
-            scheduledAppointments: 0,
-            attendedAppointments: 0,
-        };
-
-        scheduledClients.add(clientId);
-        outcome.scheduledAppointments += 1;
-        outcomesByProcedure.set(procedureKey, outcome);
-
-        if (!scheduleShowedUp(normalizeScheduleStatus(event.status))) {
+    for (const event of eligibleProcedureEvents) {
+        const clientId = event.client_id;
+        if (
+            !clientId ||
+            !scheduleShowedUp(normalizeScheduleStatus(event.status))
+        ) {
             continue;
         }
-        if (saoPauloDate(event.scheduled_for) < enteredDate) continue;
 
-        outcome.attendedAppointments += 1;
-
+        attendedProcedureEvents += 1;
         const current = attendedAtByClient.get(clientId);
         if (!current || event.scheduled_for < current) {
             attendedAtByClient.set(clientId, event.scheduled_for);
         }
     }
 
-    const procedureBranches: PipelineProcedureBranch[] = [
-        ...outcomesByProcedure.values(),
-    ]
-        .map((outcome) => ({
-            key: outcome.key,
-            procedure_name: outcome.procedureName,
-            event_kind: outcome.eventKind,
-            scheduled_appointments: outcome.scheduledAppointments,
-            attended_appointments: outcome.attendedAppointments,
-            schedule_to_attendance_rate: percentage(
-                outcome.attendedAppointments,
-                outcome.scheduledAppointments,
-            ),
-            lost_appointments: Math.max(
-                0,
-                outcome.scheduledAppointments - outcome.attendedAppointments,
-            ),
-        }))
-        .sort(
-            (first, second) =>
-                second.scheduled_appointments -
-                    first.scheduled_appointments ||
-                first.procedure_name.localeCompare(
-                    second.procedure_name,
-                    "pt-BR",
-                ),
-        );
+    const procedureBranches = buildProcedureBranches(
+        eligibleProcedureEvents,
+    );
+    assertProcedurePipelineIntegrity({
+        trackedClients: cohort.size,
+        scheduledClients: scheduledClients.size,
+        attendedClients: attendedAtByClient.size,
+        scheduledProcedureEvents: eligibleProcedureEvents.length,
+        attendedProcedureEvents,
+        procedureBranches,
+    });
 
     const invoicedClients = new Set<string>();
     const authorizedClients = new Set<string>();
@@ -907,21 +826,13 @@ async function loadFullJourneyPipeline(
     for (const invoice of invoices) {
         const clientId = invoice.client_id;
         if (!clientId) continue;
-
-        const cohortEntry = cohort.get(clientId);
-        if (
-            !attendedAtByClient.has(clientId) ||
-            !cohortEntry ||
-            saoPauloDate(invoice.issued_at) <
-                saoPauloDate(cohortEntry.enteredAt)
-        ) {
+        if (!attendedAtByClient.has(clientId) || !cohort.has(clientId)) {
             continue;
         }
 
         const amount = numeric(invoice.amount);
         invoicedClients.add(clientId);
         invoicedAmount += amount;
-
         if (invoiceStatusIsAuthorized(invoice.status)) {
             authorizedClients.add(clientId);
             authorizedAmount += amount;
@@ -951,9 +862,28 @@ async function loadFullJourneyPipeline(
         trackedByEvidence: buildEvidenceBreakdown(cohort),
         trackedSources: buildTrackedSourceBreakdown(cohort),
         whatsappCoverage: whatsappData.coverage,
-        whatsappOrigins: buildWhatsappOriginBreakdown(
-            whatsappEntries,
-        ),
+        whatsappOrigins: buildWhatsappOriginBreakdown(whatsappEntries),
+        procedureLinkage: {
+            tracked_clients: cohort.size,
+            raw_events_read:
+                procedureEventLoad.scheduleRowsRead +
+                procedureEventLoad.funnelEventRowsRead,
+            schedule_rows_read: procedureEventLoad.scheduleRowsRead,
+            funnel_event_rows_read: procedureEventLoad.funnelEventRowsRead,
+            deduped_source_events: procedureEventLoad.dedupedSourceEvents,
+            eligible_source_events: eligibleProcedureEvents.length,
+            linked_unique_clients: scheduledClients.size,
+            attended_unique_clients: attendedAtByClient.size,
+            scheduled_branch_total: procedureBranches.reduce(
+                (sum, branch) => sum + branch.scheduled_appointments,
+                0,
+            ),
+            attended_branch_total: procedureBranches.reduce(
+                (sum, branch) => sum + branch.attended_appointments,
+                0,
+            ),
+            invariant_ok: true,
+        },
         scheduledClients: scheduledClients.size,
         attendedClients: attendedAtByClient.size,
         invoicedClients: invoicedClients.size,
@@ -964,6 +894,139 @@ async function loadFullJourneyPipeline(
         platformBreakdown,
         error: null,
     });
+}
+
+function procedureEventBelongsToCohort(
+    event: PipelineProcedureEventRow,
+    cohortEntry: PaidWhatsappCohortEntry,
+) {
+    const effectiveCreatedAt = procedureEventCreatedAt(event);
+    if (!effectiveCreatedAt) return false;
+
+    return (
+        saoPauloDate(effectiveCreatedAt) >=
+        saoPauloDate(cohortEntry.enteredAt)
+    );
+}
+
+function procedureEventCreatedAt(event: PipelineProcedureEventRow) {
+    return event.created_in_source_at ?? event.created_at;
+}
+
+function buildProcedureBranches(
+    events: PipelineProcedureEventRow[],
+): PipelineProcedureBranch[] {
+    const outcomes = new Map<
+        string,
+        {
+            key: string;
+            procedureName: string;
+            eventKind: string;
+            scheduledAppointments: number;
+            attendedAppointments: number;
+        }
+    >();
+
+    for (const event of events) {
+        const clientId = normalizeClientId(event.client_id);
+        if (!clientId) continue;
+
+        const procedureName = pipelineProcedureName(event);
+        const key = normalizeText(procedureName);
+        const outcome = outcomes.get(key) ?? {
+            key,
+            procedureName,
+            eventKind: event.event_kind?.trim() || "procedure",
+            scheduledAppointments: 0,
+            attendedAppointments: 0,
+        };
+        outcome.scheduledAppointments += 1;
+        if (scheduleShowedUp(normalizeScheduleStatus(event.status))) {
+            outcome.attendedAppointments += 1;
+        }
+        outcomes.set(key, outcome);
+    }
+
+    return [...outcomes.values()]
+        .map((outcome) => ({
+            key: outcome.key,
+            procedure_name: outcome.procedureName,
+            event_kind: outcome.eventKind,
+            scheduled_appointments: outcome.scheduledAppointments,
+            attended_appointments: outcome.attendedAppointments,
+            schedule_to_attendance_rate: percentage(
+                outcome.attendedAppointments,
+                outcome.scheduledAppointments,
+            ),
+            lost_appointments: Math.max(
+                0,
+                outcome.scheduledAppointments - outcome.attendedAppointments,
+            ),
+        }))
+        .sort(
+            (first, second) =>
+                second.scheduled_appointments - first.scheduled_appointments ||
+                first.procedure_name.localeCompare(second.procedure_name, "pt-BR"),
+        );
+}
+
+
+function assertProcedurePipelineIntegrity({
+    trackedClients,
+    scheduledClients,
+    attendedClients,
+    scheduledProcedureEvents,
+    attendedProcedureEvents,
+    procedureBranches,
+}: {
+    trackedClients: number;
+    scheduledClients: number;
+    attendedClients: number;
+    scheduledProcedureEvents: number;
+    attendedProcedureEvents: number;
+    procedureBranches: PipelineProcedureBranch[];
+}) {
+    const branchScheduled = procedureBranches.reduce(
+        (sum, branch) => sum + branch.scheduled_appointments,
+        0,
+    );
+    const branchAttended = procedureBranches.reduce(
+        (sum, branch) => sum + branch.attended_appointments,
+        0,
+    );
+    const invalidBranch = procedureBranches.some(
+        (branch) =>
+            branch.attended_appointments > branch.scheduled_appointments,
+    );
+
+    if (
+        scheduledClients > trackedClients ||
+        attendedClients > scheduledClients ||
+        scheduledProcedureEvents < scheduledClients ||
+        attendedProcedureEvents < attendedClients ||
+        attendedProcedureEvents > scheduledProcedureEvents ||
+        branchScheduled !== scheduledProcedureEvents ||
+        branchAttended !== attendedProcedureEvents ||
+        invalidBranch
+    ) {
+        throw new Error(
+            [
+                "Inconsistent procedure pipeline",
+                `tracked_clients=${trackedClients}`,
+                `scheduled_clients=${scheduledClients}`,
+                `attended_clients=${attendedClients}`,
+                `scheduled_procedure_events=${scheduledProcedureEvents}`,
+                `attended_procedure_events=${attendedProcedureEvents}`,
+                `branch_scheduled=${branchScheduled}`,
+                `branch_attended=${branchAttended}`,
+            ].join("; "),
+        );
+    }
+}
+
+function normalizeClientId(value: string | null | undefined) {
+    const normalized = value?.trim().toLocaleLowerCase("en-US");
+    return normalized || null;
 }
 
 async function loadPaidMediaTotals(
@@ -985,9 +1048,7 @@ async function loadPaidMediaTotals(
     if (
         measuredRows.error &&
         !isMissingWhatsappMeasurementColumns(measuredRows.error)
-    ) {
-        throw measuredRows.error;
-    }
+    ) throw measuredRows.error;
 
     let rows = measuredRows.rows;
     let measurementReady = !measuredRows.error;
@@ -1010,10 +1071,8 @@ async function loadPaidMediaTotals(
     totals.measurementNote = null;
 
     for (const row of rows) {
-        const platform = row.platform;
-        const current = totals.byPlatform.get(platform);
+        const current = totals.byPlatform.get(row.platform);
         if (!current) continue;
-
         const hasStoredWhatsappMeasurement =
             measurementReady &&
             (numeric(row.whatsapp_impressions) > 0 ||
@@ -1040,9 +1099,7 @@ async function loadPaidMediaTotals(
 
     totals.impressions = Math.trunc(totals.impressions);
     totals.clicks = Math.trunc(totals.clicks);
-    totals.whatsappConversations = roundMetric(
-        totals.whatsappConversations,
-    );
+    totals.whatsappConversations = roundMetric(totals.whatsappConversations);
     return totals;
 }
 
@@ -1058,7 +1115,6 @@ async function loadPipelineAdRows({
     signal: AbortSignal;
 }) {
     const rows: PipelineAdMetricRow[] = [];
-
     for (let from = 0; from < MAX_PIPELINE_ROWS; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("ad_daily_metrics")
@@ -1069,13 +1125,11 @@ async function loadPipelineAdRows({
             .order("metric_date", { ascending: true })
             .range(from, from + PAGE_SIZE - 1)
             .abortSignal(signal);
-
         if (error) return { rows: [] as PipelineAdMetricRow[], error };
         const page = (data ?? []) as unknown as PipelineAdMetricRow[];
         rows.push(...page);
         if (page.length < PAGE_SIZE) break;
     }
-
     return { rows, error: null };
 }
 
@@ -1100,16 +1154,13 @@ async function loadPaidWhatsappConversations(
             .order("started_at", { ascending: true })
             .order("id", { ascending: true })
             .range(from, from + PAGE_SIZE - 1);
-
         const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
-
         return (data ?? []) as WhatsappConversationSourceRow[];
     }
 
     const firstPage = await loadPage(0);
     rows.push(...firstPage);
-
     if (firstPage.length === PAGE_SIZE) {
         for (
             let from = PAGE_SIZE;
@@ -1121,7 +1172,6 @@ async function loadPaidWhatsappConversations(
                 (_, index) => from + index * PAGE_SIZE,
             ).filter((offset) => offset < MAX_PIPELINE_ROWS);
             const pages = await Promise.all(offsets.map(loadPage));
-
             for (const page of pages) rows.push(...page);
             if (pages.some((page) => page.length < PAGE_SIZE)) break;
         }
@@ -1130,10 +1180,7 @@ async function loadPaidWhatsappConversations(
     const tintimByConversation = await tintimAttributionPromise;
     const selectedOrigins = new Set(filters.origins.map(normalizeText));
     const paidEntries: PaidWhatsappEntry[] = [];
-    const coverageByConversation = new Map<
-        string,
-        WhatsappCoverageCategory
-    >();
+    const coverageByConversation = new Map<string, WhatsappCoverageCategory>();
 
     for (const conversation of rows) {
         const conversationOrigin = conversation.origin?.trim();
@@ -1144,52 +1191,35 @@ async function loadPaidWhatsappConversations(
         if (
             filters.unitIds.length > 0 &&
             !filters.unitIds.includes(conversation.unit_id ?? "")
-        ) {
-            continue;
-        }
+        ) continue;
         if (
             filters.serviceIds.length > 0 &&
             !filters.serviceIds.includes(conversation.service_id ?? "")
-        ) {
-            continue;
-        }
+        ) continue;
         if (
             filters.attendantIds.length > 0 &&
             !filters.attendantIds.includes(conversation.attendant_id ?? "")
-        ) {
-            continue;
-        }
+        ) continue;
         if (
             filters.tunnels.length > 0 &&
-            !filters.tunnels.includes(
-                conversation.tunnel?.trim() || "__NULL__",
-            )
-        ) {
-            continue;
-        }
+            !filters.tunnels.includes(conversation.tunnel?.trim() || "__NULL__")
+        ) continue;
+
         const directPlatform =
             paidMediaPlatformFromOrigin(conversationOrigin) ??
             paidMediaPlatformFromTintimSource(conversationOrigin);
-        const tintimAttribution =
-            tintimByConversation.get(conversation.id) ?? null;
+        const tintimAttribution = tintimByConversation.get(conversation.id) ?? null;
         const clientAttribution = resolvePaidMediaAttribution(client);
         const trackingIsNear = trackingIsNearConversation(
             client?.tracking_updated_at,
             conversation.started_at,
         );
-        const attribution =
-            directPlatform
-                ? {
-                      platform: directPlatform,
-                      evidence: "origin" as const,
-                  }
-                : tintimAttribution?.platform
-                  ? {
-                        platform: tintimAttribution.platform,
-                        evidence: "tintim" as const,
-                    }
-                : tintimAttribution
-                  ? null
+        const attribution = directPlatform
+            ? { platform: directPlatform, evidence: "origin" as const }
+            : tintimAttribution?.platform
+              ? { platform: tintimAttribution.platform, evidence: "tintim" as const }
+              : tintimAttribution
+                ? null
                 : trackingIsNear
                   ? clientAttribution
                   : null;
@@ -1198,8 +1228,7 @@ async function loadPaidWhatsappConversations(
             (attribution
                 ? ((directPlatform
                       ? conversationOrigin
-                      : attribution.evidence === "tintim" &&
-                          tintimAttribution
+                      : attribution.evidence === "tintim" && tintimAttribution
                         ? tintimAttributionSource(tintimAttribution)
                         : (
                                 paidMediaPlatformFromOrigin(clientOrigin) ??
@@ -1207,31 +1236,24 @@ async function loadPaidWhatsappConversations(
                             ) === attribution.platform
                           ? clientOrigin
                           : null) ?? attributionEvidenceLabel(attribution))
-                : conversationOrigin ??
-                  clientOrigin ??
-                  client?.utm_source?.trim()) ?? null;
+                : conversationOrigin ?? clientOrigin ?? client?.utm_source?.trim()) ??
+            null;
 
         if (
             selectedOrigins.size > 0 &&
             !selectedOrigins.has(normalizeText(origin ?? ""))
-        ) {
-            continue;
-        }
+        ) continue;
 
         const coverageKey =
-            conversation.thread_id ??
-            conversation.client_id ??
-            conversation.id;
+            conversation.thread_id ?? conversation.client_id ?? conversation.id;
         const coverageCategory =
             attribution?.platform ??
-            ((
-                hasTintimTrackingEvidence(tintimAttribution) ||
-                hasConversationTrackingEvidence({
-                    conversationOrigin,
-                    client,
-                    trackingIsNear,
-                })
-            )
+            ((hasTintimTrackingEvidence(tintimAttribution) ||
+            hasConversationTrackingEvidence({
+                conversationOrigin,
+                client,
+                trackingIsNear,
+            }))
                 ? "other"
                 : "untracked");
         coverageByConversation.set(
@@ -1283,18 +1305,12 @@ async function loadTintimConversationAttribution(
             ),
         )
         .abortSignal(signal);
-    const byConversation = new Map<
-        string,
-        TintimConversationAttributionRow
-    >();
+    const byConversation = new Map<string, TintimConversationAttributionRow>();
 
     if (error) {
         console.warn(
             "[dashboard/jornada] TinTim attribution unavailable; using existing tracking evidence",
-            {
-                code: error.code,
-                message: error.message,
-            },
+            { code: error.code, message: error.message },
         );
         return byConversation;
     }
@@ -1302,52 +1318,318 @@ async function loadTintimConversationAttribution(
     for (const rawValue of arrayOrEmpty(data)) {
         const value = asObject(rawValue);
         if (typeof value.conversation_id !== "string") continue;
-
-        byConversation.set(
-            value.conversation_id,
-            normalizeTintimAttribution(value),
-        );
+        byConversation.set(value.conversation_id, normalizeTintimAttribution(value));
     }
-
     return byConversation;
 }
 
 async function loadPipelineProcedureEvents(
     clientIds: string[],
+    startDate: string,
+    endDate: string,
     signal: AbortSignal,
-) {
-    const pages = await mapWithConcurrency(
+): Promise<PipelineProcedureEventLoadResult> {
+    if (clientIds.length === 0) {
+        return {
+            events: [],
+            scheduleRowsRead: 0,
+            funnelEventRowsRead: 0,
+            dedupedSourceEvents: 0,
+        };
+    }
+
+    const endExclusiveDate = addDaysToDateString(endDate, 1);
+    const sourceBatches = await mapWithConcurrency(
         chunk(clientIds, ID_FILTER_BATCH_SIZE),
         CLINISYS_QUERY_CONCURRENCY,
         async (ids) => {
-            const rows: PipelineProcedureEventRow[] = [];
-            for (let from = 0; ; from += PAGE_SIZE) {
-                const { data, error } = await supabase
-                    .from("funnel_clinisys_events")
-                    .select(
-                        "client_id, created_in_source_at, scheduled_for, status, procedure_name, event_kind",
-                    )
-                    .in("client_id", ids)
-                    .order("scheduled_for", { ascending: true })
-                    .range(from, from + PAGE_SIZE - 1)
-                    .abortSignal(signal);
-
-                if (error) throw error;
-                const page = (data ?? []) as PipelineProcedureEventRow[];
-                rows.push(...page);
-                if (page.length < PAGE_SIZE) break;
-            }
-            return rows;
+            const [scheduleRows, funnelEventRows] = await Promise.all([
+                loadScheduleProcedureRows(
+                    ids,
+                    startDate,
+                    endExclusiveDate,
+                    signal,
+                ),
+                loadFunnelProcedureRows(
+                    ids,
+                    startDate,
+                    endExclusiveDate,
+                    signal,
+                ),
+            ]);
+            return { scheduleRows, funnelEventRows };
         },
     );
+    const scheduleRows = sourceBatches.flatMap(
+        (batch) => batch.scheduleRows,
+    );
+    const funnelEventRows = sourceBatches.flatMap(
+        (batch) => batch.funnelEventRows,
+    );
+    const events = dedupePipelineProcedureEvents([
+        ...scheduleRows,
+        ...funnelEventRows,
+    ]);
 
-    return pages.flat();
+    return {
+        events,
+        scheduleRowsRead: scheduleRows.length,
+        funnelEventRowsRead: funnelEventRows.length,
+        dedupedSourceEvents: events.length,
+    };
+}
+
+async function loadScheduleProcedureRows(
+    clientIds: string[],
+    startDate: string,
+    endExclusiveDate: string,
+    signal: AbortSignal,
+) {
+    const rows: PipelineProcedureEventRow[] = [];
+
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("schedules")
+            .select(
+                "source_external_id, source_hash, client_id, created_in_source_at, created_at, scheduled_for, status, procedure_name, unit_name",
+            )
+            .in("client_id", clientIds)
+            .or(
+                procedureCreationDateFilter(startDate, endExclusiveDate),
+            )
+            .order("created_at", { ascending: true })
+            .order("source_hash", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+            .abortSignal(signal);
+        if (error) throw error;
+
+        const rawPage = (data ?? []) as Array<
+            Omit<
+                PipelineProcedureEventRow,
+                "source_table" | "event_kind"
+            >
+        >;
+        const page = rawPage.map((row) => ({
+            ...row,
+            source_table: "schedules" as const,
+            event_kind: null,
+        }));
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadFunnelProcedureRows(
+    clientIds: string[],
+    startDate: string,
+    endExclusiveDate: string,
+    signal: AbortSignal,
+) {
+    const rows: PipelineProcedureEventRow[] = [];
+
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("funnel_clinisys_events")
+            .select(
+                "source_external_id, source_hash, client_id, created_in_source_at, created_at, scheduled_for, status, procedure_name, event_kind, unit_name",
+            )
+            .in("client_id", clientIds)
+            .or(
+                procedureCreationDateFilter(startDate, endExclusiveDate),
+            )
+            .order("created_at", { ascending: true })
+            .order("source_hash", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+            .abortSignal(signal);
+        if (error) throw error;
+
+        const rawPage = (data ?? []) as Array<
+            Omit<PipelineProcedureEventRow, "source_table">
+        >;
+        const page = rawPage.map((row) => ({
+            ...row,
+            source_table: "funnel_clinisys_events" as const,
+        }));
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+function procedureCreationDateFilter(
+    startDate: string,
+    endExclusiveDate: string,
+) {
+    return [
+        `and(created_in_source_at.gte.${startDate},created_in_source_at.lt.${endExclusiveDate})`,
+        `and(created_in_source_at.is.null,created_at.gte.${startDate},created_at.lt.${endExclusiveDate})`,
+    ].join(",");
+}
+
+function addDaysToDateString(value: string, days: number) {
+    const date = new Date(`${value}T12:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
+function dedupePipelineProcedureEvents(
+    events: PipelineProcedureEventRow[],
+) {
+    const deduped: PipelineProcedureEventRow[] = [];
+    const indexByIdentity = new Map<string, number>();
+
+    for (const event of events) {
+        const identities = pipelineProcedureEventIdentities(event);
+        const existingIndex = identities
+            .map((identity) => indexByIdentity.get(identity))
+            .find((index): index is number => index !== undefined);
+
+        if (existingIndex === undefined) {
+            const index = deduped.length;
+            deduped.push(event);
+            for (const identity of identities) {
+                indexByIdentity.set(identity, index);
+            }
+            continue;
+        }
+
+        const merged = mergePipelineProcedureEvents(
+            deduped[existingIndex],
+            event,
+        );
+        deduped[existingIndex] = merged;
+        for (const identity of [
+            ...pipelineProcedureEventIdentities(merged),
+            ...identities,
+        ]) {
+            indexByIdentity.set(identity, existingIndex);
+        }
+    }
+
+    return deduped;
+}
+
+function pipelineProcedureEventIdentities(
+    event: PipelineProcedureEventRow,
+) {
+    const identities: string[] = [];
+    const externalId = nullableText(event.source_external_id);
+    const sourceHash = nullableText(event.source_hash);
+    const clientId = normalizeClientId(event.client_id);
+    const procedureName = normalizeText(event.procedure_name);
+    const unitName = normalizeText(event.unit_name);
+    const effectiveCreatedAt = procedureEventCreatedAt(event);
+    const createdDate = effectiveCreatedAt
+        ? saoPauloDate(effectiveCreatedAt)
+        : "";
+
+    if (externalId) identities.push(`external:${externalId}`);
+    if (sourceHash) identities.push(`hash:${sourceHash}`);
+    if (clientId && event.scheduled_for) {
+        identities.push(
+            [
+                "fallback",
+                clientId,
+                event.scheduled_for,
+                procedureName,
+                unitName,
+                createdDate,
+            ].join(":"),
+        );
+    }
+
+    if (identities.length === 0) {
+        identities.push(
+            [
+                "row",
+                event.source_table,
+                event.scheduled_for,
+                procedureName,
+                createdDate,
+            ].join(":"),
+        );
+    }
+
+    return identities;
+}
+
+function mergePipelineProcedureEvents(
+    current: PipelineProcedureEventRow,
+    candidate: PipelineProcedureEventRow,
+): PipelineProcedureEventRow {
+    const currentAttended = scheduleShowedUp(
+        normalizeScheduleStatus(current.status),
+    );
+    const candidateAttended = scheduleShowedUp(
+        normalizeScheduleStatus(candidate.status),
+    );
+    const preferredStatus = candidateAttended && !currentAttended
+        ? candidate.status
+        : current.status ?? candidate.status;
+    const preferredProcedureName = chooseProcedureName(
+        current.procedure_name,
+        candidate.procedure_name,
+    );
+
+    return {
+        source_table:
+            current.source_table === "funnel_clinisys_events" ||
+            candidate.source_table !== "funnel_clinisys_events"
+                ? current.source_table
+                : candidate.source_table,
+        source_external_id:
+            current.source_external_id ?? candidate.source_external_id,
+        source_hash: current.source_hash ?? candidate.source_hash,
+        client_id: current.client_id ?? candidate.client_id,
+        created_in_source_at: earlierNullableDate(
+            current.created_in_source_at,
+            candidate.created_in_source_at,
+        ),
+        created_at: earlierNullableDate(
+            current.created_at,
+            candidate.created_at,
+        ),
+        scheduled_for:
+            current.scheduled_for <= candidate.scheduled_for
+                ? current.scheduled_for
+                : candidate.scheduled_for,
+        status: preferredStatus,
+        procedure_name: preferredProcedureName,
+        event_kind: current.event_kind ?? candidate.event_kind,
+        unit_name: current.unit_name ?? candidate.unit_name,
+    };
+}
+
+function chooseProcedureName(
+    current: string | null,
+    candidate: string | null,
+) {
+    const currentName = current?.trim() ?? "";
+    const candidateName = candidate?.trim() ?? "";
+    if (!currentName) return candidateName || null;
+    if (!candidateName) return currentName;
+    return candidateName.length > currentName.length
+        ? candidateName
+        : currentName;
+}
+
+function earlierNullableDate(
+    current: string | null,
+    candidate: string | null,
+) {
+    if (!current) return candidate;
+    if (!candidate) return current;
+    return current <= candidate ? current : candidate;
 }
 
 async function loadPipelineInvoices(
     clientIds: string[],
     signal: AbortSignal,
 ) {
+    if (clientIds.length === 0) return [];
     const pages = await mapWithConcurrency(
         chunk(clientIds, ID_FILTER_BATCH_SIZE),
         CLINISYS_QUERY_CONCURRENCY,
@@ -1363,7 +1645,6 @@ async function loadPipelineInvoices(
                     .order("issued_at", { ascending: true })
                     .range(from, from + PAGE_SIZE - 1)
                     .abortSignal(signal);
-
                 if (error) throw error;
                 const page = (data ?? []) as PipelineInvoiceRow[];
                 rows.push(...page);
@@ -1372,7 +1653,6 @@ async function loadPipelineInvoices(
             return rows;
         },
     );
-
     return pages.flat();
 }
 
@@ -1400,6 +1680,7 @@ function buildFullJourneyPipeline(values: {
     trackedSources: FullJourneyPipeline["audit"]["tracked_sources"];
     whatsappCoverage: WhatsappCoverage;
     whatsappOrigins: FullJourneyPipeline["audit"]["whatsapp_origins"];
+    procedureLinkage: FullJourneyPipeline["audit"]["procedure_linkage"];
     scheduledClients: number;
     attendedClients: number;
     invoicedClients: number;
@@ -1411,14 +1692,7 @@ function buildFullJourneyPipeline(values: {
     error: string | null;
 }): FullJourneyPipeline {
     const stages: PipelineStage[] = [
-        stage(
-            "tracked_whatsapp",
-            "WhatsApp rastreado",
-            values.whatsappClients,
-            null,
-            null,
-            null,
-        ),
+        stage("tracked_whatsapp", "WhatsApp rastreado", values.whatsappClients),
         stage("scheduled", "Agendaram", values.scheduledClients),
         stage("attended", "Compareceram", values.attendedClients),
         stage(
@@ -1464,42 +1738,13 @@ function buildFullJourneyPipeline(values: {
         procedure_branches: values.procedureBranches,
         platform_breakdown: values.platformBreakdown,
         transitions: [
-            transition(
-                "whatsapp_to_schedule",
-                "Rastreado → agenda",
-                values.whatsappClients,
-                values.scheduledClients,
-                false,
-                true,
-            ),
-            transition(
-                "schedule_to_attendance",
-                "Agenda → presença",
-                values.scheduledClients,
-                values.attendedClients,
-                false,
-                true,
-            ),
-            transition(
-                "attendance_to_invoice",
-                "Presença → R$",
-                values.attendedClients,
-                values.invoicedClients,
-                false,
-                true,
-            ),
-            transition(
-                "invoice_to_authorized",
-                "R$ → liberado",
-                values.invoicedClients,
-                values.authorizedClients,
-                false,
-                true,
-            ),
+            transition("whatsapp_to_schedule", "Rastreado → agenda", values.whatsappClients, values.scheduledClients, false, true),
+            transition("schedule_to_attendance", "Agenda → presença", values.scheduledClients, values.attendedClients, false, true),
+            transition("attendance_to_invoice", "Presença → R$", values.attendedClients, values.invoicedClients, false, true),
+            transition("invoice_to_authorized", "R$ → liberado", values.invoicedClients, values.authorizedClients, false, true),
         ],
         audit: {
-            platform_whatsapp_conversations:
-                values.platformWhatsappConversations,
+            platform_whatsapp_conversations: values.platformWhatsappConversations,
             tracked_whatsapp_clients: values.whatsappClients,
             measurement_ready: values.measurementReady,
             measurement_note: values.measurementNote,
@@ -1507,6 +1752,7 @@ function buildFullJourneyPipeline(values: {
             tracked_sources: values.trackedSources,
             whatsapp_coverage: values.whatsappCoverage,
             whatsapp_origins: values.whatsappOrigins,
+            procedure_linkage: values.procedureLinkage,
             cohort_start_date: values.startDate,
             cohort_end_date: values.endDate,
             matured_through: saoPauloDate(new Date().toISOString()),
@@ -1523,10 +1769,7 @@ function emptyFullJourneyPipeline(
     const startDate = range.startDate ?? saoPauloDate(range.startAt);
     const endDate =
         range.endDate ??
-        saoPauloDate(
-            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-        );
-
+        saoPauloDate(new Date(new Date(range.endAt).getTime() - 1).toISOString());
     return buildFullJourneyPipeline({
         available: false,
         adsAvailable: false,
@@ -1543,6 +1786,19 @@ function emptyFullJourneyPipeline(
         trackedSources: [],
         whatsappCoverage: emptyWhatsappCoverage(),
         whatsappOrigins: [],
+        procedureLinkage: {
+            tracked_clients: 0,
+            raw_events_read: 0,
+            schedule_rows_read: 0,
+            funnel_event_rows_read: 0,
+            deduped_source_events: 0,
+            eligible_source_events: 0,
+            linked_unique_clients: 0,
+            attended_unique_clients: 0,
+            scheduled_branch_total: 0,
+            attended_branch_total: 0,
+            invariant_ok: false,
+        },
         scheduledClients: 0,
         attendedClients: 0,
         invoicedClients: 0,
@@ -1611,11 +1867,9 @@ function buildWhatsappOriginBreakdown(
         string,
         { origin: string; conversations: number; clients: Set<string> }
     >();
-
     for (const conversation of conversations) {
         const origin = conversation.origin?.trim();
         if (!origin) continue;
-
         const key = normalizeText(origin);
         const current = origins.get(key) ?? {
             origin,
@@ -1626,7 +1880,6 @@ function buildWhatsappOriginBreakdown(
         if (conversation.client_id) current.clients.add(conversation.client_id);
         origins.set(key, current);
     }
-
     return [...origins.values()]
         .map((origin) => ({
             origin: origin.origin,
@@ -1648,7 +1901,6 @@ function buildEvidenceBreakdown(
     for (const entry of cohort.values()) {
         counts.set(entry.evidence, (counts.get(entry.evidence) ?? 0) + 1);
     }
-
     return (["tintim", "origin", "utm_source", "click_id"] as const)
         .map((evidence) => ({
             evidence,
@@ -1668,7 +1920,6 @@ function hasConversationTrackingEvidence({
 }) {
     if (conversationOrigin?.trim()) return true;
     if (!trackingIsNear || !client) return false;
-
     return Boolean(
         client.last_origin?.trim() ||
         client.utm_source?.trim() ||
@@ -1676,12 +1927,8 @@ function hasConversationTrackingEvidence({
         client.utm_campaign?.trim() ||
         client.utm_content?.trim() ||
         client.utm_term?.trim() ||
-        client.gclid ||
-        client.gbraid ||
-        client.wbraid ||
-        client.fbclid ||
-        client.fbc ||
-        client.ctwa_clid,
+        client.gclid || client.gbraid || client.wbraid ||
+        client.fbclid || client.fbc || client.ctwa_clid,
     );
 }
 
@@ -1703,18 +1950,15 @@ function buildWhatsappCoverage(
     let metaConversations = 0;
     let otherConversations = 0;
     let untrackedConversations = 0;
-
     for (const category of coverageByConversation.values()) {
         if (category === "google_ads") googleConversations += 1;
         else if (category === "meta_ads") metaConversations += 1;
         else if (category === "other") otherConversations += 1;
         else untrackedConversations += 1;
     }
-
     const trackedConversations =
         googleConversations + metaConversations + otherConversations;
     const totalConversations = coverageByConversation.size;
-
     return {
         total_conversations: totalConversations,
         tracked_conversations: trackedConversations,
@@ -1750,13 +1994,8 @@ function buildTrackedSourceBreakdown(
             clients: number;
         }
     >();
-
     for (const entry of cohort.values()) {
-        const key = [
-            entry.platform,
-            entry.sourceField,
-            normalizeText(entry.sourceValue),
-        ].join(":");
+        const key = [entry.platform, entry.sourceField, normalizeText(entry.sourceValue)].join(":");
         const current = sources.get(key) ?? {
             platform: entry.platform,
             field: entry.sourceField,
@@ -1766,7 +2005,6 @@ function buildTrackedSourceBreakdown(
         current.clients += 1;
         sources.set(key, current);
     }
-
     return [...sources.values()]
         .map((source) => ({
             ...source,
@@ -1818,14 +2056,7 @@ function buildPlatformBreakdown({
         const clientId = invoice.client_id;
         if (!clientId || !attendedClients.has(clientId)) continue;
         const entry = cohort.get(clientId);
-        if (
-            !entry ||
-            saoPauloDate(invoice.issued_at) <
-                saoPauloDate(entry.enteredAt)
-        ) {
-            continue;
-        }
-
+        if (!entry) continue;
         const outcome = outcomes.get(entry.platform);
         if (!outcome) continue;
         outcome.invoiced.add(clientId);
@@ -1844,9 +2075,7 @@ function buildPlatformBreakdown({
             spend: roundMoney(media.spend),
             impressions: Math.trunc(media.impressions),
             whatsapp_clicks: Math.trunc(media.clicks),
-            platform_whatsapp_conversations: roundMetric(
-                media.whatsappConversations,
-            ),
+            platform_whatsapp_conversations: roundMetric(media.whatsappConversations),
             tracked_clients: outcome.tracked.size,
             scheduled_clients: outcome.scheduled.size,
             attended_clients: outcome.attended.size,
@@ -1866,33 +2095,15 @@ function emptyPaidMediaTotals(available: boolean): PaidMediaTotals {
         clicks: 0,
         whatsappConversations: 0,
         byPlatform: new Map([
-            [
-                "google_ads",
-                {
-                    spend: 0,
-                    impressions: 0,
-                    clicks: 0,
-                    whatsappConversations: 0,
-                },
-            ],
-            [
-                "meta_ads",
-                {
-                    spend: 0,
-                    impressions: 0,
-                    clicks: 0,
-                    whatsappConversations: 0,
-                },
-            ],
+            ["google_ads", { spend: 0, impressions: 0, clicks: 0, whatsappConversations: 0 }],
+            ["meta_ads", { spend: 0, impressions: 0, clicks: 0, whatsappConversations: 0 }],
         ]),
     };
 }
 
 function fallbackWhatsappImpressions(row: PipelineAdMetricRow) {
     if (row.platform === "google_ads") return numeric(row.impressions);
-    return fallbackMetaWhatsappCampaign(row)
-        ? numeric(row.impressions)
-        : 0;
+    return fallbackMetaWhatsappCampaign(row) ? numeric(row.impressions) : 0;
 }
 
 function fallbackWhatsappClicks(row: PipelineAdMetricRow) {
@@ -1937,14 +2148,10 @@ function normalizeTintimAttribution(
     };
 }
 
-function tintimAttributionSource(
-    attribution: TintimConversationAttributionRow,
-) {
+function tintimAttributionSource(attribution: TintimConversationAttributionRow) {
     return (
         attribution.source ??
-        (attribution.platform === "google_ads"
-            ? "Google Ads"
-            : "Meta Ads")
+        (attribution.platform === "google_ads" ? "Google Ads" : "Meta Ads")
     );
 }
 
@@ -1952,8 +2159,7 @@ function hasTintimTrackingEvidence(
     attribution: TintimConversationAttributionRow | null,
 ) {
     return Boolean(
-        attribution?.platform ||
-        isTrackedTintimSource(attribution?.source),
+        attribution?.platform || isTrackedTintimSource(attribution?.source),
     );
 }
 
@@ -1964,10 +2170,7 @@ function trackingIsNearConversation(
     if (!trackingUpdatedAt) return false;
     const trackingTime = new Date(trackingUpdatedAt).getTime();
     const conversationTime = new Date(conversationStartedAt).getTime();
-    if (
-        !Number.isFinite(trackingTime) ||
-        !Number.isFinite(conversationTime)
-    ) {
+    if (!Number.isFinite(trackingTime) || !Number.isFinite(conversationTime)) {
         return false;
     }
     return Math.abs(trackingTime - conversationTime) <= 7 * 86_400_000;
@@ -1988,80 +2191,52 @@ function resolveAttributionSource({
         platform: PaidMediaPlatform;
         evidence: JourneyAttributionEvidence;
     };
-}): {
-    field: PaidWhatsappEntry["source_field"];
-    value: string;
-} | null {
+}): { field: PaidWhatsappEntry["source_field"]; value: string } | null {
     if (directPlatform && conversationOrigin?.trim()) {
-        return {
-            field: "conversation_origin",
-            value: conversationOrigin.trim(),
-        };
+        return { field: "conversation_origin", value: conversationOrigin.trim() };
     }
-
     if (attribution.evidence === "tintim" && tintimAttribution) {
-        return {
-            field: "tintim_source",
-            value: tintimAttributionSource(tintimAttribution),
-        };
+        return { field: "tintim_source", value: tintimAttributionSource(tintimAttribution) };
     }
-
     if (attribution.evidence === "origin" && client?.last_origin?.trim()) {
-        return {
-            field: "client_origin",
-            value: client.last_origin.trim(),
-        };
+        return { field: "client_origin", value: client.last_origin.trim() };
     }
-
     if (attribution.evidence === "utm_source" && client?.utm_source?.trim()) {
-        return {
-            field: "utm_source",
-            value: client.utm_source.trim(),
-        };
+        return { field: "utm_source", value: client.utm_source.trim() };
     }
-
     if (attribution.evidence !== "click_id" || !client) return null;
 
-    const identifiers =
-        attribution.platform === "google_ads"
-            ? ([
-                  ["gclid", client.gclid],
-                  ["gbraid", client.gbraid],
-                  ["wbraid", client.wbraid],
-              ] as const)
-            : ([
-                  ["ctwa_clid", client.ctwa_clid],
-                  ["fbclid", client.fbclid],
-                  ["fbc", client.fbc],
-              ] as const);
+    const identifiers = attribution.platform === "google_ads"
+        ? ([
+              ["gclid", client.gclid],
+              ["gbraid", client.gbraid],
+              ["wbraid", client.wbraid],
+          ] as const)
+        : ([
+              ["ctwa_clid", client.ctwa_clid],
+              ["fbclid", client.fbclid],
+              ["fbc", client.fbc],
+          ] as const);
     const availableIdentifiers = identifiers
         .filter(([, value]) => Boolean(value))
         .map(([field]) => field);
-
     return availableIdentifiers.length > 0
-        ? {
-              field: "click_id",
-              value: availableIdentifiers.join(" + "),
-          }
+        ? { field: "click_id", value: availableIdentifiers.join(" + ") }
         : null;
 }
 
-function attributionEvidenceLabel(
-    attribution: {
-        platform: PaidMediaPlatform;
-        evidence: JourneyAttributionEvidence;
-    },
-) {
-    const platform =
-        attribution.platform === "google_ads" ? "Google" : "Meta";
-    const evidence =
-        attribution.evidence === "tintim"
-            ? "TinTim"
-            : attribution.evidence === "utm_source"
-            ? "UTM"
-            : attribution.evidence === "click_id"
-              ? "ID de clique"
-              : "Origem";
+function attributionEvidenceLabel(attribution: {
+    platform: PaidMediaPlatform;
+    evidence: JourneyAttributionEvidence;
+}) {
+    const platform = attribution.platform === "google_ads" ? "Google" : "Meta";
+    const evidence = attribution.evidence === "tintim"
+        ? "TinTim"
+        : attribution.evidence === "utm_source"
+          ? "UTM"
+          : attribution.evidence === "click_id"
+            ? "ID de clique"
+            : "Origem";
     return `${platform} · ${evidence}`;
 }
 
@@ -2135,19 +2310,15 @@ function saoPauloDate(value: string) {
         month: "2-digit",
         day: "2-digit",
     }).formatToParts(new Date(value));
-    const values = Object.fromEntries(
-        parts.map((part) => [part.type, part.value]),
-    );
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${values.year}-${values.month}-${values.day}`;
 }
 
 function chunk<T>(items: T[], size: number) {
     const chunks: T[][] = [];
-
     for (let index = 0; index < items.length; index += size) {
         chunks.push(items.slice(index, index + size));
     }
-
     return chunks;
 }
 
@@ -2158,7 +2329,6 @@ async function mapWithConcurrency<T, R>(
 ) {
     const results = new Array<R>(items.length);
     let nextIndex = 0;
-
     async function worker() {
         while (nextIndex < items.length) {
             const index = nextIndex;
@@ -2166,7 +2336,6 @@ async function mapWithConcurrency<T, R>(
             results[index] = await mapper(items[index]);
         }
     }
-
     await Promise.all(
         Array.from(
             { length: Math.min(Math.max(1, concurrency), items.length) },

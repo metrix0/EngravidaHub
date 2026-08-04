@@ -208,6 +208,29 @@ type RawConversationSummary = {
     byUnit: Map<string, number>;
 };
 
+type SatisfactionAnalysisRow = {
+    conversation_id: string;
+    started_at: string;
+    unit_id: string | null;
+    service_id: string | null;
+    attendant_id: string | null;
+    customer_sentiment: string | null;
+    satisfaction_score: number | null;
+};
+
+type SatisfactionConversationRow = {
+    id: string;
+    unit_id: string | null;
+    service_id: string | null;
+    attendant_id: string | null;
+    tunnel: string | null;
+    origin: string | null;
+    clients:
+        | { unit_id: string | null }
+        | Array<{ unit_id: string | null }>
+        | null;
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
@@ -285,6 +308,12 @@ export async function GET(request: Request) {
     const unitSatisfaction = normalizeUnitSatisfaction(
         asObject(currentResult.data).unit_clear_satisfaction,
     );
+    const dailySatisfactionEvolution = await loadDailySatisfactionEvolution({
+        range,
+        filters,
+        basePoints: current.daily_evolution,
+        signal: request.signal,
+    });
 
     const selectedUnitNames = await loadSelectedUnitNames(
         filters,
@@ -345,7 +374,7 @@ export async function GET(request: Request) {
         response_anchor_breakdown: normalizeResponseAnchorBreakdown(
             asObject(currentResult.data).response_anchor_breakdown,
         ),
-        daily_evolution: current.daily_evolution,
+        daily_evolution: dailySatisfactionEvolution,
         schedule_summary: scheduleAnalytics.summary,
         schedule_evolution: scheduleAnalytics.evolution,
         schedule_creation_evolution: scheduleCreationEvolution,
@@ -462,6 +491,240 @@ function isMissingRpcFunction(error: {
         error.code === "PGRST202" ||
         error.code === "42883" ||
         error.message?.includes("dashboard_executive_comparison_v1") === true
+    );
+}
+
+async function loadDailySatisfactionEvolution({
+    range,
+    filters,
+    basePoints,
+    signal,
+}: {
+    range: ReturnType<typeof resolveDashboardDateRange>;
+    filters: ReturnType<typeof readDashboardFilters>;
+    basePoints: ExecutiveMetricsPayload["daily_evolution"];
+    signal: AbortSignal;
+}): Promise<ExecutiveMetricsPayload["daily_evolution"]> {
+    try {
+        const analyses = await loadSatisfactionAnalyses(range, signal);
+        const conversations = hasSatisfactionFilters(filters)
+            ? await loadSatisfactionConversations(
+                  analyses.map((analysis) => analysis.conversation_id),
+                  signal,
+              )
+            : new Map<string, SatisfactionConversationRow>();
+        const totals = new Map<
+            string,
+            { analyzed: number; observed: number; satisfied: number }
+        >();
+
+        for (const analysis of analyses) {
+            const conversation =
+                conversations.get(analysis.conversation_id) ?? null;
+            if (
+                hasSatisfactionFilters(filters) &&
+                !satisfactionConversationMatches({
+                    analysis,
+                    conversation,
+                    filters,
+                })
+            ) {
+                continue;
+            }
+
+            const dateIso = brazilDate(analysis.started_at);
+            const current = totals.get(dateIso) ?? {
+                analyzed: 0,
+                observed: 0,
+                satisfied: 0,
+            };
+            const signalValue = clearSatisfactionSignal(analysis);
+            current.analyzed += 1;
+            if (signalValue.observed) current.observed += 1;
+            if (signalValue.satisfied) current.satisfied += 1;
+            totals.set(dateIso, current);
+        }
+
+        const existingByDate = new Map<string, ExecutiveMetricsPayload["daily_evolution"][number]>();
+        for (const point of basePoints) {
+            if (point.date_iso) existingByDate.set(point.date_iso, point);
+            existingByDate.set(point.date, point);
+        }
+
+        const startDate = range.startDate ?? brazilDate(range.startAt);
+        const endDate =
+            range.endDate ??
+            brazilDate(
+                new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+            );
+
+        return buildDateRange(startDate, endDate).map((dateIso) => {
+            const [, month, day] = dateIso.split("-");
+            const date = `${day}/${month}`;
+            const base = existingByDate.get(dateIso) ?? existingByDate.get(date);
+            const current = totals.get(dateIso) ?? {
+                analyzed: 0,
+                observed: 0,
+                satisfied: 0,
+            };
+
+            return {
+                date,
+                date_iso: dateIso,
+                conversations: base?.conversations ?? current.analyzed,
+                resolution_rate: base?.resolution_rate ?? null,
+                resolution_observed: base?.resolution_observed ?? 0,
+                satisfaction_rate:
+                    current.observed > 0 && current.analyzed > 0
+                        ? percentage(current.satisfied, current.analyzed)
+                        : null,
+                satisfaction_observed: current.observed,
+            };
+        });
+    } catch (error) {
+        if (!signal.aborted) {
+            console.error(
+                "[dashboard/executivo] failed to rebuild daily satisfaction",
+                error,
+            );
+        }
+        return basePoints;
+    }
+}
+
+async function loadSatisfactionAnalyses(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    signal: AbortSignal,
+) {
+    const rows: SatisfactionAnalysisRow[] = [];
+
+    for (
+        let from = 0;
+        from < MAX_SCHEDULE_ANALYTICS_ROWS;
+        from += SCHEDULE_PAGE_SIZE
+    ) {
+        const { data, error } = await supabase
+            .from("conversation_analysis")
+            .select(
+                "conversation_id, started_at, unit_id, service_id, attendant_id, customer_sentiment, satisfaction_score",
+            )
+            .gte("started_at", range.startAt)
+            .lt("started_at", range.endAt)
+            .order("started_at", { ascending: true })
+            .order("conversation_id", { ascending: true })
+            .range(from, from + SCHEDULE_PAGE_SIZE - 1)
+            .abortSignal(signal);
+
+        if (error) throw error;
+        const page = (data ?? []) as SatisfactionAnalysisRow[];
+        rows.push(...page);
+        if (page.length < SCHEDULE_PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadSatisfactionConversations(
+    conversationIds: string[],
+    signal: AbortSignal,
+) {
+    const rows = new Map<string, SatisfactionConversationRow>();
+    const uniqueIds = [...new Set(conversationIds)];
+
+    for (let index = 0; index < uniqueIds.length; index += 100) {
+        const ids = uniqueIds.slice(index, index + 100);
+        const { data, error } = await supabase
+            .from("conversations")
+            .select(
+                "id, unit_id, service_id, attendant_id, tunnel, origin, clients!conversations_client_id_fkey(unit_id)",
+            )
+            .in("id", ids)
+            .abortSignal(signal);
+
+        if (error) throw error;
+        for (const row of (data ?? []) as SatisfactionConversationRow[]) {
+            rows.set(row.id, row);
+        }
+    }
+
+    return rows;
+}
+
+function satisfactionConversationMatches({
+    analysis,
+    conversation,
+    filters,
+}: {
+    analysis: SatisfactionAnalysisRow;
+    conversation: SatisfactionConversationRow | null;
+    filters: ReturnType<typeof readDashboardFilters>;
+}) {
+    if (!conversation) return false;
+    const client = Array.isArray(conversation.clients)
+        ? conversation.clients[0] ?? null
+        : conversation.clients;
+    const effectiveUnitId =
+        client?.unit_id ?? conversation.unit_id ?? analysis.unit_id;
+    const effectiveServiceId =
+        conversation.service_id ?? analysis.service_id;
+    const effectiveAttendantId =
+        conversation.attendant_id ?? analysis.attendant_id;
+
+    if (
+        filters.unitIds.length > 0 &&
+        !filters.unitIds.includes(effectiveUnitId ?? "")
+    ) return false;
+    if (
+        filters.serviceIds.length > 0 &&
+        !filters.serviceIds.includes(effectiveServiceId ?? "")
+    ) return false;
+    if (
+        filters.attendantIds.length > 0 &&
+        !filters.attendantIds.includes(effectiveAttendantId ?? "")
+    ) return false;
+    if (
+        filters.tunnels.length > 0 &&
+        !filters.tunnels.includes(conversation.tunnel?.trim() || "__NULL__")
+    ) return false;
+    if (
+        filters.origins.length > 0 &&
+        !filters.origins.includes(conversation.origin?.trim() || "__NULL__")
+    ) return false;
+    return true;
+}
+
+function clearSatisfactionSignal(analysis: SatisfactionAnalysisRow) {
+    if (
+        typeof analysis.satisfaction_score === "number" &&
+        Number.isFinite(analysis.satisfaction_score)
+    ) {
+        return {
+            observed: true,
+            satisfied: analysis.satisfaction_score >= 70,
+        };
+    }
+
+    const sentiment = analysis.customer_sentiment
+        ?.trim()
+        .toLocaleLowerCase("pt-BR");
+    return {
+        observed:
+            sentiment === "positive" ||
+            sentiment === "negative" ||
+            sentiment === "frustrated",
+        satisfied: sentiment === "positive",
+    };
+}
+
+function hasSatisfactionFilters(
+    filters: ReturnType<typeof readDashboardFilters>,
+) {
+    return (
+        filters.unitIds.length > 0 ||
+        filters.serviceIds.length > 0 ||
+        filters.attendantIds.length > 0 ||
+        filters.tunnels.length > 0 ||
+        filters.origins.length > 0
     );
 }
 

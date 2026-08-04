@@ -1512,7 +1512,7 @@ function ActiveMessageAnalytics({
                                     onClick={() =>
                                         setTemplateMenuOpen((open) => !open)
                                     }
-                                    className="flex min-w-[172px] items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-slate-800"
+                                    className="flex min-w-[172px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-slate-800"
                                     aria-haspopup="listbox"
                                     aria-expanded={templateMenuOpen}
                                 >
@@ -1537,7 +1537,7 @@ function ActiveMessageAnalytics({
                                         <button
                                             type="button"
                                             onClick={toggleAllTemplates}
-                                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                                            className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
                                                 allTemplatesSelected
                                                     ? "bg-cyan-50 font-semibold text-cyan-700"
                                                     : "text-slate-600 hover:bg-slate-50"
@@ -1562,12 +1562,13 @@ function ActiveMessageAnalytics({
                                                     <button
                                                         key={template.key}
                                                         type="button"
+                                                        title={template.name}
                                                         onClick={() =>
                                                             toggleTemplate(
                                                                 template.key,
                                                             )
                                                         }
-                                                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                                                        className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                                                             selected
                                                                 ? "bg-cyan-50 font-semibold text-cyan-700"
                                                                 : "text-slate-600 hover:bg-slate-50"
@@ -1575,8 +1576,13 @@ function ActiveMessageAnalytics({
                                                         role="option"
                                                         aria-selected={selected}
                                                     >
-                                                        <span className="truncate">
-                                                            {template.name}
+                                                        <span
+                                                            className="truncate"
+                                                            title={template.name}
+                                                        >
+                                                            {shortTemplateSelectorLabel(
+                                                                template.name,
+                                                            )}
                                                         </span>
                                                         {selected ? (
                                                             <Check
@@ -1656,6 +1662,12 @@ function ActiveMessageAnalytics({
             </div>
         </section>
     );
+}
+
+function shortTemplateSelectorLabel(name: string) {
+    const [, ...suffixParts] = name.split("—");
+    const suffix = suffixParts.join("—").trim();
+    return suffix || name.trim();
 }
 
 function ChartLegend({ color, label }: { color: string; label: string }) {

@@ -33,12 +33,6 @@ export type FunnelMilestone = {
     statusGroup: ScheduleStatusGroup;
 };
 
-const ADMINISTRATIVE_PROCEDURE =
-    /\b(?:avaliacao|consulta|retorno|ultrassom|lembrete|orientacao|encaixe)\b/;
-
-const TREATMENT_PROCEDURE =
-    /\b(?:transferencia|coleta|puncao|aspiracao|inseminacao|fertilizacao|fiv|icsi|biopsia|histeroscopia|criopreservacao|congelamento|descongelamento|pgt|ted|cultivo|semen|ovulo|embriao)\b/;
-
 export function classifyClinisysJourneyProcedure(
     procedureName: string | null | undefined,
 ): ClinisysJourneyKind | null {
@@ -46,8 +40,11 @@ export function classifyClinisysJourneyProcedure(
     if (!normalized) return null;
 
     if (isFirstEvaluationProcedure(procedureName)) return "evaluation";
-    if (ADMINISTRATIVE_PROCEDURE.test(normalized)) return null;
-    return TREATMENT_PROCEDURE.test(normalized) ? "procedure" : null;
+
+    // CliniSys already supplies the canonical appointment/procedure name.
+    // Do not maintain a keyword allow-list here: it silently discarded valid
+    // consultations, returns, exams and newly-created billable procedures.
+    return "procedure";
 }
 
 export function isFirstEvaluationProcedure(
