@@ -111,7 +111,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "objective",
         label: "Objetivo",
-        width: "13%",
+        width: "11%",
         render: (conversation) => (
             <div title={conversation.objective} className="truncate text-slate-700">{conversation.objective}</div>
         ),
@@ -119,7 +119,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "result",
         label: "Resultado",
-        width: "10%",
+        width: "12%",
         render: (conversation) => (
             <ConversationResultCell conversation={conversation} />
         ),
@@ -167,6 +167,7 @@ function MessagesPageContent() {
     const [resultValues, setResultValues] = useState<string[]>([]);
     const [notableValues, setNotableValues] = useState<string[]>([]);
     const [platformValues, setPlatformValues] = useState<string[]>([]);
+    const [analysisStatusValues, setAnalysisStatusValues] = useState<string[]>([]);
     const {
         period,
         setPeriod,
@@ -235,6 +236,9 @@ function MessagesPageContent() {
             if (resultValues.length > 0) params.set("results", resultValues.join(","));
             if (notableValues.length > 0) params.set("notable", notableValues[0]);
             if (platformValues.length > 0) params.set("platforms", platformValues.join(","));
+            if (analysisStatusValues.length > 0) {
+                params.set("analysis_status", analysisStatusValues[0]);
+            }
 
             try {
                 const response = await fetch(
@@ -272,7 +276,7 @@ function MessagesPageContent() {
     }, [
         currentPage, period, selectedRange, search, unitIds, attendantIds,
         tunnelValues, originValues, goalValues, dropoffMomentValues,
-        resultValues, notableValues, platformValues,
+        resultValues, notableValues, platformValues, analysisStatusValues,
         dateFilterReady,
     ]);
 
@@ -369,6 +373,20 @@ function MessagesPageContent() {
                                 options: [
                                     { label: "WhatsApp", value: "WhatsApp" },
                                     { label: "Instagram", value: "Instagram" },
+                                ],
+                            },
+                            {
+                                id: "analysis-status",
+                                title: "Análise",
+                                values: analysisStatusValues,
+                                onChange: resetPageAndSet(setAnalysisStatusValues),
+                                multi: false,
+                                options: [
+                                    { label: "Analisadas", value: "analyzed" },
+                                    {
+                                        label: "Não analisadas",
+                                        value: "not_analyzed",
+                                    },
                                 ],
                             },
                             {
@@ -509,7 +527,11 @@ function ConversationResultCell({
     }
 
 
-    return <Badge value={conversation.result} />;
+    return (
+        <span className="inline-flex min-w-max">
+            <Badge value={conversation.result} />
+        </span>
+    );
 }
 
 function MessagesSkeleton() {
@@ -530,11 +552,11 @@ function MessagesSkeleton() {
 function MessagesTableSkeleton() {
     return (
         <div className="overflow-hidden">
-            <div className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
+            <div className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.15fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
                 {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
             </div>
             {Array.from({ length: 8 }).map((_, rowIndex) => (
-                <div key={rowIndex} className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.35fr_1fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
+                <div key={rowIndex} className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.15fr_1.2fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
                     {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
                 </div>
             ))}

@@ -96,6 +96,7 @@ type InternalConversationRow = {
     _dropoff_moment: string | null;
     _result: ConversationResult;
     _notable: boolean;
+    _analyzed: boolean;
 };
 
 const PAGE_FETCH_SIZE = 1_000;
@@ -129,6 +130,7 @@ export async function GET(request: Request) {
         );
         const platforms = parseIds(searchParams.get("platforms"));
         const notable = searchParams.get("notable");
+        const analysisStatus = searchParams.get("analysis_status");
         const dateRange = getDateRange({
             days,
             customStartDate,
@@ -194,6 +196,9 @@ export async function GET(request: Request) {
                     _dropoff_moment: analysis?.dropoff_moment ?? null,
                     _result: result,
                     _notable: isNotable,
+                    _analyzed: Boolean(
+                        conversation.conversation_analysis_id || analysis?.id,
+                    ),
                 };
             }),
             ...threads.map((thread) => {
@@ -228,6 +233,7 @@ export async function GET(request: Request) {
                     _dropoff_moment: null,
                     _result: "pendente" as const,
                     _notable: false,
+                    _analyzed: false,
                 };
             }),
         ];
@@ -294,6 +300,12 @@ export async function GET(request: Request) {
                 }
                 if (notable === "true" && !row._notable) return false;
                 if (notable === "false" && row._notable) return false;
+                if (analysisStatus === "analyzed" && !row._analyzed) {
+                    return false;
+                }
+                if (analysisStatus === "not_analyzed" && row._analyzed) {
+                    return false;
+                }
                 return true;
             })
             .sort(
@@ -314,6 +326,7 @@ export async function GET(request: Request) {
                 _dropoff_moment,
                 _result,
                 _notable,
+                _analyzed,
                 ...row
             }) => row,
         );
