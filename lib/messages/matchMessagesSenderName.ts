@@ -4,6 +4,7 @@ import type { SenderType } from "@/types/message";
 
 type MatchMessagesSenderNameInput = {
     limit: number;
+    platform?: "whatsapp" | "instagram";
 };
 
 type PendingConversation = {
@@ -46,12 +47,15 @@ const SUPABASE_RETRY_BASE_MS = 500;
 
 export async function matchMessagesSenderName({
     limit,
+    platform = "whatsapp",
 }: MatchMessagesSenderNameInput) {
+    const channel = platform === "instagram" ? "Instagram" : "WhatsApp";
     const { data: conversations, error: conversationsError } =
         await withSupabaseRetry(() =>
             supabase
                 .from("conversations")
                 .select("id")
+                .eq("channel", channel)
                 .is("conversation_analysis_id", null)
                 .order("ended_at", {
                     ascending: false,

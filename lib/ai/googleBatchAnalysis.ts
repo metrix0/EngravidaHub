@@ -85,14 +85,18 @@ type GoogleServiceAccountCredentials = {
     project_id?: string;
 };
 
+type AnalysisPlatform = "whatsapp" | "instagram";
+
 let googleAuth: GoogleAuth | null = null;
 let googleCredentials: GoogleServiceAccountCredentials | null = null;
 
 export async function runGoogleBatchAnalysis({
     limit = DEFAULT_MAX_RECORDS,
+    platform = "whatsapp",
     beforeSubmit,
 }: {
     limit?: number;
+    platform?: AnalysisPlatform;
     beforeSubmit?: (conversationIds: string[]) => Promise<unknown>;
 } = {}) {
     const jobs = await listOurJobs();
@@ -105,6 +109,7 @@ export async function runGoogleBatchAnalysis({
         return {
             provider: "google-vertex-batch",
             model: MODEL_ID,
+            platform,
             collected,
             active_jobs: activeJobs,
             origin_map_attribution: null,
@@ -118,6 +123,7 @@ export async function runGoogleBatchAnalysis({
 
     const submitted = await submitPendingBatch(
         Math.min(normalizeRequestedLimit(limit), configuredMaxRecords()),
+        platform,
         beforeSubmit,
     );
     const originMapAttribution =
@@ -128,6 +134,7 @@ export async function runGoogleBatchAnalysis({
     return {
         provider: "google-vertex-batch",
         model: MODEL_ID,
+        platform,
         collected,
         active_jobs: activeJobs,
         origin_map_attribution: originMapAttribution,
@@ -334,13 +341,14 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
 
 async function submitPendingBatch(
     limit: number,
+    platform: AnalysisPlatform,
     beforeSubmit?: (conversationIds: string[]) => Promise<unknown>,
 ) {
     const candidateLimit = Math.min(
         MAX_RECORDS_PER_JOB,
         Math.max(limit, limit * CANDIDATE_SCAN_MULTIPLIER),
     );
-    const pending = await getPendingConversations(candidateLimit);
+    const pending = await getPendingConversations(candidateLimit, platform);
     if (pending.length === 0) {
         return { submitted: false, records: 0, reason: "no_pending_conversations" };
     }
@@ -406,7 +414,7 @@ async function submitPendingBatch(
 
     const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
     const random = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    const jobName = `${JOB_PREFIX}-${stamp}-${random}`.slice(0, 63);
+    const jobName = `${JOB_PREFIX}-${platform}-${stamp}-${random}`.slice(0, 63);
     const inputKey = `${INPUT_PREFIX}/${jobName}/input.jsonl`;
     const outputPrefix = `${OUTPUT_PREFIX}/${jobName}`;
 
@@ -427,6 +435,7 @@ async function submitPendingBatch(
 
         return {
             submitted: true,
+            platform,
             records: records.length,
             ineligible,
             origin_map_attribution: originMapAttribution,
@@ -649,14 +658,19 @@ class IneligibleConversationError extends Error {
     }
 }
 
-async function getPendingConversations(limit: number) {
+async function getPendingConversations(
+    limit: number,
+    platform: AnalysisPlatform,
+) {
     const rows: Conversation[] = [];
+    const channel = platform === "instagram" ? "Instagram" : "WhatsApp";
 
     for (let from = 0; rows.length < limit; from += PAGE_SIZE) {
         const to = Math.min(from + PAGE_SIZE - 1, limit - 1);
         const result = await supabase
             .from("conversations")
             .select("*")
+            .eq("channel", channel)
             .is("conversation_analysis_id", null)
             .eq("analysis_status", "pending")
             .lt("analysis_failure_count", MAX_ANALYSIS_FAILURES)

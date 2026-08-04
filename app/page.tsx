@@ -48,6 +48,7 @@ import {
 } from "@/components";
 import type { ExecutiveDashboardData, FiltersResponse } from "@/types";
 import ExecutiveScheduleTable from "@/components/dashboard/ExecutiveScheduleTable";
+import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 
 export default function ExecutiveDashboardPage() {
@@ -410,6 +411,14 @@ export default function ExecutiveDashboardPage() {
                             <UnitWordCorrelationCard
                                 data={data}
                                 loading={wordMapLoading}
+                            />
+                        </section>
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <InstagramConversationInsights
+                                mode="analysis"
+                                period={period}
+                                selectedRange={selectedRange}
                             />
                         </section>
                     </div>

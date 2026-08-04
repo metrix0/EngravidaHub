@@ -49,6 +49,7 @@ import {
     Skeleton,
 } from "@/components";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
 
@@ -466,6 +467,14 @@ export default function JourneyPage() {
                         <section className="mt-6 min-w-0 max-w-full">
                             <TrackedWhatsappSourcesCard
                                 pipeline={current.full_pipeline}
+                            />
+                        </section>
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <InstagramConversationInsights
+                                mode="share"
+                                period={period}
+                                selectedRange={selectedRange}
                             />
                         </section>
                     </div>

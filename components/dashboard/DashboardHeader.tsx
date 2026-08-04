@@ -164,9 +164,7 @@ export function DashboardHeader({
                     {title}
                 </h1>
 
-                <p className="mt-2 text-sm text-slate-500">
-                    {description}
-                </p>
+                <p className="mt-2 text-sm text-slate-500">{description}</p>
             </div>
 
             <div

@@ -8,6 +8,8 @@ import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName"
 
 export const maxDuration = 300;
 
+type AnalysisPlatform = "whatsapp" | "instagram";
+
 export async function GET(request: Request) {
     let currentStage = "request";
 
@@ -57,31 +59,47 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const inactivityHours = Number(searchParams.get("inactivity_hours") ?? 16);
         const limit = Number(searchParams.get("limit") ?? 100000);
+        const platform = readAnalysisPlatform(searchParams.get("platform"));
+
+        if (!platform) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    error: "Plataforma inválida. Use whatsapp ou instagram.",
+                },
+                { status: 400 },
+            );
+        }
 
         console.log("[/api/analyze] starting daily Google batch pipeline", {
+            platform,
             inactivity_hours: inactivityHours,
             limit,
             request_url: request.url,
         });
 
-        const createdConversations = await runLoggedStage(
-            "message_to_conversations",
-            () =>
-                messageToConversations({
-                    inactivityHours,
-                    limit,
-                }),
-            (result) => ({
-                conversations_created: result.length,
-                first_conversation_id: result[0]?.conversation_id ?? null,
-                last_conversation_id:
-                    result.at(-1)?.conversation_id ?? null,
-            }),
-        );
+        const createdConversations =
+            platform === "whatsapp"
+                ? await runLoggedStage(
+                      "message_to_conversations",
+                      () =>
+                          messageToConversations({
+                              inactivityHours,
+                              limit,
+                          }),
+                      (result) => ({
+                          conversations_created: result.length,
+                          first_conversation_id:
+                              result[0]?.conversation_id ?? null,
+                          last_conversation_id:
+                              result.at(-1)?.conversation_id ?? null,
+                      }),
+                  )
+                : [];
 
         const senderNameMatch = await runLoggedStage(
             "sender_name_match",
-            () => matchMessagesSenderName({ limit }),
+            () => matchMessagesSenderName({ limit, platform }),
             (result) => ({
                 ready_conversations: result.ready_conversation_ids.length,
                 skipped_conversations: result.skipped_conversation_ids.length,
@@ -93,8 +111,12 @@ export async function GET(request: Request) {
             () =>
                 runGoogleBatchAnalysis({
                     limit,
-                    beforeSubmit: (conversationIds) =>
-                        matchConversationOriginMap({ conversationIds }),
+                    platform,
+                    beforeSubmit:
+                        platform === "whatsapp"
+                            ? (conversationIds) =>
+                                  matchConversationOriginMap({ conversationIds })
+                            : undefined,
                 }),
             (result) => ({ result }),
         );
@@ -102,6 +124,7 @@ export async function GET(request: Request) {
             googleBatch.origin_map_attribution ?? null;
 
         console.log("[/api/analyze] daily Google batch pipeline finished", {
+            platform,
             conversations_created: createdConversations.length,
             origin_map_attribution: originMapAttribution,
             origin_map_attribution_error: null,
@@ -111,6 +134,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json({
             ok: true,
+            platform,
             origin_map_attribution: originMapAttribution,
             origin_map_attribution_error: null,
             sender_name_match: senderNameMatch,
@@ -161,4 +185,12 @@ function serializeError(error: unknown): Record<string, unknown> {
     } catch {
         return { message: String(error) };
     }
+}
+
+function readAnalysisPlatform(value: string | null): AnalysisPlatform | null {
+    const normalized = value?.trim().toLowerCase() || "whatsapp";
+    if (normalized === "whatsapp" || normalized === "instagram") {
+        return normalized;
+    }
+    return null;
 }
