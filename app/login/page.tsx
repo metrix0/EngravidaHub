@@ -1,13 +1,16 @@
 // app/login/page.tsx
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 
 import { Card } from "@/components";
 import { clearCurrentAttendantCache } from "@/lib/attendants/currentAttendantApi";
 import { clearCurrentUserCache } from "@/lib/auth/currentUserApi";
+
+type PasswordFlow = "invite" | "recovery";
+type LoginMode = "login" | "forgot-password";
 
 export default function LoginPage() {
     function getNextUrl() {
@@ -29,7 +32,7 @@ export default function LoginPage() {
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
                 auth: {
-                    // The invite hash is handled explicitly below.
+                    // Invite and recovery hashes are handled explicitly below.
                     // Disabling automatic URL detection prevents the same
                     // refresh token from being consumed twice.
                     detectSessionInUrl: false,
@@ -38,40 +41,117 @@ export default function LoginPage() {
         ),
     );
 
+    const [mode, setMode] = useState<LoginMode>("login");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
 
-    const [isInvite, setIsInvite] = useState(false);
-    const [inviteReady, setInviteReady] = useState(false);
+    const [passwordFlow, setPasswordFlow] =
+        useState<PasswordFlow | null>(null);
+    const [passwordFlowReady, setPasswordFlowReady] = useState(false);
 
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     useEffect(() => {
         let isMounted = true;
 
-        async function handleInviteToken() {
+        async function handleEmailToken() {
             if (typeof window === "undefined") return;
 
+            const searchParams = new URLSearchParams(window.location.search);
+            if (searchParams.get("mode") === "forgot-password") {
+                setMode("forgot-password");
+            }
+
+            const queryType = searchParams.get("type");
+            const tokenHash = searchParams.get("token_hash");
+            const queryFlow =
+                queryType === "invite" || queryType === "recovery"
+                    ? queryType
+                    : null;
+
+            if (queryFlow && tokenHash) {
+                setPasswordFlow(queryFlow);
+                setPasswordFlowReady(false);
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                window.history.replaceState(null, "", "/login");
+
+                const { error: verifyError } = await supabase.auth.verifyOtp({
+                    token_hash: tokenHash,
+                    type: queryFlow,
+                });
+
+                if (verifyError) {
+                    console.error("[login] email token verifyOtp failed", {
+                        flow: queryFlow,
+                        error: verifyError,
+                    });
+
+                    if (isMounted) {
+                        setErrorMessage(getExpiredFlowMessage(queryFlow));
+                    }
+                    return;
+                }
+
+                const {
+                    data: { user },
+                    error: userError,
+                } = await supabase.auth.getUser();
+
+                if (userError || !user) {
+                    console.error("[login] verified token getUser failed", {
+                        flow: queryFlow,
+                        error: userError,
+                    });
+
+                    if (isMounted) {
+                        setErrorMessage(getExpiredFlowMessage(queryFlow));
+                    }
+                    return;
+                }
+
+                if (isMounted) {
+                    setPasswordFlowReady(true);
+                }
+                return;
+            }
+
             const hash = window.location.hash;
-
-            if (!hash.includes("type=invite")) return;
-
-            setIsInvite(true);
-            setInviteReady(false);
-            setErrorMessage(null);
+            if (!hash) return;
 
             const params = new URLSearchParams(hash.replace(/^#/, ""));
+            const type = params.get("type");
+            const flow =
+                type === "invite" || type === "recovery" ? type : null;
+
+            if (!flow) {
+                const authError = params.get("error_description");
+                if (authError && isMounted) {
+                    setErrorMessage(
+                        "O link de acesso é inválido ou expirou. Solicite um novo email.",
+                    );
+                    window.history.replaceState(null, "", "/login");
+                }
+                return;
+            }
+
+            setPasswordFlow(flow);
+            setPasswordFlowReady(false);
+            setErrorMessage(null);
+            setSuccessMessage(null);
+
             const accessToken = params.get("access_token");
             const refreshToken = params.get("refresh_token");
+            window.history.replaceState(null, "", "/login");
 
             if (!accessToken || !refreshToken) {
                 if (isMounted) {
-                    setErrorMessage(
-                        "Convite inválido ou expirado. Solicite um novo convite.",
-                    );
+                    setErrorMessage(getExpiredFlowMessage(flow));
                 }
                 return;
             }
@@ -82,12 +162,13 @@ export default function LoginPage() {
             });
 
             if (sessionError) {
-                console.error("[login] invite setSession failed", sessionError);
+                console.error("[login] email token setSession failed", {
+                    flow,
+                    error: sessionError,
+                });
 
                 if (isMounted) {
-                    setErrorMessage(
-                        "Convite inválido ou expirado. Solicite um novo convite.",
-                    );
+                    setErrorMessage(getExpiredFlowMessage(flow));
                 }
                 return;
             }
@@ -98,12 +179,13 @@ export default function LoginPage() {
             } = await supabase.auth.getUser();
 
             if (userError || !user) {
-                console.error("[login] invite getUser failed", userError);
+                console.error("[login] email token getUser failed", {
+                    flow,
+                    error: userError,
+                });
 
                 if (isMounted) {
-                    setErrorMessage(
-                        "A sessão do convite expirou. Solicite um novo convite.",
-                    );
+                    setErrorMessage(getExpiredFlowMessage(flow));
                 }
                 return;
             }
@@ -111,11 +193,11 @@ export default function LoginPage() {
             window.history.replaceState(null, "", "/login");
 
             if (isMounted) {
-                setInviteReady(true);
+                setPasswordFlowReady(true);
             }
         }
 
-        void handleInviteToken();
+        void handleEmailToken();
 
         return () => {
             isMounted = false;
@@ -127,11 +209,16 @@ export default function LoginPage() {
         clearCurrentAttendantCache();
     }
 
+    function resetFeedback() {
+        setErrorMessage(null);
+        setSuccessMessage(null);
+    }
+
     async function handleLogin(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
         setLoading(true);
-        setErrorMessage(null);
+        resetFeedback();
 
         const { error } = await supabase.auth.signInWithPassword({
             email: email.trim().toLowerCase(),
@@ -152,15 +239,60 @@ export default function LoginPage() {
         window.location.replace(getNextUrl());
     }
 
+    async function handleForgotPassword(
+        event: FormEvent<HTMLFormElement>,
+    ) {
+        event.preventDefault();
+
+        const normalizedEmail = email.trim().toLowerCase();
+        if (!normalizedEmail) {
+            setErrorMessage("Informe seu email.");
+            return;
+        }
+
+        setLoading(true);
+        resetFeedback();
+
+        const { error } =
+            await supabase.auth.resetPasswordForEmail(normalizedEmail);
+
+        setLoading(false);
+
+        if (error) {
+            console.error("[login] password recovery email failed", error);
+            setErrorMessage(
+                error.status === 429
+                    ? "Aguarde um momento antes de solicitar outro email."
+                    : "Não foi possível enviar o email agora. Tente novamente.",
+            );
+            return;
+        }
+
+        setSuccessMessage(
+            "Se existir uma conta com este email, você receberá um link para redefinir sua senha.",
+        );
+    }
+
     async function handleSetPassword(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
+        if (!passwordFlow) return;
+
         setLoading(true);
-        setErrorMessage(null);
+        resetFeedback();
 
         if (newPassword.length < 6) {
             setLoading(false);
             setErrorMessage("A senha precisa ter pelo menos 6 caracteres.");
+            return;
+        }
+
+        if (
+            passwordFlow === "recovery" &&
+            newPassword !== confirmPassword
+        ) {
+            setLoading(false);
+            setErrorMessage("As senhas não coincidem.");
             return;
         }
 
@@ -171,10 +303,8 @@ export default function LoginPage() {
 
         if (userError || !user) {
             setLoading(false);
-            setInviteReady(false);
-            setErrorMessage(
-                "A sessão do convite expirou. Solicite um novo convite.",
-            );
+            setPasswordFlowReady(false);
+            setErrorMessage(getExpiredFlowMessage(passwordFlow));
             return;
         }
 
@@ -183,7 +313,10 @@ export default function LoginPage() {
         });
 
         if (error) {
-            console.error("[login] invite updateUser failed", error);
+            console.error("[login] password update failed", {
+                flow: passwordFlow,
+                error,
+            });
 
             setLoading(false);
 
@@ -191,14 +324,16 @@ export default function LoginPage() {
                 error.status === 403 ||
                 error.message.toLowerCase().includes("session")
             ) {
-                setInviteReady(false);
-                setErrorMessage(
-                    "A sessão do convite expirou. Solicite um novo convite.",
-                );
+                setPasswordFlowReady(false);
+                setErrorMessage(getExpiredFlowMessage(passwordFlow));
                 return;
             }
 
-            setErrorMessage("Não foi possível criar a senha.");
+            setErrorMessage(
+                passwordFlow === "invite"
+                    ? "Não foi possível criar a senha."
+                    : "Não foi possível redefinir a senha.",
+            );
             return;
         }
 
@@ -206,138 +341,319 @@ export default function LoginPage() {
         window.location.replace("/");
     }
 
-    if (isInvite) {
+    function openForgotPassword() {
+        resetFeedback();
+        setMode("forgot-password");
+    }
+
+    function returnToLogin() {
+        resetFeedback();
+        setMode("login");
+    }
+
+    if (passwordFlow) {
+        const isRecovery = passwordFlow === "recovery";
+
         return (
-            <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
-                <div className="w-full max-w-[420px]">
-                    <Card>
-                        <form onSubmit={handleSetPassword}>
-                            <div className="mb-8">
-                                <h1 className="text-2xl font-bold text-slate-950">
-                                    Criar senha
-                                </h1>
+            <AuthPage>
+                <form onSubmit={handleSetPassword}>
+                    <div className="mb-8">
+                        <h1 className="text-2xl font-bold text-slate-950">
+                            {isRecovery ? "Redefinir senha" : "Criar senha"}
+                        </h1>
 
-                                <p className="mt-2 text-sm text-slate-500">
-                                    Defina uma senha para acessar o Engravida Hub.
-                                </p>
-                            </div>
+                        <p className="mt-2 text-sm text-slate-500">
+                            {isRecovery
+                                ? "Escolha uma nova senha para sua conta."
+                                : "Defina uma senha para acessar o Engravida Hub."}
+                        </p>
+                    </div>
 
-                            <label className="block">
-                                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                                    Nova senha
-                                </span>
+                    <PasswordField
+                        label="Nova senha"
+                        value={newPassword}
+                        onChange={setNewPassword}
+                        showPassword={showPassword}
+                        onTogglePassword={() =>
+                            setShowPassword((current) => !current)
+                        }
+                        disabled={!passwordFlowReady}
+                    />
 
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? "text" : "password"}
-                                        value={newPassword}
-                                        onChange={(event) => setNewPassword(event.target.value)}
-                                        className="h-12 w-full rounded-xl border border-slate-200 px-4 pr-12 text-sm outline-none transition focus:border-brand"
-                                        disabled={!inviteReady}
-                                        required
-                                    />
+                    {isRecovery ? (
+                        <div className="mt-5">
+                            <PasswordField
+                                label="Confirmar nova senha"
+                                value={confirmPassword}
+                                onChange={setConfirmPassword}
+                                showPassword={showPassword}
+                                onTogglePassword={() =>
+                                    setShowPassword((current) => !current)
+                                }
+                                disabled={!passwordFlowReady}
+                            />
+                        </div>
+                    ) : null}
 
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword((current) => !current)}
-                                        className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer text-slate-400 transition hover:text-slate-700"
-                                        aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                                    >
-                                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                </div>
-                            </label>
+                    <FeedbackMessage
+                        errorMessage={errorMessage}
+                        successMessage={successMessage}
+                    />
 
-                            {errorMessage ? (
-                                <div className="mt-5 rounded-xl bg-red-soft px-4 py-3 text-sm font-medium text-red">
-                                    {errorMessage}
-                                </div>
-                            ) : null}
+                    <button
+                        type="submit"
+                        disabled={loading || !passwordFlowReady}
+                        className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-brand font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {loading
+                            ? "Salvando..."
+                            : isRecovery
+                              ? "Salvar nova senha"
+                              : "Criar senha"}
+                    </button>
+                </form>
+            </AuthPage>
+        );
+    }
 
-                            <button
-                                type="submit"
-                                disabled={loading || !inviteReady}
-                                className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-brand font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                {loading ? "Salvando..." : "Criar senha"}
-                            </button>
-                        </form>
-                    </Card>
-                </div>
-            </main>
+    if (mode === "forgot-password") {
+        return (
+            <AuthPage>
+                <form onSubmit={handleForgotPassword}>
+                    <button
+                        type="button"
+                        onClick={returnToLogin}
+                        className="mb-6 inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-brand"
+                    >
+                        <ArrowLeft size={16} />
+                        Voltar para o login
+                    </button>
+
+                    <div className="mb-8">
+                        <h1 className="text-2xl font-bold text-slate-950">
+                            Esqueci minha senha
+                        </h1>
+
+                        <p className="mt-2 text-sm text-slate-500">
+                            Informe seu email para receber o link de redefinição.
+                        </p>
+                    </div>
+
+                    <EmailField value={email} onChange={setEmail} />
+
+                    <FeedbackMessage
+                        errorMessage={errorMessage}
+                        successMessage={successMessage}
+                    />
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-brand font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {loading ? "Enviando..." : "Enviar link"}
+                    </button>
+                </form>
+            </AuthPage>
         );
     }
 
     return (
-        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
-            <div className="w-full max-w-[420px]">
-                <Card>
-                    <form onSubmit={handleLogin}>
-                        <div className="mb-8">
-                            <h1 className="text-2xl font-bold text-slate-950">
-                                Engravida Hub
-                            </h1>
+        <AuthPage>
+            <form onSubmit={handleLogin}>
+                <div className="mb-8">
+                    <h1 className="text-2xl font-bold text-slate-950">
+                        Engravida Hub
+                    </h1>
 
-                            <p className="mt-2 text-sm text-slate-500">
-                                Entre para acessar o dashboard.
-                            </p>
-                        </div>
+                    <p className="mt-2 text-sm text-slate-500">
+                        Entre para acessar o dashboard.
+                    </p>
+                </div>
 
-                        <label className="block">
-                            <span className="mb-2 block text-sm font-semibold text-slate-700">
-                                Email
-                            </span>
+                <EmailField value={email} onChange={setEmail} />
 
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(event) => setEmail(event.target.value)}
-                                className="h-12 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none transition focus:border-brand"
-                                required
-                            />
-                        </label>
-
-                        <label className="mt-5 block">
-                            <span className="mb-2 block text-sm font-semibold text-slate-700">
-                                Senha
-                            </span>
-
-                            <div className="relative">
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    value={password}
-                                    onChange={(event) => setPassword(event.target.value)}
-                                    className="h-12 w-full rounded-xl border border-slate-200 px-4 pr-12 text-sm outline-none transition focus:border-brand"
-                                    required
-                                />
-
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword((current) => !current)}
-                                    className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer text-slate-400 transition hover:text-slate-700"
-                                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-                        </label>
-
-                        {errorMessage ? (
-                            <div className="mt-5 rounded-xl bg-red-soft px-4 py-3 text-sm font-medium text-red">
-                                {errorMessage}
-                            </div>
-                        ) : null}
+                <label className="mt-5 block">
+                    <div className="mb-2 flex items-center justify-between gap-4">
+                        <span className="text-sm font-semibold text-slate-700">
+                            Senha
+                        </span>
 
                         <button
-                            type="submit"
-                            disabled={loading}
-                            className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-brand font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            type="button"
+                            onClick={openForgotPassword}
+                            className="cursor-pointer text-sm font-semibold text-brand transition hover:opacity-75"
                         >
-                            {loading ? "Entrando..." : "Entrar"}
+                            Esqueci minha senha
                         </button>
-                    </form>
-                </Card>
+                    </div>
+
+                    <div className="relative">
+                        <input
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                setPassword(event.target.value)
+                            }
+                            className="h-12 w-full rounded-xl border border-slate-200 px-4 pr-12 text-sm outline-none transition focus:border-brand"
+                            autoComplete="current-password"
+                            required
+                        />
+
+                        <PasswordVisibilityButton
+                            showPassword={showPassword}
+                            onToggle={() =>
+                                setShowPassword((current) => !current)
+                            }
+                        />
+                    </div>
+                </label>
+
+                <FeedbackMessage
+                    errorMessage={errorMessage}
+                    successMessage={successMessage}
+                />
+
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-brand font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    {loading ? "Entrando..." : "Entrar"}
+                </button>
+            </form>
+        </AuthPage>
+    );
+}
+
+function AuthPage({ children }: { children: ReactNode }) {
+    return (
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
+            <div className="w-full max-w-[420px]">
+                <Card>{children}</Card>
             </div>
         </main>
     );
+}
+
+function EmailField({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    return (
+        <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">
+                Email
+            </span>
+
+            <input
+                type="email"
+                value={value}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    onChange(event.target.value)
+                }
+                className="h-12 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none transition focus:border-brand"
+                autoComplete="email"
+                required
+            />
+        </label>
+    );
+}
+
+function PasswordField({
+    label,
+    value,
+    onChange,
+    showPassword,
+    onTogglePassword,
+    disabled,
+}: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    showPassword: boolean;
+    onTogglePassword: () => void;
+    disabled: boolean;
+}) {
+    return (
+        <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">
+                {label}
+            </span>
+
+            <div className="relative">
+                <input
+                    type={showPassword ? "text" : "password"}
+                    value={value}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    onChange(event.target.value)
+                }
+                    className="h-12 w-full rounded-xl border border-slate-200 px-4 pr-12 text-sm outline-none transition focus:border-brand"
+                    autoComplete="new-password"
+                    disabled={disabled}
+                    minLength={6}
+                    required
+                />
+
+                <PasswordVisibilityButton
+                    showPassword={showPassword}
+                    onToggle={onTogglePassword}
+                />
+            </div>
+        </label>
+    );
+}
+
+function PasswordVisibilityButton({
+    showPassword,
+    onToggle,
+}: {
+    showPassword: boolean;
+    onToggle: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer text-slate-400 transition hover:text-slate-700"
+            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+        >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+    );
+}
+
+function FeedbackMessage({
+    errorMessage,
+    successMessage,
+}: {
+    errorMessage: string | null;
+    successMessage: string | null;
+}) {
+    if (errorMessage) {
+        return (
+            <div className="mt-5 rounded-xl bg-red-soft px-4 py-3 text-sm font-medium text-red">
+                {errorMessage}
+            </div>
+        );
+    }
+
+    if (successMessage) {
+        return (
+            <div className="mt-5 rounded-xl bg-green-soft px-4 py-3 text-sm font-medium text-green">
+                {successMessage}
+            </div>
+        );
+    }
+
+    return null;
+}
+
+function getExpiredFlowMessage(flow: PasswordFlow) {
+    return flow === "invite"
+        ? "Convite inválido ou expirado. Solicite um novo convite."
+        : "Link de redefinição inválido ou expirado. Solicite um novo email.";
 }

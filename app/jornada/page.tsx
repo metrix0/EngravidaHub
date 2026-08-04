@@ -1326,6 +1326,17 @@ function JourneyPipelineTree({
                                 eyebrow={branch.label}
                                 detail="cliques elegíveis"
                             />
+                            <PipelineTransitionCard
+                                transition={clientPipelineTransition({
+                                    key:
+                                        branch.platform +
+                                        "_click_to_tracked",
+                                    label: "Clique → WhatsApp",
+                                    fromValue: branch.clicks,
+                                    toValue: branch.tracked_clients,
+                                    rate: branch.click_to_tracked_rate,
+                                })}
+                            />
                         </div>
                     ))}
                 </div>
@@ -1635,7 +1646,16 @@ function PipelineStageCard({
     detail?: string;
     width?: number;
 }) {
-    const style = PIPELINE_STAGE_STYLE[stage.key];
+    const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
+    const style =
+        eyebrow === "Google Ads" &&
+        (stage.key === "paid_impressions" || stage.key === "paid_clicks")
+            ? {
+                  accent: "#d97706",
+                  soft: "#fffbeb",
+                  eyebrow: defaultStyle.eyebrow,
+              }
+            : defaultStyle;
 
     return (
         <div
@@ -1658,7 +1678,7 @@ function PipelineStageCard({
                     />
                 </span>
                 <span
-                    className="rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
+                    className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
                     style={{ backgroundColor: style.soft, color: style.accent }}
                 >
                     {eyebrow ?? style.eyebrow}
@@ -1702,7 +1722,7 @@ function PipelineTransitionCard({
                 {transition.estimated && transition.rate !== null ? "~" : ""}
                 {formatRate(transition.rate)}
             </span>
-            <div className="my-3 flex w-full items-center">
+            <div className="my-3 -mx-2 flex w-[calc(100%+16px)] items-center">
                 <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-blue-300" />
                 <ArrowRight size={15} className="shrink-0 text-blue-400" />
             </div>
