@@ -16,8 +16,9 @@ import {
 import {
     AdvancedFilterButton,
     Badge,
+    ButtonGroup,
+    CalendarButton,
     Card,
-    DashboardHeader,
     HorizontalScroller,
     KpiCard,
     MainFilters,
@@ -31,6 +32,9 @@ import SidePanel from "@/components/layout/SidePanel";
 import {
     applyArrayParams,
     applyCalendarDateParams,
+    getDateRangeFromPreset,
+    type CalendarPreset,
+    type DateRange,
 } from "@/components/ui/CalendarButton";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
@@ -121,6 +125,7 @@ type FunnelKpis = {
     procedure_show_rate: number;
 };
 
+
 type FunnelResponse = {
     funnels: Funnel[];
     stages: FunnelStage[];
@@ -131,6 +136,33 @@ type FunnelResponse = {
 };
 
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
+const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
+const FUNNEL_DATE_PRESETS: CalendarPreset[] = [
+    {
+        label: "Hoje",
+        value: "today",
+        startOffsetDays: 0,
+        endOffsetDays: 0,
+    },
+    {
+        label: "Ontem",
+        value: "yesterday",
+        startOffsetDays: -1,
+        endOffsetDays: -1,
+    },
+    {
+        label: "Essa semana",
+        value: "this_week",
+        startOffsetDays: 0,
+        endOffsetDays: 0,
+    },
+    {
+        label: "Esse mês",
+        value: "this_month",
+        startOffsetDays: 0,
+        endOffsetDays: 0,
+    },
+];
 
 const EMPTY_FUNNEL_KPIS: FunnelKpis = {
     evaluations_scheduled: 0,
@@ -156,7 +188,7 @@ export default function FunnelPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("30");
+    } = useDashboardDateFilter("today", FUNNEL_DATE_PRESETS);
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -239,6 +271,7 @@ export default function FunnelPage() {
                     params,
                     selectedRange,
                     selectedPreset: period,
+                    presets: FUNNEL_DATE_PRESETS,
                 });
 
                 applyArrayParams(params, {
@@ -288,7 +321,7 @@ export default function FunnelPage() {
                 }
             }
         },
-        [period, unitIds, selectedRange],
+        [period, selectedRange, unitIds],
     );
 
     useEffect(() => {
@@ -314,12 +347,40 @@ export default function FunnelPage() {
         return new Set(visibleStages.map((stage) => stage.id));
     }, [visibleStages]);
 
+    const scheduleDateRange = useMemo(() => {
+        if (selectedRange.start) {
+            return {
+                start: selectedRange.start,
+                end: selectedRange.end ?? selectedRange.start,
+            };
+        }
+
+        const preset =
+            FUNNEL_DATE_PRESETS.find((item) => item.value === period) ??
+            FUNNEL_DATE_PRESETS[0];
+        const range = getDateRangeFromPreset(preset);
+
+        return {
+            start: range.start ?? "",
+            end: range.end ?? range.start ?? "",
+        };
+    }, [period, selectedRange]);
+
     const filteredClients = useMemo(() => {
         const term = search.trim().toLowerCase();
 
         return clients.filter((client) => {
             if (!client.funnel_stage_id) return false;
             if (!visibleStageIds.has(client.funnel_stage_id)) return false;
+
+            const scheduledFor = client.schedule_summary?.scheduled_for?.slice(0, 10);
+            if (
+                !scheduledFor ||
+                scheduledFor < scheduleDateRange.start ||
+                scheduledFor > scheduleDateRange.end
+            ) {
+                return false;
+            }
 
             if (
                 sourceValues.length > 0 &&
@@ -336,7 +397,14 @@ export default function FunnelPage() {
                 client.email?.toLowerCase().includes(term)
             );
         });
-    }, [clients, search, sourceValues, visibleStageIds]);
+    }, [
+        clients,
+        scheduleDateRange.end,
+        scheduleDateRange.start,
+        search,
+        sourceValues,
+        visibleStageIds,
+    ]);
 
     const clientsByStage = useMemo(() => {
         const grouped: Record<string, Client[]> = {};
@@ -381,6 +449,8 @@ export default function FunnelPage() {
     );
 
     const totalClients = filteredClients.length;
+    const shouldFitFunnelStages =
+        visibleStages.length > 0 && visibleStages.length <= 4;
     const schedulingClient = schedulingClientId
         ? clients.find((client) => client.id === schedulingClientId) ?? null
         : null;
@@ -782,7 +852,7 @@ export default function FunnelPage() {
         await loadFunnelData({ showLoading: false });
     }
 
-    if (loading || loadingFilters) {
+    if (!dateFilterReady || loading || loadingFilters) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
@@ -861,18 +931,44 @@ export default function FunnelPage() {
             <SidePanel />
 
             <section className="min-w-0 flex-1 px-8 py-8">
-                <DashboardHeader
-                    title="Funil"
-                    description="Acompanhe e mova clientes pelo funil comercial"
-                    period={period}
-                    setPeriod={setPeriod}
-                    selectedRange={selectedRange}
-                    setSelectedRange={setSelectedRange}
-                    storageManaged
-                    storageReady={dateFilterReady}
-                />
+                <header className="mb-8 flex items-start justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                            Funil
+                        </h1>
+                        <p className="mt-2 text-sm text-slate-500">
+                            Acompanhe e mova clientes pelo funil comercial
+                        </p>
+                    </div>
 
-                <div className="mb-8 flex justify-end gap-3">
+                    <ButtonGroup
+                        value={period}
+                        onChange={(value) => {
+                            setPeriod(value);
+                            setSelectedRange(EMPTY_DATE_RANGE);
+                        }}
+                        options={FUNNEL_DATE_PRESETS.map((preset) => ({
+                            value: preset.value,
+                            label: preset.label,
+                        }))}
+                    >
+                        <CalendarButton
+                            value={selectedRange}
+                            onChange={setSelectedRange}
+                            onApply={(range) => {
+                                if (range.start) {
+                                    setPeriod(null);
+                                    return;
+                                }
+
+                                setPeriod(FUNNEL_DATE_PRESETS[0].value);
+                            }}
+                            allowFutureDates
+                        />
+                    </ButtonGroup>
+                </header>
+
+                <div className="mb-8 flex flex-wrap justify-end gap-3">
                     {/*<FilterButton*/}
                     {/*    label={selectedFunnel?.name ?? "Funnel Comercial Principal"}*/}
                     {/*    values={funnelIds}*/}
@@ -987,24 +1083,55 @@ export default function FunnelPage() {
                         </div>
                     </div>
 
-                    <div className="max-w-[calc(100vw-320px)] overflow-hidden pb-16">
-                        <HorizontalScroller scrollAmount={520}>
-                            {visibleStages.map((stage) => {
-                                const stageClients = clientsByStage[stage.id] ?? [];
+                    <div className="min-w-0 w-full overflow-hidden pb-16">
+                        {shouldFitFunnelStages ? (
+                            <div
+                                className="grid w-full gap-5"
+                                style={{
+                                    gridTemplateColumns: `repeat(${visibleStages.length}, minmax(0, 1fr))`,
+                                }}
+                            >
+                                {visibleStages.map((stage) => {
+                                    const stageClients =
+                                        clientsByStage[stage.id] ?? [];
 
-                                return (
-                                    <FunnelColumn
-                                        key={stage.id}
-                                        stage={stage}
-                                        clients={stageClients}
-                                        onMoveClient={moveClient}
-                                        onRemoveClient={removeClientFromFunnel}
-                                        onOpenClientProfile={openClientProfile}
-                                        onOpenClientSchedule={openClientSchedule}
-                                    />
-                                );
-                            })}
-                        </HorizontalScroller>
+                                    return (
+                                        <FunnelColumn
+                                            key={stage.id}
+                                            stage={stage}
+                                            clients={stageClients}
+                                            fitWidth
+                                            onMoveClient={moveClient}
+                                            onRemoveClient={removeClientFromFunnel}
+                                            onOpenClientProfile={openClientProfile}
+                                            onOpenClientSchedule={openClientSchedule}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <HorizontalScroller
+                                scrollAmount={520}
+                                className="min-w-0 w-full"
+                            >
+                                {visibleStages.map((stage) => {
+                                    const stageClients =
+                                        clientsByStage[stage.id] ?? [];
+
+                                    return (
+                                        <FunnelColumn
+                                            key={stage.id}
+                                            stage={stage}
+                                            clients={stageClients}
+                                            onMoveClient={moveClient}
+                                            onRemoveClient={removeClientFromFunnel}
+                                            onOpenClientProfile={openClientProfile}
+                                            onOpenClientSchedule={openClientSchedule}
+                                        />
+                                    );
+                                })}
+                            </HorizontalScroller>
+                        )}
                     </div>
                 </section>
             </section>
@@ -1069,6 +1196,7 @@ function FunnelColumn({
                             onRemoveClient,
                             onOpenClientProfile,
                             onOpenClientSchedule,
+                            fitWidth = false,
                         }: {
     stage: FunnelStage;
     clients: Client[];
@@ -1076,6 +1204,7 @@ function FunnelColumn({
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
     onOpenClientSchedule: (clientId: string) => void;
+    fitWidth?: boolean;
 }) {
     const COLLAPSED_CLIENTS = 5;
     const CLIENTS_PER_BATCH = 20;
@@ -1090,7 +1219,10 @@ function FunnelColumn({
                 const clientId = event.dataTransfer.getData("client_id");
                 if (clientId) onMoveClient(clientId, stage.id);
             }}
-            className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
+            className={[
+                "min-h-[560px] rounded-xl border border-border bg-slate-50 p-3",
+                fitWidth ? "min-w-0 w-full" : "w-[260px] shrink-0",
+            ].join(" ")}
         >
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
@@ -1242,6 +1374,15 @@ function FunnelClientCard({
 
                     <div className="mt-1 truncate text-xs text-muted">
                         {client.phone ?? "Sem telefone"}
+                    </div>
+
+                    <div
+                        className="mt-2 truncate text-xs text-slate-600"
+                        title={
+                            schedule?.procedure_name ?? "Procedimento não informado"
+                        }
+                    >
+                        {schedule?.procedure_name ?? "Não informado"}
                     </div>
 
                     {schedule?.attention_label && (

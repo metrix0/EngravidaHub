@@ -1,14 +1,14 @@
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true, Position = 0, ValueFromRemainingArguments = $true)]
-    [string[]]$CommitMessage
-)
-
 $ErrorActionPreference = "Stop"
-$message = ($CommitMessage -join " ").Trim()
+
+$rawArguments = @($args)
+$shouldBuild = $rawArguments -contains "--build"
+$messageParts = @(
+    $rawArguments | Where-Object { $_ -ne "--build" }
+)
+$message = ($messageParts -join " ").Trim()
 
 if ([string]::IsNullOrWhiteSpace($message)) {
-    Write-Host "Usage: npm run deploy -- <commit message>" -ForegroundColor Yellow
+    Write-Host 'Usage: npm run merge -- "<commit message>" [--build]' -ForegroundColor Yellow
     exit 1
 }
 
@@ -30,6 +30,19 @@ function Invoke-Git {
     }
 }
 
+function Invoke-ProjectBuild {
+    $npmExecutable = if ($env:OS -eq "Windows_NT") { "npm.cmd" } else { "npm" }
+
+    Write-Host "> npm run build" -ForegroundColor Cyan
+    & $npmExecutable run build
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Build failed. Nothing was staged, committed, merged, or pushed."
+    }
+
+    Write-Host "Build passed." -ForegroundColor Green
+}
+
 Push-Location $repoRoot
 
 try {
@@ -41,6 +54,10 @@ try {
 
     if ($currentBranch -ne "preview") {
         throw "Run this command from the preview branch. Current branch: $currentBranch"
+    }
+
+    if ($shouldBuild) {
+        Invoke-ProjectBuild
     }
 
     Invoke-Git add .

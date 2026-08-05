@@ -255,7 +255,7 @@ async function loadInstagramAnalyses(
             .abortSignal(signal);
 
         if (error) throw error;
-        rows.push(...((data ?? []) as InstagramAnalysisRow[]));
+        rows.push(...((data ?? []) as unknown as InstagramAnalysisRow[]));
     }
 
     return rows;

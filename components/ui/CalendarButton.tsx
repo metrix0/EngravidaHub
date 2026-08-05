@@ -66,6 +66,36 @@ export function getDateStringWithOffset(offsetDays: number) {
 export function getDateRangeFromPreset(preset: CalendarPreset): DateRange {
     const today = new Date();
 
+    if (preset.value === "today") {
+        const value = formatLocalDate(today);
+        return { start: value, end: value };
+    }
+
+    if (preset.value === "this_week") {
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const mondayOffset = (start.getDay() + 6) % 7;
+        start.setDate(start.getDate() - mondayOffset);
+
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+
+        return {
+            start: formatLocalDate(start),
+            end: formatLocalDate(end),
+        };
+    }
+
+    if (preset.value === "this_month") {
+        return {
+            start: formatLocalDate(
+                new Date(today.getFullYear(), today.getMonth(), 1),
+            ),
+            end: formatLocalDate(
+                new Date(today.getFullYear(), today.getMonth() + 1, 0),
+            ),
+        };
+    }
+
     if (preset.value === "current_month") {
         return {
             start: formatLocalDate(
@@ -142,6 +172,7 @@ type CalendarButtonProps = {
     onChange?: (value: DateRange) => void;
     onApply?: (value: DateRange) => void;
     className?: string;
+    allowFutureDates?: boolean;
 };
 
 export default function CalendarButton({
@@ -149,6 +180,7 @@ export default function CalendarButton({
                                            onChange,
                                            onApply,
                                            className = "",
+                                           allowFutureDates = false,
                                        }: CalendarButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -274,6 +306,7 @@ export default function CalendarButton({
                     setVisibleDate={setVisibleDate}
                     selectedRange={draftRange}
                     onDateClick={handleDateClick}
+                    allowFutureDates={allowFutureDates}
                 />
 
                 <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
@@ -303,11 +336,13 @@ function CalendarPicker({
                             setVisibleDate,
                             selectedRange,
                             onDateClick,
+                            allowFutureDates,
                         }: {
     visibleDate: Date;
     setVisibleDate: (date: Date) => void;
     selectedRange: DateRange;
     onDateClick: (date: string) => void;
+    allowFutureDates: boolean;
 }) {
     const year = visibleDate.getFullYear();
     const month = visibleDate.getMonth();
@@ -364,7 +399,8 @@ function CalendarPicker({
                 {days.map((day) => {
                     const selected = isSelected(day.dateString, selectedRange);
                     const inRange = isInRange(day.dateString, selectedRange);
-                    const disabled = day.dateString > todayString;
+                    const disabled =
+                        !allowFutureDates && day.dateString > todayString;
 
                     return (
                         <button
