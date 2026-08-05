@@ -176,7 +176,10 @@ async function fetchClient(clientId: string) {
         : null;
 }
 
-async function fetchInstagramUser(instagramUserId: string) {
+async function fetchSocialUser(
+    instagramUserId: string,
+    channel: string | null | undefined,
+) {
     const { data, error } = await supabase
         .from("instagram_users")
         .select("id, username, display_name")
@@ -192,7 +195,9 @@ async function fetchInstagramUser(instagramUserId: string) {
             data.display_name?.trim() ||
             (data.username
                 ? `@${data.username.replace(/^@+/, "")}`
-                : "Usuário do Instagram"),
+                : channel === "Facebook"
+                  ? "Usuário do Facebook"
+                  : "Usuário do Instagram"),
         phone: null,
         identity_type: "instagram" as const,
         is_clickable: false,
@@ -205,10 +210,11 @@ async function fetchInstagramUser(instagramUserId: string) {
 async function fetchConversationIdentity(row: {
     client_id?: string | null;
     instagram_user_id?: string | null;
+    channel?: string | null;
 }) {
     if (row.client_id) return fetchClient(row.client_id);
     if (row.instagram_user_id) {
-        return fetchInstagramUser(row.instagram_user_id);
+        return fetchSocialUser(row.instagram_user_id, row.channel);
     }
     return null;
 }

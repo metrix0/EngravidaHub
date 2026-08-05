@@ -85,7 +85,7 @@ type GoogleServiceAccountCredentials = {
     project_id?: string;
 };
 
-type AnalysisPlatform = "whatsapp" | "instagram";
+type AnalysisPlatform = "whatsapp" | "instagram" | "messenger";
 
 let googleAuth: GoogleAuth | null = null;
 let googleCredentials: GoogleServiceAccountCredentials | null = null;
@@ -663,7 +663,12 @@ async function getPendingConversations(
     platform: AnalysisPlatform,
 ) {
     const rows: Conversation[] = [];
-    const channel = platform === "instagram" ? "Instagram" : "WhatsApp";
+    const channel =
+        platform === "instagram"
+            ? "Instagram"
+            : platform === "messenger"
+              ? "Facebook"
+              : "WhatsApp";
 
     for (let from = 0; rows.length < limit; from += PAGE_SIZE) {
         const to = Math.min(from + PAGE_SIZE - 1, limit - 1);

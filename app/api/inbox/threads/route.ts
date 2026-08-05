@@ -243,8 +243,8 @@ function mapOpenThread(row: any): InboxThreadListItem {
     const stage = normalizeRelation(client?.funnel_stages);
     const funnel = normalizeRelation(stage?.funnels);
     const channel = normalizeChannel(row.channel);
-    const isInstagram = channel === "Instagram";
-    const name = getIdentityName(client, instagramUser);
+    const isSocial = channel === "Instagram" || channel === "Facebook";
+    const name = getIdentityName(client, instagramUser, channel);
 
     return {
         id: row.id,
@@ -252,7 +252,7 @@ function mapOpenThread(row: any): InboxThreadListItem {
         thread_id: row.id,
         client_id: row.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
-        identity_type: isInstagram ? "instagram" : "client",
+        identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
         conversation_id: null,
         name,
@@ -265,19 +265,19 @@ function mapOpenThread(row: any): InboxThreadListItem {
         status: "open",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
-        funnelStage: isInstagram
-            ? "Usuário do Instagram"
+        funnel: isSocial ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isSocial
+            ? getSocialUserLabel(channel)
             : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: isInstagram
+        origin: isSocial
             ? null
             : latestConversation?.origin ?? client?.last_origin ?? null,
-        campaign: isInstagram ? null : client?.utm_campaign ?? null,
+        campaign: isSocial ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? null,
         lastContact: formatTimeAgo(row.last_message_at ?? row.updated_at),
     };
@@ -292,8 +292,11 @@ function mapClosedConversation(row: any): InboxThreadListItem {
     const stage = normalizeRelation(client?.funnel_stages);
     const funnel = normalizeRelation(stage?.funnels);
     const channel = normalizeChannel(row.channel);
-    const isInstagram = channel === "Instagram" || row.source === "zernio";
-    const name = getIdentityName(client, instagramUser);
+    const isSocial =
+        channel === "Instagram" ||
+        channel === "Facebook" ||
+        row.source === "zernio";
+    const name = getIdentityName(client, instagramUser, channel);
     const lastActivity = row.last_message_at ?? row.ended_at ?? row.started_at;
 
     return {
@@ -302,7 +305,7 @@ function mapClosedConversation(row: any): InboxThreadListItem {
         thread_id: row.thread_id ?? null,
         client_id: row.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
-        identity_type: isInstagram ? "instagram" : "client",
+        identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
         conversation_id: row.id,
         name,
@@ -318,17 +321,17 @@ function mapClosedConversation(row: any): InboxThreadListItem {
         status: "closed",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
-        funnelStage: isInstagram
-            ? "Usuário do Instagram"
+        funnel: isSocial ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isSocial
+            ? getSocialUserLabel(channel)
             : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: isInstagram ? null : row.origin ?? client?.last_origin ?? null,
-        campaign: isInstagram ? null : client?.utm_campaign ?? null,
+        origin: isSocial ? null : row.origin ?? client?.last_origin ?? null,
+        campaign: isSocial ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? row.attendant_chat_name ?? null,
         lastContact: formatTimeAgo(lastActivity),
     };
@@ -344,6 +347,7 @@ function getIdentityName(
         display_name?: string | null;
         username?: string | null;
     } | null,
+    channel: InboxChannel,
 ) {
     return (
         instagramUser?.display_name?.trim() ||
@@ -351,8 +355,14 @@ function getIdentityName(
             ? `@${instagramUser.username.replace(/^@+/, "")}`
             : null) ||
         client?.name?.trim() ||
-        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+        (instagramUser ? getSocialUserLabel(channel) : "Cliente sem nome")
     );
+}
+
+function getSocialUserLabel(channel: InboxChannel) {
+    return channel === "Facebook"
+        ? "Usuário do Facebook"
+        : "Usuário do Instagram";
 }
 
 function getUnitName(value: unknown) {

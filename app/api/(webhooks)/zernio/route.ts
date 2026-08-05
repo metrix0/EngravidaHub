@@ -105,7 +105,7 @@ export async function POST(request: Request) {
         const thread = await queueThreadForMessage({
             instagramUserId: instagramUser.id,
             source: "zernio",
-            channel: "Instagram",
+            channel: parsedMessage.channel,
             senderType: parsedMessage.sender_type,
             sentAt: parsedMessage.sent_at,
             externalThreadId: parsedMessage.external_thread_id,
@@ -159,21 +159,24 @@ export async function POST(request: Request) {
             );
         }
 
-        console.info(`[zernio-webhook:${requestId}] Instagram message saved`, {
-            event,
-            thread_id: thread.id,
-            instagram_user_id: instagramUser.id,
-            sender_type: parsedMessage.sender_type,
-            has_attachment: Boolean(parsedMessage.attachment),
-            attachment_queued: Boolean(parsedMessage.attachment),
-            duration_ms: Date.now() - startedAt,
-        });
+        console.info(
+            `[zernio-webhook:${requestId}] ${parsedMessage.channel} message saved`,
+            {
+                event,
+                thread_id: thread.id,
+                instagram_user_id: instagramUser.id,
+                sender_type: parsedMessage.sender_type,
+                has_attachment: Boolean(parsedMessage.attachment),
+                attachment_queued: Boolean(parsedMessage.attachment),
+                duration_ms: Date.now() - startedAt,
+            },
+        );
 
         return NextResponse.json({
             ok: true,
             received: true,
             saved: true,
-            channel: "Instagram",
+            channel: parsedMessage.channel,
             thread_id: thread.id,
             instagram_user_id: instagramUser.id,
             attachment_queued: Boolean(parsedMessage.attachment),
@@ -221,6 +224,7 @@ async function persistAttachmentAfterResponse({
             caption: message.text,
             threadId,
             externalMessageId: message.external_id,
+            channel: message.channel,
         });
         const { error } = await supabase
             .from("messages")
@@ -239,7 +243,7 @@ async function persistAttachmentAfterResponse({
         if (threadError) throw threadError;
 
         console.info(
-            `[zernio-webhook:${requestId}] Instagram attachment saved`,
+            `[zernio-webhook:${requestId}] ${message.channel} attachment saved`,
             {
                 message_id: messageId,
                 thread_id: threadId,
@@ -247,7 +251,7 @@ async function persistAttachmentAfterResponse({
         );
     } catch (error) {
         console.error(
-            `[zernio-webhook:${requestId}] Instagram attachment persistence failed`,
+            `[zernio-webhook:${requestId}] ${message.channel} attachment persistence failed`,
             {
                 message_id: messageId,
                 thread_id: threadId,
@@ -384,11 +388,13 @@ async function persistIncomingAttachment({
     caption,
     threadId,
     externalMessageId,
+    channel,
 }: {
     attachment: ParsedZernioAttachment;
     caption: string;
     threadId: string;
     externalMessageId: string;
+    channel: ParsedZernioMessage["channel"];
 }) {
     const sourceUrl = parseRemoteMediaUrl(attachment.url);
     const response = await fetch(sourceUrl, {
@@ -411,17 +417,20 @@ async function persistIncomingAttachment({
         Number.isFinite(declaredLength) &&
         declaredLength > MAX_ATTACHMENT_BYTES
     ) {
-        throw new Error("O anexo do Instagram excede 16 MB.");
+        throw new Error(`O anexo do ${channel} excede 16 MB.`);
     }
 
     const file = await response.arrayBuffer();
     if (file.byteLength <= 0 || file.byteLength > MAX_ATTACHMENT_BYTES) {
-        throw new Error("O anexo do Instagram está vazio ou excede 16 MB.");
+        throw new Error(
+            `O anexo do ${channel} está vazio ou excede 16 MB.`,
+        );
     }
 
     const mimeType = resolveMimeType({
         responseMime: response.headers.get("content-type"),
         attachment,
+        channel,
     });
     const name = sanitizeFileName(
         attachment.name ?? defaultFileName(attachment.type, mimeType),
@@ -500,9 +509,11 @@ function encodeInvisibleAttachmentMetadata(value: string) {
 function resolveMimeType({
     responseMime,
     attachment,
+    channel,
 }: {
     responseMime: string | null;
     attachment: ParsedZernioAttachment;
+    channel: ParsedZernioMessage["channel"];
 }) {
     const normalizedResponseMime = normalizeMimeType(responseMime ?? "");
     if (ALLOWED_ATTACHMENT_MIME_TYPES.has(normalizedResponseMime)) {
@@ -513,7 +524,7 @@ function resolveMimeType({
     if (ALLOWED_ATTACHMENT_MIME_TYPES.has(inferred)) return inferred;
 
     throw new Error(
-        `Tipo de anexo do Instagram não permitido: ${
+        `Tipo de anexo do ${channel} não permitido: ${
             normalizedResponseMime || inferred || "desconhecido"
         }`,
     );

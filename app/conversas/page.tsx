@@ -39,7 +39,7 @@ type ConversationRow = {
     started_at: string;
     ended_at: string | null;
     client_name: string;
-    channel: "WhatsApp" | "Instagram";
+    channel: "WhatsApp" | "Instagram" | "Facebook";
     objective: string;
     result: ConversationResult;
     notable: boolean;
@@ -373,6 +373,7 @@ function MessagesPageContent() {
                                 options: [
                                     { label: "WhatsApp", value: "WhatsApp" },
                                     { label: "Instagram", value: "Instagram" },
+                                    { label: "Messenger", value: "Facebook" },
                                 ],
                             },
                             {

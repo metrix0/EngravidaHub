@@ -8,7 +8,7 @@ import { matchMessagesSenderName } from "@/lib/messages/matchMessagesSenderName"
 
 export const maxDuration = 300;
 
-type AnalysisPlatform = "whatsapp" | "instagram";
+type AnalysisPlatform = "whatsapp" | "instagram" | "messenger";
 
 export async function GET(request: Request) {
     let currentStage = "request";
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
             return NextResponse.json(
                 {
                     ok: false,
-                    error: "Plataforma inválida. Use whatsapp ou instagram.",
+                    error: "Plataforma inválida. Use whatsapp, instagram ou messenger.",
                 },
                 { status: 400 },
             );
@@ -189,7 +189,11 @@ function serializeError(error: unknown): Record<string, unknown> {
 
 function readAnalysisPlatform(value: string | null): AnalysisPlatform | null {
     const normalized = value?.trim().toLowerCase() || "whatsapp";
-    if (normalized === "whatsapp" || normalized === "instagram") {
+    if (
+        normalized === "whatsapp" ||
+        normalized === "instagram" ||
+        normalized === "messenger"
+    ) {
         return normalized;
     }
     return null;

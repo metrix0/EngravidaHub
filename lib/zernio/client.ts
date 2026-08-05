@@ -2,6 +2,12 @@
 const ZERNIO_API_BASE_URL = "https://zernio.com/api/v1";
 const ZERNIO_REQUEST_TIMEOUT_MS = 20_000;
 const ZERNIO_INBOX_WEBHOOK_NAME = "Engravida Hub Instagram Inbox";
+const ZERNIO_INBOX_WEBHOOK_NAMES = new Set([
+    ZERNIO_INBOX_WEBHOOK_NAME,
+    "Engravida Hub Social Inbox",
+]);
+
+export type ZernioInboxPlatform = "instagram" | "facebook";
 
 export const ZERNIO_INBOX_WEBHOOK_EVENTS = [
     "message.received",
@@ -87,15 +93,16 @@ export async function listZernioProfiles() {
         : [];
 }
 
-export async function listZernioInstagramAccounts() {
+export async function listZernioAccounts(platform: ZernioInboxPlatform) {
     const response = await zernioRequest<{ accounts?: ZernioAccount[] }>(
-        "/accounts?platform=instagram",
+        `/accounts?platform=${platform}`,
     );
 
     return Array.isArray(response.accounts)
         ? response.accounts.map(sanitizeAccount)
         : [];
 }
+
 
 export async function listZernioWebhooks() {
     const response = await zernioRequest<{ webhooks?: ZernioWebhook[] }>(
@@ -107,10 +114,12 @@ export async function listZernioWebhooks() {
         : [];
 }
 
-export async function getZernioInstagramConnectUrl({
+export async function getZernioConnectUrl({
+    platform,
     profileId,
     redirectUrl,
 }: {
+    platform: ZernioInboxPlatform;
     profileId: string;
     redirectUrl: string;
 }) {
@@ -121,20 +130,22 @@ export async function getZernioInstagramConnectUrl({
     const response = await zernioRequest<{
         authUrl?: string;
         alreadyConnected?: boolean;
-    }>(`/connect/instagram?${searchParams.toString()}`);
+    }>(`/connect/${platform}?${searchParams.toString()}`);
     const authUrl =
         typeof response.authUrl === "string" ? response.authUrl.trim() : "";
+    const label = platformLabel(platform);
 
     if (!authUrl) {
         throw new ZernioApiError(
             response.alreadyConnected
-                ? "A conta do Instagram já está conectada no Zernio."
-                : "O Zernio não retornou a URL de conexão do Instagram.",
+                ? `A conta do ${label} já está conectada no Zernio.`
+                : `O Zernio não retornou a URL de conexão do ${label}.`,
         );
     }
 
     return authUrl;
 }
+
 
 export async function ensureZernioInboxWebhook({
     webhookUrl,
@@ -146,8 +157,8 @@ export async function ensureZernioInboxWebhook({
     const existing = webhooks.find(
         (webhook) => normalizeUrl(webhook.url) === normalizedWebhookUrl,
     ) ??
-        webhooks.find(
-            (webhook) => webhook.name === ZERNIO_INBOX_WEBHOOK_NAME,
+        webhooks.find((webhook) =>
+            ZERNIO_INBOX_WEBHOOK_NAMES.has(webhook.name),
         );
     const body = {
         name: ZERNIO_INBOX_WEBHOOK_NAME,
@@ -205,11 +216,11 @@ export async function sendZernioInboxMessage({
 
     if (!normalizedConversationId || !normalizedAccountId) {
         throw new ZernioConfigurationError(
-            "A conversa do Instagram não possui os identificadores do Zernio.",
+            "A conversa social não possui os identificadores do Zernio.",
         );
     }
     if (!normalizedMessage && !normalizedAttachmentUrl) {
-        throw new Error("A mensagem do Instagram está vazia.");
+        throw new Error("A mensagem está vazia.");
     }
 
     const response = await zernioRequest<{
@@ -355,6 +366,10 @@ function sanitizeAccount(value: ZernioAccount): ZernioAccount {
         profileUrl: value.profileUrl ?? null,
         isActive: Boolean(value.isActive),
     };
+}
+
+function platformLabel(platform: ZernioInboxPlatform) {
+    return platform === "facebook" ? "Facebook Messenger" : "Instagram";
 }
 
 function parseJson(value: string) {

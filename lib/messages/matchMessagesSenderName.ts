@@ -4,7 +4,7 @@ import type { SenderType } from "@/types/message";
 
 type MatchMessagesSenderNameInput = {
     limit: number;
-    platform?: "whatsapp" | "instagram";
+    platform?: "whatsapp" | "instagram" | "messenger";
 };
 
 type PendingConversation = {
@@ -49,7 +49,16 @@ export async function matchMessagesSenderName({
     limit,
     platform = "whatsapp",
 }: MatchMessagesSenderNameInput) {
-    const channel = platform === "instagram" ? "Instagram" : "WhatsApp";
+    const channel =
+        platform === "instagram"
+            ? "Instagram"
+            : platform === "messenger"
+              ? "Facebook"
+              : "WhatsApp";
+    const socialUserFallback =
+        platform === "messenger"
+            ? "Usuário do Facebook"
+            : "Usuário do Instagram";
     const { data: conversations, error: conversationsError } =
         await withSupabaseRetry(() =>
             supabase
@@ -153,6 +162,7 @@ export async function matchMessagesSenderName({
             clientsByExternalContactId,
             instagramUsersById,
             attendantsByExternalId,
+            socialUserFallback,
         });
 
         if (!senderName) {
@@ -321,12 +331,14 @@ function getSenderNameForMessage({
     clientsByExternalContactId,
     instagramUsersById,
     attendantsByExternalId,
+    socialUserFallback,
 }: {
     message: MessageRow;
     clientsById: Map<string, ClientRow>;
     clientsByExternalContactId: Map<string | null, ClientRow>;
     instagramUsersById: Map<string, InstagramUserRow>;
     attendantsByExternalId: Map<string | null, AttendantRow>;
+    socialUserFallback: string;
 }) {
     if (message.sender_type === "client") {
         if (message.instagram_user_id) {
@@ -336,7 +348,7 @@ function getSenderNameForMessage({
                 (user?.username
                     ? `@${user.username.replace(/^@+/, "")}`
                     : null) ||
-                "Usuário do Instagram"
+                socialUserFallback
             );
         }
 

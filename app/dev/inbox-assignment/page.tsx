@@ -17,7 +17,7 @@ import {
 import { ConversationChannelBadge } from "@/components/conversations/ConversationChannelBadge";
 
 type AssignmentStatus = "unassigned" | "mine" | "other";
-type AssignmentChannel = "WhatsApp" | "Instagram";
+type AssignmentChannel = "WhatsApp" | "Instagram" | "Facebook";
 
 type CurrentAttendant = {
     id: string;
@@ -186,7 +186,7 @@ export default function DevInboxAssignmentPage() {
                             Atribuir conversa específica
                         </h1>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                            Pesquise uma conversa aberta do WhatsApp ou Instagram e atribua-a ao atendente logado.
+                            Pesquise uma conversa aberta do WhatsApp, Instagram ou Messenger e atribua-a ao atendente logado.
                         </p>
                     </div>
 
@@ -207,7 +207,7 @@ export default function DevInboxAssignmentPage() {
                                 <input
                                     value={search}
                                     onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Telefone, nome ou @usuário do Instagram"
+                                    placeholder="Telefone, nome ou usuário do Instagram/Facebook"
                                     autoFocus
                                     className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
                                 />
@@ -275,7 +275,7 @@ export default function DevInboxAssignmentPage() {
                             <EmptyState
                                 icon={<Search size={22} />}
                                 title="Pesquise uma conversa"
-                                description="Use telefone ou nome para WhatsApp, ou nome e @usuário para Instagram."
+                                description="Use telefone ou nome para WhatsApp, ou nome e usuário para Instagram/Facebook."
                             />
                         )}
 
@@ -419,8 +419,11 @@ function EmptyState({
 }
 
 function formatIdentity(item: SearchItem) {
-    if (item.channel === "Instagram") {
-        return item.username ? `@${item.username}` : "Perfil do Instagram";
+    if (item.channel === "Instagram" || item.channel === "Facebook") {
+        if (item.username) return `@${item.username}`;
+        return item.channel === "Facebook"
+            ? "Perfil do Facebook"
+            : "Perfil do Instagram";
     }
 
     return formatPhone(item.phone);

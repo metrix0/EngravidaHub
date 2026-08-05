@@ -4,11 +4,12 @@ import { NextResponse } from "next/server";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     ensureZernioInboxWebhook,
-    getZernioInstagramConnectUrl,
+    getZernioConnectUrl,
     isZernioConfigured,
-    listZernioInstagramAccounts,
+    listZernioAccounts,
     listZernioProfiles,
     listZernioWebhooks,
+    type ZernioInboxPlatform,
 } from "@/lib/zernio/client";
 
 export const runtime = "nodejs";
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
 type ZernioDevAction = {
     action?: unknown;
     profile_id?: unknown;
+    platform?: unknown;
 };
 
 export async function GET(request: Request) {
@@ -43,11 +45,14 @@ export async function GET(request: Request) {
     }
 
     try {
-        const [profiles, accounts, webhooks] = await Promise.all([
-            listZernioProfiles(),
-            listZernioInstagramAccounts(),
-            listZernioWebhooks(),
-        ]);
+        const [profiles, instagramAccounts, facebookAccounts, webhooks] =
+            await Promise.all([
+                listZernioProfiles(),
+                listZernioAccounts("instagram"),
+                listZernioAccounts("facebook"),
+                listZernioWebhooks(),
+            ]);
+        const accounts = [...instagramAccounts, ...facebookAccounts];
         const webhook =
             webhooks.find(
                 (candidate) =>
@@ -102,8 +107,13 @@ export async function POST(request: Request) {
     const urls = getIntegrationUrls(request);
 
     try {
-        if (action === "connect_instagram") {
+        if (
+            action === "connect_account" ||
+            action === "connect_instagram" ||
+            action === "connect_facebook"
+        ) {
             const profileId = String(body.profile_id ?? "").trim();
+            const platform = resolveConnectPlatform(action, body.platform);
 
             if (!profileId) {
                 return NextResponse.json(
@@ -112,15 +122,30 @@ export async function POST(request: Request) {
                 );
             }
 
+            if (!platform) {
+                return NextResponse.json(
+                    {
+                        ok: false,
+                        error: "Selecione Instagram ou Facebook Messenger.",
+                    },
+                    { status: 400 },
+                );
+            }
+
             await ensureZernioInboxWebhook({
                 webhookUrl: urls.webhook_url,
             });
-            const authUrl = await getZernioInstagramConnectUrl({
+            const authUrl = await getZernioConnectUrl({
+                platform,
                 profileId,
                 redirectUrl: urls.redirect_url,
             });
 
-            return NextResponse.json({ ok: true, auth_url: authUrl });
+            return NextResponse.json({
+                ok: true,
+                platform,
+                auth_url: authUrl,
+            });
         }
 
         if (action === "ensure_webhook") {
@@ -152,6 +177,21 @@ export async function POST(request: Request) {
             { status: 502 },
         );
     }
+}
+
+function resolveConnectPlatform(
+    action: string,
+    rawPlatform: unknown,
+): ZernioInboxPlatform | null {
+    if (action === "connect_instagram") return "instagram";
+    if (action === "connect_facebook") return "facebook";
+
+    const platform = String(rawPlatform ?? "").trim().toLowerCase();
+    if (platform === "instagram" || platform === "facebook") {
+        return platform;
+    }
+
+    return null;
 }
 
 function getIntegrationUrls(request: Request) {

@@ -231,9 +231,15 @@ export async function POST(
     }
 
     const thread = threadResult.thread;
-    const isInstagram =
-        thread.channel === "Instagram" || thread.source === "zernio";
-    debug.transport = isInstagram ? "zernio" : "blip";
+    const isZernioThread =
+        thread.channel === "Instagram" ||
+        thread.channel === "Facebook" ||
+        thread.source === "zernio";
+    const socialChannelLabel =
+        thread.channel === "Facebook"
+            ? "Facebook Messenger"
+            : "Instagram";
+    debug.transport = isZernioThread ? "zernio" : "blip";
 
     log("Thread resolved", {
         thread_id: thread.id,
@@ -252,7 +258,7 @@ export async function POST(
         external_contact_id: string | null;
     } | null = null;
 
-    if (!isInstagram) {
+    if (!isZernioThread) {
         if (!thread.client_id) {
             log("Rejected: WhatsApp thread has no CRM client");
             return errorResponse(
@@ -281,31 +287,31 @@ export async function POST(
     const zernioConversationId = thread.external_thread_id?.trim() ?? "";
     const zernioAccountId = thread.external_account_id?.trim() ?? "";
 
-    if (isInstagram && (!zernioConversationId || !zernioAccountId)) {
-        log("Rejected: Instagram thread has no Zernio identifiers");
+    if (isZernioThread && (!zernioConversationId || !zernioAccountId)) {
+        log(`Rejected: ${socialChannelLabel} thread has no Zernio identifiers`);
         return errorResponse(
             422,
-            "A conversa do Instagram não possui os identificadores do Zernio.",
+            `A conversa do ${socialChannelLabel} não possui os identificadores do Zernio.`,
             debug,
             startedAt,
         );
     }
 
-    if (!isInstagram && !recipientNumber) {
+    if (!isZernioThread && !recipientNumber) {
         log("Rejected: customer has no phone number");
         return errorResponse(422, "O cliente não possui telefone cadastrado.", debug, startedAt);
     }
 
-    debug.recipient_input = isInstagram
+    debug.recipient_input = isZernioThread
         ? zernioConversationId
         : recipientNumber;
     log("Customer identity resolved", {
         channel: thread.channel,
-        phone: isInstagram ? null : recipientNumber,
-        zernio_conversation_id: isInstagram
+        phone: isZernioThread ? null : recipientNumber,
+        zernio_conversation_id: isZernioThread
             ? zernioConversationId
             : null,
-        zernio_account_id: isInstagram ? zernioAccountId : null,
+        zernio_account_id: isZernioThread ? zernioAccountId : null,
     });
 
     const lastClientMessageAt = thread.last_client_message_at
@@ -418,7 +424,7 @@ export async function POST(
     let blipMessage: SentBlipMessage | null = null;
     let providerMessageId = "";
     let providerExternalId = "";
-    let providerRecipient = isInstagram
+    let providerRecipient = isZernioThread
         ? zernioConversationId
         : recipientNumber;
     let providerSentAt = new Date().toISOString();
@@ -426,7 +432,7 @@ export async function POST(
 
     try {
         log(
-            `Calling ${isInstagram ? "Zernio" : "Blip"} messages API`,
+            `Calling ${isZernioThread ? "Zernio" : "Blip"} messages API`,
             { action },
         );
 
@@ -443,7 +449,7 @@ export async function POST(
                 throw signedError ?? new Error("Não foi possível acessar o anexo.");
             }
 
-            if (isInstagram) {
+            if (isZernioThread) {
                 const zernioMessage = await sendZernioInboxMessage({
                     conversationId: zernioConversationId,
                     accountId: zernioAccountId,
@@ -454,8 +460,9 @@ export async function POST(
                 });
 
                 providerMessageId = zernioMessage.id;
-                providerExternalId = zernioExternalMessageId(
+                providerExternalId = socialZernioExternalMessageId(
                     zernioMessage.id,
+                    thread.channel,
                 );
                 providerRecipient = zernioMessage.conversationId;
                 providerSentAt = zernioMessage.sentAt;
@@ -472,7 +479,7 @@ export async function POST(
                 });
             }
             persistedText = attachmentHistoryText(attachment);
-        } else if (isInstagram) {
+        } else if (isZernioThread) {
             const zernioMessage = await sendZernioInboxMessage({
                 conversationId: zernioConversationId,
                 accountId: zernioAccountId,
@@ -480,7 +487,10 @@ export async function POST(
             });
 
             providerMessageId = zernioMessage.id;
-            providerExternalId = zernioExternalMessageId(zernioMessage.id);
+            providerExternalId = socialZernioExternalMessageId(
+                zernioMessage.id,
+                thread.channel,
+            );
             providerRecipient = zernioMessage.conversationId;
             providerSentAt = zernioMessage.sentAt;
         } else {
@@ -515,7 +525,7 @@ export async function POST(
                     blipMessage.delivery.command_reason,
             });
         } else {
-            log("Zernio accepted the Instagram message", {
+            log(`Zernio accepted the ${socialChannelLabel} message`, {
                 zernio_message_id: providerMessageId,
                 conversation_id: providerRecipient,
                 sent_at: providerSentAt,
@@ -540,7 +550,7 @@ export async function POST(
 
         console.error(
             `[inbox-send:${requestId}] ${
-                isInstagram ? "Zernio" : "Blip"
+                isZernioThread ? "Zernio" : "Blip"
             } send failed`,
             error,
         );
@@ -559,7 +569,7 @@ export async function POST(
                 : error instanceof Error
                     ? error.message
                     : `Não foi possível enviar a mensagem pelo ${
-                          isInstagram ? "Zernio" : "Blip"
+                          isZernioThread ? "Zernio" : "Blip"
                       }.`;
 
         log("Sending failed", {
@@ -577,23 +587,23 @@ export async function POST(
         text: persistedText,
         sentAt: providerSentAt,
         externalId: providerExternalId,
-        externalContactId: isInstagram
+        externalContactId: isZernioThread
             ? null
             : providerRecipient,
-        externalThreadId: isInstagram ? zernioConversationId : null,
+        externalThreadId: isZernioThread ? zernioConversationId : null,
     });
 
     if (!persistenceResult.ok) {
         console.error(
             `[inbox-send:${requestId}] Message was accepted by ${
-                isInstagram ? "Zernio" : "Blip"
+                isZernioThread ? "Zernio" : "Blip"
             } but local persistence failed`,
             persistenceResult.error,
         );
 
         log(
             `WARNING: ${
-                isInstagram ? "Zernio" : "Blip"
+                isZernioThread ? "Zernio" : "Blip"
             } accepted the message, but local persistence failed`,
             {
                 error: serializeError(persistenceResult.error),
@@ -617,7 +627,7 @@ export async function POST(
                 delivery: blipMessage?.delivery ?? null,
                 warning:
                     `A mensagem foi aceita pelo ${
-                        isInstagram ? "Zernio" : "Blip"
+                        isZernioThread ? "Zernio" : "Blip"
                     }, mas o histórico local ainda não foi atualizado.`,
                 debug: finishDebug(debug, startedAt),
             },
@@ -778,6 +788,15 @@ async function ensureAttachmentBucket() {
     }
 
     return attachmentBucketReady;
+}
+
+function socialZernioExternalMessageId(
+    messageId: string,
+    channel: string | null,
+) {
+    return zernioExternalMessageId(
+        channel === "Facebook" ? `facebook:${messageId}` : messageId,
+    );
 }
 
 function normalizeAction(value: unknown): SendAction {

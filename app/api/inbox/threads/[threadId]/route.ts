@@ -481,7 +481,7 @@ async function moveClientByDirection({
     if (!thread.client_id) {
         return {
             ok: false,
-            error: "Instagram users do not have a CRM funnel stage",
+            error: "Social users do not have a CRM funnel stage",
         };
     }
 
@@ -558,7 +558,7 @@ async function moveClientToStage({
     if (!thread.client_id) {
         return {
             ok: false,
-            error: "Instagram users do not have a CRM funnel stage",
+            error: "Social users do not have a CRM funnel stage",
         };
     }
 
@@ -624,13 +624,13 @@ function mapThreadBase(row: any): Omit<
     const stage = normalizeRelation(client?.funnel_stages);
     const funnel = normalizeRelation(stage?.funnels);
     const channel = normalizeChannel(row.channel);
-    const isInstagram = channel === "Instagram";
-    const name = getIdentityName(client, instagramUser);
+    const isSocial = channel === "Instagram" || channel === "Facebook";
+    const name = getIdentityName(client, instagramUser, channel);
 
     return {
         client_id: row.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
-        identity_type: isInstagram ? "instagram" : "client",
+        identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
         name,
         initials: getInitials(name),
@@ -641,19 +641,19 @@ function mapThreadBase(row: any): Omit<
         unread: row.unread_count ?? 0,
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
-        funnelStage: isInstagram
-            ? "Usuário do Instagram"
+        funnel: isSocial ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isSocial
+            ? getSocialUserLabel(channel)
             : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: isInstagram
+        origin: isSocial
             ? null
             : latestConversation?.origin ?? client?.utm_source ?? null,
-        campaign: isInstagram ? null : client?.utm_campaign ?? null,
+        campaign: isSocial ? null : client?.utm_campaign ?? null,
         responsible: attendant?.name ?? null,
         lastContact: formatTimeAgo(row.last_message_at ?? row.updated_at),
     };
@@ -687,9 +687,11 @@ function mapConversationBase(
     const channel = normalizeChannel(
         conversation.channel ?? thread?.channel,
     );
-    const isInstagram =
-        channel === "Instagram" || conversation.source === "zernio";
-    const name = getIdentityName(client, instagramUser);
+    const isSocial =
+        channel === "Instagram" ||
+        channel === "Facebook" ||
+        conversation.source === "zernio";
+    const name = getIdentityName(client, instagramUser, channel);
     const lastActivity =
         conversation.last_message_at ??
         conversation.ended_at ??
@@ -698,7 +700,7 @@ function mapConversationBase(
     return {
         client_id: conversation.client_id ?? null,
         instagram_user_id: conversation.instagram_user_id ?? null,
-        identity_type: isInstagram ? "instagram" : "client",
+        identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
         name,
         initials: getInitials(name),
@@ -714,19 +716,19 @@ function mapConversationBase(
         unread: 0,
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
-        funnel: isInstagram ? "Não se aplica" : funnel?.name ?? "Sem funil",
-        funnelStage: isInstagram
-            ? "Usuário do Instagram"
+        funnel: isSocial ? "Não se aplica" : funnel?.name ?? "Sem funil",
+        funnelStage: isSocial
+            ? getSocialUserLabel(channel)
             : stage?.name ?? "Sem etapa",
         funnel_stage_id: client?.funnel_stage_id ?? null,
         intent:
             analysis?.customer_start_intent ??
             analysis?.conversation_goal ??
             null,
-        origin: isInstagram
+        origin: isSocial
             ? null
             : conversation.source ?? client?.utm_source ?? null,
-        campaign: isInstagram ? null : client?.utm_campaign ?? null,
+        campaign: isSocial ? null : client?.utm_campaign ?? null,
         responsible:
             attendant?.name ?? conversation.attendant_chat_name ?? null,
         lastContact: formatTimeAgo(lastActivity),
@@ -759,6 +761,7 @@ function getIdentityName(
         display_name?: string | null;
         username?: string | null;
     } | null,
+    channel: InboxChannel,
 ) {
     return (
         instagramUser?.display_name?.trim() ||
@@ -766,8 +769,14 @@ function getIdentityName(
             ? `@${instagramUser.username.replace(/^@+/, "")}`
             : null) ||
         client?.name?.trim() ||
-        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+        (instagramUser ? getSocialUserLabel(channel) : "Cliente sem nome")
     );
+}
+
+function getSocialUserLabel(channel: InboxChannel) {
+    return channel === "Facebook"
+        ? "Usuário do Facebook"
+        : "Usuário do Instagram";
 }
 
 function mapClientNotes(value: unknown): InboxNote[] {

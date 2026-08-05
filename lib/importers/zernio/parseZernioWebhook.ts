@@ -1,7 +1,10 @@
 // lib/importers/zernio/parseZernioWebhook.ts
 import type { SenderType } from "@/types/message";
 
-import { zernioExternalMessageId } from "@/lib/zernio/client";
+import {
+    zernioExternalMessageId,
+    type ZernioInboxPlatform,
+} from "@/lib/zernio/client";
 
 export type ParsedZernioAttachment = {
     type: "image" | "video" | "audio" | "file";
@@ -10,6 +13,8 @@ export type ParsedZernioAttachment = {
 };
 
 export type ParsedZernioMessage = {
+    platform: ZernioInboxPlatform;
+    channel: "Instagram" | "Facebook";
     event_id: string | null;
     sender_type: SenderType;
     sender_name: string | null;
@@ -40,12 +45,19 @@ export function parseZernioMessageWebhook(
     const conversation = asRecord(root?.conversation);
     const account = asRecord(root?.account);
     const sender = asRecord(message?.sender);
-    const platform =
+    const platform = normalizePlatform(
         stringValue(message?.platform) ??
-        stringValue(conversation?.platform) ??
-        stringValue(account?.platform);
+            stringValue(conversation?.platform) ??
+            stringValue(account?.platform),
+    );
 
-    if (platform?.toLowerCase() !== "instagram") return null;
+    if (!platform) return null;
+
+    const channel = platform === "facebook" ? "Facebook" : "Instagram";
+    const socialProfile =
+        asRecord(conversation?.instagramProfile) ??
+        asRecord(conversation?.facebookProfile) ??
+        asRecord(conversation?.profile);
 
     const direction =
         stringValue(message?.direction)?.toLowerCase() ??
@@ -75,7 +87,7 @@ export function parseZernioMessageWebhook(
 
     const participantUsername =
         stringValue(conversation?.participantUsername) ??
-        stringValue(asRecord(conversation?.instagramProfile)?.username) ??
+        stringValue(socialProfile?.username) ??
         (direction === "incoming" ? stringValue(sender?.username) : null);
     const participantName =
         stringValue(conversation?.participantName) ??
@@ -87,21 +99,25 @@ export function parseZernioMessageWebhook(
     const accountName =
         stringValue(account?.displayName) ??
         stringValue(account?.username) ??
-        "Instagram";
+        channel;
     const attachment = firstAttachment(message?.attachments);
     const rawText =
         stringValue(message?.text) ?? stringValue(message?.message) ?? "";
 
     return {
+        platform,
+        channel,
         event_id: stringValue(root?.id),
         sender_type: direction === "incoming" ? "client" : "attendant",
         sender_name:
             direction === "incoming" ? participantName : stripAt(accountName),
         sender_id: stringValue(sender?.id),
-        text: rawText || attachmentLabel(attachment),
+        text: rawText || attachmentLabel(attachment, channel),
         attachment,
         sent_at: normalizeDate(message?.sentAt ?? root?.timestamp),
-        external_id: zernioExternalMessageId(messageId),
+        external_id: zernioExternalMessageId(
+            platform === "facebook" ? `facebook:${messageId}` : messageId,
+        ),
         external_thread_id: conversationId,
         external_account_id: accountId,
         participant_id: participantId,
@@ -112,9 +128,7 @@ export function parseZernioMessageWebhook(
         participant_picture_url:
             stringValue(conversation?.participantPicture) ??
             stringValue(conversation?.participantPictureUrl) ??
-            stringValue(
-                asRecord(conversation?.instagramProfile)?.profilePictureUrl,
-            ) ??
+            stringValue(socialProfile?.profilePictureUrl) ??
             (direction === "incoming"
                 ? stringValue(sender?.profilePictureUrl) ??
                   stringValue(sender?.picture)
@@ -169,13 +183,31 @@ function normalizeAttachmentType(
     return "file";
 }
 
-function attachmentLabel(attachment: ParsedZernioAttachment | null) {
-    if (!attachment) return "[Mensagem do Instagram]";
+function attachmentLabel(
+    attachment: ParsedZernioAttachment | null,
+    channel: "Instagram" | "Facebook",
+) {
+    if (!attachment) return `[Mensagem do ${channel}]`;
 
     if (attachment.type === "image") return "[Imagem enviada]";
     if (attachment.type === "video") return "[Vídeo enviado]";
     if (attachment.type === "audio") return "[Áudio enviado]";
     return "[Arquivo enviado]";
+}
+
+function normalizePlatform(value: string | null): ZernioInboxPlatform | null {
+    const normalized = value?.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+    if (normalized === "instagram") return "instagram";
+    if (
+        normalized === "facebook" ||
+        normalized === "messenger" ||
+        normalized === "facebook_messenger"
+    ) {
+        return "facebook";
+    }
+
+    return null;
 }
 
 function normalizeDate(value: unknown) {

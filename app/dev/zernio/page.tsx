@@ -19,7 +19,7 @@ import {
     RefreshCw,
     Webhook,
 } from "lucide-react";
-import { FaInstagram } from "react-icons/fa6";
+import { FaFacebookF, FaInstagram } from "react-icons/fa6";
 
 type ZernioProfile = {
     _id: string;
@@ -29,6 +29,7 @@ type ZernioProfile = {
 
 type ZernioAccount = {
     _id: string;
+    platform: string;
     username: string | null;
     displayName: string | null;
     isActive: boolean;
@@ -73,14 +74,23 @@ function DevZernioPageContent() {
     const [profileId, setProfileId] = useState("");
     const [loading, setLoading] = useState(true);
     const [action, setAction] = useState<
-        "connect" | "webhook" | "refresh" | null
+        | "connect_instagram"
+        | "connect_facebook"
+        | "webhook"
+        | "refresh"
+        | null
     >(null);
     const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState<string | null>(
-        searchParams.get("connected") === "instagram"
-            ? "Instagram conectado ao Zernio."
-            : null,
-    );
+    const [success, setSuccess] = useState<string | null>(() => {
+        const connected = searchParams.get("connected");
+        if (connected === "instagram") {
+            return "Instagram conectado ao Zernio.";
+        }
+        if (connected === "facebook") {
+            return "Facebook Messenger conectado ao Zernio.";
+        }
+        return null;
+    });
 
     const loadStatus = useCallback(async () => {
         const response = await fetch("/api/dev/zernio", {
@@ -134,7 +144,11 @@ function DevZernioPageContent() {
     );
 
     async function runAction(
-        nextAction: "connect" | "webhook" | "refresh",
+        nextAction:
+            | "connect_instagram"
+            | "connect_facebook"
+            | "webhook"
+            | "refresh",
     ) {
         if (action) return;
 
@@ -154,9 +168,14 @@ function DevZernioPageContent() {
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(
-                    nextAction === "connect"
+                    nextAction === "connect_instagram" ||
+                        nextAction === "connect_facebook"
                         ? {
-                              action: "connect_instagram",
+                              action: "connect_account",
+                              platform:
+                                  nextAction === "connect_facebook"
+                                      ? "facebook"
+                                      : "instagram",
                               profile_id: profileId,
                           }
                         : { action: "ensure_webhook" },
@@ -174,7 +193,10 @@ function DevZernioPageContent() {
                 );
             }
 
-            if (nextAction === "connect") {
+            if (
+                nextAction === "connect_instagram" ||
+                nextAction === "connect_facebook"
+            ) {
                 if (!payload.auth_url) {
                     throw new Error(
                         "O Zernio não retornou a URL de conexão.",
@@ -186,7 +208,7 @@ function DevZernioPageContent() {
             }
 
             await loadStatus();
-            setSuccess("Webhook do Instagram configurado.");
+            setSuccess("Webhook social configurado.");
         } catch (actionError) {
             setError(
                 actionError instanceof Error
@@ -205,14 +227,15 @@ function DevZernioPageContent() {
                     <div>
                         <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-pink">
                             <FaInstagram size={15} />
+                            <FaFacebookF size={15} />
                             Ferramenta de desenvolvedor
                         </div>
                         <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-                            Instagram Direct via Zernio
+                            Instagram e Facebook Messenger via Zernio
                         </h1>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                            Conecte a conta do Instagram e registre o webhook
-                            que entrega as mensagens no Inbox.
+                            Conecte as contas sociais e registre o webhook que
+                            entrega as mensagens no Inbox.
                         </p>
                     </div>
 
@@ -262,7 +285,7 @@ function DevZernioPageContent() {
                                     </h2>
                                     <p className="mt-1 text-sm leading-6 text-slate-500">
                                         O OAuth acontece no Zernio. Nenhuma
-                                        senha do Instagram passa pelo Hub.
+                                        senha das redes sociais passa pelo Hub.
                                     </p>
                                 </div>
                                 <StatusDot
@@ -301,27 +324,57 @@ function DevZernioPageContent() {
                                         )}
                                     </select>
 
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            void runAction("connect")
-                                        }
-                                        disabled={
-                                            !profileId ||
-                                            Boolean(action)
-                                        }
-                                        className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-pink px-4 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
-                                    >
-                                        {action === "connect" ? (
-                                            <LoaderCircle
-                                                size={17}
-                                                className="animate-spin"
-                                            />
-                                        ) : (
-                                            <FaInstagram size={17} />
-                                        )}
-                                        Conectar Instagram
-                                    </button>
+                                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                void runAction(
+                                                    "connect_instagram",
+                                                )
+                                            }
+                                            disabled={
+                                                !profileId || Boolean(action)
+                                            }
+                                            className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-pink px-4 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                                        >
+                                            {action ===
+                                            "connect_instagram" ? (
+                                                <LoaderCircle
+                                                    size={17}
+                                                    className="animate-spin"
+                                                />
+                                            ) : (
+                                                <FaInstagram size={17} />
+                                            )}
+                                            Conectar Instagram
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                void runAction(
+                                                    "connect_facebook",
+                                                )
+                                            }
+                                            disabled={
+                                                !profileId || Boolean(action)
+                                            }
+                                            className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                                        >
+                                            {action ===
+                                            "connect_facebook" ? (
+                                                <LoaderCircle
+                                                    size={17}
+                                                    className="animate-spin"
+                                                />
+                                            ) : (
+                                                <FaFacebookF
+                                                    size={17}
+                                                />
+                                            )}
+                                            Conectar Messenger
+                                        </button>
+                                    </div>
                                 </>
                             )}
                         </section>
@@ -388,8 +441,8 @@ function DevZernioPageContent() {
                                         Contas conectadas
                                     </h2>
                                     <p className="mt-1 text-sm text-slate-500">
-                                        Contas do Instagram disponíveis para
-                                        receber e responder Direct.
+                                        Contas do Instagram e Facebook
+                                        disponíveis para receber e responder.
                                     </p>
                                 </div>
                                 <button
@@ -414,18 +467,35 @@ function DevZernioPageContent() {
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     {connectedAccounts.map((account) => (
                                         <div
-                                            key={account._id}
+                                            key={`${account.platform}:${account._id}`}
                                             className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3"
                                         >
                                             <div className="flex min-w-0 items-center gap-3">
-                                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-soft text-pink">
-                                                    <FaInstagram size={18} />
+                                                <span
+                                                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                                                        account.platform ===
+                                                        "facebook"
+                                                            ? "bg-blue-50 text-blue-600"
+                                                            : "bg-pink-soft text-pink"
+                                                    }`}
+                                                >
+                                                    {account.platform ===
+                                                    "facebook" ? (
+                                                        <FaFacebookF
+                                                            size={18}
+                                                        />
+                                                    ) : (
+                                                        <FaInstagram size={18} />
+                                                    )}
                                                 </span>
                                                 <div className="min-w-0">
                                                     <div className="truncate font-bold text-slate-800">
                                                         {account.displayName ??
                                                             account.username ??
-                                                            "Instagram"}
+                                                        (account.platform ===
+                                                        "facebook"
+                                                            ? "Facebook Messenger"
+                                                            : "Instagram")}
                                                     </div>
                                                     <div className="truncate text-xs text-slate-500">
                                                         {formatUsername(
@@ -443,7 +513,7 @@ function DevZernioPageContent() {
                                 </div>
                             ) : (
                                 <div className="rounded-xl border border-dashed border-slate-300 px-5 py-8 text-center text-sm text-slate-500">
-                                    Nenhuma conta ativa do Instagram encontrada.
+                                    Nenhuma conta social ativa encontrada.
                                 </div>
                             )}
 

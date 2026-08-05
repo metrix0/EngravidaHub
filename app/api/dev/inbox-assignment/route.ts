@@ -362,8 +362,13 @@ function mapThread(row: any, currentAttendantId: string) {
     const client = firstRelation(row.clients);
     const instagramUser = firstRelation(row.instagram_user);
     const assigned = firstRelation(row.attendants);
-    const isInstagram =
-        row.channel === "Instagram" || Boolean(row.instagram_user_id);
+    const channel =
+        row.channel === "Facebook"
+            ? "Facebook"
+            : row.channel === "Instagram" || Boolean(row.instagram_user_id)
+              ? "Instagram"
+              : "WhatsApp";
+    const isSocial = channel === "Instagram" || channel === "Facebook";
     const assignmentStatus = !row.assigned_attendant_id
         ? "unassigned"
         : row.assigned_attendant_id === currentAttendantId
@@ -377,11 +382,13 @@ function mapThread(row: any, currentAttendantId: string) {
         id: row.id,
         client_id: row.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
-        channel: isInstagram ? "Instagram" : "WhatsApp",
-        name: isInstagram
+        channel,
+        name: isSocial
             ? instagramDisplayName ||
               (instagramUsername ? `@${instagramUsername}` : null) ||
-              "Usuário do Instagram"
+              (channel === "Facebook"
+                  ? "Usuário do Facebook"
+                  : "Usuário do Instagram")
             : client?.name ?? "Cliente sem nome",
         username: instagramUsername,
         profile_picture_url: instagramUser?.profile_picture_url ?? null,

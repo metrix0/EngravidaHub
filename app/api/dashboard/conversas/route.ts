@@ -84,7 +84,7 @@ type InternalConversationRow = {
     started_at: string;
     ended_at: string | null;
     client_name: string;
-    channel: "WhatsApp" | "Instagram";
+    channel: "WhatsApp" | "Instagram" | "Facebook";
     objective: string;
     result: ConversationResult;
     notable: boolean;
@@ -165,6 +165,10 @@ export async function GET(request: Request) {
                     analysis?.resolution_result,
                 );
                 const isNotable = Boolean(analysis?.notable);
+                const channel = normalizeConversationChannel(
+                    conversation.channel,
+                    conversation.source,
+                );
 
                 return {
                     id: conversation.id,
@@ -174,11 +178,8 @@ export async function GET(request: Request) {
                     phone: client?.phone ?? "-",
                     started_at: conversation.started_at,
                     ended_at: conversation.ended_at,
-                    client_name: getIdentityName(client, instagramUser),
-                    channel: normalizeConversationChannel(
-                        conversation.channel,
-                        conversation.source,
-                    ),
+                    client_name: getIdentityName(client, instagramUser, channel),
+                    channel,
                     objective: getConversationGoalLabel(
                         analysis?.conversation_goal,
                     ),
@@ -209,6 +210,10 @@ export async function GET(request: Request) {
                     thread.queued_at ?? thread.created_at;
                 const activityAt =
                     thread.last_message_at ?? thread.updated_at;
+                const channel = normalizeConversationChannel(
+                    thread.channel,
+                    thread.source,
+                );
 
                 return {
                     id: thread.id,
@@ -217,11 +222,8 @@ export async function GET(request: Request) {
                     phone: client?.phone ?? "-",
                     started_at: startedAt,
                     ended_at: null,
-                    client_name: getIdentityName(client, instagramUser),
-                    channel: normalizeConversationChannel(
-                        thread.channel,
-                        thread.source,
-                    ),
+                    client_name: getIdentityName(client, instagramUser, channel),
+                    channel,
                     objective: "—",
                     result: "pendente" as const,
                     notable: false,
@@ -485,7 +487,8 @@ function getConversationResult(
 function normalizeConversationChannel(
     channel: string | null | undefined,
     source: string | null | undefined,
-): "WhatsApp" | "Instagram" {
+): "WhatsApp" | "Instagram" | "Facebook" {
+    if (channel === "Facebook") return "Facebook";
     if (channel === "Instagram" || source === "zernio") {
         return "Instagram";
     }
@@ -496,6 +499,7 @@ function normalizeConversationChannel(
 function getIdentityName(
     client: ClientRow | null | undefined,
     instagramUser: InstagramUserRow | null | undefined,
+    channel: "WhatsApp" | "Instagram" | "Facebook",
 ) {
     return (
         instagramUser?.display_name?.trim() ||
@@ -503,7 +507,11 @@ function getIdentityName(
             ? `@${instagramUser.username.replace(/^@+/, "")}`
             : null) ||
         client?.name?.trim() ||
-        (instagramUser ? "Usuário do Instagram" : "Cliente sem nome")
+        (instagramUser
+            ? channel === "Facebook"
+                ? "Usuário do Facebook"
+                : "Usuário do Instagram"
+            : "Cliente sem nome")
     );
 }
 
