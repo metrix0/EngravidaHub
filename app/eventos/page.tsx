@@ -270,7 +270,7 @@ export default function EventsPage() {
 
     if (loadingFilters || loadingData) {
         return (
-            <main className="scrollbar-hide h-full w-full overflow-y-auto bg-white text-slate-900">
+            <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 px-8 py-8">
                     <EventsSkeleton />
                 </section>
@@ -279,7 +279,7 @@ export default function EventsPage() {
     }
 
     return (
-        <main className="scrollbar-hide h-full w-full overflow-y-auto bg-white text-slate-900">
+        <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
             <section className="min-w-0 px-8 py-8">
                 <DashboardHeader
                     title="Eventos"
@@ -350,7 +350,7 @@ export default function EventsPage() {
                 {isRefreshing ? (
                     <EventsBodySkeleton />
                 ) : data ? (
-                    <div className="overflow-x-hidden pb-12">
+                    <div className="min-w-0 overflow-x-clip pb-12">
                         <KpiSection data={data} />
                         <section className="mb-6 grid grid-cols-[1.8fr_0.8fr_0.8fr] gap-5">
                             <EventsByDayCard data={data} />
@@ -384,7 +384,7 @@ function KpiSection({ data }: { data: EventsDashboardData }) {
                 <KpiContainer>
                     <KpiCard
                         icon={<Send size={26} />}
-                        label="Eventos enviados com sucesso"
+                        label="Eventos enviados"
                         currentValue={data.kpis.sent_events}
                         previousValue={data.previous_kpis.sent_events}
                         formatter={(value) => value.toLocaleString("pt-BR")}
