@@ -12,7 +12,8 @@ export async function GET() {
         const [
             { data: clientsRaw, error: clientsError },
             { data: latestAttendants, error: attendantsError },
-            { data: stages, error: stagesError },
+            { data: stagesRaw, error: stagesError },
+            { data: funnels, error: funnelsError },
         ] = await Promise.all([
             supabase
                 .from("clients")
@@ -23,6 +24,8 @@ export async function GET() {
                     phone,
                     email,
                     funnel_stage_id,
+                    unit_id,
+                    last_closing_tag,
                     first_seen_at,
                     last_interaction_at,
                     last_origin,
@@ -45,6 +48,10 @@ export async function GET() {
                 `,
                 )
                 .order("position", { ascending: true }),
+            supabase
+                .from("funnels")
+                .select("id, name")
+                .order("name", { ascending: true }),
         ]);
 
         if (clientsError) {
@@ -84,20 +91,31 @@ export async function GET() {
             attendant_name: attendantByClientId.get(client.id) ?? null,
         }));
 
-        if (stagesError) {
+        if (stagesError || funnelsError) {
             return NextResponse.json(
                 {
                     ok: false,
                     error: "Failed to load funnel stages",
-                    details: stagesError,
+                    details: stagesError ?? funnelsError,
                 },
                 { status: 500 },
             );
         }
 
+        const funnelNameById = new Map(
+            (funnels ?? []).map((funnel) => [
+                funnel.id,
+                funnel.name ?? null,
+            ]),
+        );
+        const stages = (stagesRaw ?? []).map((stage) => ({
+            ...stage,
+            funnel_name: funnelNameById.get(stage.funnel_id) ?? null,
+        }));
+
         return NextResponse.json({
             clients,
-            stages: stages ?? [],
+            stages,
         });
     } catch (error) {
         return NextResponse.json(

@@ -14,7 +14,6 @@ import {
     AdvancedFilterButton,
     Badge,
     DashboardHeader,
-    FilterButton,
     HorizontalScroller,
     KpiCard,
     MainFilters,
@@ -58,6 +57,8 @@ type Client = {
     phone: string | null;
     email: string | null;
     funnel_stage_id: string | null;
+    unit_id: string | null;
+    last_closing_tag: string | null;
     first_seen_at: string;
     last_interaction_at: string;
     utm_source: string | null;
@@ -233,6 +234,8 @@ export default function ClientesPage() {
     const [currentPage, setCurrentPage] = useState(1);
 
     const [stageValues, setStageValues] = useState<string[]>([]);
+    const [unitValues, setUnitValues] = useState<string[]>([]);
+    const [closingTagValues, setClosingTagValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
@@ -255,7 +258,7 @@ export default function ClientesPage() {
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=attendants,origins,tunnels",
+                    "/api/dashboard/filters?entities=units,attendants,origins,tunnels",
                     { signal: controller.signal },
                 );
                 if (!response.ok) {
@@ -322,6 +325,80 @@ export default function ClientesPage() {
         return getInteractionDateRange(period, selectedRange);
     }, [period, selectedRange]);
 
+    const closingTagOptions = useMemo(() => {
+        const values = new Set<string>();
+
+        for (const client of clients) {
+            const closingTag = client.last_closing_tag?.trim();
+            if (closingTag) values.add(closingTag);
+        }
+
+        return [...values]
+            .sort((first, second) =>
+                first.localeCompare(second, "pt-BR"),
+            )
+            .map((value) => ({ label: value, value }));
+    }, [clients]);
+
+    const stageFilterSections = useMemo(() => {
+        const groups = new Map<
+            string,
+            {
+                funnelId: string;
+                funnelName: string;
+                stages: FunnelStage[];
+            }
+        >();
+
+        for (const stage of stages) {
+            const funnelId = stage.funnel_id || "without-funnel";
+            const current = groups.get(funnelId) ?? {
+                funnelId,
+                funnelName: getFunnelName(stage),
+                stages: [],
+            };
+
+            current.stages.push(stage);
+            groups.set(funnelId, current);
+        }
+
+        return [...groups.values()]
+            .sort((first, second) =>
+                first.funnelName.localeCompare(second.funnelName, "pt-BR"),
+            )
+            .map((group) => {
+                const stageIds = new Set(
+                    group.stages.map((stage) => stage.id),
+                );
+
+                return {
+                    id: `funnel-${group.funnelId}`,
+                    title: `${group.funnelName} — Estágios`,
+                    values: stageValues.filter((stageId) =>
+                        stageIds.has(stageId),
+                    ),
+                    onChange: (nextValues: string[]) => {
+                        setCurrentPage(1);
+                        setStageValues((currentValues) => [
+                            ...currentValues.filter(
+                                (stageId) => !stageIds.has(stageId),
+                            ),
+                            ...nextValues,
+                        ]);
+                    },
+                    options: [...group.stages]
+                        .sort(
+                            (first, second) =>
+                                first.position - second.position,
+                        )
+                        .map((stage) => ({
+                            label: stage.name,
+                            value: stage.id,
+                        })),
+                };
+            });
+    }, [stages, stageValues]);
+
     const filteredClients = useMemo(() => {
         const term = search.trim().toLowerCase();
 
@@ -330,6 +407,22 @@ export default function ClientesPage() {
                 stageValues.length > 0 &&
                 (!client.funnel_stage_id ||
                     !stageValues.includes(client.funnel_stage_id))
+            ) {
+                return false;
+            }
+
+            if (
+                unitValues.length > 0 &&
+                (!client.unit_id || !unitValues.includes(client.unit_id))
+            ) {
+                return false;
+            }
+
+            if (
+                closingTagValues.length > 0 &&
+                !closingTagValues.includes(
+                    client.last_closing_tag?.trim() || "",
+                )
             ) {
                 return false;
             }
@@ -368,11 +461,13 @@ export default function ClientesPage() {
         });
     }, [
         clients,
+        closingTagValues,
+        interactionDateRange,
         search,
         sourceValues,
         stageValues,
         tunnelValues,
-        interactionDateRange,
+        unitValues,
     ]);
 
     const totalClients = filteredClients.length;
@@ -454,7 +549,7 @@ export default function ClientesPage() {
                     </div>
 
                     <div className="mb-8 flex justify-end gap-3">
-                        {Array.from({length: 3}).map((_, index) => (
+                        {Array.from({length: 5}).map((_, index) => (
                             <Skeleton key={index} className="h-12 w-[230px] rounded-xl" />
                         ))}
                     </div>
@@ -522,36 +617,42 @@ export default function ClientesPage() {
 
                 <div className="mb-8 flex justify-end gap-3">
                     <MainFilters
+                        units={filters?.units}
                         attendants={filters?.attendants}
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
+                        unitValues={unitValues}
+                        setUnitValues={resetPageAndSet(setUnitValues)}
                         originValues={sourceValues}
                         setOriginValues={resetPageAndSet(setSourceValues)}
                         tunnelValues={tunnelValues}
                         setTunnelValues={resetPageAndSet(setTunnelValues)}
                         show={{
-                            units: false,
+                            units: true,
                             attendants: true,
                             tunnels: true,
                             origins: true,
                         }}
                         widths={{
+                            units: "w-[230px]",
                             attendants: "w-[230px]",
                             tunnels: "w-[230px]",
                             origins: "w-[230px]",
                         }}
                     />
 
-                    <FilterButton
-                        icon={<Filter size={16} />}
-                        label="Todos os estágios"
-                        values={stageValues}
-                        onChange={resetPageAndSet(setStageValues)}
-                        options={stages.map((stage) => ({
-                            label: stage.name,
-                            value: stage.id,
-                        }))}
-                        widthClassName="w-[230px]"
+                    <AdvancedFilterButton
+                        dropdownWidthClassName="w-[360px]"
+                        sections={[
+                            ...stageFilterSections,
+                            {
+                                id: "closing-tag",
+                                title: "Tag de fechamento",
+                                values: closingTagValues,
+                                onChange: resetPageAndSet(setClosingTagValues),
+                                options: closingTagOptions,
+                            },
+                        ]}
                     />
                 </div>
 
@@ -606,36 +707,7 @@ export default function ClientesPage() {
                         searchValue={search}
                         onSearchChange={resetPageAndSet(setSearch)}
                         searchPlaceholder="Buscar por cliente ou telefone..."
-                    >
-                        <AdvancedFilterButton
-                            sections={[
-                                {
-                                    id: "stage",
-                                    title: "Estágio",
-                                    values: stageValues,
-                                    onChange: resetPageAndSet(setStageValues),
-                                    options: stages.map((stage) => ({
-                                        label: stage.name,
-                                        value: stage.id,
-                                    })),
-                                },
-                                {
-                                    id: "source",
-                                    title: "Origem",
-                                    values: sourceValues,
-                                    onChange: resetPageAndSet(setSourceValues),
-                                    options: filters?.origins ?? [],
-                                },
-                                {
-                                    id: "tunnel",
-                                    title: "Túnel",
-                                    values: tunnelValues,
-                                    onChange: resetPageAndSet(setTunnelValues),
-                                    options: filters?.tunnels ?? [],
-                                },
-                            ]}
-                        />
-                    </TableHeaderPreset>
+                    />
 
                     <DataTable
                         columns={CLIENT_COLUMNS}
