@@ -11,6 +11,7 @@ import {
     Filter,
     MapPin,
     Phone,
+    PhoneCall,
     Send,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ import {
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import ClientInformationCard from "@/components/clientes/ClientInformationCard";
+import { getClientCallClosureLabel } from "@/lib/clients/callTracking";
 import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 
 type FunnelStage = {
@@ -39,10 +41,26 @@ type FunnelStage = {
     } | null;
 };
 
-type ClientDetail = {
-    id: string;
+export type ClientProfileSummaryData = {
     name: string | null;
     phone: string | null;
+    first_seen_at: string;
+    last_interaction_at: string;
+    utm_source: string | null;
+    utm_campaign: string | null;
+    unit: {
+        name: string;
+    } | null;
+    stage: {
+        name: string;
+    } | null;
+    funnel: {
+        name: string | null;
+    } | null;
+};
+
+type ClientDetail = Omit<ClientProfileSummaryData, "unit" | "stage" | "funnel"> & {
+    id: string;
     email: string | null;
     cpf: string | null;
     birth_date: string | null;
@@ -53,15 +71,11 @@ type ClientDetail = {
     neighborhood: string | null;
     city: string | null;
     cep: string | null;
-    first_seen_at: string;
-    last_interaction_at: string;
     last_active_message_sent_at: string | null;
     created_at: string;
     updated_at: string;
     external_contact_id: string | null;
-    utm_source: string | null;
     utm_medium: string | null;
-    utm_campaign: string | null;
     utm_content: string | null;
     utm_term: string | null;
     state: string | null;
@@ -111,6 +125,12 @@ type ClientConversationSummary = {
     satisfaction_score: number | null;
     dropoff_happened: boolean;
     dropoff_moment: string | null;
+};
+
+type ClientCall = {
+    id: string;
+    called_at: string;
+    closure_tag: string;
 };
 
 type ClientDetailResponse = {
@@ -195,7 +215,7 @@ export default function ClientPanel({
                 loading || !data ? (
                     <ClientPanelHeaderSkeleton />
                 ) : (
-                    <ClientPanelHeader client={data.client} />
+                    <ClientProfileSummary client={data.client} />
                 )
             }
             bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5"
@@ -225,6 +245,7 @@ export default function ClientPanel({
                     />
                     <LiveConversationButton thread={data.live_thread} />
                     <ConversationHistorySection conversations={data.conversations} />
+                    <ClientCallHistorySection clientId={data.client.id} />
                     <ActiveMessageButton client={data.client} />
                 </div>
             )}
@@ -232,7 +253,7 @@ export default function ClientPanel({
     );
 }
 
-function ClientPanelHeader({ client }: { client: ClientDetail }) {
+export function ClientProfileSummary({ client }: { client: ClientProfileSummaryData }) {
     const clientName = client.name ?? "Cliente sem nome";
     const source = getBadgeLabel(client.utm_source);
 
@@ -497,6 +518,88 @@ function ConversationHistorySection({
     );
 }
 
+function ClientCallHistorySection({ clientId }: { clientId: string }) {
+    const [calls, setCalls] = useState<ClientCall[] | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setCalls(null);
+
+        void (async () => {
+            try {
+                const response = await fetch(`/api/clientes/${clientId}/calls`, {
+                    cache: "no-store",
+                });
+                const json = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        json?.error ?? "Não foi possível carregar as ligações.",
+                    );
+                }
+
+                if (!cancelled) setCalls((json.calls ?? []) as ClientCall[]);
+            } catch (error) {
+                console.error("[ClientPanel] failed to load call history", error);
+                if (!cancelled) setCalls([]);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [clientId]);
+
+    return (
+        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <PhoneCall size={17} className="text-green" />
+                        <h3 className="text-lg font-bold text-text">
+                            Histórico de ligações
+                        </h3>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                        Resultados registrados das últimas ligações
+                    </p>
+                </div>
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-muted">
+                    {calls?.length ?? "—"}
+                </span>
+            </div>
+
+            {calls === null ? (
+                <div className="space-y-2">
+                    <Skeleton className="h-11 rounded-lg" />
+                    <Skeleton className="h-11 rounded-lg" />
+                </div>
+            ) : calls.length === 0 ? (
+                <EmptyPanelMessage message="Nenhuma ligação registrada." />
+            ) : (
+                <div className="overflow-hidden rounded-xl border border-slate-100">
+                    {calls.map((call) => (
+                        <div
+                            key={call.id}
+                            className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-3 first:border-t-0"
+                        >
+                            <div className="min-w-0 text-sm font-semibold text-slate-700">
+                                {formatDateTime(call.called_at)}
+                            </div>
+                            <span
+                                title={getClientCallClosureLabel(call.closure_tag)}
+                                className="max-w-[55%] truncate rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600"
+                            >
+                                {getClientCallClosureLabel(call.closure_tag)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
+    );
+}
+
 function LiveHalo({ active, small = false }: { active: boolean; small?: boolean }) {
     const sizeClass = small ? "h-3 w-3" : "h-4 w-4";
     const dotClass = small ? "h-2 w-2" : "h-2.5 w-2.5";
@@ -605,6 +708,7 @@ function ClientPanelSkeleton() {
                 </div>
             </section>
 
+            <Skeleton className="h-[120px] rounded-xl" />
             <Skeleton className="h-[76px] rounded-xl" />
         </div>
     );
@@ -649,6 +753,10 @@ function formatDate(date: string) {
 
 function formatTime(date: string) {
     return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(date));
+}
+
+function formatDateTime(date: string) {
+    return `${formatDate(date)} ${formatTime(date)}`;
 }
 
 function formatConversationDateRange(startValue: string, endValue: string | null) {

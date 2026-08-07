@@ -7,6 +7,7 @@ import {
     CalendarCheck,
     CircleAlert,
     ExternalLink,
+    PhoneCall,
     Trash2,
     TrendingUp,
     UserCheck,
@@ -44,11 +45,18 @@ import {
     replaceUrlFilterParams,
     resolveUrlOptionValues,
 } from "@/lib/dashboard/urlFilterParams";
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import ClientCallModal from "@/components/clientes/ClientCallModal";
 import ClientPanel from "@/components/clientes/ClientPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import { Modal } from "@/components/ui/Modal";
+import {
+    getClientCallClosureLabel,
+    getClientCallClosureTone,
+    type ClientCallClosureTone,
+} from "@/lib/clients/callTracking";
 import type { FiltersResponse } from "@/types";
 import type {
     AppointmentStatus,
@@ -117,6 +125,8 @@ type Client = {
     funnel_stage_id: string | null;
     unit_id: string | null;
     last_interaction_at: string;
+    last_called_at: string | null;
+    last_call_closure_tag: string | null;
     utm_source: string | null;
     utm_medium: string | null;
     utm_campaign: string | null;
@@ -141,6 +151,8 @@ type FunnelResponse = {
     kpis: FunnelKpis;
     previous_kpis: FunnelKpis;
 };
+
+type FunnelCallState = "none" | "pending" | ClientCallClosureTone;
 
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
@@ -179,6 +191,7 @@ const EMPTY_FUNNEL_KPIS: FunnelKpis = {
 };
 
 export default function FunnelPage() {
+    const { currentUser, isLoadingCurrentUser } = useCurrentUser();
     const [funnels, setFunnels] = useState<Funnel[]>([]);
     const [stages, setStages] = useState<FunnelStage[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -201,6 +214,7 @@ export default function FunnelPage() {
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+    const [callClientId, setCallClientId] = useState<string | null>(null);
     const [selectedAppointment, setSelectedAppointment] =
         useState<CalendarAppointment | null>(null);
     const [schedulingClientId, setSchedulingClientId] =
@@ -227,6 +241,10 @@ export default function FunnelPage() {
     const initialUnitUrlValuesRef = useRef<string[]>([]);
 
     const selectedFunnelId = DEFAULT_FUNNEL_ID;
+    const blurClientPhones =
+        isLoadingCurrentUser ||
+        !currentUser ||
+        currentUser.permission?.preset === "atendente";
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -577,6 +595,8 @@ export default function FunnelPage() {
                 ...client,
                 funnel_stage_id: firstStageInSelectedFunnel.id,
                 updated_at: new Date().toISOString(),
+                last_called_at: null,
+                last_call_closure_tag: null,
                 schedule_summary: null,
                 appointment: null,
             };
@@ -700,6 +720,30 @@ export default function FunnelPage() {
 
     function openClientProfile(clientId: string) {
         setSelectedClientId(clientId);
+    }
+
+    function openClientCall(clientId: string) {
+        setCallClientId(clientId);
+    }
+
+    function handleCallSaved(
+        clientId: string,
+        call: {
+            last_called_at: string;
+            last_call_closure_tag: string;
+        },
+    ) {
+        setClients((current) =>
+            current.map((client) =>
+                client.id === clientId
+                    ? {
+                          ...client,
+                          last_called_at: call.last_called_at,
+                          last_call_closure_tag: call.last_call_closure_tag,
+                      }
+                    : client,
+            ),
+        );
     }
 
     async function openClientSchedule(clientId: string) {
@@ -881,6 +925,8 @@ export default function FunnelPage() {
             ...client,
             funnel_stage_id: firstStageInSelectedFunnel.id,
             updated_at: new Date().toISOString(),
+            last_called_at: null,
+            last_call_closure_tag: null,
             schedule_summary: null,
             appointment: null,
         };
@@ -1162,10 +1208,12 @@ export default function FunnelPage() {
                                             stage={stage}
                                             clients={stageClients}
                                             fitWidth
+                                            blurPhone={blurClientPhones}
                                             onMoveClient={moveClient}
                                             onRemoveClient={removeClientFromFunnel}
                                             onOpenClientProfile={openClientProfile}
                                             onOpenClientSchedule={openClientSchedule}
+                                            onOpenClientCall={openClientCall}
                                         />
                                     );
                                 })}
@@ -1184,10 +1232,12 @@ export default function FunnelPage() {
                                             key={stage.id}
                                             stage={stage}
                                             clients={stageClients}
+                                            blurPhone={blurClientPhones}
                                             onMoveClient={moveClient}
                                             onRemoveClient={removeClientFromFunnel}
                                             onOpenClientProfile={openClientProfile}
                                             onOpenClientSchedule={openClientSchedule}
+                                            onOpenClientCall={openClientCall}
                                         />
                                     );
                                 })}
@@ -1226,6 +1276,13 @@ export default function FunnelPage() {
                 onClose={() => setSelectedClientId(null)}
             />
 
+            <ClientCallModal
+                clientId={callClientId}
+                open={Boolean(callClientId)}
+                onClose={() => setCallClientId(null)}
+                onCallSaved={handleCallSaved}
+            />
+
             <SchedulingPanel
                 open={Boolean(schedulingClientId)}
                 clientId={schedulingClientId}
@@ -1257,6 +1314,8 @@ function FunnelColumn({
                             onRemoveClient,
                             onOpenClientProfile,
                             onOpenClientSchedule,
+                            onOpenClientCall,
+                            blurPhone,
                             fitWidth = false,
                         }: {
     stage: FunnelStage;
@@ -1265,6 +1324,8 @@ function FunnelColumn({
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
     onOpenClientSchedule: (clientId: string) => void;
+    onOpenClientCall: (clientId: string) => void;
+    blurPhone: boolean;
     fitWidth?: boolean;
 }) {
     const COLLAPSED_CLIENTS = 5;
@@ -1307,9 +1368,11 @@ function FunnelColumn({
                     <FunnelClientCard
                         key={client.id}
                         client={client}
+                        blurPhone={blurPhone}
                         onRemoveClient={onRemoveClient}
                         onOpenClientProfile={onOpenClientProfile}
                         onOpenClientSchedule={onOpenClientSchedule}
+                        onOpenClientCall={onOpenClientCall}
                     />
                 ))}
             </div>
@@ -1353,28 +1416,45 @@ function FunnelColumn({
     );
 }
 
+const FUNNEL_CARD_ACTION_BUTTON_CLASS =
+    "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-slate-200 hover:text-slate-700";
+
 function FunnelClientCard({
                                 client,
                                 onRemoveClient,
                                 onOpenClientProfile,
                                 onOpenClientSchedule,
+                                onOpenClientCall,
+                                blurPhone,
                             }: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
     onOpenClientSchedule: (clientId: string) => void;
+    onOpenClientCall: (clientId: string) => void;
+    blurPhone: boolean;
 }) {
     const schedule = client.schedule_summary;
+    const callState = getFunnelCallState(client);
+    const followUpLabel =
+        callState !== "none" && callState !== "pending"
+            ? getClientCallClosureLabel(client.last_call_closure_tag)
+            : null;
 
     return (
         <Card
             className={[
                 "group relative overflow-hidden rounded-xl p-3",
-                schedule?.attention ? "ring-2 ring-red-200" : "",
+                getCallStateCardClass(callState),
             ].join(" ")}
         >
-            {schedule?.attention && (
-                <span className="absolute inset-y-0 left-0 w-1 bg-red" />
+            {callState !== "none" && (
+                <span
+                    className={[
+                        "absolute inset-y-0 left-0 w-1",
+                        getCallStateAccentClass(callState),
+                    ].join(" ")}
+                />
             )}
 
             <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
@@ -1385,7 +1465,7 @@ function FunnelClientCard({
                         event.stopPropagation();
                         onRemoveClient(client.id);
                     }}
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-red-50 text-slate-500 shadow-sm transition hover:bg-soft-red hover:text-red"
+                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
                 >
                     <Trash2 size={14} />
                 </button>
@@ -1401,7 +1481,7 @@ function FunnelClientCard({
                         event.stopPropagation();
                         onOpenClientSchedule(client.id);
                     }}
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-blue-50 text-slate-500 shadow-sm transition hover:bg-blue-100 hover:text-blue-700"
+                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
                 >
                     <CalendarDays size={14} />
                 </button>
@@ -1413,9 +1493,21 @@ function FunnelClientCard({
                         event.stopPropagation();
                         onOpenClientProfile(client.id);
                     }}
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-slate-100 hover:text-slate-700"
+                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
                 >
                     <ExternalLink size={14} />
+                </button>
+
+                <button
+                    type="button"
+                    title="Registrar ligação"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenClientCall(client.id);
+                    }}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition hover:opacity-90"
+                >
+                    <PhoneCall size={14} />
                 </button>
             </div>
 
@@ -1433,7 +1525,12 @@ function FunnelClientCard({
                         {client.name ?? "Cliente sem nome"}
                     </div>
 
-                    <div className="mt-1 truncate text-xs text-muted">
+                    <div
+                        className={[
+                            "mt-1 truncate text-xs text-muted",
+                            blurPhone ? "select-none blur-[4px]" : "",
+                        ].join(" ")}
+                    >
                         {client.phone ?? "Sem telefone"}
                     </div>
 
@@ -1447,9 +1544,24 @@ function FunnelClientCard({
                     </div>
 
                     {schedule?.attention_label && (
-                        <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
-                            <CircleAlert size={11} />
-                            {schedule.attention_label}
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                            <div className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
+                                <CircleAlert size={11} />
+                                {schedule.attention_label}
+                            </div>
+                            {followUpLabel ? (
+                                <div
+                                    className={[
+                                        "inline-flex max-w-full items-center rounded-md px-2 py-1 text-[10px] font-bold",
+                                        getCallStateBadgeClass(callState),
+                                    ].join(" ")}
+                                    title={followUpLabel}
+                                >
+                                    <span className="truncate">
+                                        {followUpLabel}
+                                    </span>
+                                </div>
+                            ) : null}
                         </div>
                     )}
 
@@ -1476,11 +1588,64 @@ function FunnelClientCard({
     );
 }
 
+function getFunnelCallState(client: Client): FunnelCallState {
+    const schedule = client.schedule_summary;
+    if (!schedule?.attention) return "none";
+
+    if (
+        !client.last_called_at ||
+        !callHappenedAfterScheduleDate(
+            client.last_called_at,
+            schedule.scheduled_for,
+        )
+    ) {
+        return "pending";
+    }
+
+    return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
+}
+
+function callHappenedAfterScheduleDate(
+    calledAt: string,
+    scheduledFor: string,
+) {
+    const calledAtTime = new Date(calledAt).getTime();
+    const scheduleDateEnd = new Date(
+        `${scheduledFor.slice(0, 10)}T23:59:59.999-03:00`,
+    ).getTime();
+
+    return (
+        Number.isFinite(calledAtTime) &&
+        Number.isFinite(scheduleDateEnd) &&
+        calledAtTime > scheduleDateEnd
+    );
+}
+
+function getCallStateCardClass(state: FunnelCallState) {
+    if (state === "pending") return "ring-2 ring-red-200";
+    if (state === "neutral") return "ring-2 ring-blue/20";
+    if (state === "positive") return "ring-2 ring-green/20";
+    if (state === "negative") return "ring-2 ring-red/20";
+    return "";
+}
+
+function getCallStateAccentClass(state: FunnelCallState) {
+    if (state === "neutral") return "bg-blue";
+    if (state === "positive") return "bg-green";
+    if (state === "negative") return "bg-red/50";
+    return "bg-red";
+}
+
+function getCallStateBadgeClass(state: FunnelCallState) {
+    if (state === "positive") return "bg-green/10 text-green";
+    if (state === "negative") return "bg-blue/10 text-blue";
+    return "bg-white/70 text-slate-600";
+}
+
 function sortFunnelClients(left: Client, right: Client) {
-    const attentionDifference =
-        Number(Boolean(right.schedule_summary?.attention)) -
-        Number(Boolean(left.schedule_summary?.attention));
-    if (attentionDifference !== 0) return attentionDifference;
+    const callStateDifference =
+        getFunnelCallSortPriority(left) - getFunnelCallSortPriority(right);
+    if (callStateDifference !== 0) return callStateDifference;
 
     const leftDistance = scheduleDistanceFromToday(
         left.schedule_summary?.scheduled_for,
@@ -1494,6 +1659,14 @@ function sortFunnelClients(left: Client, right: Client) {
         dateOnlyTime(right.schedule_summary?.scheduled_for) -
         dateOnlyTime(left.schedule_summary?.scheduled_for)
     );
+}
+
+function getFunnelCallSortPriority(client: Client) {
+    const state = getFunnelCallState(client);
+    if (state === "pending") return 0;
+    if (state === "neutral") return 1;
+    if (state === "none") return 2;
+    return 3;
 }
 
 function scheduleDistanceFromToday(value: string | null | undefined) {

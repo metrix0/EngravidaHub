@@ -31,6 +31,8 @@ type FunnelClient = {
     funnel_stage_id: string | null;
     unit_id: string | null;
     last_interaction_at: string;
+    last_called_at: string | null;
+    last_call_closure_tag: string | null;
     utm_source: string | null;
     utm_medium: string | null;
     utm_campaign: string | null;
@@ -253,6 +255,8 @@ async function loadFunnelClientPage({
             funnel_stage_id,
             unit_id,
             last_interaction_at,
+            last_called_at,
+            last_call_closure_tag,
             utm_source,
             utm_medium,
             utm_campaign,
