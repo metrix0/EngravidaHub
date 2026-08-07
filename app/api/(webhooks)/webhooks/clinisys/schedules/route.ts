@@ -217,7 +217,7 @@ function validateTimeRange(
 }
 
 function validateDateRange(
-    value: { validFrom: string; validUntil: string | null },
+    value: { validFrom: string; validUntil?: string | null },
     context: ValidationContext,
 ) {
     if (value.validUntil && value.validUntil < value.validFrom) {
