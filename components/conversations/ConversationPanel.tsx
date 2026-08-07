@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { AtSign, Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
-import { FaGoogle, FaMeta } from "react-icons/fa6";
+import { FaFacebookMessenger, FaGoogle, FaMeta } from "react-icons/fa6";
 
 import {
     getAdTagsForOutcomeEventType,
@@ -211,6 +211,9 @@ export function ConversationPanel({
     const result = data?.analysis
         ? getResult(data.analysis.resolution_result)
         : null;
+    const isSocialIdentity = data?.client.identity_type === "instagram";
+    const isMessengerIdentity =
+        isSocialIdentity && data?.conversation.channel === "Facebook";
 
     function handleClose() {
         setPanelOpen(false);
@@ -288,19 +291,23 @@ export function ConversationPanel({
                                         </div>
 
                                         <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                                            {data.client.identity_type ===
-                                            "instagram" ? (
-                                                <AtSign size={15} />
+                                            {isSocialIdentity ? (
+                                                isMessengerIdentity ? (
+                                                    <FaFacebookMessenger size={15} />
+                                                ) : (
+                                                    <AtSign size={15} />
+                                                )
                                             ) : (
                                                 <Phone size={15} />
                                             )}
                                             <span>
-                                                {data.client.identity_type ===
-                                                "instagram"
-                                                    ? data.client
-                                                          .instagram_username
-                                                        ? `@${data.client.instagram_username.replace(/^@+/, "")}`
-                                                        : "Instagram"
+                                                {isSocialIdentity
+                                                    ? isMessengerIdentity
+                                                        ? "Messenger"
+                                                        : data.client
+                                                              .instagram_username
+                                                            ? `@${data.client.instagram_username.replace(/^@+/, "")}`
+                                                            : "Instagram"
                                                     : data.client.phone ?? "-"}
                                             </span>
                                         </div>
@@ -618,6 +625,10 @@ function EventsTab({ analysis }: { analysis: any | null }) {
 }
 
 function DetailsTab({ data }: { data: PanelData }) {
+    const isSocialIdentity = data.client.identity_type === "instagram";
+    const isMessengerIdentity =
+        isSocialIdentity && data.conversation.channel === "Facebook";
+
     return (
         <div className="space-y-4">
             <SummaryCard title="Conversa">
@@ -625,22 +636,26 @@ function DetailsTab({ data }: { data: PanelData }) {
                     items={[
                         ["ID", data.conversation.id],
                         [
-                            data.client.identity_type === "instagram"
-                                ? "Usuário"
-                                : "Cliente",
+                            isSocialIdentity ? "Usuário" : "Cliente",
                             data.client.name ??
-                                (data.client.identity_type === "instagram"
-                                    ? "Usuário do Instagram"
+                                (isSocialIdentity
+                                    ? isMessengerIdentity
+                                        ? "Usuário do Messenger"
+                                        : "Usuário do Instagram"
                                     : "Cliente sem nome"),
                         ],
                         [
-                            data.client.identity_type === "instagram"
-                                ? "Instagram"
+                            isSocialIdentity
+                                ? isMessengerIdentity
+                                    ? "Messenger"
+                                    : "Instagram"
                                 : "Telefone",
-                            data.client.identity_type === "instagram"
-                                ? data.client.instagram_username
-                                    ? `@${data.client.instagram_username.replace(/^@+/, "")}`
-                                    : "-"
+                            isSocialIdentity
+                                ? isMessengerIdentity
+                                    ? data.client.instagram_username ?? "-"
+                                    : data.client.instagram_username
+                                      ? `@${data.client.instagram_username.replace(/^@+/, "")}`
+                                      : "-"
                                 : data.client.phone ?? "-",
                         ],
                         ["Data inicial", formatDateTime(data.conversation.started_at)],
@@ -665,10 +680,12 @@ function DetailsTab({ data }: { data: PanelData }) {
                         ["Origem", data.conversation.origin ?? "Não definido"],
                         [
                             "Plataforma",
-                            data.conversation.channel ??
-                                (data.conversation.source === "zernio"
-                                    ? "Instagram"
-                                    : "WhatsApp"),
+                            data.conversation.channel === "Facebook"
+                                ? "Messenger"
+                                : data.conversation.channel ??
+                                  (data.conversation.source === "zernio"
+                                      ? "Instagram"
+                                      : "WhatsApp"),
                         ],
                     ]}
                 />

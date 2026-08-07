@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Calendar,
     Clock,
@@ -51,6 +51,12 @@ import ExecutiveScheduleTable from "@/components/dashboard/ExecutiveScheduleTabl
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import {
+    getNormalizedUrlOptionNames,
+    readUrlFilterValues,
+    replaceUrlFilterParams,
+    resolveUrlOptionValues,
+} from "@/lib/dashboard/urlFilterParams";
 
 export default function ExecutiveDashboardPage() {
     const [data, setData] = useState<ExecutiveDashboardData | null>(null);
@@ -60,6 +66,8 @@ export default function ExecutiveDashboardPage() {
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
+    const [urlFiltersReady, setUrlFiltersReady] = useState(false);
+    const initialUnitUrlValuesRef = useRef<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [wordMapLoading, setWordMapLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -69,7 +77,81 @@ export default function ExecutiveDashboardPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("current_month");
+    } = useDashboardDateFilter("current_month", undefined, {
+        syncUrl: true,
+    });
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+
+        initialUnitUrlValuesRef.current = readUrlFilterValues(params, [
+            "unit",
+            "units",
+            "unit_id",
+            "unit_ids",
+        ]);
+        setAttendantIds(
+            readUrlFilterValues(params, [
+                "attendant",
+                "attendants",
+                "attendant_id",
+                "attendant_ids",
+            ]),
+        );
+        setTunnelValues(
+            readUrlFilterValues(params, ["tunnel", "tunnels"]),
+        );
+        setOriginValues(
+            readUrlFilterValues(params, ["origin", "origins"]),
+        );
+    }, []);
+
+    const normalizedUnitUrlValues = useMemo(
+        () =>
+            getNormalizedUrlOptionNames(
+                unitIds,
+                filters?.units ?? [],
+            ),
+        [filters?.units, unitIds],
+    );
+
+    useEffect(() => {
+        if (!urlFiltersReady || !dateFilterReady) return;
+
+        replaceUrlFilterParams([
+            {
+                key: "unit",
+                value: normalizedUnitUrlValues,
+                aliases: ["units", "unit_id", "unit_ids"],
+            },
+            {
+                key: "attendant",
+                value: attendantIds,
+                aliases: [
+                    "attendants",
+                    "attendant_id",
+                    "attendant_ids",
+                ],
+            },
+            {
+                key: "tunnel",
+                value: tunnelValues,
+                aliases: ["tunnels"],
+            },
+            {
+                key: "origin",
+                value: originValues,
+                aliases: ["origins"],
+            },
+        ]);
+    }, [
+        attendantIds,
+        dateFilterReady,
+        originValues,
+        tunnelValues,
+        normalizedUnitUrlValues,
+        urlFiltersReady,
+    ]);
 
     useEffect(() => {
         if (!dateFilterReady) return;
@@ -86,9 +168,19 @@ export default function ExecutiveDashboardPage() {
                 }
                 const json: FiltersResponse = await response.json();
                 setFilters(json);
+                setUnitIds(
+                    resolveUrlOptionValues(
+                        initialUnitUrlValuesRef.current,
+                        json.units ?? [],
+                    ),
+                );
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[dashboard] filters failed", error);
+            } finally {
+                if (!controller.signal.aborted) {
+                    setUrlFiltersReady(true);
+                }
             }
         }
 
@@ -97,7 +189,7 @@ export default function ExecutiveDashboardPage() {
     }, [dateFilterReady]);
 
     useEffect(() => {
-        if (!dateFilterReady) return;
+        if (!dateFilterReady || !urlFiltersReady) return;
 
         const controller = new AbortController();
 
@@ -198,9 +290,10 @@ export default function ExecutiveDashboardPage() {
         period,
         selectedRange,
         dateFilterReady,
+        urlFiltersReady,
     ]);
 
-    if (!dateFilterReady) {
+    if (!dateFilterReady || !urlFiltersReady) {
         return (
             <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />

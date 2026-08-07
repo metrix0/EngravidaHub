@@ -1,7 +1,7 @@
 // app/funil/page.tsx
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     CalendarDays,
     CalendarCheck,
@@ -37,6 +37,13 @@ import {
     type DateRange,
 } from "@/components/ui/CalendarButton";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import {
+    getNormalizedUrlOptionNames,
+    readUrlFilterValue,
+    readUrlFilterValues,
+    replaceUrlFilterParams,
+    resolveUrlOptionValues,
+} from "@/lib/dashboard/urlFilterParams";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import ClientPanel from "@/components/clientes/ClientPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
@@ -188,7 +195,9 @@ export default function FunnelPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("today", FUNNEL_DATE_PRESETS);
+    } = useDashboardDateFilter("today", FUNNEL_DATE_PRESETS, {
+        syncUrl: true,
+    });
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -212,17 +221,69 @@ export default function FunnelPage() {
     const [availableClientsPage, setAvailableClientsPage] = useState(1);
 
     const [unitIds, setUnitIds] = useState<string[]>([]);
-    const [funnelIds, setFunnelIds] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
+    const [urlFiltersReady, setUrlFiltersReady] = useState(false);
+    const initialUnitUrlValuesRef = useRef<string[]>([]);
 
-    const defaultFunnelId =
-        funnels.find((funnel) => funnel.id === DEFAULT_FUNNEL_ID)?.id ??
-        funnels[0]?.id ??
-        null;
+    const selectedFunnelId = DEFAULT_FUNNEL_ID;
 
-    const selectedFunnelId = funnelIds[0] ?? defaultFunnelId;
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
 
+        initialUnitUrlValuesRef.current = readUrlFilterValues(params, [
+            "unit",
+            "units",
+            "unit_id",
+            "unit_ids",
+        ]);
+        setSourceValues(
+            readUrlFilterValues(params, ["origin", "origins"]),
+        );
+        setSearch(readUrlFilterValue(params, ["search", "q"]) ?? "");
+    }, []);
+
+    const normalizedUnitUrlValues = useMemo(
+        () =>
+            getNormalizedUrlOptionNames(
+                unitIds,
+                filters?.units ?? [],
+            ),
+        [filters?.units, unitIds],
+    );
+
+    useEffect(() => {
+        if (!urlFiltersReady || !dateFilterReady) return;
+
+        replaceUrlFilterParams([
+            {
+                key: "unit",
+                value: normalizedUnitUrlValues,
+                aliases: ["units", "unit_id", "unit_ids"],
+            },
+            {
+                key: "funnel",
+                value: null,
+                aliases: ["funnels", "funnel_id", "funnel_ids"],
+            },
+            {
+                key: "origin",
+                value: sourceValues,
+                aliases: ["origins"],
+            },
+            {
+                key: "search",
+                value: search.trim() || null,
+                aliases: ["q"],
+            },
+        ]);
+    }, [
+        dateFilterReady,
+        search,
+        sourceValues,
+        normalizedUnitUrlValues,
+        urlFiltersReady,
+    ]);
 
     useEffect(() => {
         if (!dateFilterReady) return;
@@ -240,11 +301,20 @@ export default function FunnelPage() {
                 const json: FiltersResponse = await response.json();
 
                 setFilters(json);
+                setUnitIds(
+                    resolveUrlOptionValues(
+                        initialUnitUrlValuesRef.current,
+                        json.units ?? [],
+                    ),
+                );
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[funil] filters failed", error);
             } finally {
-                if (!controller.signal.aborted) setLoadingFilters(false);
+                if (!controller.signal.aborted) {
+                    setUrlFiltersReady(true);
+                    setLoadingFilters(false);
+                }
             }
         }
 
@@ -298,20 +368,6 @@ export default function FunnelPage() {
                 setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
                 setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
 
-                const defaultFunnel =
-                    data.funnels?.find(
-                        (funnel) => funnel.id === DEFAULT_FUNNEL_ID,
-                    ) ?? data.funnels?.[0];
-
-                setFunnelIds((current) => {
-                    const currentId = current[0];
-                    const selectedFunnelStillExists = data.funnels?.some(
-                        (funnel) => funnel.id === currentId,
-                    );
-                    return !selectedFunnelStillExists && defaultFunnel?.id
-                        ? [defaultFunnel.id]
-                        : current;
-                });
             } catch (error) {
                 if (signal?.aborted) return;
                 console.error("[funil] load failed", error);
@@ -325,7 +381,7 @@ export default function FunnelPage() {
     );
 
     useEffect(() => {
-        if (!dateFilterReady) return;
+        if (!dateFilterReady || !urlFiltersReady) return;
         const controller = new AbortController();
         const debounceId = window.setTimeout(() => {
             void loadFunnelData({ signal: controller.signal });
@@ -335,7 +391,7 @@ export default function FunnelPage() {
             window.clearTimeout(debounceId);
             controller.abort();
         };
-    }, [dateFilterReady, loadFunnelData]);
+    }, [dateFilterReady, loadFunnelData, urlFiltersReady]);
 
     const visibleStages = useMemo(() => {
         if (!selectedFunnelId) return [];
@@ -852,7 +908,12 @@ export default function FunnelPage() {
         await loadFunnelData({ showLoading: false });
     }
 
-    if (!dateFilterReady || loading || loadingFilters) {
+    if (
+        !dateFilterReady ||
+        !urlFiltersReady ||
+        loading ||
+        loadingFilters
+    ) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />

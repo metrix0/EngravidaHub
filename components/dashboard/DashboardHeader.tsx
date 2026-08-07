@@ -25,6 +25,11 @@ import {
     type StoredDashboardDateFilter,
     writeDashboardDateFilterCookie,
 } from "@/lib/dashboard/dateFilterStorage";
+import {
+    isIsoDate,
+    readUrlFilterValue,
+    replaceUrlFilterParams,
+} from "@/lib/dashboard/urlFilterParams";
 
 const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
 const useBrowserLayoutEffect =
@@ -45,9 +50,12 @@ type DashboardHeaderProps = {
 export function useDashboardDateFilter(
     defaultPeriod: CalendarPresetValue,
     presets: typeof DEFAULT_CALENDAR_PRESETS = DEFAULT_CALENDAR_PRESETS,
+    options: { syncUrl?: boolean } = {},
 ) {
     const pathname = usePathname() || "/";
     const serverFilters = useServerDashboardDateFilters();
+    const syncUrl = options.syncUrl === true;
+    const [urlReady, setUrlReady] = useState(!syncUrl);
     const [filter, setFilter] = useState<StoredDashboardDateFilter>(() =>
         resolveInitialFilter({
             pathname,
@@ -57,9 +65,57 @@ export function useDashboardDateFilter(
         }),
     );
 
+    useBrowserLayoutEffect(() => {
+        if (!syncUrl || urlReady) return;
+
+        const urlFilter = readDateFilterFromUrl(presets);
+        if (urlFilter) {
+            setFilter((current) =>
+                sameStoredDateFilter(current, urlFilter)
+                    ? current
+                    : urlFilter,
+            );
+        }
+        setUrlReady(true);
+    }, [presets, syncUrl, urlReady]);
+
     useEffect(() => {
+        if (!urlReady) return;
         writeStoredDateFilter(pathname, filter);
-    }, [filter, pathname]);
+    }, [filter, pathname, urlReady]);
+
+    useEffect(() => {
+        if (!syncUrl || !urlReady) return;
+
+        replaceUrlFilterParams([
+            {
+                key: "period",
+                value: filter.period,
+                aliases: ["date_period"],
+            },
+            {
+                key: "start_date",
+                value:
+                    filter.period === null
+                        ? filter.selectedRange.start
+                        : null,
+                aliases: ["date_start", "from", "start"],
+            },
+            {
+                key: "end_date",
+                value:
+                    filter.period === null
+                        ? filter.selectedRange.end ??
+                          filter.selectedRange.start
+                        : null,
+                aliases: ["date_end", "to", "end"],
+            },
+            {
+                key: "date",
+                value: null,
+            },
+        ]);
+    }, [filter, syncUrl, urlReady]);
 
     const setPeriod = useCallback((period: CalendarPresetValue | null) => {
         setFilter((current) => ({ ...current, period }));
@@ -73,9 +129,9 @@ export function useDashboardDateFilter(
         setPeriod,
         selectedRange: filter.selectedRange,
         setSelectedRange,
-        // The initial value is supplied by the server cookie. The cookie is
-        // mirrored from localStorage before the first visible page paint.
-        ready: true,
+        // URL dates override the saved route filter before dependent pages
+        // become ready, so copied links never issue a request with stale dates.
+        ready: urlReady,
     };
 }
 
@@ -201,6 +257,67 @@ export function DashboardHeader({
                 </ButtonGroup>
             </div>
         </header>
+    );
+}
+
+
+function readDateFilterFromUrl(
+    presets: typeof DEFAULT_CALENDAR_PRESETS,
+): StoredDashboardDateFilter | null {
+    if (typeof window === "undefined") return null;
+
+    const params = new URLSearchParams(window.location.search);
+    const dateValue = readUrlFilterValue(params, ["date"]);
+    const startDate = readUrlFilterValue(params, [
+        "start_date",
+        "date_start",
+        "from",
+        "start",
+    ]);
+    const endDate = readUrlFilterValue(params, [
+        "end_date",
+        "date_end",
+        "to",
+        "end",
+    ]);
+    const customStart = isIsoDate(startDate)
+        ? startDate
+        : isIsoDate(dateValue)
+          ? dateValue
+          : null;
+
+    if (customStart) {
+        return {
+            period: null,
+            selectedRange: {
+                start: customStart,
+                end: isIsoDate(endDate) ? endDate : customStart,
+            },
+        };
+    }
+
+    const periodValue =
+        readUrlFilterValue(params, ["period", "date_period"]) ??
+        dateValue;
+    const allowedPeriod = presets.find(
+        (preset) => preset.value === periodValue,
+    )?.value;
+
+    return allowedPeriod
+        ? {
+              period: allowedPeriod,
+              selectedRange: EMPTY_DATE_RANGE,
+          }
+        : null;
+}
+
+function sameStoredDateFilter(
+    first: StoredDashboardDateFilter,
+    second: StoredDashboardDateFilter,
+) {
+    return (
+        first.period === second.period &&
+        sameDateRange(first.selectedRange, second.selectedRange)
     );
 }
 

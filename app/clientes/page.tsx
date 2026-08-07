@@ -1,7 +1,7 @@
 // app/clientes/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     CalendarCheck,
     ChevronRight,
@@ -37,6 +37,14 @@ import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import ClientPanel from "@/components/clientes/ClientPanel";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import {
+    getNormalizedUrlOptionNames,
+    normalizeUrlFilterName,
+    readUrlFilterValue,
+    readUrlFilterValues,
+    replaceUrlFilterParams,
+    resolveUrlOptionValues,
+} from "@/lib/dashboard/urlFilterParams";
 
 type FunnelStage = {
     id: string;
@@ -229,9 +237,14 @@ export default function ClientesPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("always", CLIENTES_DATE_PRESETS);
+    } = useDashboardDateFilter("always", CLIENTES_DATE_PRESETS, {
+        syncUrl: true,
+    });
 
     const [currentPage, setCurrentPage] = useState(1);
+    const [urlFiltersReady, setUrlFiltersReady] = useState(false);
+    const initialUnitUrlValuesRef = useRef<string[]>([]);
+    const initialClosingTagUrlValuesRef = useRef<string[]>([]);
 
     const [stageValues, setStageValues] = useState<string[]>([]);
     const [unitValues, setUnitValues] = useState<string[]>([]);
@@ -248,9 +261,91 @@ export default function ClientesPage() {
     }
 
     useEffect(() => {
-        const clientId = new URLSearchParams(window.location.search).get("client_id");
+        const params = new URLSearchParams(window.location.search);
+        const clientId = readUrlFilterValue(params, ["client_id"]);
+
         if (clientId) setSelectedClientId(clientId);
+        initialUnitUrlValuesRef.current = readUrlFilterValues(params, [
+            "unit",
+            "units",
+            "unit_id",
+            "unit_ids",
+        ]);
+        setStageValues(
+            readUrlFilterValues(params, [
+                "stage",
+                "stages",
+                "stage_id",
+                "stage_ids",
+            ]),
+        );
+        initialClosingTagUrlValuesRef.current = readUrlFilterValues(
+            params,
+            ["closing_tag", "closing_tags"],
+        );
+        setSourceValues(
+            readUrlFilterValues(params, ["origin", "origins"]),
+        );
+        setTunnelValues(
+            readUrlFilterValues(params, ["tunnel", "tunnels"]),
+        );
+        setSearch(readUrlFilterValue(params, ["search", "q"]) ?? "");
     }, []);
+
+    const normalizedUnitUrlValues = useMemo(
+        () =>
+            getNormalizedUrlOptionNames(
+                unitValues,
+                filters?.units ?? [],
+            ),
+        [filters?.units, unitValues],
+    );
+
+    useEffect(() => {
+        if (!urlFiltersReady || !dateFilterReady) return;
+
+        replaceUrlFilterParams([
+            {
+                key: "unit",
+                value: normalizedUnitUrlValues,
+                aliases: ["units", "unit_id", "unit_ids"],
+            },
+            {
+                key: "stage",
+                value: stageValues,
+                aliases: ["stages", "stage_id", "stage_ids"],
+            },
+            {
+                key: "closing_tag",
+                value: closingTagValues,
+                aliases: ["closing_tags"],
+            },
+            {
+                key: "origin",
+                value: sourceValues,
+                aliases: ["origins"],
+            },
+            {
+                key: "tunnel",
+                value: tunnelValues,
+                aliases: ["tunnels"],
+            },
+            {
+                key: "search",
+                value: search.trim() || null,
+                aliases: ["q"],
+            },
+        ]);
+    }, [
+        closingTagValues,
+        dateFilterReady,
+        search,
+        sourceValues,
+        stageValues,
+        tunnelValues,
+        normalizedUnitUrlValues,
+        urlFiltersReady,
+    ]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -267,11 +362,20 @@ export default function ClientesPage() {
                 const json: FiltersResponse = await response.json();
 
                 setFilters(json);
+                setUnitValues(
+                    resolveUrlOptionValues(
+                        initialUnitUrlValuesRef.current,
+                        json.units ?? [],
+                    ),
+                );
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[clientes] filters failed", error);
             } finally {
-                if (!controller.signal.aborted) setLoadingFilters(false);
+                if (!controller.signal.aborted) {
+                    setUrlFiltersReady(true);
+                    setLoadingFilters(false);
+                }
             }
         }
 
@@ -299,8 +403,24 @@ export default function ClientesPage() {
                     );
                 }
 
-                setClients(data?.clients ?? []);
+                const loadedClients = data?.clients ?? [];
+                const loadedClosingTags = [...new Set(
+                    loadedClients
+                        .map((client) => client.last_closing_tag?.trim())
+                        .filter((value): value is string => Boolean(value)),
+                )].map((label) => ({
+                    label,
+                    value: normalizeUrlFilterName(label),
+                }));
+
+                setClients(loadedClients);
                 setStages(data?.stages ?? []);
+                setClosingTagValues(
+                    resolveUrlOptionValues(
+                        initialClosingTagUrlValuesRef.current,
+                        loadedClosingTags,
+                    ),
+                );
                 setInteractionReferenceTime(Date.now());
             } catch (error) {
                 if (controller.signal.aborted) return;
@@ -326,18 +446,23 @@ export default function ClientesPage() {
     }, [period, selectedRange]);
 
     const closingTagOptions = useMemo(() => {
-        const values = new Set<string>();
+        const labelByNormalizedName = new Map<string, string>();
 
         for (const client of clients) {
-            const closingTag = client.last_closing_tag?.trim();
-            if (closingTag) values.add(closingTag);
+            const label = client.last_closing_tag?.trim();
+            if (!label) continue;
+
+            const normalizedName = normalizeUrlFilterName(label);
+            if (normalizedName && !labelByNormalizedName.has(normalizedName)) {
+                labelByNormalizedName.set(normalizedName, label);
+            }
         }
 
-        return [...values]
-            .sort((first, second) =>
-                first.localeCompare(second, "pt-BR"),
+        return [...labelByNormalizedName.entries()]
+            .sort(([, firstLabel], [, secondLabel]) =>
+                firstLabel.localeCompare(secondLabel, "pt-BR"),
             )
-            .map((value) => ({ label: value, value }));
+            .map(([value, label]) => ({ label, value }));
     }, [clients]);
 
     const stageFilterSections = useMemo(() => {
@@ -421,7 +546,7 @@ export default function ClientesPage() {
             if (
                 closingTagValues.length > 0 &&
                 !closingTagValues.includes(
-                    client.last_closing_tag?.trim() || "",
+                    normalizeUrlFilterName(client.last_closing_tag || ""),
                 )
             ) {
                 return false;
@@ -534,7 +659,12 @@ export default function ClientesPage() {
         );
     }
 
-    if (loading || loadingFilters) {
+    if (
+        loading ||
+        loadingFilters ||
+        !dateFilterReady ||
+        !urlFiltersReady
+    ) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
