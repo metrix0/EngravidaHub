@@ -209,7 +209,8 @@ function PersistentSidePanel({
     const isCompactPage =
         pathname.startsWith("/inbox") ||
         pathname.startsWith("/agendamentos") ||
-        pathname.startsWith("/assistente");
+        pathname.startsWith("/assistente") ||
+        pathname.startsWith("/funil");
     const resolvedAffectLayout = affectLayout ?? !isCompactPage;
     const [isExpanded, setIsExpanded] = useState(
         () => defaultExpanded ?? !isCompactPage,

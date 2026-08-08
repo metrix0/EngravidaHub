@@ -127,6 +127,8 @@ type Client = {
     last_interaction_at: string;
     last_called_at: string | null;
     last_call_closure_tag: string | null;
+    last_closing_tag?: string | null;
+    last_closing_tag_at?: string | null;
     utm_source: string | null;
     utm_medium: string | null;
     utm_campaign: string | null;
@@ -152,9 +154,16 @@ type FunnelResponse = {
     previous_kpis: FunnelKpis;
 };
 
+type FunnelIntakeResponse = {
+    clients: Client[];
+    total: number;
+};
+
 type FunnelCallState = "none" | "pending" | ClientCallClosureTone;
 
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
+const INTAKE_INITIAL_LIMIT = 25;
+const INTAKE_LOAD_MORE_LIMIT = 20;
 const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
 const FUNNEL_DATE_PRESETS: CalendarPreset[] = [
     {
@@ -195,6 +204,10 @@ export default function FunnelPage() {
     const [funnels, setFunnels] = useState<Funnel[]>([]);
     const [stages, setStages] = useState<FunnelStage[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [intakeClients, setIntakeClients] = useState<Client[]>([]);
+    const [intakeTotal, setIntakeTotal] = useState(0);
+    const [intakeLoading, setIntakeLoading] = useState(true);
+    const [intakeLoadingMore, setIntakeLoadingMore] = useState(false);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [kpis, setKpis] = useState<FunnelKpis>(EMPTY_FUNNEL_KPIS);
     const [previousKpis, setPreviousKpis] =
@@ -411,6 +424,96 @@ export default function FunnelPage() {
         };
     }, [dateFilterReady, loadFunnelData, urlFiltersReady]);
 
+    const loadIntakeClients = useCallback(
+        async ({
+            offset = 0,
+            append = false,
+            signal,
+        }: {
+            offset?: number;
+            append?: boolean;
+            signal?: AbortSignal;
+        } = {}) => {
+            if (append) setIntakeLoadingMore(true);
+            else setIntakeLoading(true);
+
+            try {
+                const params = new URLSearchParams({
+                    offset: String(offset),
+                    limit: String(
+                        append ? INTAKE_LOAD_MORE_LIMIT : INTAKE_INITIAL_LIMIT,
+                    ),
+                });
+
+                if (unitIds.length > 0) {
+                    params.set("unit_ids", unitIds.join(","));
+                }
+                if (sourceValues.length > 0) {
+                    params.set("origins", sourceValues.join(","));
+                }
+                if (search.trim()) {
+                    params.set("search", search.trim());
+                }
+
+                const response = await fetch(
+                    `/api/funnel/intake?${params.toString()}`,
+                    { cache: "no-store", signal },
+                );
+                const json = (await response.json()) as
+                    | FunnelIntakeResponse
+                    | { error?: string };
+
+                if (!response.ok) {
+                    throw new Error(
+                        "error" in json && json.error
+                            ? json.error
+                            : "Falha ao carregar clientes não agendados.",
+                    );
+                }
+
+                const data = json as FunnelIntakeResponse;
+                setIntakeTotal(data.total ?? 0);
+                setIntakeClients((current) => {
+                    if (!append) return data.clients ?? [];
+
+                    const byId = new Map(
+                        current.map((client) => [client.id, client]),
+                    );
+                    for (const client of data.clients ?? []) {
+                        byId.set(client.id, client);
+                    }
+                    return [...byId.values()];
+                });
+            } catch (error) {
+                if (signal?.aborted) return;
+                console.error("[funil] intake load failed", error);
+                if (!append) {
+                    setIntakeClients([]);
+                    setIntakeTotal(0);
+                }
+            } finally {
+                if (!signal?.aborted) {
+                    if (append) setIntakeLoadingMore(false);
+                    else setIntakeLoading(false);
+                }
+            }
+        },
+        [search, sourceValues, unitIds],
+    );
+
+    useEffect(() => {
+        if (!urlFiltersReady) return;
+        const controller = new AbortController();
+        const debounceId = window.setTimeout(() => {
+            void loadIntakeClients({ signal: controller.signal });
+        }, 150);
+
+        return () => {
+            window.clearTimeout(debounceId);
+            controller.abort();
+        };
+    }, [loadIntakeClients, urlFiltersReady]);
+
     const visibleStages = useMemo(() => {
         if (!selectedFunnelId) return [];
 
@@ -449,9 +552,9 @@ export default function FunnelPage() {
 
             const scheduledFor = client.schedule_summary?.scheduled_for?.slice(0, 10);
             if (
-                !scheduledFor ||
-                scheduledFor < scheduleDateRange.start ||
-                scheduledFor > scheduleDateRange.end
+                scheduledFor &&
+                (scheduledFor < scheduleDateRange.start ||
+                    scheduledFor > scheduleDateRange.end)
             ) {
                 return false;
             }
@@ -523,10 +626,10 @@ export default function FunnelPage() {
     );
 
     const totalClients = filteredClients.length;
-    const shouldFitFunnelStages =
-        visibleStages.length > 0 && visibleStages.length <= 4;
     const schedulingClient = schedulingClientId
-        ? clients.find((client) => client.id === schedulingClientId) ?? null
+        ? clients.find((client) => client.id === schedulingClientId) ??
+          intakeClients.find((client) => client.id === schedulingClientId) ??
+          null
         : null;
     const schedulingInitialSchedule = useMemo(() => {
         const schedule = schedulingClient?.schedule_summary;
@@ -667,10 +770,44 @@ export default function FunnelPage() {
         setAvailableClientsLoading(false);
     }
 
+    async function loadMoreIntakeClients() {
+        if (intakeLoadingMore || intakeClients.length >= intakeTotal) return;
+
+        await loadIntakeClients({
+            offset: intakeClients.length,
+            append: true,
+        });
+    }
+
+    async function removeIntakeClosingTag(clientId: string) {
+        const previousClients = intakeClients;
+        const previousTotal = intakeTotal;
+
+        setIntakeClients((current) =>
+            current.filter((client) => client.id !== clientId),
+        );
+        setIntakeTotal((current) => Math.max(0, current - 1));
+
+        const response = await fetch(
+            `/api/funnel/intake?client_id=${encodeURIComponent(clientId)}`,
+            { method: "DELETE" },
+        );
+
+        if (!response.ok) {
+            setIntakeClients(previousClients);
+            setIntakeTotal(previousTotal);
+            console.error(await response.json().catch(() => null));
+            return;
+        }
+
+    }
+
     async function moveClient(clientId: string, toStageId: string) {
         if (!selectedFunnelId) return;
 
-        const client = clients.find((client) => client.id === clientId);
+        const funnelClient = clients.find((client) => client.id === clientId);
+        const intakeClient = intakeClients.find((client) => client.id === clientId);
+        const client = funnelClient ?? intakeClient;
 
         if (!client) return;
 
@@ -681,18 +818,19 @@ export default function FunnelPage() {
         const previousClients = clients;
         const now = new Date().toISOString();
 
-        setClients((current) =>
-            current.map((client) =>
-                client.id === clientId
-                    ? {
-                        ...client,
-                        funnel_stage_id: toStageId,
-                        updated_at: now,
-                    }
-                    : client
-            )
-        );
-
+        if (funnelClient) {
+            setClients((current) =>
+                current.map((item) =>
+                    item.id === clientId
+                        ? {
+                              ...item,
+                              funnel_stage_id: toStageId,
+                              updated_at: now,
+                          }
+                        : item,
+                ),
+            );
+        }
 
         const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
@@ -709,10 +847,17 @@ export default function FunnelPage() {
         });
 
         if (!response.ok) {
-            setClients(previousClients);
+            if (funnelClient) setClients(previousClients);
             await loadFunnelData({ showLoading: false });
             console.error(await response.json());
             return;
+        }
+
+        if (intakeClient) {
+            setIntakeClients((current) =>
+                current.filter((item) => item.id !== clientId),
+            );
+            setIntakeTotal((current) => Math.max(0, current - 1));
         }
 
         await loadFunnelData({ showLoading: false });
@@ -733,21 +878,23 @@ export default function FunnelPage() {
             last_call_closure_tag: string;
         },
     ) {
-        setClients((current) =>
-            current.map((client) =>
-                client.id === clientId
-                    ? {
-                          ...client,
-                          last_called_at: call.last_called_at,
-                          last_call_closure_tag: call.last_call_closure_tag,
-                      }
-                    : client,
-            ),
-        );
+        const applyCall = (client: Client) =>
+            client.id === clientId
+                ? {
+                      ...client,
+                      last_called_at: call.last_called_at,
+                      last_call_closure_tag: call.last_call_closure_tag,
+                  }
+                : client;
+
+        setClients((current) => current.map(applyCall));
+        setIntakeClients((current) => current.map(applyCall));
     }
 
     async function openClientSchedule(clientId: string) {
-        const client = clients.find((item) => item.id === clientId);
+        const client =
+            clients.find((item) => item.id === clientId) ??
+            intakeClients.find((item) => item.id === clientId);
         if (!client) return;
 
         if (!client.appointment) {
@@ -1190,59 +1337,45 @@ export default function FunnelPage() {
                         </div>
                     </div>
 
-                    <div className="min-w-0 w-full overflow-hidden pb-16">
-                        {shouldFitFunnelStages ? (
-                            <div
-                                className="grid w-full gap-5"
-                                style={{
-                                    gridTemplateColumns: `repeat(${visibleStages.length}, minmax(0, 1fr))`,
-                                }}
-                            >
-                                {visibleStages.map((stage) => {
-                                    const stageClients =
-                                        clientsByStage[stage.id] ?? [];
+                    <div className="min-w-0 w-full pb-16">
+                        <HorizontalScroller
+                            key={`funnel-columns:${visibleStages.map((stage) => stage.id).join(",")}`}
+                            scrollAmount={520}
+                            className="min-w-0 w-full"
+                        >
+                            <IntakeColumn
+                                key={`intake:${unitIds.join(",")}:${sourceValues.join(",")}:${search}`}
+                                clients={intakeClients}
+                                total={intakeTotal}
+                                loading={intakeLoading}
+                                loadingMore={intakeLoadingMore}
+                                blurPhone={blurClientPhones}
+                                onLoadMore={loadMoreIntakeClients}
+                                onRemoveTag={removeIntakeClosingTag}
+                                onOpenClientProfile={openClientProfile}
+                                onOpenClientSchedule={openClientSchedule}
+                                onOpenClientCall={openClientCall}
+                            />
 
-                                    return (
-                                        <FunnelColumn
-                                            key={stage.id}
-                                            stage={stage}
-                                            clients={stageClients}
-                                            fitWidth
-                                            blurPhone={blurClientPhones}
-                                            onMoveClient={moveClient}
-                                            onRemoveClient={removeClientFromFunnel}
-                                            onOpenClientProfile={openClientProfile}
-                                            onOpenClientSchedule={openClientSchedule}
-                                            onOpenClientCall={openClientCall}
-                                        />
-                                    );
-                                })}
-                            </div>
-                        ) : (
-                            <HorizontalScroller
-                                scrollAmount={520}
-                                className="min-w-0 w-full"
-                            >
-                                {visibleStages.map((stage) => {
-                                    const stageClients =
-                                        clientsByStage[stage.id] ?? [];
+                            {visibleStages.map((stage) => {
+                                const stageClients =
+                                    clientsByStage[stage.id] ?? [];
 
-                                    return (
-                                        <FunnelColumn
-                                            key={stage.id}
-                                            stage={stage}
-                                            clients={stageClients}
-                                            blurPhone={blurClientPhones}
-                                            onMoveClient={moveClient}
-                                            onRemoveClient={removeClientFromFunnel}
-                                            onOpenClientProfile={openClientProfile}
-                                            onOpenClientSchedule={openClientSchedule}
-                                            onOpenClientCall={openClientCall}
-                                        />
-                                    );
-                                })}
-                            </HorizontalScroller>
-                        )}
+                                return (
+                                    <FunnelColumn
+                                        key={stage.id}
+                                        stage={stage}
+                                        clients={stageClients}
+                                        blurPhone={blurClientPhones}
+                                        onMoveClient={moveClient}
+                                        onRemoveClient={removeClientFromFunnel}
+                                        onOpenClientProfile={openClientProfile}
+                                        onOpenClientSchedule={openClientSchedule}
+                                        onOpenClientCall={openClientCall}
+                                    />
+                                );
+                            })}
+                        </HorizontalScroller>
                     </div>
                 </section>
             </section>
@@ -1307,6 +1440,123 @@ export default function FunnelPage() {
     );
 }
 
+function IntakeColumn({
+    clients,
+    total,
+    loading,
+    loadingMore,
+    onLoadMore,
+    onRemoveTag,
+    onOpenClientProfile,
+    onOpenClientSchedule,
+    onOpenClientCall,
+    blurPhone,
+}: {
+    clients: Client[];
+    total: number;
+    loading: boolean;
+    loadingMore: boolean;
+    onLoadMore: () => Promise<void>;
+    onRemoveTag: (clientId: string) => void;
+    onOpenClientProfile: (clientId: string) => void;
+    onOpenClientSchedule: (clientId: string) => void;
+    onOpenClientCall: (clientId: string) => void;
+    blurPhone: boolean;
+}) {
+    const COLLAPSED_CLIENTS = 5;
+    const CLIENTS_PER_BATCH = 20;
+    const [visibleLimit, setVisibleLimit] = useState(COLLAPSED_CLIENTS);
+    const visibleClients = clients.slice(0, visibleLimit);
+    const hasMore = visibleLimit < total;
+
+    async function showMore() {
+        const nextLimit = Math.min(total, visibleLimit + CLIENTS_PER_BATCH);
+
+        if (nextLimit > clients.length && clients.length < total) {
+            await onLoadMore();
+        }
+
+        setVisibleLimit(nextLimit);
+    }
+
+    return (
+        <div
+            className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
+        >
+            <div className="mb-3 flex items-center justify-between">
+                <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400" />
+                    <h3 className="truncate text-sm font-bold text-text">
+                        Não agendou
+                    </h3>
+                </div>
+
+                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">
+                    {total}
+                </span>
+            </div>
+
+            <div className="space-y-3">
+                {loading ? (
+                    <>
+                        <Skeleton className="h-[150px] rounded-xl" />
+                        <Skeleton className="h-[150px] rounded-xl" />
+                        <Skeleton className="h-[150px] rounded-xl" />
+                    </>
+                ) : visibleClients.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-8 text-center text-xs font-medium text-slate-400">
+                        Nenhum cliente encontrado.
+                    </div>
+                ) : (
+                    visibleClients.map((client) => (
+                        <FunnelClientCard
+                            key={client.id}
+                            client={client}
+                            blurPhone={blurPhone}
+                            removeActionTitle="Remover tag"
+                            showClosingTagDate
+                            onRemoveClient={onRemoveTag}
+                            onOpenClientProfile={onOpenClientProfile}
+                            onOpenClientSchedule={onOpenClientSchedule}
+                            onOpenClientCall={onOpenClientCall}
+                        />
+                    ))
+                )}
+            </div>
+
+            {!loading && total > COLLAPSED_CLIENTS ? (
+                <div className="mt-5 flex items-center justify-center gap-3 text-sm font-semibold">
+                    {hasMore ? (
+                        <button
+                            type="button"
+                            disabled={loadingMore}
+                            onClick={() => void showMore()}
+                            className="cursor-pointer text-blue disabled:cursor-wait disabled:opacity-60"
+                        >
+                            {loadingMore
+                                ? "Carregando..."
+                                : `+ Ver mais ${Math.min(
+                                      CLIENTS_PER_BATCH,
+                                      total - visibleLimit,
+                                  )}`}
+                        </button>
+                    ) : null}
+
+                    {visibleLimit > COLLAPSED_CLIENTS ? (
+                        <button
+                            type="button"
+                            onClick={() => setVisibleLimit(COLLAPSED_CLIENTS)}
+                            className="cursor-pointer text-slate-500"
+                        >
+                            − Ver menos
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 function FunnelColumn({
                             stage,
                             clients,
@@ -1316,7 +1566,6 @@ function FunnelColumn({
                             onOpenClientSchedule,
                             onOpenClientCall,
                             blurPhone,
-                            fitWidth = false,
                         }: {
     stage: FunnelStage;
     clients: Client[];
@@ -1326,7 +1575,6 @@ function FunnelColumn({
     onOpenClientSchedule: (clientId: string) => void;
     onOpenClientCall: (clientId: string) => void;
     blurPhone: boolean;
-    fitWidth?: boolean;
 }) {
     const COLLAPSED_CLIENTS = 5;
     const CLIENTS_PER_BATCH = 20;
@@ -1341,10 +1589,7 @@ function FunnelColumn({
                 const clientId = event.dataTransfer.getData("client_id");
                 if (clientId) onMoveClient(clientId, stage.id);
             }}
-            className={[
-                "min-h-[560px] rounded-xl border border-border bg-slate-50 p-3",
-                fitWidth ? "min-w-0 w-full" : "w-[260px] shrink-0",
-            ].join(" ")}
+            className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
         >
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
@@ -1426,6 +1671,9 @@ function FunnelClientCard({
                                 onOpenClientSchedule,
                                 onOpenClientCall,
                                 blurPhone,
+                                showRemoveAction = true,
+                                removeActionTitle = "Remover do funil",
+                                showClosingTagDate = false,
                             }: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
@@ -1433,6 +1681,9 @@ function FunnelClientCard({
     onOpenClientSchedule: (clientId: string) => void;
     onOpenClientCall: (clientId: string) => void;
     blurPhone: boolean;
+    showRemoveAction?: boolean;
+    removeActionTitle?: string;
+    showClosingTagDate?: boolean;
 }) {
     const schedule = client.schedule_summary;
     const callState = getFunnelCallState(client);
@@ -1458,17 +1709,19 @@ function FunnelClientCard({
             )}
 
             <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                <button
-                    type="button"
-                    title="Remover do funil"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onRemoveClient(client.id);
-                    }}
-                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
-                >
-                    <Trash2 size={14} />
-                </button>
+                {showRemoveAction ? (
+                    <button
+                        type="button"
+                        title={removeActionTitle}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onRemoveClient(client.id);
+                        }}
+                        className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                ) : null}
 
                 <button
                     type="button"
@@ -1528,7 +1781,7 @@ function FunnelClientCard({
                     <div
                         className={[
                             "mt-1 truncate text-xs text-muted",
-                            blurPhone ? "select-none blur-[4px]" : "",
+                            blurPhone ? "select-none blur-[2px]" : "",
                         ].join(" ")}
                     >
                         {client.phone ?? "Sem telefone"}
@@ -1537,10 +1790,14 @@ function FunnelClientCard({
                     <div
                         className="mt-2 truncate text-xs text-slate-600"
                         title={
-                            schedule?.procedure_name ?? "Procedimento não informado"
+                            client.last_closing_tag ??
+                            schedule?.procedure_name ??
+                            "Procedimento não informado"
                         }
                     >
-                        {schedule?.procedure_name ?? "Não informado"}
+                        {client.last_closing_tag ??
+                            schedule?.procedure_name ??
+                            "Não informado"}
                     </div>
 
                     {schedule?.attention_label && (
@@ -1568,18 +1825,26 @@ function FunnelClientCard({
                     <div
                         className="mt-3 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-muted"
                         title={
-                            schedule
-                                ? `${schedule.procedure_name ?? "Agendamento"} · ${
-                                      schedule.status ?? "Sem status"
-                                  }`
-                                : "Nenhum agendamento ligado ao cliente"
+                            showClosingTagDate
+                                ? client.last_closing_tag_at
+                                    ? `Tag atribuída em ${formatClosingTagDate(client.last_closing_tag_at)}`
+                                    : "Data da tag não disponível"
+                                : schedule
+                                  ? `${schedule.procedure_name ?? "Agendamento"} · ${
+                                        schedule.status ?? "Sem status"
+                                    }`
+                                  : "Nenhum agendamento ligado ao cliente"
                         }
                     >
                         <CalendarDays size={12} className="shrink-0" />
                         <span className="truncate">
-                            {schedule
-                                ? formatScheduleDate(schedule.scheduled_for)
-                                : "Sem agendamento"}
+                            {showClosingTagDate
+                                ? client.last_closing_tag_at
+                                    ? `${formatClosingTagDate(client.last_closing_tag_at)}`
+                                    : "Data da tag indisponível"
+                                : schedule
+                                  ? formatScheduleDate(schedule.scheduled_for)
+                                  : "Sem agendamento"}
                         </span>
                     </div>
                 </div>
@@ -1683,6 +1948,11 @@ function dateOnlyTime(value: string | null | undefined) {
 }
 
 function formatScheduleDate(value: string) {
+    const [year, month, day] = value.slice(0, 10).split("-");
+    return `${day}/${month}/${year}`;
+}
+
+function formatClosingTagDate(value: string) {
     const [year, month, day] = value.slice(0, 10).split("-");
     return `${day}/${month}/${year}`;
 }

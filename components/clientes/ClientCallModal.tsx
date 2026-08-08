@@ -44,7 +44,7 @@ const CALL_CLOSURE_DROPDOWN_OPTIONS: DropdownSelectOption[] = (() => {
         return [
             {
                 value: `__group_${group}`,
-                label: group,
+                label: `${group.toLocaleUpperCase("pt-BR")}:`,
                 disabled: true,
             },
             ...options,
@@ -183,7 +183,7 @@ export default function ClientCallModal({
                             <ClientProfileSummary client={data.client} />
                         </section>
 
-                        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                        <div className="pt-1">
                             <DropdownSelect
                                 value={closureTag}
                                 onChange={(value) =>
@@ -193,7 +193,7 @@ export default function ClientCallModal({
                                 widthClassName="w-full"
                                 dropdownWidthClassName="w-full"
                             />
-                        </section>
+                        </div>
                     </div>
                 ) : (
                     <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm font-medium text-slate-400">
