@@ -2,6 +2,10 @@
 import { NextResponse } from "next/server";
 
 import { executeAssistantDataTool } from "@/lib/ai/assistantDataTools";
+import {
+    executeAssistantSocialDataTool,
+    isAssistantSocialDataTool,
+} from "@/lib/ai/assistantSocialDataTools";
 import { openai } from "@/lib/ai/openai";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import type {
@@ -180,6 +184,43 @@ const TOOLS = [
         name: "get_conversation_context",
         description:
             "Carrega análise e transcrição de uma conversa e gera seu card clicável. Use para validar exemplos e evidências.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                conversation_id: { type: "string" },
+            },
+            required: ["conversation_id"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "search_social_conversations",
+        description:
+            "Busca conversas e usuários sociais do Instagram e Facebook por período, nome de exibição, username ou texto. Use para dados de mensagens e pessoas desses canais.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                query: { type: ["string", "null"] },
+                channel: {
+                    type: "string",
+                    enum: ["all", "Instagram", "Facebook"],
+                },
+                date_from: { type: ["string", "null"] },
+                date_to: { type: ["string", "null"] },
+                limit: { type: "integer", minimum: 1, maximum: 30 },
+            },
+            required: ["query", "channel", "date_from", "date_to", "limit"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_social_conversation_context",
+        description:
+            "Carrega perfil social, análise e mensagens completas de uma conversa do Instagram ou Facebook. Use depois de search_social_conversations para inspecionar uma conversa específica.",
         strict: true,
         parameters: {
             type: "object",
@@ -430,10 +471,15 @@ export async function POST(request: Request) {
                 let execution;
 
                 try {
-                    execution = await executeAssistantDataTool(
-                        name,
-                        parsedArguments,
-                    );
+                    execution = isAssistantSocialDataTool(name)
+                        ? await executeAssistantSocialDataTool(
+                              name,
+                              parsedArguments,
+                          )
+                        : await executeAssistantDataTool(
+                              name,
+                              parsedArguments,
+                          );
                 } catch (error) {
                     console.error("[assistente] tool execution failed", {
                         tool: name,
@@ -556,8 +602,8 @@ Data e hora atuais em America/Sao_Paulo: ${now}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
-2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento ou operação. Nunca invente dados.
-3. Para uma pessoa específica, use search_clients e depois get_client_context antes da resposta final.
+2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook ou operação. Nunca invente dados.
+3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
 4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
@@ -579,7 +625,7 @@ CARDS:
 18. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
 19. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
 20. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
-21. Para perguntas sobre uma pessoa específica, inclua o card do cliente.
+21. Para perguntas sobre uma pessoa específica, inclua o card do cliente quando houver um cliente CRM associado.
 22. Não chame get_conversation_context repetidamente para aumentar o número de cards.
 23. O limite absoluto é dois cards: no máximo um de cliente e um de conversa.
 24. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
