@@ -1381,6 +1381,19 @@ function ActiveMessageAnalytics({
             }));
     }, [history, visibleTemplateKeys]);
 
+    const chartTotals = useMemo(
+        () =>
+            dailyData.reduce(
+                (totals, item) => ({
+                    sent: totals.sent + item.sent,
+                    responses: totals.responses + item.responses,
+                    schedules: totals.schedules + item.schedules,
+                }),
+                { sent: 0, responses: 0, schedules: 0 },
+            ),
+        [dailyData],
+    );
+
     useEffect(() => {
         if (!templateMenuOpen) return;
 
@@ -1599,6 +1612,27 @@ function ActiveMessageAnalytics({
                             </div>
                         ) : null}
                     </div>
+
+                    {templateData.length > 0 ? (
+                        <div className="mt-5 grid grid-cols-3 gap-3">
+                            <ActiveMessageTotal
+                                label="Enviados"
+                                value={chartTotals.sent}
+                                color="#06b6d4"
+                            />
+                            <ActiveMessageTotal
+                                label="Respostas"
+                                value={chartTotals.responses}
+                                color="#10b981"
+                            />
+                            <ActiveMessageTotal
+                                label="Agendamentos"
+                                value={chartTotals.schedules}
+                                color="#8b5cf6"
+                            />
+                        </div>
+                    ) : null}
+
                     {dailyData.length > 0 ? (
                         <div className="mt-5 h-[320px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
@@ -1653,14 +1687,34 @@ function ActiveMessageAnalytics({
                     ) : (
                         <ActiveMessageChartEmpty />
                     )}
-                    <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
-                        <ChartLegend color="#06b6d4" label="Envios" />
-                        <ChartLegend color="#10b981" label="Respostas" />
-                        <ChartLegend color="#8b5cf6" label="Agendamentos" />
-                    </div>
                 </section>
             </div>
         </section>
+    );
+}
+
+function ActiveMessageTotal({
+    label,
+    value,
+    color,
+}: {
+    label: string;
+    value: number;
+    color: string;
+}) {
+    return (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: color }}
+                />
+                {label}
+            </div>
+            <div className="mt-1 text-xl font-bold text-slate-900">
+                {value.toLocaleString("pt-BR")}
+            </div>
+        </div>
     );
 }
 
@@ -1668,18 +1722,6 @@ function shortTemplateSelectorLabel(name: string) {
     const [, ...suffixParts] = name.split("—");
     const suffix = suffixParts.join("—").trim();
     return suffix || name.trim();
-}
-
-function ChartLegend({ color, label }: { color: string; label: string }) {
-    return (
-        <span className="inline-flex items-center gap-2">
-            <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: color }}
-            />
-            {label}
-        </span>
-    );
 }
 
 function ActiveMessageChartEmpty() {

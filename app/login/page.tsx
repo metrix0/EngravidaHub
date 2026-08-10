@@ -481,6 +481,7 @@ export default function LoginPage() {
 
                         <button
                             type="button"
+                            tabIndex={-1}
                             onClick={openForgotPassword}
                             className="cursor-pointer text-sm font-semibold text-brand transition hover:opacity-75"
                         >

@@ -239,7 +239,7 @@ export function MonthlyProjectionKpiCard({
                     </div>
 
                     <div className="mt-1 whitespace-nowrap text-3xl font-bold tracking-tight text-text">
-                        {formatCompactCurrency(currentValue)}
+                        {formatRevenueKpiCurrency(currentValue)}
                     </div>
 
                     <div
@@ -1110,6 +1110,17 @@ function formatCurrency(value: number) {
         currency: "BRL",
         maximumFractionDigits: 0,
     }).format(value);
+}
+
+function formatRevenueKpiCurrency(value: number) {
+    if (Math.abs(value) < 1_000_000) {
+        return formatCompactCurrency(value);
+    }
+
+    const flooredMillions = Math.floor((value / 1_000_000) * 10) / 10;
+    return `R$ ${flooredMillions.toLocaleString("pt-BR", {
+        maximumFractionDigits: 1,
+    })} mi`;
 }
 
 function formatCompactCurrency(value: number) {
