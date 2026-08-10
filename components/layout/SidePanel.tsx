@@ -26,6 +26,7 @@ import {
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { Modal } from "@/components/ui/Modal";
 import {
     type CurrentAttendant,
     fetchCurrentAttendant,
@@ -221,6 +222,7 @@ function PersistentSidePanel({
         );
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
+    const [helpModalOpen, setHelpModalOpen] = useState(false);
 
     useEffect(() => {
         if (isCompactPage) setIsExpanded(false);
@@ -502,6 +504,7 @@ function PersistentSidePanel({
                     <div className="shrink-0 px-4 pt-4">
                         <button
                             type="button"
+                            onClick={() => setHelpModalOpen(true)}
                             title="Precisa de ajuda?"
                             className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
                                 isExpanded ? "border-border" : "border-transparent"
@@ -574,6 +577,37 @@ function PersistentSidePanel({
                     </div>
                 </div>
             </aside>
+
+            <Modal
+                open={helpModalOpen}
+                onClose={() => setHelpModalOpen(false)}
+                width={480}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                zIndexClassName="z-[100]"
+                ariaLabelledBy="sidepanel-help-title"
+            >
+                <div className="p-7">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
+                        <HelpCircle size={23} />
+                    </div>
+                    <h2
+                        id="sidepanel-help-title"
+                        className="mt-5 text-xl font-bold text-slate-950"
+                    >
+                        Precisa de ajuda?
+                    </h2>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                        Entre em contato com o suporte do Engravida Hub pelo e-mail abaixo.
+                    </p>
+                    <a
+                        href="mailto:joao.almeida@engravida.com.br"
+                        className="mt-5 block rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-soft"
+                    >
+                        joao.almeida@engravida.com.br
+                    </a>
+                </div>
+            </Modal>
         </div>
     );
 }
