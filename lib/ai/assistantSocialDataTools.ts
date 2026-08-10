@@ -20,6 +20,7 @@ type SocialUser = {
 
 type AnalysisSummary = {
     short_label: string | null;
+    customer_start_intent?: string | null;
     conversation_goal: string | null;
     goal_status: string | null;
     customer_final_state: string | null;
@@ -28,12 +29,34 @@ type AnalysisSummary = {
     dropoff_moment: string | null;
     notable: boolean | null;
     notable_reason: string | null;
+    first_human_response_time_seconds?: number | null;
+    average_human_response_time_seconds?: number | null;
+    satisfaction_score?: number | null;
+    attendant_quality_score?: number | null;
+    analysis_message_count?: number | null;
+};
+
+type SocialConversationRow = {
+    id: string;
+    instagram_user_id: string | null;
+    channel: string | null;
+    started_at: string | null;
+    ended_at: string | null;
+    attendant_chat_name: string | null;
+    source: string | null;
+    tunnel: string | null;
+    origin: string | null;
+    last_message_text: string | null;
+    instagram_users: SocialUser | SocialUser[] | null;
+    conversation_analysis: AnalysisSummary | AnalysisSummary[] | null;
 };
 
 const SOCIAL_CHANNELS: SocialChannel[] = ["Instagram", "Facebook"];
-const MAX_SEARCH_ROWS = 5_000;
+const SEARCH_PAGE_SIZE = 1_000;
+const MAX_SEARCH_ROWS = 20_000;
 const MAX_MESSAGES = 300;
 const MAX_TRANSCRIPT_CHARS = 24_000;
+const DEFAULT_EXAMPLE_LIMIT = 8;
 
 export function isAssistantSocialDataTool(name: string) {
     return (
@@ -66,123 +89,294 @@ async function searchSocialConversations(
     args: JsonRecord,
 ): Promise<ToolExecution> {
     const requestedChannel = stringArg(args, "channel");
-    const queryText = stringArg(args, "query")?.toLocaleLowerCase("pt-BR") ?? "";
-    const dateFrom = stringArg(args, "date_from");
-    const dateTo = stringArg(args, "date_to");
-    const limit = integerArg(args, "limit", 12, 1, 30);
+    const queryText =
+        stringArg(args, "query")?.toLocaleLowerCase("pt-BR") ?? "";
+    const dateTo = stringArg(args, "date_to") ?? saoPauloDateKey(new Date());
+    const dateFrom = stringArg(args, "date_from") ?? addDays(dateTo, -29);
+    const requestedLimit = integerArg(args, "limit", 12, 1, 30);
     const channels = normalizeChannels(requestedChannel);
 
-    let query = supabase
-        .from("conversations")
-        .select(`
-            id,
-            instagram_user_id,
-            channel,
-            started_at,
-            ended_at,
-            attendant_chat_name,
-            source,
-            tunnel,
-            origin,
-            last_message_text,
-            instagram_users!conversations_instagram_user_id_fkey (
-                id,
-                username,
-                display_name,
-                profile_picture_url,
-                first_seen_at,
-                last_interaction_at
-            ),
-            conversation_analysis!conversations_conversation_analysis_id_fkey (
-                short_label,
-                conversation_goal,
-                goal_status,
-                customer_final_state,
-                resolution_result,
-                dropoff_happened,
-                dropoff_moment,
-                notable,
-                notable_reason
-            )
-        `)
-        .in("channel", channels)
-        .order("started_at", { ascending: false })
-        .limit(MAX_SEARCH_ROWS);
+    const { rows, capped } = await fetchSocialConversationRows({
+        channels,
+        dateFrom,
+        dateTo,
+    });
 
-    if (dateFrom) {
-        query = query.gte("started_at", brazilDayBoundary(dateFrom));
-    }
-    if (dateTo) {
-        query = query.lt("started_at", brazilDayBoundary(addDays(dateTo, 1)));
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-        throw new Error(`Falha ao buscar conversas sociais: ${error.message}`);
-    }
-
-    const conversations = (data ?? [])
-        .map((row) => {
-            const socialUser = relationOne(row.instagram_users) as SocialUser | null;
-            const analysis = relationOne(
-                row.conversation_analysis,
-            ) as AnalysisSummary | null;
-
-            return {
-                id: row.id,
-                channel: normalizeRowChannel(row.channel),
-                started_at: row.started_at,
-                ended_at: row.ended_at,
-                attendant_name: row.attendant_chat_name ?? null,
-                source: row.source ?? null,
-                tunnel: row.tunnel ?? null,
-                origin: row.origin ?? null,
-                preview: row.last_message_text ?? null,
-                social_user: socialUser
-                    ? {
-                          id: socialUser.id,
-                          display_name: socialUser.display_name ?? null,
-                          username: socialUser.username ?? null,
-                          first_seen_at: socialUser.first_seen_at ?? null,
-                          last_interaction_at:
-                              socialUser.last_interaction_at ?? null,
-                      }
-                    : null,
-                analysis,
-            };
-        })
-        .filter((item) => {
-            if (!queryText) return true;
-
-            const searchable = [
-                item.social_user?.display_name,
-                item.social_user?.username,
-                item.preview,
-                item.attendant_name,
-                item.analysis?.short_label,
-                item.analysis?.notable_reason,
-                item.analysis?.conversation_goal,
-                item.analysis?.customer_final_state,
-            ]
-                .filter(Boolean)
-                .join(" ")
-                .toLocaleLowerCase("pt-BR");
-
-            return searchable.includes(queryText.replace(/^@/, ""));
-        })
-        .slice(0, limit);
+    const normalized = rows.map(normalizeSocialConversation);
+    const filtered = queryText
+        ? normalized.filter((item) => matchesSocialQuery(item, queryText))
+        : normalized;
+    const exampleLimit = queryText
+        ? requestedLimit
+        : Math.min(DEFAULT_EXAMPLE_LIMIT, requestedLimit);
+    const examples = filtered.slice(0, exampleLimit);
+    const overview = buildSocialOverview(filtered, dateFrom, dateTo, channels);
 
     return {
         output: {
             ok: true,
+            period: { date_from: dateFrom, date_to: dateTo },
             channels,
-            conversations,
-            total_returned: conversations.length,
-            note:
-                "Para ler as mensagens de uma conversa específica, use get_social_conversation_context com o id retornado silenciosamente.",
+            overview,
+            conversations: examples,
+            total_matching: filtered.length,
+            examples_returned: examples.length,
+            coverage: {
+                capped,
+                max_rows_scanned: MAX_SEARCH_ROWS,
+                note: capped
+                    ? `A leitura atingiu o limite de ${MAX_SEARCH_ROWS.toLocaleString("pt-BR")} conversas; totais podem ser parciais. Refine o período para precisão total.`
+                    : "Todos os registros do período foram lidos.",
+            },
+            note: queryText
+                ? "A lista contém exemplos que correspondem ao filtro. Para ler uma conversa específica, use get_social_conversation_context com o id retornado silenciosamente."
+                : "Para contexto geral, responda diretamente usando overview; não é necessário abrir conversas individuais. Use get_social_conversation_context somente se o usuário pedir exemplos ou detalhes de uma conversa.",
         },
         cards: [],
+    };
+}
+
+async function fetchSocialConversationRows({
+    channels,
+    dateFrom,
+    dateTo,
+}: {
+    channels: SocialChannel[];
+    dateFrom: string;
+    dateTo: string;
+}) {
+    const rows: SocialConversationRow[] = [];
+    let offset = 0;
+    let capped = false;
+
+    while (offset < MAX_SEARCH_ROWS) {
+        const end = Math.min(
+            offset + SEARCH_PAGE_SIZE - 1,
+            MAX_SEARCH_ROWS - 1,
+        );
+        const { data, error } = await supabase
+            .from("conversations")
+            .select(`
+                id,
+                instagram_user_id,
+                channel,
+                started_at,
+                ended_at,
+                attendant_chat_name,
+                source,
+                tunnel,
+                origin,
+                last_message_text,
+                instagram_users!conversations_instagram_user_id_fkey (
+                    id,
+                    username,
+                    display_name,
+                    profile_picture_url,
+                    first_seen_at,
+                    last_interaction_at
+                ),
+                conversation_analysis!conversations_conversation_analysis_id_fkey (
+                    short_label,
+                    customer_start_intent,
+                    conversation_goal,
+                    goal_status,
+                    customer_final_state,
+                    resolution_result,
+                    dropoff_happened,
+                    dropoff_moment,
+                    notable,
+                    notable_reason,
+                    first_human_response_time_seconds,
+                    average_human_response_time_seconds,
+                    satisfaction_score,
+                    attendant_quality_score,
+                    analysis_message_count
+                )
+            `)
+            .in("channel", channels)
+            .gte("started_at", brazilDayBoundary(dateFrom))
+            .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)))
+            .order("started_at", { ascending: false })
+            .range(offset, end);
+
+        if (error) {
+            throw new Error(
+                `Falha ao buscar conversas sociais: ${error.message}`,
+            );
+        }
+
+        const page = (data ?? []) as unknown as SocialConversationRow[];
+        rows.push(...page);
+
+        if (page.length < SEARCH_PAGE_SIZE) {
+            return { rows, capped: false };
+        }
+
+        offset += SEARCH_PAGE_SIZE;
+    }
+
+    capped = true;
+    return { rows, capped };
+}
+
+function normalizeSocialConversation(row: SocialConversationRow) {
+    const socialUser = relationOne(row.instagram_users);
+    const analysis = relationOne(row.conversation_analysis);
+
+    return {
+        id: row.id,
+        channel: normalizeRowChannel(row.channel),
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        attendant_name: row.attendant_chat_name ?? null,
+        source: row.source ?? null,
+        tunnel: row.tunnel ?? null,
+        origin: row.origin ?? null,
+        preview: row.last_message_text ?? null,
+        social_user: socialUser
+            ? {
+                  id: socialUser.id,
+                  display_name: socialUser.display_name ?? null,
+                  username: socialUser.username ?? null,
+                  first_seen_at: socialUser.first_seen_at ?? null,
+                  last_interaction_at:
+                      socialUser.last_interaction_at ?? null,
+              }
+            : null,
+        analysis: analysis ?? null,
+    };
+}
+
+function matchesSocialQuery(
+    item: ReturnType<typeof normalizeSocialConversation>,
+    queryText: string,
+) {
+    const normalizedQuery = queryText.replace(/^@/, "");
+    const searchable = [
+        item.social_user?.display_name,
+        item.social_user?.username,
+        item.preview,
+        item.attendant_name,
+        item.analysis?.short_label,
+        item.analysis?.notable_reason,
+        item.analysis?.customer_start_intent,
+        item.analysis?.conversation_goal,
+        item.analysis?.customer_final_state,
+    ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase("pt-BR");
+
+    return searchable.includes(normalizedQuery);
+}
+
+function buildSocialOverview(
+    items: ReturnType<typeof normalizeSocialConversation>[],
+    dateFrom: string,
+    dateTo: string,
+    channels: SocialChannel[],
+) {
+    const byChannel = countBy(items, (item) => item.channel);
+    const byDay = countBy(
+        items,
+        (item) =>
+            item.started_at
+                ? saoPauloDateKey(new Date(item.started_at))
+                : "sem-data",
+    );
+    const analyzed = items.filter((item) => item.analysis);
+    const analyses = analyzed
+        .map((item) => item.analysis)
+        .filter((analysis): analysis is AnalysisSummary => Boolean(analysis));
+    const socialProfiles = new Set(
+        items
+            .map((item) => item.social_user?.id)
+            .filter((id): id is string => Boolean(id)),
+    );
+
+    const firstResponseValues = numericValues(
+        analyses.map((analysis) => analysis.first_human_response_time_seconds),
+    );
+    const averageResponseValues = numericValues(
+        analyses.map((analysis) => analysis.average_human_response_time_seconds),
+    );
+    const qualityValues = numericValues(
+        analyses.map((analysis) => analysis.attendant_quality_score),
+    );
+    const satisfactionValues = numericValues(
+        analyses.map((analysis) => analysis.satisfaction_score),
+    );
+    const analyzedMessageCounts = numericValues(
+        analyses.map((analysis) => analysis.analysis_message_count),
+    );
+
+    return {
+        period: { date_from: dateFrom, date_to: dateTo },
+        requested_channels: channels,
+        conversations: items.length,
+        social_profiles: socialProfiles.size,
+        by_channel: objectCountRows(byChannel, "channel"),
+        daily_conversations: objectCountRows(byDay, "date").sort((a, b) =>
+            String(a.date).localeCompare(String(b.date)),
+        ),
+        analysis_coverage: {
+            analyzed_conversations: analyzed.length,
+            unanalyzed_conversations: items.length - analyzed.length,
+            analyzed_percentage: percentage(analyzed.length, items.length),
+            analyzed_message_count_sum: sum(analyzedMessageCounts),
+            note: "Métricas de resolução, abandono, intenção, qualidade e tempo abaixo cobrem apenas conversas com análise disponível.",
+        },
+        outcomes: {
+            resolution_result: topCounts(
+                analyses.map((analysis) => analysis.resolution_result),
+                10,
+            ),
+            goal_status: topCounts(
+                analyses.map((analysis) => analysis.goal_status),
+                10,
+            ),
+            dropoff: {
+                happened: analyses.filter(
+                    (analysis) => analysis.dropoff_happened === true,
+                ).length,
+                not_happened: analyses.filter(
+                    (analysis) => analysis.dropoff_happened === false,
+                ).length,
+                unknown: analyses.filter(
+                    (analysis) => analysis.dropoff_happened == null,
+                ).length,
+            },
+        },
+        common_context: {
+            start_intents: topCounts(
+                analyses.map((analysis) => analysis.customer_start_intent),
+                8,
+            ),
+            conversation_goals: topCounts(
+                analyses.map((analysis) => analysis.conversation_goal),
+                8,
+            ),
+            final_states: topCounts(
+                analyses.map((analysis) => analysis.customer_final_state),
+                8,
+            ),
+            dropoff_moments: topCounts(
+                analyses.map((analysis) => analysis.dropoff_moment),
+                8,
+            ),
+        },
+        service_metrics: {
+            average_first_human_response_seconds: average(firstResponseValues),
+            average_human_response_seconds: average(averageResponseValues),
+            average_attendant_quality_score: average(qualityValues),
+            average_satisfaction_score: average(satisfactionValues),
+            samples: {
+                first_response: firstResponseValues.length,
+                average_response: averageResponseValues.length,
+                quality: qualityValues.length,
+                satisfaction: satisfactionValues.length,
+            },
+        },
     };
 }
 
@@ -268,7 +462,9 @@ async function getSocialConversationContext(
         );
     }
 
-    const socialUser = relationOne(conversation.instagram_users) as SocialUser | null;
+    const socialUser = relationOne(
+        conversation.instagram_users as SocialUser | SocialUser[] | null,
+    );
     const messages = messagesResult.data ?? [];
     const transcript = messages
         .map((message) => {
@@ -346,6 +542,15 @@ function addDays(date: string, amount: number) {
     return value.toISOString().slice(0, 10);
 }
 
+function saoPauloDateKey(date: Date) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(date);
+}
+
 function senderLabel(value: string) {
     if (value === "client") return "Cliente";
     if (value === "attendant") return "Atendente";
@@ -382,4 +587,59 @@ function integerArg(
     const value = Number(args[key]);
     if (!Number.isFinite(value)) return fallback;
     return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function numericValues(values: Array<number | null | undefined>) {
+    return values.filter(
+        (value): value is number =>
+            typeof value === "number" && Number.isFinite(value),
+    );
+}
+
+function sum(values: number[]) {
+    return values.reduce((total, value) => total + value, 0);
+}
+
+function average(values: number[]) {
+    if (values.length === 0) return null;
+    return Math.round((sum(values) / values.length) * 10) / 10;
+}
+
+function percentage(value: number, total: number) {
+    if (total <= 0) return 0;
+    return Math.round((value / total) * 1_000) / 10;
+}
+
+function countBy<T>(items: T[], keyOf: (item: T) => string) {
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+        const key = keyOf(item);
+        counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+}
+
+function objectCountRows(
+    counts: Record<string, number>,
+    keyName: string,
+): Array<Record<string, string | number>> {
+    return Object.entries(counts).map(([key, count]) => ({
+        [keyName]: key,
+        count,
+    }));
+}
+
+function topCounts(
+    values: Array<string | null | undefined>,
+    limit: number,
+) {
+    const counts = countBy(
+        values.filter((value): value is string => Boolean(value?.trim())),
+        (value) => value.trim(),
+    );
+
+    return Object.entries(counts)
+        .map(([label, count]) => ({ label, count }))
+        .sort((first, second) => second.count - first.count)
+        .slice(0, limit);
 }
