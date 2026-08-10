@@ -1381,6 +1381,19 @@ function ActiveMessageAnalytics({
             }));
     }, [history, visibleTemplateKeys]);
 
+    const chartTotals = useMemo(
+        () =>
+            dailyData.reduce(
+                (totals, item) => ({
+                    sent: totals.sent + item.sent,
+                    responses: totals.responses + item.responses,
+                    schedules: totals.schedules + item.schedules,
+                }),
+                { sent: 0, responses: 0, schedules: 0 },
+            ),
+        [dailyData],
+    );
+
     useEffect(() => {
         if (!templateMenuOpen) return;
 
@@ -1599,6 +1612,24 @@ function ActiveMessageAnalytics({
                             </div>
                         ) : null}
                     </div>
+
+                    {templateData.length > 0 ? (
+                        <div className="mt-5 grid grid-cols-3 gap-3">
+                            <ActiveMessageTotal
+                                label="Enviados"
+                                value={chartTotals.sent}
+                            />
+                            <ActiveMessageTotal
+                                label="Respostas"
+                                value={chartTotals.responses}
+                            />
+                            <ActiveMessageTotal
+                                label="Agendamentos"
+                                value={chartTotals.schedules}
+                            />
+                        </div>
+                    ) : null}
+
                     {dailyData.length > 0 ? (
                         <div className="mt-5 h-[320px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
@@ -1661,6 +1692,25 @@ function ActiveMessageAnalytics({
                 </section>
             </div>
         </section>
+    );
+}
+
+function ActiveMessageTotal({
+    label,
+    value,
+}: {
+    label: string;
+    value: number;
+}) {
+    return (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <div className="text-[11px] font-semibold text-slate-500">
+                {label}
+            </div>
+            <div className="mt-1 text-xl font-bold text-slate-900">
+                {value.toLocaleString("pt-BR")}
+            </div>
+        </div>
     );
 }
 
