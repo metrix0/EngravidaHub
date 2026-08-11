@@ -252,3 +252,8 @@ button[title="Ocultar chats"] {
         0 4px 6px -4px rgb(15 23 42 / 0.1) !important;
     padding: 0.75rem 1rem !important;
 }
+
+/* Match every Recharts hover cursor to the light dashboard chart highlight. */
+.recharts-tooltip-cursor {
+    fill: #f8fafc !important;
+}
