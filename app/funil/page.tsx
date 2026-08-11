@@ -1891,8 +1891,8 @@ function calledWithinLastDays(value: string | null, days: number) {
     const calledAt = new Date(value).getTime();
     if (!Number.isFinite(calledAt)) return false;
 
-    const age = Date.now() - calledAt;
-    return age >= 0 && age <= days * 24 * 60 * 60 * 1000;
+    const age = Math.max(0, Date.now() - calledAt);
+    return age <= days * 24 * 60 * 60 * 1000;
 }
 
 function callHappenedAfterScheduleCreated(
