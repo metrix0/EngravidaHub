@@ -39,6 +39,10 @@ type FunnelClient = {
     updated_at: string;
 };
 
+type FunnelJourneyEvent = ClinisysJourneyEvent & {
+    created_in_source_at: string | null;
+};
+
 const DEFAULT_DAYS = 30;
 const PAGE_SIZE = 1_000;
 
@@ -148,6 +152,9 @@ export async function GET(request: Request) {
                             : milestone
                               ? {
                                     id: milestone.event.id,
+                                    created_at:
+                                        (milestone.event as FunnelJourneyEvent)
+                                            .created_in_source_at,
                                     scheduled_for:
                                         milestone.event.scheduled_for,
                                     procedure_name:
@@ -362,7 +369,7 @@ async function loadJourneyEventPage(from: number, withCount: boolean) {
     const { data, error, count } = await supabase
         .from("funnel_clinisys_events")
         .select(
-            "id, client_id, scheduled_for, procedure_name, status, event_kind",
+            "id, client_id, scheduled_for, created_in_source_at, procedure_name, status, event_kind",
             withCount ? { count: "exact" } : undefined,
         )
         .order("scheduled_for", { ascending: true })
@@ -370,7 +377,7 @@ async function loadJourneyEventPage(from: number, withCount: boolean) {
         .range(from, from + PAGE_SIZE - 1);
 
     return {
-        events: (data ?? []) as ClinisysJourneyEvent[],
+        events: (data ?? []) as FunnelJourneyEvent[],
         error,
         count,
     };
@@ -473,6 +480,7 @@ function appointmentToSummary(
 
     return {
         id: appointment.id,
+        created_at: appointment.created_at,
         scheduled_for: appointment.starts_at.slice(0, 10),
         procedure_name: appointment.procedure_name,
         status,
@@ -483,8 +491,8 @@ function appointmentToSummary(
     };
 }
 
-function groupEventsByClient(events: ClinisysJourneyEvent[]) {
-    const grouped = new Map<string, ClinisysJourneyEvent[]>();
+function groupEventsByClient(events: FunnelJourneyEvent[]) {
+    const grouped = new Map<string, FunnelJourneyEvent[]>();
     for (const event of events) {
         const current = grouped.get(event.client_id) ?? [];
         current.push(event);

@@ -108,6 +108,7 @@ type FunnelStage = {
 
 type FunnelScheduleSummary = {
     id: string;
+    created_at: string | null;
     scheduled_for: string;
     procedure_name: string | null;
     status: string | null;
@@ -1859,10 +1860,10 @@ function getFunnelCallState(client: Client): FunnelCallState {
 
     if (
         !client.last_called_at ||
-        !client.appointment?.created_at ||
-        !callHappenedAfterAppointmentCreatedAt(
+        !schedule.created_at ||
+        !callHappenedAfterScheduleCreated(
             client.last_called_at,
-            client.appointment.created_at,
+            schedule.created_at,
         )
     ) {
         return "pending";
@@ -1871,17 +1872,17 @@ function getFunnelCallState(client: Client): FunnelCallState {
     return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
 }
 
-function callHappenedAfterAppointmentCreatedAt(
+function callHappenedAfterScheduleCreated(
     calledAt: string,
-    appointmentCreatedAt: string,
+    scheduleCreatedAt: string,
 ) {
     const calledAtTime = new Date(calledAt).getTime();
-    const appointmentCreatedAtTime = new Date(appointmentCreatedAt).getTime();
+    const scheduleCreatedAtTime = new Date(scheduleCreatedAt).getTime();
 
     return (
         Number.isFinite(calledAtTime) &&
-        Number.isFinite(appointmentCreatedAtTime) &&
-        calledAtTime > appointmentCreatedAtTime
+        Number.isFinite(scheduleCreatedAtTime) &&
+        calledAtTime > scheduleCreatedAtTime
     );
 }
 
