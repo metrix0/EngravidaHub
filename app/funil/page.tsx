@@ -1224,11 +1224,11 @@ export default function FunnelPage() {
 
                 <div className="mb-8 flex flex-wrap justify-end gap-3">
                     {/*<FilterButton*/}
-                    {/*    label={selectedFunnel?.name ?? "Funnel Comercial Principal"}*/}
+                    {/*    label={selectedFunnel?.name ?? "Funnel Comercial Principal"*/}
                     {/*    values={funnelIds}*/}
                     {/*    onChange={(values) => {*/}
                     {/*        setFunnelIds(values.slice(0, 1));*/}
-                    {/*    }}*/}
+                    {/*    }*/}
                     {/*    options={funnels.map((funnel) => ({*/}
                     {/*        label: funnel.name,*/}
                     {/*        value: funnel.id,*/}
@@ -1859,9 +1859,10 @@ function getFunnelCallState(client: Client): FunnelCallState {
 
     if (
         !client.last_called_at ||
-        !callHappenedAfterScheduleDate(
+        !client.appointment?.created_at ||
+        !callHappenedAfterAppointmentCreatedAt(
             client.last_called_at,
-            schedule.scheduled_for,
+            client.appointment.created_at,
         )
     ) {
         return "pending";
@@ -1870,19 +1871,17 @@ function getFunnelCallState(client: Client): FunnelCallState {
     return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
 }
 
-function callHappenedAfterScheduleDate(
+function callHappenedAfterAppointmentCreatedAt(
     calledAt: string,
-    scheduledFor: string,
+    appointmentCreatedAt: string,
 ) {
     const calledAtTime = new Date(calledAt).getTime();
-    const scheduleDateEnd = new Date(
-        `${scheduledFor.slice(0, 10)}T23:59:59.999-03:00`,
-    ).getTime();
+    const appointmentCreatedAtTime = new Date(appointmentCreatedAt).getTime();
 
     return (
         Number.isFinite(calledAtTime) &&
-        Number.isFinite(scheduleDateEnd) &&
-        calledAtTime > scheduleDateEnd
+        Number.isFinite(appointmentCreatedAtTime) &&
+        calledAtTime > appointmentCreatedAtTime
     );
 }
 
