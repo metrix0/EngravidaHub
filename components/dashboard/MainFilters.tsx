@@ -3,6 +3,7 @@
 
 import { Eye, MapPin, TrainTrack, User } from "lucide-react";
 
+import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import FilterButton, {
     type FilterOption,
 } from "@/components/ui/FilterButton";
@@ -60,6 +61,7 @@ export function MainFilters({
     );
     const showTunnels = shouldShowFilter("tunnels", show, setTunnelValues);
     const showOrigins = shouldShowFilter("origins", show, setOriginValues);
+    const useMoreFilters = showTunnels && showOrigins;
 
     return (
         <>
@@ -85,26 +87,49 @@ export function MainFilters({
                 />
             )}
 
-            {showTunnels && (
-                <FilterButton
-                    icon={<TrainTrack size={16} />}
-                    label="Todos os túneis"
-                    values={setTunnelValues ? tunnelValues : undefined}
-                    onChange={setTunnelValues}
-                    options={tunnels}
-                    widthClassName={widths?.tunnels ?? "w-[220px]"}
+            {useMoreFilters && setTunnelValues && setOriginValues ? (
+                <AdvancedFilterButton
+                    sections={[
+                        {
+                            id: "tunnels",
+                            title: "Túnel",
+                            options: tunnels,
+                            values: tunnelValues,
+                            onChange: setTunnelValues,
+                        },
+                        {
+                            id: "origins",
+                            title: "Origem",
+                            options: origins,
+                            values: originValues,
+                            onChange: setOriginValues,
+                        },
+                    ]}
                 />
-            )}
+            ) : (
+                <>
+                    {showTunnels && (
+                        <FilterButton
+                            icon={<TrainTrack size={16} />}
+                            label="Todos os túneis"
+                            values={setTunnelValues ? tunnelValues : undefined}
+                            onChange={setTunnelValues}
+                            options={tunnels}
+                            widthClassName={widths?.tunnels ?? "w-[220px]"}
+                        />
+                    )}
 
-            {showOrigins && (
-                <FilterButton
-                    icon={<Eye size={16} />}
-                    label="Todas as origens"
-                    values={setOriginValues ? originValues : undefined}
-                    onChange={setOriginValues}
-                    options={origins}
-                    widthClassName={widths?.origins ?? "w-[220px]"}
-                />
+                    {showOrigins && (
+                        <FilterButton
+                            icon={<Eye size={16} />}
+                            label="Todas as origens"
+                            values={setOriginValues ? originValues : undefined}
+                            onChange={setOriginValues}
+                            options={origins}
+                            widthClassName={widths?.origins ?? "w-[220px]"}
+                        />
+                    )}
+                </>
             )}
         </>
     );
