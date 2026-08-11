@@ -237,3 +237,18 @@ body::-webkit-scrollbar-corner,
 button[title="Ocultar chats"] {
     right: calc(100% + 234px) !important;
 }
+
+/* Keep every Recharts hover above labels rendered over the chart. */
+.recharts-tooltip-wrapper {
+    z-index: 20 !important;
+}
+
+/* Match Recharts' built-in tooltip to the rounded dashboard tooltip style. */
+.recharts-default-tooltip {
+    border: 1px solid rgb(226 232 240) !important;
+    border-radius: 0.75rem !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 15px -3px rgb(15 23 42 / 0.1),
+        0 4px 6px -4px rgb(15 23 42 / 0.1) !important;
+    padding: 0.75rem 1rem !important;
+}
