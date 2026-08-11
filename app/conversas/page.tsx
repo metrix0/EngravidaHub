@@ -58,7 +58,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
     {
         id: "client",
         label: "Cliente",
-        width: "14%",
+        width: "25%",
         render: (conversation) => (
             <div className="flex min-w-0 items-center gap-3">
                 <InitialsAvatar
@@ -106,14 +106,6 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         width: "13%",
         render: (conversation) => (
             <div title={conversation.attendant_name} className="truncate text-slate-700">{conversation.attendant_name}</div>
-        ),
-    },
-    {
-        id: "objective",
-        label: "Objetivo",
-        width: "11%",
-        render: (conversation) => (
-            <div title={conversation.objective} className="truncate text-slate-700">{conversation.objective}</div>
         ),
     },
     {
@@ -553,12 +545,12 @@ function MessagesSkeleton() {
 function MessagesTableSkeleton() {
     return (
         <div className="overflow-hidden">
-            <div className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.15fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
-                {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
+            <div className="grid grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
+                {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
             </div>
             {Array.from({ length: 8 }).map((_, rowIndex) => (
-                <div key={rowIndex} className="grid grid-cols-[1.35fr_0.85fr_1fr_1.55fr_1.35fr_1.15fr_1.2fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
-                    {Array.from({ length: 9 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
+                <div key={rowIndex} className="grid grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
+                    {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
                 </div>
             ))}
         </div>

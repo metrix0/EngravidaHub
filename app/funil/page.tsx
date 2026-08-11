@@ -1516,6 +1516,7 @@ function IntakeColumn({
                             blurPhone={blurPhone}
                             removeActionTitle="Remover tag"
                             showClosingTagDate
+                            intakeCallState
                             onRemoveClient={onRemoveTag}
                             onOpenClientProfile={onOpenClientProfile}
                             onOpenClientSchedule={onOpenClientSchedule}
@@ -1675,6 +1676,7 @@ function FunnelClientCard({
                                 showRemoveAction = true,
                                 removeActionTitle = "Remover do funil",
                                 showClosingTagDate = false,
+                                intakeCallState = false,
                             }: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
@@ -1685,9 +1687,10 @@ function FunnelClientCard({
     showRemoveAction?: boolean;
     removeActionTitle?: string;
     showClosingTagDate?: boolean;
+    intakeCallState?: boolean;
 }) {
     const schedule = client.schedule_summary;
-    const callState = getFunnelCallState(client);
+    const callState = getFunnelCallState(client, intakeCallState);
     const followUpLabel =
         callState !== "none" && callState !== "pending"
             ? getClientCallClosureLabel(client.last_call_closure_tag)
@@ -1801,12 +1804,15 @@ function FunnelClientCard({
                             "Não informado"}
                     </div>
 
-                    {schedule?.attention_label && (
+                    {(schedule?.attention_label ||
+                        (intakeCallState && followUpLabel)) && (
                         <div className="mt-2 flex flex-wrap items-center gap-1">
-                            <div className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
-                                <CircleAlert size={11} />
-                                {schedule.attention_label}
-                            </div>
+                            {schedule?.attention_label ? (
+                                <div className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
+                                    <CircleAlert size={11} />
+                                    {schedule.attention_label}
+                                </div>
+                            ) : null}
                             {followUpLabel ? (
                                 <div
                                     className={[
@@ -1854,7 +1860,15 @@ function FunnelClientCard({
     );
 }
 
-function getFunnelCallState(client: Client): FunnelCallState {
+function getFunnelCallState(
+    client: Client,
+    intakeCallState = false,
+): FunnelCallState {
+    if (intakeCallState) {
+        if (!calledWithinLastDays(client.last_called_at, 28)) return "none";
+        return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
+    }
+
     const schedule = client.schedule_summary;
     if (!schedule?.attention) return "none";
 
@@ -1870,6 +1884,15 @@ function getFunnelCallState(client: Client): FunnelCallState {
     }
 
     return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
+}
+
+function calledWithinLastDays(value: string | null, days: number) {
+    if (!value) return false;
+    const calledAt = new Date(value).getTime();
+    if (!Number.isFinite(calledAt)) return false;
+
+    const age = Date.now() - calledAt;
+    return age >= 0 && age <= days * 24 * 60 * 60 * 1000;
 }
 
 function callHappenedAfterScheduleCreated(

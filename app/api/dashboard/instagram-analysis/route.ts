@@ -11,7 +11,10 @@ import {
     getOutcomeEventLabel,
     humanizeAnalysisCode,
 } from "@/lib/conversationAnalysisLabels";
-import { resolveDashboardDateRange } from "@/lib/dashboard/metrics";
+import {
+    parseUuidArray,
+    resolveDashboardDateRange,
+} from "@/lib/dashboard/metrics";
 
 const PAGE_SIZE = 1_000;
 const MAX_CONVERSATIONS = 100_000;
@@ -150,11 +153,17 @@ const DROPOFF_REASON_LABELS: Record<string, string> = {
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
+    const unitIds = parseUuidArray(searchParams.get("unit_ids"));
 
     try {
+        const unitLocations = await loadUnitLocations(
+            unitIds,
+            request.signal,
+        );
         const conversations = await loadInstagramConversations(
             range.startAt,
             range.endAt,
+            unitLocations,
             request.signal,
         );
         const analyses = await loadInstagramAnalyses(
@@ -184,17 +193,42 @@ export async function GET(request: Request) {
     }
 }
 
+async function loadUnitLocations(
+    unitIds: string[],
+    signal: AbortSignal,
+): Promise<string[] | null> {
+    if (unitIds.length === 0) return null;
+
+    const { data, error } = await supabase
+        .from("units")
+        .select("name")
+        .in("id", unitIds)
+        .abortSignal(signal);
+
+    if (error) throw error;
+
+    return (data ?? []).flatMap((unit) =>
+        typeof unit.name === "string" && unit.name.trim()
+            ? [unit.name.trim()]
+            : [],
+    );
+}
+
 async function loadInstagramConversations(
     startAt: string,
     endAt: string,
+    unitLocations: string[] | null,
     signal: AbortSignal,
 ) {
     const rows: InstagramConversationRow[] = [];
+    if (unitLocations?.length === 0) return rows;
+
+    const unitLocationSet = unitLocations ? new Set(unitLocations) : null;
 
     for (let from = 0; from < MAX_CONVERSATIONS; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("conversations")
-            .select("id, started_at")
+            .select("id, started_at, instagram_users(location)")
             .eq("channel", "Instagram")
             .gte("started_at", startAt)
             .lt("started_at", endAt)
@@ -205,8 +239,22 @@ async function loadInstagramConversations(
 
         if (error) throw error;
 
-        const page = (data ?? []) as InstagramConversationRow[];
-        rows.push(...page);
+        const page = (data ?? []) as unknown as Array<
+            InstagramConversationRow & {
+                instagram_users: { location: string | null } | null;
+            }
+        >;
+        rows.push(
+            ...(unitLocationSet
+                ? page.filter((conversation) =>
+                      conversation.instagram_users?.location
+                          ? unitLocationSet.has(
+                                conversation.instagram_users.location,
+                            )
+                          : false,
+                  )
+                : page),
+        );
         if (page.length < PAGE_SIZE) break;
     }
 
