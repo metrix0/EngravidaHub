@@ -63,6 +63,12 @@ type ConversationClientRow = {
         | null;
 };
 
+type LegacyBackfillInput = {
+    sheetChunkSize?: number;
+    rpcBatchSize?: number;
+    dryRun?: boolean;
+};
+
 export async function syncClosingTagsForConversations({
     conversationIds,
 }: {
@@ -157,6 +163,21 @@ export async function backfillClosingTagsFromLastDays({
         matched_clients: matchedClients,
         updated_clients: updatedClients,
     };
+}
+
+/**
+ * Compatibility export for the old CLI script. The previous full sheet
+ * attribution routine was removed; use the dedicated closing-tag backfill
+ * endpoint instead so running the legacy script cannot perform unintended
+ * attribution writes.
+ */
+export async function runFullSheetAttributionBackfill(
+    _input: LegacyBackfillInput = {},
+): Promise<never> {
+    throw new Error(
+        "The legacy full sheet attribution backfill is disabled. " +
+            "Use /api/finalize-inactive-inbox?backfill_closing_tags_days=30 for closing-tag backfills.",
+    );
 }
 
 function emptySyncResult() {
