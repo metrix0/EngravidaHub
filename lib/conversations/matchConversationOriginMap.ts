@@ -15,6 +15,7 @@ const GOOGLE_SHEETS_SCOPE =
     "https://www.googleapis.com/auth/spreadsheets.readonly";
 const QUERY_BATCH_SIZE = 100;
 const WRITE_CONCURRENCY = 8;
+const CLOSING_TAG_RPC_BATCH_SIZE = 500;
 const ORIGIN_MAP_MAX_ROWS = 5_000;
 const GOOGLE_SHEETS_MAX_ATTEMPTS = 3;
 const GOOGLE_SHEETS_RETRY_BASE_MS = 500;
@@ -26,6 +27,46 @@ const GOOGLE_SHEETS_RETRYABLE_STATUSES = new Set([
     503,
     504,
 ]);
+
+const NO_SCHEDULE_TAG = "Não agendou 1ª Avaliação";
+const NO_RETURN_TAG = "Sem retorno da paciente";
+
+type ClosingTag = typeof NO_SCHEDULE_TAG | typeof NO_RETURN_TAG;
+
+const CLOSING_TAG_MESSAGE_ENTRIES: Array<readonly [string, ClosingTag]> = [
+    [
+        "Informo que o agendamento de sua avaliação NÃO FOI concluído. Caso tenha interesse em agendar, solicitamos que retorne o contato neste canal.",
+        NO_SCHEDULE_TAG,
+    ],
+    [
+        "Avaliação não agendada no momento. Ficamos no aguardo do seu retorno para realizarmos o agendamento futuramente.",
+        NO_SCHEDULE_TAG,
+    ],
+    [
+        "Avaliação não agendada, aguardo o seu retorno para agendarmos.",
+        NO_SCHEDULE_TAG,
+    ],
+    [
+        "Agendamento não realizado. Aguardo seu retorno para agendarmos.",
+        NO_SCHEDULE_TAG,
+    ],
+    [
+        "Atendimento não agendado. Aguardo o seu retorno para seguirmos com o seu agendamento.",
+        NO_SCHEDULE_TAG,
+    ],
+    [
+        "valiação não agendada, aguardo o seu retorno para agendarmos.",
+        NO_SCHEDULE_TAG,
+    ],
+    ["Por falta de retorno, a conversa será finalizada", NO_RETURN_TAG],
+];
+
+const CLOSING_TAG_BY_MESSAGE = new Map<string, ClosingTag>(
+    CLOSING_TAG_MESSAGE_ENTRIES.map(([message, closingTag]) => [
+        normalizeMessage(message)!,
+        closingTag,
+    ]),
+);
 
 type GoogleValuesResponse = {
     values?: string[][];
@@ -40,6 +81,7 @@ type OriginMapEntry = {
 
 type ConversationRow = {
     id: string;
+    client_id: string | null;
     origin: string | null;
     tunnel: string | null;
 };
@@ -62,6 +104,12 @@ type AttributionUpdate = {
     matched_sheet_row: number;
 };
 
+type ClientClosingTagUpdate = {
+    client_id: string;
+    closing_tag: ClosingTag;
+    closing_tag_at: string;
+};
+
 export async function matchConversationOriginMap({
     conversationIds,
 }: {
@@ -82,17 +130,23 @@ export async function matchConversationOriginMap({
     const sheetFetch = await fetchOriginMapRows();
     const sheetRows = sheetFetch.rows;
     const originMap = parseOriginMap(sheetRows);
-    const [conversations, messages] = await Promise.all([
+    const [conversations, clientMessages, attendantMessages] = await Promise.all([
         loadConversations(uniqueConversationIds),
-        loadClientMessages(uniqueConversationIds),
+        loadMessages(uniqueConversationIds, "client"),
+        loadMessages(uniqueConversationIds, "attendant"),
     ]);
 
     const conversationsById = new Map(
         conversations.map((conversation) => [conversation.id, conversation]),
     );
-    const messagesByConversationId = groupMessagesByConversation(messages);
+    const clientMessagesByConversationId =
+        groupMessagesByConversation(clientMessages);
+    const attendantMessagesByConversationId =
+        groupMessagesByConversation(attendantMessages);
+    const closingTagByClientId = new Map<string, ClientClosingTagUpdate>();
     const updates: AttributionUpdate[] = [];
     let matchedConversations = 0;
+    let matchedClosingTagMessages = 0;
     let skippedWithoutMatch = 0;
     let skippedAlreadyAttributed = 0;
 
@@ -103,8 +157,30 @@ export async function matchConversationOriginMap({
             continue;
         }
 
+        if (conversation.client_id) {
+            const closingTagMatch = findLatestClosingTagMatch(
+                attendantMessagesByConversationId.get(conversationId) ?? [],
+            );
+
+            if (closingTagMatch) {
+                matchedClosingTagMessages += 1;
+                const current = closingTagByClientId.get(conversation.client_id);
+                if (
+                    !current ||
+                    new Date(closingTagMatch.message.sent_at).getTime() >=
+                        new Date(current.closing_tag_at).getTime()
+                ) {
+                    closingTagByClientId.set(conversation.client_id, {
+                        client_id: conversation.client_id,
+                        closing_tag: closingTagMatch.closingTag,
+                        closing_tag_at: closingTagMatch.message.sent_at,
+                    });
+                }
+            }
+        }
+
         const match = findConversationMatch(
-            messagesByConversationId.get(conversationId) ?? [],
+            clientMessagesByConversationId.get(conversationId) ?? [],
             originMap.entries,
         );
 
@@ -154,6 +230,10 @@ export async function matchConversationOriginMap({
         }
     });
 
+    const closingTagSync = await syncClientClosingTags(
+        [...closingTagByClientId.values()],
+    );
+
     const result = {
         sheet_name: ORIGIN_MAP_SHEET_NAME,
         sheet_fetch_attempts: sheetFetch.attempts,
@@ -165,6 +245,9 @@ export async function matchConversationOriginMap({
         updated_conversations: updates.length,
         updated_origins: updates.filter((update) => update.origin_changed).length,
         updated_tunnels: updates.filter((update) => update.tunnel_changed).length,
+        matched_closing_tag_messages: matchedClosingTagMessages,
+        matched_clients_for_closing_tag: closingTagSync.matched_clients,
+        updated_client_closing_tags: closingTagSync.updated_clients,
         skipped_without_match: skippedWithoutMatch,
         skipped_already_attributed: skippedAlreadyAttributed,
     };
@@ -185,6 +268,9 @@ function emptyResult() {
         updated_conversations: 0,
         updated_origins: 0,
         updated_tunnels: 0,
+        matched_closing_tag_messages: 0,
+        matched_clients_for_closing_tag: 0,
+        updated_client_closing_tags: 0,
         skipped_without_match: 0,
         skipped_already_attributed: 0,
     };
@@ -351,7 +437,7 @@ async function loadConversations(ids: string[]) {
     for (const batch of chunk(ids, QUERY_BATCH_SIZE)) {
         const { data, error } = await supabase
             .from("conversations")
-            .select("id, origin, tunnel")
+            .select("id, client_id, origin, tunnel")
             .in("id", batch)
             .not("ended_at", "is", null);
 
@@ -367,7 +453,10 @@ async function loadConversations(ids: string[]) {
     return rows;
 }
 
-async function loadClientMessages(ids: string[]) {
+async function loadMessages(
+    ids: string[],
+    senderType: "client" | "attendant",
+) {
     const rows: MessageRow[] = [];
 
     for (const batch of chunk(ids, QUERY_BATCH_SIZE)) {
@@ -375,14 +464,14 @@ async function loadClientMessages(ids: string[]) {
             .from("messages")
             .select("id, conversation_id, text, sent_at, sequence_index")
             .in("conversation_id", batch)
-            .eq("sender_type", "client")
+            .eq("sender_type", senderType)
             .order("sent_at", { ascending: true })
             .order("sequence_index", { ascending: true })
             .order("id", { ascending: true });
 
         if (error) {
             throw new Error(
-                `Failed to load client messages for origin attribution: ${error.message}`,
+                `Failed to load ${senderType} messages for attribution: ${error.message}`,
             );
         }
 
@@ -418,6 +507,56 @@ function findConversationMatch(
     }
 
     return null;
+}
+
+function findLatestClosingTagMatch(messages: MessageRow[]) {
+    let latest:
+        | {
+              message: MessageRow;
+              closingTag: ClosingTag;
+          }
+        | null = null;
+
+    for (const message of messages) {
+        const normalizedText = normalizeMessage(message.text);
+        if (!normalizedText) continue;
+
+        const closingTag = CLOSING_TAG_BY_MESSAGE.get(normalizedText);
+        if (!closingTag) continue;
+
+        latest = { message, closingTag };
+    }
+
+    return latest;
+}
+
+async function syncClientClosingTags(items: ClientClosingTagUpdate[]) {
+    let updatedClients = 0;
+    let matchedClients = 0;
+
+    for (const batch of chunk(items, CLOSING_TAG_RPC_BATCH_SIZE)) {
+        const { data, error } = await supabase.rpc(
+            "sync_client_last_closing_tags",
+            {
+                p_items: batch,
+            },
+        );
+
+        if (error) {
+            throw new Error(
+                `Failed to sync client closing tags: ${error.message}`,
+            );
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+        updatedClients += Number(row?.updated_clients ?? 0);
+        matchedClients += Number(row?.matched_clients ?? 0);
+    }
+
+    return {
+        updated_clients: updatedClients,
+        matched_clients: matchedClients,
+    };
 }
 
 async function getGoogleAccessToken() {
