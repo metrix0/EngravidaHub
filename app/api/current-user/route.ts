@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 
 import { supabase as adminSupabase } from "@/lib";
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
-import { normalizeAllowedTabs } from "@/lib/auth/userAccess";
+import {
+    normalizeAllowedTabs,
+    type CurrentUserUnitLock,
+} from "@/lib/auth/userAccess";
 
 type UserPermissionRow = {
     auth_user_id: string;
@@ -11,6 +14,22 @@ type UserPermissionRow = {
     allowed_tabs: unknown;
     attendant_id: string | null;
     active: boolean;
+};
+
+type AttendantRow = {
+    queue_id: string | null;
+    active: boolean;
+};
+
+type QueueRow = {
+    id: string;
+    name: string;
+};
+
+type UnitRow = {
+    id: string;
+    name: string;
+    city: string;
 };
 
 export async function GET() {
@@ -45,6 +64,9 @@ export async function GET() {
 
     const permissionRow = permissionData as UserPermissionRow | null;
     const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
+    const unitLock = permissionRow
+        ? await resolveAttendantUnitLock(permissionRow)
+        : null;
 
     return NextResponse.json({
         ok: true,
@@ -66,9 +88,82 @@ export async function GET() {
                 allowed_tabs: normalizeAllowedTabs(permissionRow.allowed_tabs),
                 attendant_id: permissionRow.attendant_id,
                 active: permissionRow.active,
+                unit_lock: unitLock,
             }
             : null,
     });
+}
+
+async function resolveAttendantUnitLock(
+    permission: UserPermissionRow,
+): Promise<CurrentUserUnitLock | null> {
+    if (
+        !permission.active ||
+        permission.preset !== "atendente" ||
+        !permission.attendant_id
+    ) {
+        return null;
+    }
+
+    const [attendantResult, queuesResult, unitsResult] = await Promise.all([
+        adminSupabase
+            .from("attendants")
+            .select("queue_id, active")
+            .eq("id", permission.attendant_id)
+            .maybeSingle(),
+        adminSupabase
+            .from("queues")
+            .select("id, name")
+            .eq("active", true),
+        adminSupabase
+            .from("units")
+            .select("id, name, city")
+            .eq("active", true),
+    ]);
+
+    if (attendantResult.error || queuesResult.error || unitsResult.error) {
+        console.error("[current-user] unit lock lookup failed", {
+            attendant: attendantResult.error?.message ?? null,
+            queues: queuesResult.error?.message ?? null,
+            units: unitsResult.error?.message ?? null,
+        });
+        return null;
+    }
+
+    const attendant = attendantResult.data as AttendantRow | null;
+    if (!attendant?.active || !attendant.queue_id) return null;
+
+    const queue = ((queuesResult.data ?? []) as QueueRow[]).find(
+        (item) => item.id === attendant.queue_id,
+    );
+    if (!queue?.name.trim()) return null;
+
+    const normalizedQueueName = normalizePlaceName(queue.name);
+    const units = (unitsResult.data ?? []) as UnitRow[];
+
+    const matchingUnit = [...units]
+        .filter((unit) => unit.city?.trim())
+        .sort((first, second) => second.city.length - first.city.length)
+        .find((unit) =>
+            normalizedQueueName.includes(normalizePlaceName(unit.city)),
+        );
+
+    if (!matchingUnit) return null;
+
+    return {
+        id: matchingUnit.id,
+        name: matchingUnit.name,
+        city: matchingUnit.city,
+    };
+}
+
+function normalizePlaceName(value: string) {
+    return value
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function getMetadataString(

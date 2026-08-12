@@ -1,8 +1,10 @@
 // components/dashboard/MainFilters.tsx
 "use client";
 
+import { useLayoutEffect } from "react";
 import { Eye, MapPin, TrainTrack, User } from "lucide-react";
 
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import FilterButton, {
     type FilterOption,
@@ -53,6 +55,10 @@ export function MainFilters({
     show,
     widths,
 }: MainFiltersProps) {
+    const { currentUser } = useCurrentUser();
+    const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
+    const effectiveUnitValues = lockedUnitId ? [lockedUnitId] : unitValues;
+
     const showUnits = shouldShowFilter("units", show, setUnitValues);
     const showAttendants = shouldShowFilter(
         "attendants",
@@ -63,16 +69,24 @@ export function MainFilters({
     const showOrigins = shouldShowFilter("origins", show, setOriginValues);
     const useMoreFilters = showTunnels && showOrigins;
 
+    useLayoutEffect(() => {
+        if (!lockedUnitId || !setUnitValues) return;
+        if (unitValues.length === 1 && unitValues[0] === lockedUnitId) return;
+
+        setUnitValues([lockedUnitId]);
+    }, [lockedUnitId, setUnitValues, unitValues]);
+
     return (
         <>
             {showUnits && (
                 <FilterButton
                     icon={<MapPin size={16} />}
                     label="Todas as unidades"
-                    values={setUnitValues ? unitValues : undefined}
+                    values={setUnitValues ? effectiveUnitValues : undefined}
                     onChange={setUnitValues}
                     options={units}
                     widthClassName={widths?.units ?? "w-[230px]"}
+                    disabled={Boolean(lockedUnitId)}
                 />
             )}
 

@@ -18,12 +18,19 @@ export const APP_TAB_IDS = [
 
 export type AppTabId = (typeof APP_TAB_IDS)[number];
 
+export type CurrentUserUnitLock = {
+    id: string;
+    name: string;
+    city: string;
+};
+
 export type CurrentUserPermission = {
     auth_user_id: string;
     preset: string;
     allowed_tabs: AppTabId[];
     attendant_id: string | null;
     active: boolean;
+    unit_lock?: CurrentUserUnitLock | null;
 };
 
 export const APP_TAB_HREFS: Record<AppTabId, string> = {

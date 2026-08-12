@@ -17,6 +17,7 @@ import {
     SidePanel,
     Skeleton,
 } from "@/components";
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
@@ -45,6 +46,9 @@ const FORMAT_OPTIONS = [
 ];
 
 export default function AppointmentsPage() {
+    const { currentUser } = useCurrentUser();
+    const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
+
     const [weekStart, setWeekStart] = useState(() => startOfWeekSunday(new Date()));
     const [units, setUnits] = useState<SchedulingUnitOption[]>([]);
     const [doctors, setDoctors] = useState<SchedulingDoctorOption[]>([]);
@@ -54,7 +58,9 @@ export default function AppointmentsPage() {
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
 
-    const [unitValues, setUnitValues] = useState<string[]>([]);
+    const [unitValues, setUnitValues] = useState<string[]>(() =>
+        lockedUnitId ? [lockedUnitId] : [],
+    );
     const [doctorValues, setDoctorValues] = useState<string[]>([]);
     const [statusValues, setStatusValues] = useState<string[]>([]);
     const [formatValues, setFormatValues] = useState<string[]>([]);
@@ -125,6 +131,10 @@ export default function AppointmentsPage() {
         ],
         [statusValues, formatValues],
     );
+
+    useEffect(() => {
+        if (lockedUnitId) setUnitValues([lockedUnitId]);
+    }, [lockedUnitId]);
 
     useEffect(() => {
         let active = true;
@@ -248,6 +258,8 @@ export default function AppointmentsPage() {
     }, []);
 
     function handleUnitFilterChange(values: string[]) {
+        if (lockedUnitId) return;
+
         setUnitValues(values);
         if (values.length === 0) return;
         setDoctorValues((current) =>
@@ -578,6 +590,7 @@ export default function AppointmentsPage() {
                                 values={unitValues}
                                 onChange={handleUnitFilterChange}
                                 widthClassName="w-[220px]"
+                                disabled={Boolean(lockedUnitId)}
                             />
                             <FilterButton
                                 icon={<Stethoscope size={16} />}

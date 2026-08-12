@@ -4,6 +4,8 @@
 import {useEffect, useRef, useState} from "react";
 import {Calendar, ChevronLeft, ChevronRight} from "lucide-react";
 
+import { getCachedCurrentUser } from "@/lib/auth/currentUserApi";
+
 export type DateRange = {
     start: string | null;
     end: string | null;
@@ -502,9 +504,15 @@ export function applyArrayParams(
     params: URLSearchParams,
     entries: Record<string, string[]>
 ) {
+    const lockedUnitId =
+        getCachedCurrentUser()?.permission?.unit_lock?.id ?? null;
+
     for (const [key, values] of Object.entries(entries)) {
-        if (values.length > 0) {
-            params.set(key, values.join(","));
+        const effectiveValues =
+            key === "unit_ids" && lockedUnitId ? [lockedUnitId] : values;
+
+        if (effectiveValues.length > 0) {
+            params.set(key, effectiveValues.join(","));
         }
     }
 }
