@@ -3,7 +3,11 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
-import { matchConversationsSheetAttribution } from "@/lib/conversations/matchConversationsSheetAttribution";
+import { matchConversationOriginMap } from "@/lib/conversations/matchConversationOriginMap";
+import {
+    backfillClosingTagsFromLastDays,
+    syncClosingTagsForConversations,
+} from "@/lib/conversations/matchConversationsSheetAttribution";
 import { messageToConversations } from "@/lib/conversations/messagesToConversations";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +51,35 @@ type FinalizeResult =
 export async function GET(request: Request) {
     const requestId = randomUUID();
     const { searchParams } = new URL(request.url);
+    const backfillDays = Number(searchParams.get("backfill_closing_tags_days") ?? 0);
+
+    if (Number.isFinite(backfillDays) && backfillDays > 0) {
+        try {
+            const result = await backfillClosingTagsFromLastDays({
+                days: backfillDays,
+            });
+
+            return NextResponse.json({
+                ok: true,
+                request_id: requestId,
+                mode: "closing_tag_backfill",
+                closing_tag_backfill: result,
+            });
+        } catch (error) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    request_id: requestId,
+                    mode: "closing_tag_backfill",
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Failed to backfill closing tags",
+                },
+                { status: 500 },
+            );
+        }
+    }
 
     const inactivityHours = parsePositiveNumber(
         searchParams.get("inactivity_hours"),
@@ -151,29 +184,56 @@ export async function GET(request: Request) {
         const conversationIdsDeferred = Array.from(
             new Set([...finalizedConversationIds, ...legacyConversationIds]),
         );
-        let sheetAttributionMatch: Awaited<
-            ReturnType<typeof matchConversationsSheetAttribution>
+
+        let originTunnelMatch: Awaited<
+            ReturnType<typeof matchConversationOriginMap>
         > | null = null;
-        let sheetAttributionError: string | null = null;
+        let originTunnelError: string | null = null;
+        let closingTagMatch: Awaited<
+            ReturnType<typeof syncClosingTagsForConversations>
+        > | null = null;
+        let closingTagError: string | null = null;
 
         if (conversationIdsDeferred.length > 0) {
-            try {
-                sheetAttributionMatch =
-                    await matchConversationsSheetAttribution({
-                        limit: conversationIdsDeferred.length,
-                        conversationIds: conversationIdsDeferred,
-                    });
-            } catch (error) {
-                sheetAttributionError =
-                    error instanceof Error
-                        ? error.message
-                        : "Failed to match sheet tunnel/origin";
+            const [originTunnelResult, closingTagResult] = await Promise.allSettled([
+                matchConversationOriginMap({
+                    conversationIds: conversationIdsDeferred,
+                }),
+                syncClosingTagsForConversations({
+                    conversationIds: conversationIdsDeferred,
+                }),
+            ]);
+
+            if (originTunnelResult.status === "fulfilled") {
+                originTunnelMatch = originTunnelResult.value;
+            } else {
+                originTunnelError =
+                    originTunnelResult.reason instanceof Error
+                        ? originTunnelResult.reason.message
+                        : String(originTunnelResult.reason);
                 console.error(
-                    "[finalize-inactive-inbox] sheet attribution failed; finalization will continue",
+                    "[finalize-inactive-inbox] origin/tunnel attribution failed; finalization will continue",
                     {
                         request_id: requestId,
                         conversations: conversationIdsDeferred.length,
-                        error: sheetAttributionError,
+                        error: originTunnelError,
+                    },
+                );
+            }
+
+            if (closingTagResult.status === "fulfilled") {
+                closingTagMatch = closingTagResult.value;
+            } else {
+                closingTagError =
+                    closingTagResult.reason instanceof Error
+                        ? closingTagResult.reason.message
+                        : String(closingTagResult.reason);
+                console.error(
+                    "[finalize-inactive-inbox] closing-tag sheet sync failed; finalization will continue",
+                    {
+                        request_id: requestId,
+                        conversations: conversationIdsDeferred.length,
+                        error: closingTagError,
                     },
                 );
             }
@@ -193,8 +253,10 @@ export async function GET(request: Request) {
             legacy_conversations_created: legacyConversationIds.length,
             legacy_conversation_ids: legacyConversationIds,
             legacy_error: legacyError,
-            sheet_attribution_match: sheetAttributionMatch,
-            sheet_attribution_error: sheetAttributionError,
+            origin_tunnel_match: originTunnelMatch,
+            origin_tunnel_error: originTunnelError,
+            closing_tag_match: closingTagMatch,
+            closing_tag_error: closingTagError,
             conversation_ids_deferred_to_google_batch: conversationIdsDeferred,
             analysis_deferred: true,
             analysis_provider: "google-vertex-batch",
@@ -226,9 +288,11 @@ async function loadInactiveThreads({
         p_inactive_before: inactiveBefore.toISOString(),
         p_limit: limit,
     });
+
     if (error) {
         throw new Error(`Failed to load inactive inbox threads: ${error.message}`);
     }
+
     return (data ?? []) as InactiveThreadRow[];
 }
 
@@ -244,14 +308,23 @@ async function mapWithConcurrency<T, R>(
         while (true) {
             const currentIndex = nextIndex;
             nextIndex += 1;
+
             if (currentIndex >= items.length) return;
-            results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+
+            results[currentIndex] = await mapper(
+                items[currentIndex]!,
+                currentIndex,
+            );
         }
     }
 
     await Promise.all(
-        Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+        Array.from(
+            { length: Math.min(concurrency, items.length) },
+            () => worker(),
+        ),
     );
+
     return results;
 }
 

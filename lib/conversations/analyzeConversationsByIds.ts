@@ -1,7 +1,7 @@
 // lib/conversations/analyzeConversationsByIds.ts
 import { supabase } from "@/lib";
 
-import { matchConversationsSheetAttribution } from "@/lib/conversations/matchConversationsSheetAttribution";
+import { matchConversationOriginMap } from "@/lib/conversations/matchConversationOriginMap";
 import { processPendingConversationsToAnalysisAndAdEvents } from "@/lib/conversations/processPendingConversationsToAnalysisAndAdEvents";
 
 type ConversationRow = {
@@ -55,7 +55,7 @@ export type AnalyzeConversationsByIdsResult = {
     ready_conversation_ids: string[];
     sender_preparation: SenderPreparationResult[];
     sheet_attribution_match: Awaited<
-        ReturnType<typeof matchConversationsSheetAttribution>
+        ReturnType<typeof matchConversationOriginMap>
     > | null;
     results: Awaited<
         ReturnType<typeof processPendingConversationsToAnalysisAndAdEvents>
@@ -152,11 +152,9 @@ export async function analyzeConversationsByIds(
         },
     );
 
-    const sheetAttributionMatch =
-        await matchConversationsSheetAttribution({
-            limit: readyConversationIds.length,
-            conversationIds: readyConversationIds,
-        });
+    const sheetAttributionMatch = await matchConversationOriginMap({
+        conversationIds: readyConversationIds,
+    });
 
     console.log(
         "[analyzeConversationsByIds] spreadsheet tunnel/origin matched",

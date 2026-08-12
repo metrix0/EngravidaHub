@@ -3,11 +3,11 @@ import { GoogleAuth } from "google-auth-library";
 
 import { supabase } from "@/lib";
 
-const SPREADSHEET_ID =
-    process.env.SPREADSHEET_ID ??
-    "1gjGb6MAJVZGRLbK_EVEXcY9Ijam-pptLvnd2yDSgFI4";
-const ORIGIN_MAP_SHEET_NAME =
-    process.env.ORIGIN_MAP_SHEET_NAME ?? "Mapa de Origens";
+const ORIGIN_TUNNEL_SPREADSHEET_ID =
+    process.env.ORIGIN_TUNNEL_SPREADSHEET_ID ??
+    "1G5knHtUDqjBpL8901fLk4g4RB053S-ePY9_w7_Kg6p0";
+const ORIGIN_TUNNEL_SHEET_NAME =
+    process.env.ORIGIN_TUNNEL_SHEET_NAME ?? "Página1";
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
@@ -77,8 +77,6 @@ export async function matchConversationOriginMap({
 
     validateEnvironment();
 
-    // The map is loaded once for this pipeline run. The same bounded request is
-    // retried only when Google returns a transient service/transport failure.
     const sheetFetch = await fetchOriginMapRows();
     const sheetRows = sheetFetch.rows;
     const originMap = parseOriginMap(sheetRows);
@@ -98,6 +96,7 @@ export async function matchConversationOriginMap({
 
     for (const conversationId of uniqueConversationIds) {
         const conversation = conversationsById.get(conversationId);
+
         if (!conversation) {
             skippedWithoutMatch += 1;
             continue;
@@ -155,7 +154,8 @@ export async function matchConversationOriginMap({
     });
 
     const result = {
-        sheet_name: ORIGIN_MAP_SHEET_NAME,
+        spreadsheet_id: ORIGIN_TUNNEL_SPREADSHEET_ID,
+        sheet_name: ORIGIN_TUNNEL_SHEET_NAME,
         sheet_fetch_attempts: sheetFetch.attempts,
         sheet_rows_read: Math.max(sheetRows.length - 1, 0),
         usable_map_entries: originMap.entries.size,
@@ -163,8 +163,10 @@ export async function matchConversationOriginMap({
         checked_conversations: uniqueConversationIds.length,
         matched_conversations: matchedConversations,
         updated_conversations: updates.length,
-        updated_origins: updates.filter((update) => update.origin_changed).length,
-        updated_tunnels: updates.filter((update) => update.tunnel_changed).length,
+        updated_origins: updates.filter((update) => update.origin_changed)
+            .length,
+        updated_tunnels: updates.filter((update) => update.tunnel_changed)
+            .length,
         skipped_without_match: skippedWithoutMatch,
         skipped_already_attributed: skippedAlreadyAttributed,
     };
@@ -175,7 +177,8 @@ export async function matchConversationOriginMap({
 
 function emptyResult() {
     return {
-        sheet_name: ORIGIN_MAP_SHEET_NAME,
+        spreadsheet_id: ORIGIN_TUNNEL_SPREADSHEET_ID,
+        sheet_name: ORIGIN_TUNNEL_SHEET_NAME,
         sheet_fetch_attempts: 0,
         sheet_rows_read: 0,
         usable_map_entries: 0,
@@ -193,8 +196,25 @@ function emptyResult() {
 async function fetchOriginMapRows() {
     const accessToken = await getGoogleAccessToken();
     const range =
-        `${quoteSheetName(ORIGIN_MAP_SHEET_NAME)}!` +
+        `${quoteSheetName(ORIGIN_TUNNEL_SHEET_NAME)}!` +
         `A1:C${ORIGIN_MAP_MAX_ROWS}`;
+
+    return getGoogleValuesWithRetry({
+        accessToken,
+        spreadsheetId: ORIGIN_TUNNEL_SPREADSHEET_ID,
+        range,
+    });
+}
+
+async function getGoogleValuesWithRetry({
+    accessToken,
+    spreadsheetId,
+    range,
+}: {
+    accessToken: string;
+    spreadsheetId: string;
+    range: string;
+}) {
     const encodedRange = encodeURIComponent(range);
     const params = new URLSearchParams({
         majorDimension: "ROWS",
@@ -202,7 +222,7 @@ async function fetchOriginMapRows() {
         fields: "values",
     });
     const url =
-        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}` +
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
         `/values/${encodedRange}?${params.toString()}`;
 
     for (
@@ -225,19 +245,9 @@ async function fetchOriginMapRows() {
                 attempt === GOOGLE_SHEETS_MAX_ATTEMPTS
             ) {
                 throw new Error(
-                    `Google Sheets request failed while reading ${ORIGIN_MAP_SHEET_NAME}: ${errorText(error)}`,
+                    `Google Sheets request failed while reading ${ORIGIN_TUNNEL_SHEET_NAME}: ${errorText(error)}`,
                 );
             }
-
-            console.warn(
-                "[origin-map-attribution] transient Google Sheets transport failure; retrying",
-                {
-                    attempt,
-                    max_attempts: GOOGLE_SHEETS_MAX_ATTEMPTS,
-                    sheet_name: ORIGIN_MAP_SHEET_NAME,
-                    error: errorText(error),
-                },
-            );
 
             await wait(getGoogleRetryDelay(attempt));
             continue;
@@ -252,26 +262,16 @@ async function fetchOriginMapRows() {
         }
 
         const responseText = await response.text();
-        const responseError =
-            `Google Sheets error while reading ${ORIGIN_MAP_SHEET_NAME}: ` +
-            `${response.status} - ${responseText}`;
 
         if (
             !GOOGLE_SHEETS_RETRYABLE_STATUSES.has(response.status) ||
             attempt === GOOGLE_SHEETS_MAX_ATTEMPTS
         ) {
-            throw new Error(responseError);
+            throw new Error(
+                `Google Sheets error while reading ${ORIGIN_TUNNEL_SHEET_NAME}: ` +
+                    `${response.status} - ${responseText}`,
+            );
         }
-
-        console.warn(
-            "[origin-map-attribution] transient Google Sheets response; retrying",
-            {
-                attempt,
-                max_attempts: GOOGLE_SHEETS_MAX_ATTEMPTS,
-                status: response.status,
-                sheet_name: ORIGIN_MAP_SHEET_NAME,
-            },
-        );
 
         await wait(getGoogleRetryDelay(attempt, response.headers));
     }
@@ -282,6 +282,7 @@ async function fetchOriginMapRows() {
 function parseOriginMap(rows: string[][]) {
     const headerRowIndex = rows.findIndex((row) => {
         const headers = row.map(normalizeHeader);
+
         return (
             headers.includes("mensagem") &&
             headers.includes("origem") &&
@@ -291,7 +292,7 @@ function parseOriginMap(rows: string[][]) {
 
     if (headerRowIndex < 0) {
         throw new Error(
-            `The ${ORIGIN_MAP_SHEET_NAME} sheet must contain the columns Mensagem, Origem and Tunnel.`,
+            `The ${ORIGIN_TUNNEL_SHEET_NAME} sheet must contain the columns Mensagem, Origem and Tunnel.`,
         );
     }
 
@@ -397,6 +398,7 @@ function groupMessagesByConversation(messages: MessageRow[]) {
 
     for (const message of messages) {
         if (!message.conversation_id) continue;
+
         const current = grouped.get(message.conversation_id) ?? [];
         current.push(message);
         grouped.set(message.conversation_id, current);
@@ -411,10 +413,14 @@ function findConversationMatch(
 ) {
     for (const message of messages) {
         const normalizedText = normalizeMessage(message.text);
+
         if (!normalizedText) continue;
 
         const entry = entries.get(normalizedText);
-        if (entry) return { message, entry };
+
+        if (entry) {
+            return { message, entry };
+        }
     }
 
     return null;
@@ -455,6 +461,7 @@ function validateEnvironment() {
 
 function normalizeMessage(value: string | null | undefined) {
     const cleaned = cleanCell(value);
+
     if (!cleaned) return null;
 
     return cleaned
@@ -481,13 +488,7 @@ function cleanCell(value: string | null | undefined) {
     if (typeof value !== "string") return null;
 
     const cleaned = value
-        // Strip transport metadata before whitespace normalization. U+FEFF is
-        // both a format character and JavaScript whitespace; collapsing
-        // whitespace first would turn an invisible payload inside a word into
-        // a real space and prevent an otherwise exact map match.
         .replace(/\p{Cf}/gu, "")
-        // U+FFFD is produced by malformed trailing bytes in some imported
-        // campaign messages and is not a deliberate map discriminator.
         .replace(/\uFFFD/g, "")
         .replace(/\u00a0/g, " ")
         .replace(/\s+/g, " ")
