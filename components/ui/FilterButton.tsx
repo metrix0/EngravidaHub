@@ -16,6 +16,7 @@ type FilterButtonProps = {
     values?: string[];
     onChange?: (values: string[]) => void;
     widthClassName?: string;
+    disabled?: boolean;
 };
 
 export default function FilterButton({
@@ -25,6 +26,7 @@ export default function FilterButton({
                                          values,
                                          onChange,
                                          widthClassName = "w-[220px]",
+                                         disabled = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,6 +69,10 @@ export default function FilterButton({
         };
     }, [open]);
 
+    useEffect(() => {
+        if (disabled) setOpen(false);
+    }, [disabled]);
+
     function updateAppliedValues(nextValues: string[]) {
         if (!isControlled) {
             setInternalValues(nextValues);
@@ -76,6 +82,8 @@ export default function FilterButton({
     }
 
     function handleToggleOpen() {
+        if (disabled) return;
+
         if (!open) {
             setDraftValues(
                 appliedValues.length === 0
@@ -115,8 +123,13 @@ export default function FilterButton({
         <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
             <button
                 type="button"
+                disabled={disabled}
                 onClick={handleToggleOpen}
-                className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                className={`flex w-full items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${
+                    disabled
+                        ? "cursor-default"
+                        : "cursor-pointer hover:bg-selection"
+                }`}
                 style={{borderColor: "var(--color-border)",
                     color: "var(--color-muted)",
                 }}
