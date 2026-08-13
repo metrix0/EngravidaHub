@@ -153,5 +153,9 @@ export function useCurrentUser() {
         throw new Error("useCurrentUser must be used inside CurrentUserProvider");
     }
 
-    return context;
+    const cachedCurrentUser = getCachedCurrentUser();
+
+    return cachedCurrentUser
+        ? { ...context, currentUser: cachedCurrentUser }
+        : context;
 }
