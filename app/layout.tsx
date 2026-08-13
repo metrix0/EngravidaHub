@@ -9,7 +9,6 @@ import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
 import SidePanel from "@/components/layout/SidePanel";
-import { getCurrentUserResponse } from "@/lib/auth/getCurrentUserResponse";
 import {
     dashboardDateFilterBootstrapScript,
     DATE_FILTER_COOKIE_NAME,
@@ -38,7 +37,6 @@ export default async function RootLayout({
     const initialDateFilters = parseDashboardDateFilterCookie(
         cookieStore.get(DATE_FILTER_COOKIE_NAME)?.value,
     );
-    const initialCurrentUser = await getCurrentUserResponse();
 
     return (
         <html lang="pt-BR" className={`${inter.variable} antialiased`}>
@@ -69,7 +67,7 @@ export default async function RootLayout({
                     </div>
 
                     <div className="hidden md:block">
-                        <CurrentUserProvider initialCurrentUser={initialCurrentUser}>
+                        <CurrentUserProvider>
                             <PermissionGuard>
                                 <div className="flex h-screen w-screen overflow-hidden">
                                     <SidePanel persistent />

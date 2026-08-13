@@ -16,7 +16,6 @@ import { usePathname } from "next/navigation";
 import {
     fetchCurrentUser,
     getCachedCurrentUser,
-    primeCurrentUserCache,
     subscribeCurrentUser,
     type CurrentUserResponse,
 } from "@/lib/auth/currentUserApi";
@@ -34,26 +33,22 @@ function isPublicPath(pathname: string) {
     return pathname === "/login" || pathname.startsWith("/login/");
 }
 
-export function CurrentUserProvider({
-    children,
-    initialCurrentUser,
-}: {
-    children: ReactNode;
-    initialCurrentUser: CurrentUserResponse;
-}) {
+export function CurrentUserProvider({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const publicPath = isPublicPath(pathname);
-    const validationStartedRef = useRef(true);
-    const initialCachePrimedRef = useRef(false);
+    const validationStartedRef = useRef(false);
+    const initialCachedUserRef = useRef<CurrentUserResponse | null>(null);
 
-    if (!initialCachePrimedRef.current) {
-        primeCurrentUserCache(initialCurrentUser);
-        initialCachePrimedRef.current = true;
+    if (initialCachedUserRef.current === null) {
+        initialCachedUserRef.current = getCachedCurrentUser();
     }
 
-    const [currentUser, setCurrentUser] =
-        useState<CurrentUserResponse | null>(initialCurrentUser);
-    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(false);
+    const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(
+        initialCachedUserRef.current,
+    );
+    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(
+        !initialCachedUserRef.current,
+    );
     const [currentUserError, setCurrentUserError] = useState<string | null>(null);
 
     const refreshCurrentUser = useCallback(async (force = false) => {
@@ -126,7 +121,7 @@ export function CurrentUserProvider({
         if (validationStartedRef.current) return;
 
         validationStartedRef.current = true;
-        void refreshCurrentUser(true);
+        void refreshCurrentUser(false);
     }, [publicPath, refreshCurrentUser]);
 
     const value = useMemo<CurrentUserContextValue>(
