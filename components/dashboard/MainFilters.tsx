@@ -3,13 +3,12 @@
 
 import { useLayoutEffect } from "react";
 import { Eye, MapPin, TrainTrack, User } from "lucide-react";
-import { usePathname } from "next/navigation";
 
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import FilterButton, {
     type FilterOption,
 } from "@/components/ui/FilterButton";
-import { getCachedCurrentUser } from "@/lib/auth/currentUserApi";
 
 type MainFilterKey = "units" | "attendants" | "tunnels" | "origins";
 
@@ -56,9 +55,8 @@ export function MainFilters({
     show,
     widths,
 }: MainFiltersProps) {
-    const pathname = usePathname();
-    const lockedUnitId =
-        getCachedCurrentUser()?.permission?.unit_lock?.id ?? null;
+    const { currentUser } = useCurrentUser();
+    const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
     const effectiveUnitValues = lockedUnitId ? [lockedUnitId] : unitValues;
 
     const showUnits = shouldShowFilter("units", show, setUnitValues);
@@ -72,12 +70,11 @@ export function MainFilters({
     const useMoreFilters = showTunnels && showOrigins;
 
     useLayoutEffect(() => {
-        if (pathname !== "/clientes") return;
         if (!lockedUnitId || !setUnitValues) return;
         if (unitValues.length === 1 && unitValues[0] === lockedUnitId) return;
 
         setUnitValues([lockedUnitId]);
-    }, [lockedUnitId, pathname, setUnitValues, unitValues]);
+    }, [lockedUnitId, setUnitValues, unitValues]);
 
     return (
         <>
