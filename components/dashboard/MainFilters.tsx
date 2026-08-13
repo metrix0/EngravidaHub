@@ -5,11 +5,11 @@ import { useLayoutEffect } from "react";
 import { Eye, MapPin, TrainTrack, User } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import FilterButton, {
     type FilterOption,
 } from "@/components/ui/FilterButton";
+import { getCachedCurrentUser } from "@/lib/auth/currentUserApi";
 
 type MainFilterKey = "units" | "attendants" | "tunnels" | "origins";
 
@@ -57,8 +57,8 @@ export function MainFilters({
     widths,
 }: MainFiltersProps) {
     const pathname = usePathname();
-    const { currentUser } = useCurrentUser();
-    const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
+    const lockedUnitId =
+        getCachedCurrentUser()?.permission?.unit_lock?.id ?? null;
     const effectiveUnitValues = lockedUnitId ? [lockedUnitId] : unitValues;
 
     const showUnits = shouldShowFilter("units", show, setUnitValues);
