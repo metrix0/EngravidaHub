@@ -1,4 +1,3 @@
-// lib/auth/currentUserApi.ts
 import type { CurrentUserPermission } from "@/lib/auth/userAccess";
 
 export type CurrentAuthUser = {
@@ -88,6 +87,14 @@ export function getCachedCurrentUser() {
     return memoryCache?.data ?? null;
 }
 
+export function primeCurrentUserCache(data: CurrentUserResponse) {
+    memoryCache = {
+        storedAt: Date.now(),
+        data,
+    };
+    writeSessionCache(memoryCache);
+}
+
 export function subscribeCurrentUser(
     listener: (data: CurrentUserResponse | null) => void,
 ) {
@@ -106,12 +113,7 @@ export function clearCurrentUserCache() {
 }
 
 function setCurrentUserCache(data: CurrentUserResponse) {
-    memoryCache = {
-        storedAt: Date.now(),
-        data,
-    };
-
-    writeSessionCache(memoryCache);
+    primeCurrentUserCache(data);
     emit(data);
 }
 
@@ -141,9 +143,6 @@ export async function fetchCurrentUser(options: FetchOptions = {}) {
 
         const json = await response.json();
 
-        // Defensive fallback for deployments that still return 401 while the
-        // corrected route is propagating. Missing authentication is not logged
-        // as an application error; it is handled by PermissionGuard.
         if (response.status === 401) {
             clearCurrentUserCache();
             return EMPTY_CURRENT_USER;

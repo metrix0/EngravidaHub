@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import {
     fetchCurrentUser,
     getCachedCurrentUser,
+    primeCurrentUserCache,
     subscribeCurrentUser,
     type CurrentUserResponse,
 } from "@/lib/auth/currentUserApi";
@@ -33,14 +34,26 @@ function isPublicPath(pathname: string) {
     return pathname === "/login" || pathname.startsWith("/login/");
 }
 
-export function CurrentUserProvider({ children }: { children: ReactNode }) {
+export function CurrentUserProvider({
+    children,
+    initialCurrentUser,
+}: {
+    children: ReactNode;
+    initialCurrentUser: CurrentUserResponse;
+}) {
     const pathname = usePathname();
     const publicPath = isPublicPath(pathname);
-    const validationStartedRef = useRef(false);
+    const validationStartedRef = useRef(true);
+    const initialCachePrimedRef = useRef(false);
+
+    if (!initialCachePrimedRef.current) {
+        primeCurrentUserCache(initialCurrentUser);
+        initialCachePrimedRef.current = true;
+    }
 
     const [currentUser, setCurrentUser] =
-        useState<CurrentUserResponse | null>(null);
-    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
+        useState<CurrentUserResponse | null>(initialCurrentUser);
+    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(false);
     const [currentUserError, setCurrentUserError] = useState<string | null>(null);
 
     const refreshCurrentUser = useCallback(async (force = false) => {
@@ -103,9 +116,6 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (publicPath) {
-            // The provider survives client-side navigation. Reset this flag on
-            // the login page so a successful login is validated exactly once
-            // when navigation returns to the protected application.
             validationStartedRef.current = false;
             setCurrentUser(null);
             setCurrentUserError(null);
@@ -116,10 +126,6 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
         if (validationStartedRef.current) return;
 
         validationStartedRef.current = true;
-
-        // Validate authentication and load permissions once for the full app
-        // session. Root-layout persistence means changing tabs reuses this data
-        // without another Supabase permissions query.
         void refreshCurrentUser(true);
     }, [publicPath, refreshCurrentUser]);
 
