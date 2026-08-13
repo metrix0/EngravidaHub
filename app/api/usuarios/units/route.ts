@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
+import {
+    serializeUnitLockCookie,
+    UNIT_LOCK_COOKIE_NAME,
+} from "@/lib/auth/userAccess";
 
 const NO_VALUE_ID = "__none__";
 
@@ -20,6 +25,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
     try {
+        const actor = await getCurrentAuthUser();
         const body = await request.json();
         const authUserId =
             typeof body.auth_user_id === "string" ? body.auth_user_id.trim() : "";
@@ -78,10 +84,20 @@ export async function PATCH(request: NextRequest) {
             );
         }
 
-        return NextResponse.json({
+        const response = NextResponse.json({
             ok: true,
             unit_id: permission.unit_id,
         });
+
+        if (actor?.id === authUserId) {
+            response.cookies.set(
+                UNIT_LOCK_COOKIE_NAME,
+                serializeUnitLockCookie(actor.id, unitId),
+                { path: "/", sameSite: "lax" },
+            );
+        }
+
+        return response;
     } catch (error) {
         return NextResponse.json(
             {
