@@ -1,5 +1,9 @@
 // lib/auth/currentUserApi.ts
-import type { CurrentUserPermission } from "@/lib/auth/userAccess";
+import {
+    parseUnitLockCookie,
+    UNIT_LOCK_COOKIE_NAME,
+    type CurrentUserPermission,
+} from "@/lib/auth/userAccess";
 
 export type CurrentAuthUser = {
     id: string;
@@ -28,8 +32,11 @@ const EMPTY_CURRENT_USER: CurrentUserResponse = {
     permission: null,
 };
 
-const CACHE_KEY = "engravida:current-user-access:v1";
-const OLD_CACHE_KEY = "engravida:current-user:v2";
+const CACHE_KEY = "engravida:current-user-access:v2";
+const OLD_CACHE_KEYS = [
+    "engravida:current-user-access:v1",
+    "engravida:current-user:v2",
+];
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 let memoryCache: CacheRecord | null = null;
@@ -44,7 +51,9 @@ function readSessionCache(): CacheRecord | null {
     if (!canUseSessionStorage()) return null;
 
     try {
-        window.sessionStorage.removeItem(OLD_CACHE_KEY);
+        for (const oldKey of OLD_CACHE_KEYS) {
+            window.sessionStorage.removeItem(oldKey);
+        }
 
         const raw = window.sessionStorage.getItem(CACHE_KEY);
         if (!raw) return null;
@@ -74,9 +83,66 @@ function writeSessionCache(record: CacheRecord | null) {
     window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(record));
 }
 
+function readUnitLockCookie() {
+    if (typeof document === "undefined") return null;
+
+    const prefix = `${UNIT_LOCK_COOKIE_NAME}=`;
+    const raw = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith(prefix))
+        ?.slice(prefix.length);
+
+    if (raw === undefined) return null;
+
+    try {
+        return parseUnitLockCookie(decodeURIComponent(raw));
+    } catch {
+        return null;
+    }
+}
+
+export function applyCurrentUserUnitLockOverride(
+    data: CurrentUserResponse | null,
+): CurrentUserResponse | null {
+    if (!data?.user || !data.permission) return data;
+
+    const cookieLock = readUnitLockCookie();
+    if (!cookieLock || cookieLock.userId !== data.user.id) return data;
+
+    const currentLock = data.permission.unit_lock ?? null;
+
+    if (!cookieLock.unitId) {
+        if (!currentLock) return data;
+
+        return {
+            ...data,
+            permission: {
+                ...data.permission,
+                unit_lock: null,
+            },
+        };
+    }
+
+    if (currentLock?.id === cookieLock.unitId) return data;
+
+    return {
+        ...data,
+        permission: {
+            ...data.permission,
+            unit_lock: {
+                id: cookieLock.unitId,
+                name: "",
+                city: "",
+            },
+        },
+    };
+}
+
 function emit(data: CurrentUserResponse | null) {
+    const effectiveData = applyCurrentUserUnitLockOverride(data);
+
     for (const listener of listeners) {
-        listener(data);
+        listener(effectiveData);
     }
 }
 
@@ -85,7 +151,7 @@ export function getCachedCurrentUser() {
         memoryCache = readSessionCache();
     }
 
-    return memoryCache?.data ?? null;
+    return applyCurrentUserUnitLockOverride(memoryCache?.data ?? null);
 }
 
 export function subscribeCurrentUser(
@@ -126,7 +192,7 @@ export async function fetchCurrentUser(options: FetchOptions = {}) {
         memoryCache && Date.now() - memoryCache.storedAt < CACHE_TTL_MS;
 
     if (!force && cacheIsFresh) {
-        return memoryCache!.data;
+        return getCachedCurrentUser()!;
     }
 
     if (pendingRequest) {
@@ -141,9 +207,6 @@ export async function fetchCurrentUser(options: FetchOptions = {}) {
 
         const json = await response.json();
 
-        // Defensive fallback for deployments that still return 401 while the
-        // corrected route is propagating. Missing authentication is not logged
-        // as an application error; it is handled by PermissionGuard.
         if (response.status === 401) {
             clearCurrentUserCache();
             return EMPTY_CURRENT_USER;
@@ -162,7 +225,7 @@ export async function fetchCurrentUser(options: FetchOptions = {}) {
 
         setCurrentUserCache(data);
 
-        return data;
+        return applyCurrentUserUnitLockOverride(data) ?? data;
     })();
 
     try {
