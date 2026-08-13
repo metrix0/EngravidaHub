@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 
 import { supabase as adminSupabase } from "@/lib";
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
-import { normalizeAllowedTabs } from "@/lib/auth/userAccess";
+import {
+    normalizeAllowedTabs,
+    serializeUnitLockCookie,
+    UNIT_LOCK_COOKIE_NAME,
+} from "@/lib/auth/userAccess";
 
 type UserPermissionRow = {
     auth_user_id: string;
@@ -24,11 +28,13 @@ export async function GET() {
     const user = await getCurrentAuthUser();
 
     if (!user) {
-        return NextResponse.json({
+        const response = NextResponse.json({
             ok: true,
             user: null,
             permission: null,
         });
+        response.cookies.delete(UNIT_LOCK_COOKIE_NAME);
+        return response;
     }
 
     const { data: permissionData, error: permissionError } = await adminSupabase
@@ -50,11 +56,7 @@ export async function GET() {
     const permissionRow = permissionData as UserPermissionRow | null;
     let unitLock: UnitRow | null = null;
 
-    if (
-        permissionRow?.active &&
-        permissionRow.preset === "atendente" &&
-        permissionRow.unit_id
-    ) {
+    if (permissionRow?.active && permissionRow.unit_id) {
         const { data: unitData, error: unitError } = await adminSupabase
             .from("units")
             .select("id, name, city")
@@ -70,8 +72,7 @@ export async function GET() {
     }
 
     const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
-
-    return NextResponse.json({
+    const response = NextResponse.json({
         ok: true,
         user: {
             id: user.id,
@@ -95,6 +96,14 @@ export async function GET() {
             }
             : null,
     });
+
+    response.cookies.set(
+        UNIT_LOCK_COOKIE_NAME,
+        serializeUnitLockCookie(user.id, unitLock?.id ?? null),
+        { path: "/", sameSite: "lax" },
+    );
+
+    return response;
 }
 
 function getMetadataString(
