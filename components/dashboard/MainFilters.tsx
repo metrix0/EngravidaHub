@@ -2,6 +2,7 @@
 "use client";
 
 import { useLayoutEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Eye, MapPin, TrainTrack, User } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -55,6 +56,7 @@ export function MainFilters({
     show,
     widths,
 }: MainFiltersProps) {
+    const pathname = usePathname();
     const { currentUser } = useCurrentUser();
     const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
     const effectiveUnitValues = lockedUnitId ? [lockedUnitId] : unitValues;
@@ -70,11 +72,11 @@ export function MainFilters({
     const useMoreFilters = showTunnels && showOrigins;
 
     useLayoutEffect(() => {
-        if (!lockedUnitId || !setUnitValues) return;
+        if (pathname !== "/clientes" || !lockedUnitId || !setUnitValues) return;
         if (unitValues.length === 1 && unitValues[0] === lockedUnitId) return;
 
         setUnitValues([lockedUnitId]);
-    }, [lockedUnitId, setUnitValues, unitValues]);
+    }, [lockedUnitId, pathname, setUnitValues, unitValues]);
 
     return (
         <>
