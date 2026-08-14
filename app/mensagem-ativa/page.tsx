@@ -50,6 +50,12 @@ import {
     SpreadsheetImportModal,
     type SpreadsheetImportSendPayload,
 } from "@/components/active-messages/SpreadsheetImportModal";
+import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import ButtonGroup from "@/components/ui/ButtonGroup";
+import {
+    DEFAULT_CALENDAR_PRESETS,
+    applyCalendarDateParams,
+} from "@/components/ui/CalendarButton";
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 import type {
     ActiveMessageClient,
@@ -91,6 +97,20 @@ type SpreadsheetImportClientsResponse = {
     created_count: number;
     existing_count: number;
     client_ids: string[];
+};
+
+type ActiveMessageAnalyticsHistoryItem = {
+    id: string;
+    template_id: string;
+    template_name: string;
+    sent_count: number;
+    response_count: number;
+    schedule_count: number;
+    created_at: string;
+};
+
+type ActiveMessageAnalyticsResponse = {
+    history: ActiveMessageAnalyticsHistoryItem[];
 };
 
 export default function MensagemAtivaPage() {
@@ -1292,7 +1312,86 @@ function ActiveMessageAnalytics({
         Set<string> | null
     >(null);
     const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+    const [analyticsHistory, setAnalyticsHistory] = useState<
+        ActiveMessageAnalyticsHistoryItem[]
+    >([]);
+    const [analyticsLoading, setAnalyticsLoading] = useState(true);
+    const [analyticsError, setAnalyticsError] = useState<string | null>(null);
     const templateMenuRef = useRef<HTMLDivElement | null>(null);
+    const {
+        period,
+        setPeriod,
+        selectedRange,
+        setSelectedRange,
+        ready: dateFilterReady,
+    } = useDashboardDateFilter("30");
+    const analyticsQuery = useMemo(() => {
+        if (!dateFilterReady) return "";
+
+        const params = new URLSearchParams();
+        applyCalendarDateParams({
+            params,
+            selectedRange,
+            selectedPreset: period,
+        });
+        return params.toString();
+    }, [dateFilterReady, period, selectedRange]);
+    const historyRefreshKey = history[0]?.id ?? "";
+
+    useEffect(() => {
+        if (!analyticsQuery) return;
+
+        const controller = new AbortController();
+        setAnalyticsLoading(true);
+        setAnalyticsError(null);
+        setSelectedTemplateKeys(null);
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch(
+                    `/api/mensagem-ativa/analytics?${analyticsQuery}`,
+                    {
+                        credentials: "include",
+                        cache: "no-store",
+                        signal: controller.signal,
+                    },
+                );
+                const json = (await response.json()) as
+                    | ActiveMessageAnalyticsResponse
+                    | { error?: string };
+
+                if (!response.ok) {
+                    throw new Error(
+                        "error" in json && json.error
+                            ? json.error
+                            : "Não foi possível carregar o desempenho dos envios",
+                    );
+                }
+
+                setAnalyticsHistory(
+                    (json as ActiveMessageAnalyticsResponse).history,
+                );
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error(
+                    "[mensagem-ativa] failed to load analytics",
+                    error,
+                );
+                setAnalyticsError(
+                    error instanceof Error
+                        ? error.message
+                        : "Não foi possível carregar o desempenho dos envios",
+                );
+            } finally {
+                if (!controller.signal.aborted) {
+                    setAnalyticsLoading(false);
+                }
+            }
+        }
+
+        void loadAnalytics();
+        return () => controller.abort();
+    }, [analyticsQuery, historyRefreshKey]);
 
     const templateData = useMemo(() => {
         const totals = new Map<
@@ -1306,7 +1405,7 @@ function ActiveMessageAnalytics({
             }
         >();
 
-        for (const send of history) {
+        for (const send of analyticsHistory) {
             const key = send.template_id || send.template_name;
             const current = totals.get(key) ?? {
                 key,
@@ -1325,7 +1424,7 @@ function ActiveMessageAnalytics({
         return [...totals.values()].sort(
             (first, second) => second.sent - first.sent,
         );
-    }, [history]);
+    }, [analyticsHistory]);
 
     const visibleTemplateKeys = useMemo(() => {
         const availableKeys = new Set(templateData.map((item) => item.key));
@@ -1347,7 +1446,7 @@ function ActiveMessageAnalytics({
             { date: string; sent: number; responses: number; schedules: number }
         >();
 
-        for (const send of history) {
+        for (const send of analyticsHistory) {
             const templateKey = send.template_id || send.template_name;
             if (!visibleTemplateKeys.has(templateKey)) continue;
 
@@ -1379,7 +1478,7 @@ function ActiveMessageAnalytics({
                 ...item,
                 label: formatChartDate(item.date),
             }));
-    }, [history, visibleTemplateKeys]);
+    }, [analyticsHistory, visibleTemplateKeys]);
 
     const chartTotals = useMemo(
         () =>
@@ -1439,6 +1538,8 @@ function ActiveMessageAnalytics({
     }
 
     const hasData = templateData.length > 0;
+    const initialAnalyticsLoading =
+        analyticsLoading && analyticsHistory.length === 0;
 
     return (
         <section className="mt-10">
@@ -1456,12 +1557,57 @@ function ActiveMessageAnalytics({
                 </div>
             </div>
 
+            <div
+                aria-hidden={!dateFilterReady}
+                className={`mb-6 flex flex-wrap items-center gap-2 ${
+                    dateFilterReady
+                        ? ""
+                        : "invisible pointer-events-none select-none"
+                }`}
+            >
+                <ButtonGroup
+                    value={period}
+                    onChange={(value) => {
+                        setPeriod(value);
+                        setSelectedRange({ start: null, end: null });
+                    }}
+                    options={DEFAULT_CALENDAR_PRESETS.map((preset) => ({
+                        value: preset.value,
+                        label: preset.label,
+                    }))}
+                >
+                    <CalendarButton
+                        value={selectedRange}
+                        onChange={setSelectedRange}
+                        onApply={(range) => {
+                            if (range.start) {
+                                setPeriod(null);
+                                return;
+                            }
+
+                            setPeriod(
+                                DEFAULT_CALENDAR_PRESETS[0]?.value ??
+                                    "yesterday",
+                            );
+                        }}
+                    />
+                </ButtonGroup>
+            </div>
+
+            {analyticsError ? (
+                <div className="mb-6 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-bold text-red">
+                    {analyticsError}
+                </div>
+            ) : null}
+
             <div className="grid items-start gap-6 xl:grid-cols-2">
                 <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <h3 className="font-bold text-slate-950">
                         Templates utilizados
                     </h3>
-                    {hasData ? (
+                    {initialAnalyticsLoading ? (
+                        <Skeleton className="mt-5 h-[280px] rounded-xl" />
+                    ) : hasData ? (
                         <div
                             style={{
                                 height: Math.max(280, templateData.length * 54),
@@ -1633,7 +1779,9 @@ function ActiveMessageAnalytics({
                         </div>
                     ) : null}
 
-                    {dailyData.length > 0 ? (
+                    {initialAnalyticsLoading ? (
+                        <Skeleton className="mt-5 h-[280px] rounded-xl" />
+                    ) : dailyData.length > 0 ? (
                         <div className="mt-5 h-[320px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <ComposedChart
