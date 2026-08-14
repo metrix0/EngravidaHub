@@ -8,7 +8,7 @@ import { CurrentUserProvider } from "@/components/auth/CurrentUserProvider";
 import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
-import AppSidePanel from "@/components/layout/AppSidePanel";
+import SidePanel from "@/components/layout/SidePanel";
 import {
     dashboardDateFilterBootstrapScript,
     DATE_FILTER_COOKIE_NAME,
@@ -70,7 +70,7 @@ export default async function RootLayout({
                         <CurrentUserProvider>
                             <PermissionGuard>
                                 <div className="flex h-screen w-screen overflow-hidden">
-                                    <AppSidePanel />
+                                    <SidePanel persistent />
 
                                     <div className="min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
                                         {children}
