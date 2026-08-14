@@ -1559,7 +1559,7 @@ function ActiveMessageAnalytics({
 
             <div
                 aria-hidden={!dateFilterReady}
-                className={`mb-6 flex flex-wrap items-center gap-2 ${
+                className={`mb-6 flex flex-wrap items-center justify-end gap-2 ${
                     dateFilterReady
                         ? ""
                         : "invisible pointer-events-none select-none"
