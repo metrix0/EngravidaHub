@@ -33,6 +33,36 @@ export type CurrentUserPermission = {
     unit_lock?: CurrentUserUnitLock | null;
 };
 
+export const UNIT_LOCK_COOKIE_NAME = "engravida-unit-lock-v1";
+
+export type UnitLockCookieState = {
+    userId: string;
+    unitId: string | null;
+};
+
+export function serializeUnitLockCookie(
+    userId: string,
+    unitId: string | null,
+) {
+    return `${userId}:${unitId ?? ""}`;
+}
+
+export function parseUnitLockCookie(
+    value: string | null | undefined,
+): UnitLockCookieState | null {
+    if (!value) return null;
+
+    const separatorIndex = value.indexOf(":");
+    if (separatorIndex <= 0) return null;
+
+    const userId = value.slice(0, separatorIndex).trim();
+    const unitId = value.slice(separatorIndex + 1).trim() || null;
+
+    if (!userId) return null;
+
+    return { userId, unitId };
+}
+
 export const APP_TAB_HREFS: Record<AppTabId, string> = {
     dashboard: "/",
     financeiro: "/financeiro",

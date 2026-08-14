@@ -83,7 +83,14 @@ type UserPermission = {
     preset: AccessPresetId;
     allowed_tabs: TabId[];
     attendant_id: string | null;
+    unit_id: string | null;
     active: boolean;
+};
+
+type Unit = {
+    id: string;
+    name: string;
+    city: string;
 };
 
 type Queue = {
@@ -141,6 +148,7 @@ type UserView = {
     tabs: PermissionTab[];
     attendant: Attendant | null;
     attendant_id: string | null;
+    unit_id: string | null;
     unit_name: string;
     queue_id: string | null;
     queue_name: string;
@@ -268,6 +276,7 @@ const TAB_COLOR_ORDER: Record<ColorName, number> = {
 
 export default function UsuariosPage() {
     const [data, setData] = useState<ApiResponse | null>(null);
+    const [units, setUnits] = useState<Unit[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [savingUserId, setSavingUserId] = useState<string | null>(null);
@@ -282,8 +291,13 @@ export default function UsuariosPage() {
         try {
             setError(null);
 
-            const response = await fetch("/api/usuarios", { cache: "no-store" });
+            const [response, unitsResponse] = await Promise.all([
+                fetch("/api/usuarios", { cache: "no-store" }),
+                fetch("/api/usuarios/units", { cache: "no-store" }),
+            ]);
             const json: ApiResponse | { error?: string } = await response.json();
+            const unitsJson: { units?: Unit[]; error?: string } =
+                await unitsResponse.json();
 
             if (!response.ok) {
                 throw new Error(
@@ -293,7 +307,12 @@ export default function UsuariosPage() {
                 );
             }
 
+            if (!unitsResponse.ok) {
+                throw new Error(unitsJson.error ?? "Erro ao carregar unidades");
+            }
+
             setData(json as ApiResponse);
+            setUnits(unitsJson.units ?? []);
         } catch (loadError) {
             console.error("[usuarios] failed to load", loadError);
             setError(
@@ -302,6 +321,7 @@ export default function UsuariosPage() {
                     : "Erro ao carregar usuários",
             );
             setData(null);
+            setUnits([]);
         } finally {
             setLoading(false);
         }
@@ -320,6 +340,7 @@ export default function UsuariosPage() {
                 permission,
             ]),
         );
+        const unitsById = new Map(units.map((unit) => [unit.id, unit]));
         const attendantsById = new Map(
             data.attendants.map((attendant) => [attendant.id, attendant]),
         );
@@ -356,6 +377,8 @@ export default function UsuariosPage() {
                     ? attendantsById.get(permission.attendant_id) ?? null
                     : null
                 : attendantsByAuthUserId.get(user.id) ?? null;
+            const unitId = permission?.unit_id ?? null;
+            const unit = unitId ? unitsById.get(unitId) ?? null : null;
             const memberships = membershipsByUserId.get(user.id) ?? [];
             const groupIds = memberships.map((membership) => membership.group_id);
             const manualGroupIds = memberships
@@ -380,7 +403,8 @@ export default function UsuariosPage() {
                 attendant_id: permission
                     ? permission.attendant_id
                     : attendant?.id ?? null,
-                unit_name: attendant?.unit_name ?? "Todas",
+                unit_id: unitId,
+                unit_name: unit?.name ?? "Todas",
                 queue_id: attendant?.queue_id ?? null,
                 queue_name: attendant?.queue_name ?? "Nenhum",
                 group_ids: groupIds,
@@ -390,7 +414,7 @@ export default function UsuariosPage() {
                 active: permission?.active ?? true,
             };
         });
-    }, [data]);
+    }, [data, units]);
 
     const filteredUsers = useMemo(() => {
         const term = search.trim().toLowerCase();
@@ -430,6 +454,52 @@ export default function UsuariosPage() {
         if (!selectedUserId) return null;
         return users.find((user) => user.id === selectedUserId) ?? null;
     }, [users, selectedUserId]);
+
+    async function saveUserUnit(user: UserView, unitId: string | null) {
+        if (!data || !user.permission) return;
+
+        const previousData = data;
+        setData((current) => {
+            if (!current) return current;
+
+            return {
+                ...current,
+                permissions: current.permissions.map((permission) =>
+                    permission.auth_user_id === user.id
+                        ? { ...permission, unit_id: unitId }
+                        : permission,
+                ),
+            };
+        });
+        setSavingUserId(user.id);
+        setError(null);
+
+        try {
+            const response = await fetch("/api/usuarios/units", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    auth_user_id: user.id,
+                    unit_id: unitId ?? NO_VALUE_ID,
+                }),
+            });
+            const json = await response.json();
+
+            if (!response.ok) {
+                throw new Error(json.error ?? "Erro ao salvar unidade");
+            }
+        } catch (saveError) {
+            console.error("[usuarios] failed to save unit", saveError);
+            setData(previousData);
+            setError(
+                saveError instanceof Error
+                    ? saveError.message
+                    : "Erro ao salvar unidade",
+            );
+        } finally {
+            setSavingUserId(null);
+        }
+    }
 
     async function saveUserPermission(
         user: UserView,
@@ -480,6 +550,7 @@ export default function UsuariosPage() {
             preset: nextPreset?.id ?? NO_PRESET_ID,
             allowed_tabs: nextAllowedTabs,
             attendant_id: nextAttendantId,
+            unit_id: user.unit_id,
             active: nextActive,
         };
 
@@ -768,12 +839,14 @@ export default function UsuariosPage() {
             <UserDetailsPanel
                 open={Boolean(selectedUser)}
                 user={selectedUser}
+                units={units}
                 attendants={data?.attendants ?? []}
                 queues={data?.queues ?? []}
                 groups={data?.groups ?? []}
                 saving={selectedUser ? savingUserId === selectedUser.id : false}
                 onClose={() => setSelectedUserId(null)}
                 onSave={saveUserPermission}
+                onSaveUnit={saveUserUnit}
                 onToggleTab={toggleUserTab}
             />
         </main>
@@ -884,16 +957,19 @@ function applyPermissionUpdate({
 function UserDetailsPanel({
     open,
     user,
+    units,
     attendants,
     queues,
     groups,
     saving,
     onClose,
     onSave,
+    onSaveUnit,
     onToggleTab,
 }: {
     open: boolean;
     user: UserView | null;
+    units: Unit[];
     attendants: Attendant[];
     queues: Queue[];
     groups: InternalGroup[];
@@ -910,6 +986,7 @@ function UserDetailsPanel({
             active: boolean;
         }>,
     ) => Promise<void>;
+    onSaveUnit: (user: UserView, unitId: string | null) => Promise<void>;
     onToggleTab: (user: UserView, tabId: TabId) => void;
 }) {
     if (!user) return null;
@@ -927,6 +1004,10 @@ function UserDetailsPanel({
     const statusOptions: DropdownSelectOption[] = [
         { label: "Ativo", value: "active" },
         { label: "Inativo", value: "inactive" },
+    ];
+    const unitOptions: DropdownSelectOption[] = [
+        { label: "Todas", value: NO_VALUE_ID },
+        ...units.map((unit) => ({ label: unit.name, value: unit.id })),
     ];
     const attendantOptions: DropdownSelectOption[] = [
         { label: "(Não é atendente)", value: NO_VALUE_ID },
@@ -985,6 +1066,21 @@ function UserDetailsPanel({
                                     void onSave(user, { active: value === "active" })
                                 }
                                 options={statusOptions}
+                                widthClassName="w-[230px]"
+                            />
+                        </PanelControlRow>
+
+                        <PanelControlRow label="Unidade">
+                            <DropdownSelect
+                                value={user.unit_id ?? NO_VALUE_ID}
+                                disabled={saving || !user.permission}
+                                onChange={(value) =>
+                                    void onSaveUnit(
+                                        user,
+                                        value === NO_VALUE_ID ? null : value,
+                                    )
+                                }
+                                options={unitOptions}
                                 widthClassName="w-[230px]"
                             />
                         </PanelControlRow>

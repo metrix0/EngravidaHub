@@ -1,7 +1,9 @@
 // app/api/funnel/intake/route.ts
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { parseUnitLockCookie, UNIT_LOCK_COOKIE_NAME } from "@/lib/auth/userAccess";
 
 const NO_SCHEDULE_TAG = "Não agendou 1ª Avaliação";
 const NO_RETURN_TAG = "Sem retorno da paciente";
@@ -47,7 +49,13 @@ type IntakeClientRow = {
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const unitIds = parseCsv(searchParams.get("unit_ids"));
+    const cookieStore = await cookies();
+    const lockedUnit = parseUnitLockCookie(
+        cookieStore.get(UNIT_LOCK_COOKIE_NAME)?.value,
+    )?.unitId;
+    const unitIds = lockedUnit
+        ? [lockedUnit]
+        : parseCsv(searchParams.get("unit_ids"));
     const origins = parseCsv(searchParams.get("origins"));
     const search = sanitizeSearch(searchParams.get("search"));
     const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);

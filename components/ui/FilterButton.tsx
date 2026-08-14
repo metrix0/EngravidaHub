@@ -139,12 +139,14 @@ export default function FilterButton({
             <span className="truncate">{displayLabel}</span>
         </span>
 
-                <ChevronDown
-                    size={16}
-                    className={`shrink-0 transition-transform duration-150 ${
-                        open ? "rotate-180" : "rotate-0"
-                    }`}
-                />
+                {!disabled && (
+                    <ChevronDown
+                        size={16}
+                        className={`shrink-0 transition-transform duration-150 ${
+                            open ? "rotate-180" : "rotate-0"
+                        }`}
+                    />
+                )}
             </button>
 
             <div
