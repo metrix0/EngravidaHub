@@ -6,7 +6,7 @@ import { createServerAuthClient } from "@/lib/auth/getCurrentAuthUser";
 export async function GET(request: NextRequest) {
     const tokenHash = request.nextUrl.searchParams.get("token_hash");
     const type = request.nextUrl.searchParams.get("type");
-    const redirectUrl = new URL("/registrar", request.url);
+    const redirectUrl = new URL("/registrar/confirmar", request.url);
 
     if (!tokenHash || type !== "email") {
         redirectUrl.searchParams.set("confirmation_error", "1");
