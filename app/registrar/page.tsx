@@ -16,6 +16,7 @@ export default function RegisterPage() {
             {
                 auth: {
                     detectSessionInUrl: false,
+                    flowType: "implicit",
                 },
             },
         ),
