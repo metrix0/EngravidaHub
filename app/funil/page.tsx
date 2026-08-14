@@ -162,6 +162,13 @@ type FunnelIntakeResponse = {
 
 type FunnelCallState = "none" | "pending" | ClientCallClosureTone;
 
+type RemoveClientConfirmation = {
+    clientId: string;
+    clientName: string | null;
+    columnName: string;
+    source: "funnel" | "intake";
+};
+
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 const INTAKE_INITIAL_LIMIT = 25;
 const INTAKE_LOAD_MORE_LIMIT = 20;
@@ -227,6 +234,8 @@ export default function FunnelPage() {
     });
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
+    const [removeClientConfirmation, setRemoveClientConfirmation] =
+        useState<RemoveClientConfirmation | null>(null);
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [callClientId, setCallClientId] = useState<string | null>(null);
     const [selectedAppointment, setSelectedAppointment] =
@@ -803,6 +812,42 @@ export default function FunnelPage() {
 
     }
 
+    function requestIntakeClientRemoval(clientId: string) {
+        const client = intakeClients.find((item) => item.id === clientId);
+
+        setRemoveClientConfirmation({
+            clientId,
+            clientName: client?.name ?? null,
+            columnName: "Não agendou",
+            source: "intake",
+        });
+    }
+
+    function requestFunnelClientRemoval(clientId: string, columnName: string) {
+        const client = clients.find((item) => item.id === clientId);
+
+        setRemoveClientConfirmation({
+            clientId,
+            clientName: client?.name ?? null,
+            columnName,
+            source: "funnel",
+        });
+    }
+
+    async function confirmClientRemoval() {
+        const confirmation = removeClientConfirmation;
+        if (!confirmation) return;
+
+        setRemoveClientConfirmation(null);
+
+        if (confirmation.source === "intake") {
+            await removeIntakeClosingTag(confirmation.clientId);
+            return;
+        }
+
+        await removeClientFromFunnel(confirmation.clientId);
+    }
+
     async function moveClient(clientId: string, toStageId: string) {
         if (!selectedFunnelId) return;
 
@@ -1352,7 +1397,7 @@ export default function FunnelPage() {
                                 loadingMore={intakeLoadingMore}
                                 blurPhone={blurClientPhones}
                                 onLoadMore={loadMoreIntakeClients}
-                                onRemoveTag={removeIntakeClosingTag}
+                                onRemoveTag={requestIntakeClientRemoval}
                                 onOpenClientProfile={openClientProfile}
                                 onOpenClientSchedule={openClientSchedule}
                                 onOpenClientCall={openClientCall}
@@ -1369,7 +1414,7 @@ export default function FunnelPage() {
                                         clients={stageClients}
                                         blurPhone={blurClientPhones}
                                         onMoveClient={moveClient}
-                                        onRemoveClient={removeClientFromFunnel}
+                                        onRemoveClient={requestFunnelClientRemoval}
                                         onOpenClientProfile={openClientProfile}
                                         onOpenClientSchedule={openClientSchedule}
                                         onOpenClientCall={openClientCall}
@@ -1380,6 +1425,57 @@ export default function FunnelPage() {
                     </div>
                 </section>
             </section>
+
+            <Modal
+                open={Boolean(removeClientConfirmation)}
+                onClose={() => setRemoveClientConfirmation(null)}
+                width={500}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                ariaLabelledBy="funnel-remove-client-title"
+            >
+                <div className="p-7">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-soft text-red">
+                        <Trash2 size={22} />
+                    </div>
+
+                    <h2
+                        id="funnel-remove-client-title"
+                        className="mt-5 text-xl font-bold text-slate-950"
+                    >
+                        Remover desta coluna?
+                    </h2>
+
+                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                        Remova{" "}
+                        <strong className="text-slate-700">
+                            {removeClientConfirmation?.clientName ?? "esta pessoa"}
+                        </strong>{" "}
+                        apenas se ela não deveria estar aqui e não pertence à coluna{" "}
+                        <strong className="text-slate-700">
+                            {removeClientConfirmation?.columnName ?? "atual"}
+                        </strong>
+                        .
+                    </p>
+
+                    <div className="mt-7 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setRemoveClientConfirmation(null)}
+                            className="h-11 cursor-pointer rounded-xl px-5 text-sm font-bold text-slate-500 transition hover:bg-slate-100"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void confirmClientRemoval()}
+                            className="h-11 cursor-pointer rounded-xl bg-red px-5 text-sm font-bold text-white transition hover:opacity-90"
+                        >
+                            Remover
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             <AddClientToFunnelModal
                 open={addClientModalOpen}
@@ -1572,7 +1668,7 @@ function FunnelColumn({
     stage: FunnelStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
-    onRemoveClient: (clientId: string) => void;
+    onRemoveClient: (clientId: string, columnName: string) => void;
     onOpenClientProfile: (clientId: string) => void;
     onOpenClientSchedule: (clientId: string) => void;
     onOpenClientCall: (clientId: string) => void;
@@ -1616,7 +1712,9 @@ function FunnelColumn({
                         key={client.id}
                         client={client}
                         blurPhone={blurPhone}
-                        onRemoveClient={onRemoveClient}
+                        onRemoveClient={(clientId) =>
+                            onRemoveClient(clientId, stage.name)
+                        }
                         onOpenClientProfile={onOpenClientProfile}
                         onOpenClientSchedule={onOpenClientSchedule}
                         onOpenClientCall={onOpenClientCall}
@@ -1665,6 +1763,8 @@ function FunnelColumn({
 
 const FUNNEL_CARD_ACTION_BUTTON_CLASS =
     "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-slate-200 hover:text-slate-700";
+const FUNNEL_CARD_DELETE_BUTTON_CLASS =
+    "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-red-soft hover:text-red";
 
 function FunnelClientCard({
                                 client,
@@ -1721,7 +1821,7 @@ function FunnelClientCard({
                             event.stopPropagation();
                             onRemoveClient(client.id);
                         }}
-                        className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
+                        className={FUNNEL_CARD_DELETE_BUTTON_CLASS}
                     >
                         <Trash2 size={14} />
                     </button>
