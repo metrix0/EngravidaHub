@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 
@@ -522,6 +523,16 @@ export default function LoginPage() {
                 >
                     {loading ? "Entrando..." : "Entrar"}
                 </button>
+
+                <p className="mt-6 text-center text-sm text-slate-500">
+                    Não tem uma conta?{" "}
+                    <Link
+                        href="/registrar"
+                        className="font-semibold text-brand transition hover:opacity-75"
+                    >
+                        Registrar
+                    </Link>
+                </p>
             </form>
         </AuthPage>
     );

@@ -190,7 +190,11 @@ function filterEntriesByPermission(
 
 export default function SidePanel(props: SidePanelProps) {
     const pathname = usePathname();
-    const shouldHide = pathname === "/login" || pathname.startsWith("/dev");
+    const shouldHide =
+        pathname === "/login" ||
+        pathname === "/registrar" ||
+        pathname.startsWith("/registrar/") ||
+        pathname.startsWith("/dev");
 
     if (!props.persistent || shouldHide) return null;
     return <PersistentSidePanel {...props} />;
