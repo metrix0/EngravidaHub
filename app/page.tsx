@@ -569,6 +569,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                         />
                         <YAxis
                             yAxisId="percentage"
+                            hide
                             orientation="right"
                             domain={[0, 100]}
                             ticks={[0, 25, 50, 75, 100]}
