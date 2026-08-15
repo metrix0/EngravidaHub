@@ -124,34 +124,13 @@ export async function GET(request: Request) {
             });
         }
 
-        const remainingCount = Math.max(
-            0,
-            requestedCount - previousRun.sentClientIds.size,
-        );
-
-        if (remainingCount === 0) {
-            return NextResponse.json({
-                ok: true,
-                skipped: true,
-                reason: "daily_limit_already_reached",
-                automation: "resgate",
-                requested_count: requestedCount,
-                target_last_client_message_date: targetDate,
-                already_sent_count: previousRun.sentClientIds.size,
-                selected_count: 0,
-                sent_count: 0,
-                failed_count: 0,
-                groups: [],
-            });
-        }
-
         const eligibleClients = (
             await loadEligibleClients({ start, end })
         ).filter((client) => !previousRun.sentClientIds.has(client.id));
         const candidatesByBucket = groupEligibleClients(eligibleClients);
         const selectedByBucket = allocateRecipients({
             candidatesByBucket,
-            requestedCount: remainingCount,
+            requestedCount,
         });
         const groupResults: GroupResult[] = [];
 
