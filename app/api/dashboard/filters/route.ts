@@ -109,20 +109,20 @@ async function getActiveEntityOptions(
 }
 
 async function getConversationTextOptions(): Promise<ConversationOptions> {
-    const { data, error } = await supabase
-        .from("conversations")
-        .select("tunnel, origin")
-        .eq("channel", "WhatsApp");
+    const { data, error } = await supabase.rpc(
+        "dashboard_conversation_filter_options_v1"
+    );
 
     if (error) throw error;
 
+    const rows = (data ?? []) as Array<{
+        tunnel: string | null;
+        origin: string | null;
+    }>;
+
     return {
-        tunnels: buildNullableTextOptions(
-            (data ?? []).map((item) => item.tunnel as string | null),
-        ),
-        origins: buildNullableTextOptions(
-            (data ?? []).map((item) => item.origin as string | null),
-        ),
+        tunnels: buildNullableTextOptions(rows.map((item) => item.tunnel)),
+        origins: buildNullableTextOptions(rows.map((item) => item.origin)),
     };
 }
 
