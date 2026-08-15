@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 import { syncBigquerySchedules } from "@/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds";
+import { retryMissingMetaScheduleEvents } from "@/lib/schedules/retryMissingMetaScheduleEvents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,12 @@ export async function GET(request: Request) {
             daysBack,
             limit,
         });
+
+        try {
+            await retryMissingMetaScheduleEvents();
+        } catch (error) {
+            console.error("[sync-bigquery-schedules] Meta retry failed", error);
+        }
 
         return NextResponse.json(result);
     } catch (error) {
