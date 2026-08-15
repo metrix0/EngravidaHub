@@ -124,34 +124,13 @@ export async function GET(request: Request) {
             });
         }
 
-        const remainingCount = Math.max(
-            0,
-            requestedCount - previousRun.sentClientIds.size,
-        );
-
-        if (remainingCount === 0) {
-            return NextResponse.json({
-                ok: true,
-                skipped: true,
-                reason: "daily_limit_already_reached",
-                automation: "resgate",
-                requested_count: requestedCount,
-                target_last_client_message_date: targetDate,
-                already_sent_count: previousRun.sentClientIds.size,
-                selected_count: 0,
-                sent_count: 0,
-                failed_count: 0,
-                groups: [],
-            });
-        }
-
         const eligibleClients = (
             await loadEligibleClients({ start, end })
-        ).filter((client) => !previousRun.sentClientIds.has(client.id));
+        ).filter((client) => !previousRun.attemptedClientIds.has(client.id));
         const candidatesByBucket = groupEligibleClients(eligibleClients);
         const selectedByBucket = allocateRecipients({
             candidatesByBucket,
-            requestedCount: remainingCount,
+            requestedCount,
         });
         const groupResults: GroupResult[] = [];
 
@@ -284,23 +263,42 @@ export async function GET(request: Request) {
 }
 
 async function loadPreviousRun(targetDate: string) {
-    const { data, error } = await supabase
-        .from("active_message_sends")
-        .select("status, results")
-        .contains("filters", {
-            automation: "resgate",
-            target_last_client_message_date: targetDate,
-        })
-        .order("created_at", { ascending: false })
-        .limit(20);
+    const batches: Array<{
+        status: string;
+        results: unknown;
+        client_ids: string[] | null;
+    }> = [];
 
-    if (error) throw error;
+    for (let offset = 0; ; offset += DATABASE_PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("active_message_sends")
+            .select("status, results, client_ids")
+            .contains("filters", {
+                automation: "resgate",
+                target_last_client_message_date: targetDate,
+            })
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(offset, offset + DATABASE_PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const page = data ?? [];
+        batches.push(...page);
+        if (page.length < DATABASE_PAGE_SIZE) break;
+    }
 
     const sentClientIds = new Set<string>();
+    const attemptedClientIds = new Set<string>();
     let processing = false;
 
-    for (const batch of data ?? []) {
+    for (const batch of batches) {
         if (batch.status === "processing") processing = true;
+
+        for (const clientId of batch.client_ids ?? []) {
+            if (typeof clientId !== "string" || !clientId.trim()) continue;
+            attemptedClientIds.add(clientId);
+        }
 
         if (!Array.isArray(batch.results)) continue;
         for (const result of batch.results) {
@@ -311,7 +309,7 @@ async function loadPreviousRun(targetDate: string) {
         }
     }
 
-    return { processing, sentClientIds };
+    return { processing, sentClientIds, attemptedClientIds };
 }
 
 async function loadEligibleClients({
