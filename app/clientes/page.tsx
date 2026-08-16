@@ -35,7 +35,7 @@ import {
 import type { FiltersResponse } from "@/types";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
-import ClientPanel from "@/components/clientes/ClientPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import {
     getNormalizedUrlOptionNames,
@@ -228,7 +228,6 @@ export default function ClientesPage() {
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [interactionReferenceTime, setInteractionReferenceTime] = useState(0);
 
-    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
     const {
@@ -262,9 +261,7 @@ export default function ClientesPage() {
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        const clientId = readUrlFilterValue(params, ["client_id"]);
 
-        if (clientId) setSelectedClientId(clientId);
         initialUnitUrlValuesRef.current = readUrlFilterValues(params, [
             "unit",
             "units",
@@ -647,18 +644,6 @@ export default function ClientesPage() {
         return diff > 24 * 60 * 60 * 1000;
     }).length;
 
-    function handleCloseClientProfile() {
-        setSelectedClientId(null);
-        const url = new URL(window.location.href);
-        if (!url.searchParams.has("client_id")) return;
-        url.searchParams.delete("client_id");
-        window.history.replaceState(
-            {},
-            "",
-            `${url.pathname}${url.search}${url.hash}`,
-        );
-    }
-
     if (
         loading ||
         loadingFilters ||
@@ -843,7 +828,7 @@ export default function ClientesPage() {
                         columns={CLIENT_COLUMNS}
                         rows={paginatedClientRows}
                         getRowKey={({client}) => client.id}
-                        onRowClick={({client}) => setSelectedClientId(client.id)}
+                        onRowClick={({client}) => openClientProfile(client.id)}
                     />
                     {filteredClients.length > CLIENTS_PER_PAGE ? (
                         <div className="mt-5 flex items-center justify-between pb-16">
@@ -863,12 +848,6 @@ export default function ClientesPage() {
                     )}
                 </section>
             </section>
-
-            <ClientPanel
-                clientId={selectedClientId}
-                onClose={handleCloseClientProfile}
-                onOpenConversation={setSelectedConversationId}
-            />
 
             <ConversationPanel
                 conversationId={selectedConversationId}
