@@ -48,7 +48,7 @@ import {
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import ClientCallModal from "@/components/clientes/ClientCallModal";
-import ClientPanel from "@/components/clientes/ClientPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import { Modal } from "@/components/ui/Modal";
@@ -236,7 +236,6 @@ export default function FunnelPage() {
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
     const [removeClientConfirmation, setRemoveClientConfirmation] =
         useState<RemoveClientConfirmation | null>(null);
-    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [callClientId, setCallClientId] = useState<string | null>(null);
     const [selectedAppointment, setSelectedAppointment] =
         useState<CalendarAppointment | null>(null);
@@ -909,10 +908,6 @@ export default function FunnelPage() {
         await loadFunnelData({ showLoading: false });
     }
 
-    function openClientProfile(clientId: string) {
-        setSelectedClientId(clientId);
-    }
-
     function openClientCall(clientId: string) {
         setCallClientId(clientId);
     }
@@ -1501,11 +1496,6 @@ export default function FunnelPage() {
                 onAddSelectedClients={addSelectedClientsToFunnel}
             />
 
-            <ClientPanel
-                clientId={selectedClientId}
-                onClose={() => setSelectedClientId(null)}
-            />
-
             <ClientCallModal
                 clientId={callClientId}
                 open={Boolean(callClientId)}
@@ -1875,12 +1865,32 @@ function FunnelClientCard({
                 }}
                 className="flex cursor-grab gap-3 active:cursor-grabbing"
             >
-                <InitialsAvatar name={client.name ?? "Cliente"} />
+                <button
+                    type="button"
+                    draggable={false}
+                    title={`Abrir perfil de ${client.name ?? "cliente"}`}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenClientProfile(client.id);
+                    }}
+                    className="shrink-0 cursor-pointer rounded-full transition-opacity hover:opacity-80"
+                >
+                    <InitialsAvatar name={client.name ?? "Cliente"} />
+                </button>
 
                 <div className="min-w-0 flex-1 pr-1">
-                    <div className="truncate text-sm font-bold text-text">
+                    <button
+                        type="button"
+                        draggable={false}
+                        title={client.name ?? "Cliente sem nome"}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenClientProfile(client.id);
+                        }}
+                        className="block max-w-full cursor-pointer truncate text-left text-sm font-bold text-text transition-colors hover:text-brand"
+                    >
                         {client.name ?? "Cliente sem nome"}
-                    </div>
+                    </button>
 
                     <div
                         className={[
