@@ -506,10 +506,16 @@ async function loadDailySatisfactionEvolution({
     signal: AbortSignal;
 }): Promise<ExecutiveMetricsPayload["daily_evolution"]> {
     try {
-        const analyses = await loadSatisfactionAnalyses(range, signal);
+        const [analyses, whatsappConversationIds] = await Promise.all([
+            loadSatisfactionAnalyses(range, signal),
+            loadSatisfactionWhatsappConversationIds(range, signal),
+        ]);
+        const whatsappAnalyses = analyses.filter((analysis) =>
+            whatsappConversationIds.has(analysis.conversation_id),
+        );
         const conversations = hasSatisfactionFilters(filters)
             ? await loadSatisfactionConversations(
-                  analyses.map((analysis) => analysis.conversation_id),
+                  whatsappAnalyses.map((analysis) => analysis.conversation_id),
                   signal,
               )
             : new Map<string, SatisfactionConversationRow>();
@@ -518,7 +524,7 @@ async function loadDailySatisfactionEvolution({
             { analyzed: number; observed: number; satisfied: number }
         >();
 
-        for (const analysis of analyses) {
+        for (const analysis of whatsappAnalyses) {
             const conversation =
                 conversations.get(analysis.conversation_id) ?? null;
             if (
@@ -622,6 +628,36 @@ async function loadSatisfactionAnalyses(
     }
 
     return rows;
+}
+
+async function loadSatisfactionWhatsappConversationIds(
+    range: ReturnType<typeof resolveDashboardDateRange>,
+    signal: AbortSignal,
+) {
+    const ids = new Set<string>();
+
+    for (
+        let from = 0;
+        from < MAX_SCHEDULE_ANALYTICS_ROWS;
+        from += SCHEDULE_PAGE_SIZE
+    ) {
+        const { data, error } = await supabase
+            .from("dashboard_whatsapp_conversations")
+            .select("id")
+            .gte("started_at", range.startAt)
+            .lt("started_at", range.endAt)
+            .order("started_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, from + SCHEDULE_PAGE_SIZE - 1)
+            .abortSignal(signal);
+
+        if (error) throw error;
+        const page = data ?? [];
+        for (const row of page) ids.add(row.id);
+        if (page.length < SCHEDULE_PAGE_SIZE) break;
+    }
+
+    return ids;
 }
 
 async function loadSatisfactionConversations(

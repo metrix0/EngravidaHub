@@ -561,11 +561,28 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                         </defs>
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                         <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                        <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                        <YAxis
+                            yAxisId="conversations"
+                            tick={{ fontSize: 12 }}
+                            stroke="#94a3b8"
+                            allowDecimals={false}
+                        />
+                        <YAxis
+                            yAxisId="percentage"
+                            hide
+                            orientation="right"
+                            domain={[0, 100]}
+                            ticks={[0, 25, 50, 75, 100]}
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value: number) => String(value) + "%"}
+                            stroke="#94a3b8"
+                            width={44}
+                        />
                         <Tooltip content={<DailyEvolutionTooltip />} />
                         <Area
                             type="monotone"
                             dataKey="conversations"
+                            yAxisId="conversations"
                             stroke="#1683ff"
                             strokeWidth={3}
                             fill="url(#conversationFill)"
@@ -573,6 +590,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                         <Line
                             type="monotone"
                             dataKey="resolution_rate"
+                            yAxisId="percentage"
                             stroke="#8b5cf6"
                             strokeWidth={3}
                             dot={{ r: 4 }}
@@ -580,6 +598,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                         <Line
                             type="monotone"
                             dataKey="satisfaction_rate"
+                            yAxisId="percentage"
                             stroke="#10b981"
                             strokeWidth={3}
                             dot={{ r: 4 }}

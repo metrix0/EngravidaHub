@@ -47,7 +47,10 @@ type ClientTracking = {
 
 const metaPixelId = process.env.META_PIXEL_ID;
 const metaAccessToken = process.env.META_ACCESS_TOKEN;
-const metaTestEventCode = process.env.META_TEST_EVENT_CODE;
+const metaTestEventCode =
+    process.env.META_TEST_EVENT_CODE === "your_test_event_code"
+        ? undefined
+        : process.env.META_TEST_EVENT_CODE;
 
 export async function sendMetaEvents({
                                          events,
