@@ -8,7 +8,6 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
 import { AtSign, Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaFacebookMessenger, FaGoogle, FaMeta } from "react-icons/fa6";
 
@@ -34,6 +33,7 @@ import {
     Skeleton,
     type ConversationResult,
 } from "@/components";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "./InitialsAvatar";
 import { ChatMessageContent } from "./ChatMessageBubble";
 import { ConversationChannelBadge } from "./ConversationChannelBadge";
@@ -89,7 +89,6 @@ export function ConversationPanel({
     threadId = null,
     onClose,
 }: ConversationPanelProps) {
-    const router = useRouter();
     const [data, setData] = useState<PanelData | null>(null);
     const [loading, setLoading] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
@@ -257,9 +256,7 @@ export function ConversationPanel({
                                 disabled={!data.client.is_clickable}
                                 onClick={() => {
                                     if (!data.client.is_clickable) return;
-                                    router.push(
-                                        `/clientes?client_id=${encodeURIComponent(data.client.id)}`,
-                                    );
+                                    openClientProfile(data.client.id);
                                 }}
                                 className={`flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
                                     data.client.is_clickable
