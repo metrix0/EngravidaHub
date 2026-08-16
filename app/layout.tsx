@@ -6,6 +6,7 @@ import "./globals.css";
 import { InviteRedirect } from "@/components/auth/InviteRedirect";
 import { CurrentUserProvider } from "@/components/auth/CurrentUserProvider";
 import { PermissionGuard } from "@/components/auth/PermissionGuard";
+import PermanentClientProfilePanel from "@/components/clientes/PermanentClientProfilePanel";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
 import SidePanel from "@/components/layout/SidePanel";
@@ -77,6 +78,7 @@ export default async function RootLayout({
                                     </div>
 
                                     <FloatingConversationPanel />
+                                    <PermanentClientProfilePanel />
                                 </div>
                             </PermissionGuard>
                         </CurrentUserProvider>
