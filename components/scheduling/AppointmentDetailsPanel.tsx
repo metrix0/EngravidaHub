@@ -16,7 +16,7 @@ import {
     Trash2,
 } from "lucide-react";
 
-import ClientPanel from "@/components/clientes/ClientPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import FivAutomationBox from "@/components/scheduling/FivAutomationBox";
 import SchedulingClientSummary from "@/components/scheduling/SchedulingClientSummary";
 import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
@@ -109,7 +109,6 @@ export default function AppointmentDetailsPanel({
     const [saveError, setSaveError] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
-    const [profileClientId, setProfileClientId] = useState<string | null>(null);
     const [busyAppointments, setBusyAppointments] = useState<CalendarAppointment[]>([]);
     const [loadingBusy, setLoadingBusy] = useState(false);
     const [addToFivFunnel, setAddToFivFunnel] = useState(true);
@@ -309,19 +308,13 @@ export default function AppointmentDetailsPanel({
 
     if (!appointment || !form) {
         return (
-            <>
-                <DetailsSidePanel
-                    open={false}
-                    title="Detalhes do agendamento"
-                    onClose={onClose}
-                >
-                    <div />
-                </DetailsSidePanel>
-                <ClientPanel
-                    clientId={profileClientId}
-                    onClose={() => setProfileClientId(null)}
-                />
-            </>
+            <DetailsSidePanel
+                open={false}
+                title="Detalhes do agendamento"
+                onClose={onClose}
+            >
+                <div />
+            </DetailsSidePanel>
         );
     }
 
@@ -431,7 +424,7 @@ export default function AppointmentDetailsPanel({
                         city={form.address.city}
                         onClick={
                             appointment.client_id
-                                ? () => setProfileClientId(appointment.client_id)
+                                ? () => openClientProfile(appointment.client_id)
                                 : undefined
                         }
                     />
@@ -654,10 +647,6 @@ export default function AppointmentDetailsPanel({
                     </button>
                 </div>
             </Modal>
-            <ClientPanel
-                clientId={profileClientId}
-                onClose={() => setProfileClientId(null)}
-            />
         </>
     );
 }
