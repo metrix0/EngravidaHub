@@ -1,0 +1,104 @@
+name: Temporary client profile cleanup runner
+
+on:
+  push:
+    branches:
+      - preview
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: preview
+          fetch-depth: 0
+
+      - name: Apply final exact patches and remove runners
+        shell: bash
+        run: |
+          git pull --ff-only origin preview
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          floating_path = Path('components/conversations/FloatingConversationPanel.tsx')
+          floating = floating_path.read_text()
+
+          import_line = 'import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";\n'
+          if import_line not in floating:
+              anchors = [
+                  'import { useCurrentUser } from "@/components/auth/CurrentUserProvider";\n',
+                  'import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";\n',
+              ]
+              for anchor in anchors:
+                  if floating.count(anchor) == 1:
+                      floating = floating.replace(anchor, anchor + import_line, 1)
+                      break
+              else:
+                  raise SystemExit('Floating import anchor not found uniquely')
+
+          legacy_pattern = re.compile(
+              r'onOpenClientProfile=\{\(clientId\) =>\s*'
+              r'router\.push\(`/clientes\?client_id=\$\{encodeURIComponent\(clientId\)\}`\)\s*'
+              r'\}'
+          )
+          if 'onOpenClientProfile={openClientProfile}' not in floating:
+              floating, count = legacy_pattern.subn(
+                  'onOpenClientProfile={openClientProfile}',
+                  floating,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f'Floating profile callback replacements: {count}')
+
+          floating_path.write_text(floating)
+
+          funnel_path = Path('app/funil/page.tsx')
+          funnel = funnel_path.read_text()
+          marker = 'const SelectableClientRow = memo(function SelectableClientRow'
+          if funnel.count(marker) != 1:
+              raise SystemExit(f'SelectableClientRow marker count: {funnel.count(marker)}')
+
+          before, after = funnel.split(marker, 1)
+          if 'title={`Abrir perfil de ${client.name ?? "cliente"}`}' not in after:
+              identity = '''<div className="flex min-w-0 items-center gap-3">
+                    <InitialsAvatar name={client.name ?? "Cliente"} />'''
+              replacement = '''<div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openClientProfile(client.id)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openClientProfile(client.id);
+                        }
+                    }}
+                    title={`Abrir perfil de ${client.name ?? "cliente"}`}
+                    className="flex min-w-0 cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
+                >
+                    <InitialsAvatar name={client.name ?? "Cliente"} />'''
+              if after.count(identity) != 1:
+                  raise SystemExit(f'Add-client identity count: {after.count(identity)}')
+              after = after.replace(identity, replacement, 1)
+              funnel_path.write_text(before + marker + after)
+          PY
+
+          git rm -f .github/workflows/temp-client-profile-panel-patch.yml
+          git rm -f .github/workflows/temp-client-profile-cleanup.yml
+          git diff --check
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/conversations/FloatingConversationPanel.tsx app/funil/page.tsx
+          git commit -m "Finish permanent client profile entry points"
+
+          if ! git push origin HEAD:preview; then
+            git pull --rebase origin preview
+            git push origin HEAD:preview
+          fi
