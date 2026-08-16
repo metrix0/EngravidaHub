@@ -145,7 +145,6 @@ type FunnelKpis = {
     procedure_show_rate: number;
 };
 
-
 type FunnelResponse = {
     funnels: Funnel[];
     stages: FunnelStage[];
@@ -370,9 +369,7 @@ export default function FunnelPage() {
             showLoading?: boolean;
             signal?: AbortSignal;
         } = {}) => {
-            if (showLoading) {
-                setLoading(true);
-            }
+            if (showLoading) setLoading(true);
 
             try {
                 const params = new URLSearchParams();
@@ -384,9 +381,7 @@ export default function FunnelPage() {
                     presets: FUNNEL_DATE_PRESETS,
                 });
 
-                applyArrayParams(params, {
-                    unit_ids: unitIds,
-                });
+                applyArrayParams(params, { unit_ids: unitIds });
 
                 const response = await fetch(`/api/funnel?${params.toString()}`, {
                     cache: "no-store",
@@ -395,26 +390,20 @@ export default function FunnelPage() {
 
                 if (!response.ok) {
                     const body = await response.json().catch(() => null);
-                    throw new Error(
-                        body?.error ?? "Falha ao carregar o funil.",
-                    );
+                    throw new Error(body?.error ?? "Falha ao carregar o funil.");
                 }
 
                 const data = (await response.json()) as FunnelResponse;
-
                 setFunnels(data.funnels ?? []);
                 setStages(data.stages ?? []);
                 setClients(data.clients ?? []);
                 setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
                 setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
-
             } catch (error) {
                 if (signal?.aborted) return;
                 console.error("[funil] load failed", error);
             } finally {
-                if (showLoading && !signal?.aborted) {
-                    setLoading(false);
-                }
+                if (showLoading && !signal?.aborted) setLoading(false);
             }
         },
         [period, selectedRange, unitIds],
@@ -449,28 +438,18 @@ export default function FunnelPage() {
             try {
                 const params = new URLSearchParams({
                     offset: String(offset),
-                    limit: String(
-                        append ? INTAKE_LOAD_MORE_LIMIT : INTAKE_INITIAL_LIMIT,
-                    ),
+                    limit: String(append ? INTAKE_LOAD_MORE_LIMIT : INTAKE_INITIAL_LIMIT),
                 });
 
-                if (unitIds.length > 0) {
-                    params.set("unit_ids", unitIds.join(","));
-                }
-                if (sourceValues.length > 0) {
-                    params.set("origins", sourceValues.join(","));
-                }
-                if (search.trim()) {
-                    params.set("search", search.trim());
-                }
+                if (unitIds.length > 0) params.set("unit_ids", unitIds.join(","));
+                if (sourceValues.length > 0) params.set("origins", sourceValues.join(","));
+                if (search.trim()) params.set("search", search.trim());
 
-                const response = await fetch(
-                    `/api/funnel/intake?${params.toString()}`,
-                    { cache: "no-store", signal },
-                );
-                const json = (await response.json()) as
-                    | FunnelIntakeResponse
-                    | { error?: string };
+                const response = await fetch(`/api/funnel/intake?${params.toString()}`, {
+                    cache: "no-store",
+                    signal,
+                });
+                const json = (await response.json()) as FunnelIntakeResponse | { error?: string };
 
                 if (!response.ok) {
                     throw new Error(
@@ -485,12 +464,8 @@ export default function FunnelPage() {
                 setIntakeClients((current) => {
                     if (!append) return data.clients ?? [];
 
-                    const byId = new Map(
-                        current.map((client) => [client.id, client]),
-                    );
-                    for (const client of data.clients ?? []) {
-                        byId.set(client.id, client);
-                    }
+                    const byId = new Map(current.map((client) => [client.id, client]));
+                    for (const client of data.clients ?? []) byId.set(client.id, client);
                     return [...byId.values()];
                 });
             } catch (error) {
@@ -525,31 +500,19 @@ export default function FunnelPage() {
 
     const visibleStages = useMemo(() => {
         if (!selectedFunnelId) return [];
-
         return stages.filter((stage) => stage.funnel_id === selectedFunnelId);
     }, [stages, selectedFunnelId]);
 
-    const visibleStageIds = useMemo(() => {
-        return new Set(visibleStages.map((stage) => stage.id));
-    }, [visibleStages]);
+    const visibleStageIds = useMemo(() => new Set(visibleStages.map((stage) => stage.id)), [visibleStages]);
 
     const scheduleDateRange = useMemo(() => {
         if (selectedRange.start) {
-            return {
-                start: selectedRange.start,
-                end: selectedRange.end ?? selectedRange.start,
-            };
+            return { start: selectedRange.start, end: selectedRange.end ?? selectedRange.start };
         }
 
-        const preset =
-            FUNNEL_DATE_PRESETS.find((item) => item.value === period) ??
-            FUNNEL_DATE_PRESETS[0];
+        const preset = FUNNEL_DATE_PRESETS.find((item) => item.value === period) ?? FUNNEL_DATE_PRESETS[0];
         const range = getDateRangeFromPreset(preset);
-
-        return {
-            start: range.start ?? "",
-            end: range.end ?? range.start ?? "",
-        };
+        return { start: range.start ?? "", end: range.end ?? range.start ?? "" };
     }, [period, selectedRange]);
 
     const filteredClients = useMemo(() => {
@@ -562,18 +525,13 @@ export default function FunnelPage() {
             const scheduledFor = client.schedule_summary?.scheduled_for?.slice(0, 10);
             if (
                 scheduledFor &&
-                (scheduledFor < scheduleDateRange.start ||
-                    scheduledFor > scheduleDateRange.end)
-            ) {
-                return false;
-            }
+                (scheduledFor < scheduleDateRange.start || scheduledFor > scheduleDateRange.end)
+            ) return false;
 
             if (
                 sourceValues.length > 0 &&
                 !sourceValues.includes(client.utm_source ?? "-")
-            ) {
-                return false;
-            }
+            ) return false;
 
             if (!term) return true;
 
@@ -583,57 +541,36 @@ export default function FunnelPage() {
                 client.email?.toLowerCase().includes(term)
             );
         });
-    }, [
-        clients,
-        scheduleDateRange.end,
-        scheduleDateRange.start,
-        search,
-        sourceValues,
-        visibleStageIds,
-    ]);
+    }, [clients, scheduleDateRange.end, scheduleDateRange.start, search, sourceValues, visibleStageIds]);
 
     const clientsByStage = useMemo(() => {
         const grouped: Record<string, Client[]> = {};
-
         for (const stage of visibleStages) {
             grouped[stage.id] = filteredClients
                 .filter((client) => client.funnel_stage_id === stage.id)
                 .sort(sortFunnelClients);
         }
-
         return grouped;
     }, [filteredClients, visibleStages]);
 
     const firstStageInSelectedFunnel = visibleStages[0] ?? null;
-
-    const availableStageById = useMemo(() => {
-        return new Map(availableStages.map((stage) => [stage.id, stage]));
-    }, [availableStages]);
+    const availableStageById = useMemo(() => new Map(availableStages.map((stage) => [stage.id, stage])), [availableStages]);
 
     const filteredAvailableClients = useMemo(() => {
         const term = clientSearch.trim().toLowerCase();
-
         return availableClients
             .filter((client) => {
                 if (!term) return true;
-
                 return (
                     client.name?.toLowerCase().includes(term) ||
                     client.phone?.toLowerCase().includes(term) ||
                     client.email?.toLowerCase().includes(term)
                 );
             })
-            .sort(
-                (a, b) =>
-                    new Date(b.last_interaction_at).getTime() -
-                    new Date(a.last_interaction_at).getTime()
-            );
+            .sort((a, b) => new Date(b.last_interaction_at).getTime() - new Date(a.last_interaction_at).getTime());
     }, [availableClients, clientSearch]);
 
-    const selectedFunnel = funnels.find(
-        (funnel) => funnel.id === selectedFunnelId
-    );
-
+    const selectedFunnel = funnels.find((funnel) => funnel.id === selectedFunnelId);
     const totalClients = filteredClients.length;
     const schedulingClient = schedulingClientId
         ? clients.find((client) => client.id === schedulingClientId) ??
@@ -643,47 +580,31 @@ export default function FunnelPage() {
     const schedulingInitialSchedule = useMemo(() => {
         const schedule = schedulingClient?.schedule_summary;
         if (!schedule) return null;
-
-        return {
-            scheduledFor: schedule.scheduled_for,
-            procedureName: schedule.procedure_name,
-        };
+        return { scheduledFor: schedule.scheduled_for, procedureName: schedule.procedure_name };
     }, [schedulingClient?.schedule_summary]);
 
     const toggleSelectedClient = useCallback((clientId: string) => {
         setSelectedClientIds((current) =>
             current.includes(clientId)
                 ? current.filter((id) => id !== clientId)
-                : [...current, clientId]
+                : [...current, clientId],
         );
     }, []);
 
-    const clearSelectedClients = useCallback(() => {
-        setSelectedClientIds([]);
-    }, []);
+    const clearSelectedClients = useCallback(() => setSelectedClientIds([]), []);
 
     async function addSelectedClientsToFunnel() {
-        if (!selectedFunnelId || !firstStageInSelectedFunnel) return;
-        if (selectedClientIds.length === 0) return;
+        if (!selectedFunnelId || !firstStageInSelectedFunnel || selectedClientIds.length === 0) return;
 
-        const selectedClients = availableClients.filter((client) =>
-            selectedClientIds.includes(client.id)
-        );
-
+        const selectedClients = availableClients.filter((client) => selectedClientIds.includes(client.id));
         setAddingManyClients(true);
 
         for (const client of selectedClients) {
-            const alreadyInCurrentFunnel = visibleStageIds.has(
-                client.funnel_stage_id ?? ""
-            );
-
-            if (alreadyInCurrentFunnel) continue;
+            if (visibleStageIds.has(client.funnel_stage_id ?? "")) continue;
 
             const response = await fetch("/api/funnel/client-stage", {
                 method: "PATCH",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     client_id: client.id,
                     funnel_id: selectedFunnelId,
@@ -713,27 +634,16 @@ export default function FunnelPage() {
                 appointment: null,
             };
 
-            setAvailableClients((current) =>
-                current.map((item) => (item.id === client.id ? updatedClient : item))
-            );
-
+            setAvailableClients((current) => current.map((item) => (item.id === client.id ? updatedClient : item)));
             setClients((current) => {
                 const exists = current.some((item) => item.id === client.id);
-
-                if (exists) {
-                    return current.map((item) =>
-                        item.id === client.id ? updatedClient : item
-                    );
-                }
-
+                if (exists) return current.map((item) => (item.id === client.id ? updatedClient : item));
                 return [updatedClient, ...current];
             });
-
         }
 
         setAddingManyClients(false);
         closeAddClientModal();
-
         await loadFunnelData({ showLoading: false });
     }
 
@@ -752,18 +662,12 @@ export default function FunnelPage() {
         setAvailableClientsLoading(true);
 
         const params = new URLSearchParams();
-
-        applyArrayParams(params, {
-            unit_ids: unitIds,
-        });
-
+        applyArrayParams(params, { unit_ids: unitIds });
         const queryString = params.toString();
 
         const response = await fetch(
             `/api/funnel/available-clients${queryString ? `?${queryString}` : ""}`,
-            {
-                cache: "no-store",
-            }
+            { cache: "no-store" },
         );
 
         if (!response.ok) {
@@ -773,7 +677,6 @@ export default function FunnelPage() {
         }
 
         const data = (await response.json()) as AvailableClientsResponse;
-
         setAvailableClients(data.clients ?? []);
         setAvailableStages(data.stages ?? []);
         setAvailableClientsLoading(false);
@@ -781,20 +684,13 @@ export default function FunnelPage() {
 
     async function loadMoreIntakeClients() {
         if (intakeLoadingMore || intakeClients.length >= intakeTotal) return;
-
-        await loadIntakeClients({
-            offset: intakeClients.length,
-            append: true,
-        });
+        await loadIntakeClients({ offset: intakeClients.length, append: true });
     }
 
     async function removeIntakeClosingTag(clientId: string) {
         const previousClients = intakeClients;
         const previousTotal = intakeTotal;
-
-        setIntakeClients((current) =>
-            current.filter((client) => client.id !== clientId),
-        );
+        setIntakeClients((current) => current.filter((client) => client.id !== clientId));
         setIntakeTotal((current) => Math.max(0, current - 1));
 
         const response = await fetch(
@@ -806,14 +702,11 @@ export default function FunnelPage() {
             setIntakeClients(previousClients);
             setIntakeTotal(previousTotal);
             console.error(await response.json().catch(() => null));
-            return;
         }
-
     }
 
     function requestIntakeClientRemoval(clientId: string) {
         const client = intakeClients.find((item) => item.id === clientId);
-
         setRemoveClientConfirmation({
             clientId,
             clientName: client?.name ?? null,
@@ -824,7 +717,6 @@ export default function FunnelPage() {
 
     function requestFunnelClientRemoval(clientId: string, columnName: string) {
         const client = clients.find((item) => item.id === clientId);
-
         setRemoveClientConfirmation({
             clientId,
             clientName: client?.name ?? null,
@@ -836,28 +728,22 @@ export default function FunnelPage() {
     async function confirmClientRemoval() {
         const confirmation = removeClientConfirmation;
         if (!confirmation) return;
-
         setRemoveClientConfirmation(null);
-
         if (confirmation.source === "intake") {
             await removeIntakeClosingTag(confirmation.clientId);
             return;
         }
-
         await removeClientFromFunnel(confirmation.clientId);
     }
 
     async function moveClient(clientId: string, toStageId: string) {
         if (!selectedFunnelId) return;
-
         const funnelClient = clients.find((client) => client.id === clientId);
         const intakeClient = intakeClients.find((client) => client.id === clientId);
         const client = funnelClient ?? intakeClient;
-
         if (!client) return;
 
         const fromStageId = client.funnel_stage_id;
-
         if (fromStageId === toStageId) return;
 
         const previousClients = clients;
@@ -867,11 +753,7 @@ export default function FunnelPage() {
             setClients((current) =>
                 current.map((item) =>
                     item.id === clientId
-                        ? {
-                              ...item,
-                              funnel_stage_id: toStageId,
-                              updated_at: now,
-                          }
+                        ? { ...item, funnel_stage_id: toStageId, updated_at: now }
                         : item,
                 ),
             );
@@ -879,9 +761,7 @@ export default function FunnelPage() {
 
         const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 client_id: clientId,
                 funnel_id: selectedFunnelId,
@@ -899,12 +779,9 @@ export default function FunnelPage() {
         }
 
         if (intakeClient) {
-            setIntakeClients((current) =>
-                current.filter((item) => item.id !== clientId),
-            );
+            setIntakeClients((current) => current.filter((item) => item.id !== clientId));
             setIntakeTotal((current) => Math.max(0, current - 1));
         }
-
         await loadFunnelData({ showLoading: false });
     }
 
@@ -912,30 +789,17 @@ export default function FunnelPage() {
         setCallClientId(clientId);
     }
 
-    function handleCallSaved(
-        clientId: string,
-        call: {
-            last_called_at: string;
-            last_call_closure_tag: string;
-        },
-    ) {
+    function handleCallSaved(clientId: string, call: { last_called_at: string; last_call_closure_tag: string }) {
         const applyCall = (client: Client) =>
             client.id === clientId
-                ? {
-                      ...client,
-                      last_called_at: call.last_called_at,
-                      last_call_closure_tag: call.last_call_closure_tag,
-                  }
+                ? { ...client, last_called_at: call.last_called_at, last_call_closure_tag: call.last_call_closure_tag }
                 : client;
-
         setClients((current) => current.map(applyCall));
         setIntakeClients((current) => current.map(applyCall));
     }
 
     async function openClientSchedule(clientId: string) {
-        const client =
-            clients.find((item) => item.id === clientId) ??
-            intakeClients.find((item) => item.id === clientId);
+        const client = clients.find((item) => item.id === clientId) ?? intakeClients.find((item) => item.id === clientId);
         if (!client) return;
 
         if (!client.appointment) {
@@ -945,17 +809,9 @@ export default function FunnelPage() {
 
         if (schedulingUnits.length === 0 || schedulingDoctors.length === 0) {
             try {
-                const response = await fetch("/api/scheduling/options", {
-                    cache: "no-store",
-                });
+                const response = await fetch("/api/scheduling/options", { cache: "no-store" });
                 const json = await response.json();
-                if (!response.ok) {
-                    throw new Error(
-                        json?.error ??
-                            "Não foi possível carregar as opções do agendamento.",
-                    );
-                }
-
+                if (!response.ok) throw new Error(json?.error ?? "Não foi possível carregar as opções do agendamento.");
                 setSchedulingUnits(json.units ?? []);
                 setSchedulingDoctors(json.doctors ?? []);
             } catch (optionsError) {
@@ -967,7 +823,6 @@ export default function FunnelPage() {
                 return;
             }
         }
-
         setSelectedAppointment(client.appointment);
     }
 
@@ -983,78 +838,46 @@ export default function FunnelPage() {
             notes: string;
         },
     ) {
-        const response = await fetch(
-            `/api/scheduling/appointments/${appointment.id}`,
-            {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(input),
-            },
-        );
+        const response = await fetch(`/api/scheduling/appointments/${appointment.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        });
         const json = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                json?.error ?? "Não foi possível atualizar o agendamento.",
-            );
-        }
+        if (!response.ok) throw new Error(json?.error ?? "Não foi possível atualizar o agendamento.");
 
         const saved = json.appointment as CalendarAppointment;
         setSelectedAppointment(saved);
-        setClients((current) =>
-            current.map((client) =>
-                client.id === saved.client_id
-                    ? { ...client, appointment: saved }
-                    : client,
-            ),
-        );
+        setClients((current) => current.map((client) => (client.id === saved.client_id ? { ...client, appointment: saved } : client)));
         await loadFunnelData({ showLoading: false });
     }
 
     async function deleteAppointment(appointment: CalendarAppointment) {
-        const response = await fetch(
-            `/api/scheduling/appointments/${appointment.id}`,
-            { method: "DELETE" },
-        );
+        const response = await fetch(`/api/scheduling/appointments/${appointment.id}`, { method: "DELETE" });
         const json = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                json?.error ?? "Não foi possível excluir o agendamento.",
-            );
-        }
-
+        if (!response.ok) throw new Error(json?.error ?? "Não foi possível excluir o agendamento.");
         setSelectedAppointment(null);
         await loadFunnelData({ showLoading: false });
     }
 
     async function removeClientFromFunnel(clientId: string) {
         if (!selectedFunnelId) return;
-
         const client = clients.find((client) => client.id === clientId);
-
         if (!client?.funnel_stage_id) return;
 
         const previousClients = clients;
         const fromStageId = client.funnel_stage_id;
-
         setClients((current) =>
             current.map((client) =>
                 client.id === clientId
-                    ? {
-                        ...client,
-                        funnel_stage_id: null,
-                        updated_at: new Date().toISOString(),
-                    }
-                    : client
-            )
+                    ? { ...client, funnel_stage_id: null, updated_at: new Date().toISOString() }
+                    : client,
+            ),
         );
 
         const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 client_id: clientId,
                 funnel_id: selectedFunnelId,
@@ -1069,26 +892,17 @@ export default function FunnelPage() {
             console.error(await response.json());
             return;
         }
-
         await loadFunnelData({ showLoading: false });
     }
 
     async function addClientToFunnel(client: AvailableClient) {
         if (!selectedFunnelId || !firstStageInSelectedFunnel) return;
-
-        const alreadyInCurrentFunnel = visibleStageIds.has(
-            client.funnel_stage_id ?? ""
-        );
-
-        if (alreadyInCurrentFunnel) return;
+        if (visibleStageIds.has(client.funnel_stage_id ?? "")) return;
 
         setAddingClientId(client.id);
-
         const response = await fetch("/api/funnel/client-stage", {
             method: "PATCH",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 client_id: client.id,
                 funnel_id: selectedFunnelId,
@@ -1119,39 +933,22 @@ export default function FunnelPage() {
             appointment: null,
         };
 
-        setAvailableClients((current) =>
-            current.map((item) => (item.id === client.id ? updatedClient : item))
-        );
-
+        setAvailableClients((current) => current.map((item) => (item.id === client.id ? updatedClient : item)));
         setClients((current) => {
             const exists = current.some((item) => item.id === client.id);
-
-            if (exists) {
-                return current.map((item) =>
-                    item.id === client.id ? updatedClient : item
-                );
-            }
-
+            if (exists) return current.map((item) => (item.id === client.id ? updatedClient : item));
             return [updatedClient, ...current];
         });
 
-
         setAddingClientId(null);
         closeAddClientModal();
-
         await loadFunnelData({ showLoading: false });
     }
 
-    if (
-        !dateFilterReady ||
-        !urlFiltersReady ||
-        loading ||
-        loadingFilters
-    ) {
+    if (!dateFilterReady || !urlFiltersReady || loading || loadingFilters) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <div className="mb-8 flex items-start justify-between">
                         <div>
@@ -1160,19 +957,16 @@ export default function FunnelPage() {
                         </div>
                         <Skeleton className="h-12 w-[310px] rounded-xl" />
                     </div>
-
                     <div className="mb-8 flex justify-end">
                         <Skeleton className="h-12 w-[230px] rounded-xl" />
                     </div>
-
                     <section className="mb-8 grid grid-cols-1 gap-5">
                         <HorizontalScroller scrollAmount={400}>
-                            {Array.from({length: 4}).map((_, index) => (
+                            {Array.from({ length: 4 }).map((_, index) => (
                                 <Skeleton key={index} className="h-32 min-w-[310px] rounded-2xl" />
                             ))}
                         </HorizontalScroller>
                     </section>
-
                     <section>
                         <div className="mb-5 flex items-center justify-between gap-6">
                             <div>
@@ -1185,17 +979,16 @@ export default function FunnelPage() {
                                 <Skeleton className="h-11 w-[105px] rounded-xl" />
                             </div>
                         </div>
-
                         <div className="overflow-hidden pb-16">
                             <HorizontalScroller scrollAmount={520}>
-                                {Array.from({length: 4}).map((_, columnIndex) => (
+                                {Array.from({ length: 4 }).map((_, columnIndex) => (
                                     <div key={columnIndex} className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
                                         <div className="mb-4 flex items-center justify-between">
                                             <Skeleton className="h-4 w-[120px]" />
                                             <Skeleton className="h-6 w-8 rounded-md" />
                                         </div>
                                         <div className="space-y-3">
-                                            {Array.from({length: 4}).map((_, cardIndex) => (
+                                            {Array.from({ length: 4 }).map((_, cardIndex) => (
                                                 <div key={cardIndex} className="rounded-xl border border-slate-100 bg-white p-3">
                                                     <div className="flex gap-3">
                                                         <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
@@ -1224,28 +1017,19 @@ export default function FunnelPage() {
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-
             <section className="min-w-0 flex-1 px-8 py-8">
                 <header className="mb-8 flex items-start justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-                            Funil
-                        </h1>
-                        <p className="mt-2 text-sm text-slate-500">
-                            Acompanhe e mova clientes pelo funil comercial
-                        </p>
+                        <h1 className="text-3xl font-bold tracking-tight text-slate-950">Funil</h1>
+                        <p className="mt-2 text-sm text-slate-500">Acompanhe e mova clientes pelo funil comercial</p>
                     </div>
-
                     <ButtonGroup
                         value={period}
                         onChange={(value) => {
                             setPeriod(value);
                             setSelectedRange(EMPTY_DATE_RANGE);
                         }}
-                        options={FUNNEL_DATE_PRESETS.map((preset) => ({
-                            value: preset.value,
-                            label: preset.label,
-                        }))}
+                        options={FUNNEL_DATE_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
                     >
                         <CalendarButton
                             value={selectedRange}
@@ -1255,7 +1039,6 @@ export default function FunnelPage() {
                                     setPeriod(null);
                                     return;
                                 }
-
                                 setPeriod(FUNNEL_DATE_PRESETS[0].value);
                             }}
                             allowFutureDates
@@ -1264,98 +1047,31 @@ export default function FunnelPage() {
                 </header>
 
                 <div className="mb-8 flex flex-wrap justify-end gap-3">
-                    {/*<FilterButton*/}
-                    {/*    label={selectedFunnel?.name ?? "Funnel Comercial Principal"*/}
-                    {/*    values={funnelIds}*/}
-                    {/*    onChange={(values) => {*/}
-                    {/*        setFunnelIds(values.slice(0, 1));*/}
-                    {/*    }*/}
-                    {/*    options={funnels.map((funnel) => ({*/}
-                    {/*        label: funnel.name,*/}
-                    {/*        value: funnel.id,*/}
-                    {/*    }))}*/}
-                    {/*    widthClassName="w-[260px]"*/}
-                    {/*/>*/}
-
                     <MainFilters
                         units={filters?.units}
                         unitValues={unitIds}
                         setUnitValues={setUnitIds}
-                        show={{
-                            attendants: false,
-                            tunnels: false,
-                            origins: false,
-                        }}
+                        show={{ attendants: false, tunnels: false, origins: false }}
                     />
                 </div>
 
                 <section className="mb-8 grid grid-cols-1 gap-5">
                     <HorizontalScroller scrollAmount={400}>
-                        <div className="min-w-[310px]">
-                            <KpiCard
-                                icon={<CalendarCheck size={26} />}
-                                label="Avaliações agendadas"
-                                currentValue={kpis.evaluations_scheduled}
-                                previousValue={previousKpis.evaluations_scheduled}
-                                color="purple"
-                            />
-                        </div>
-
-                        <div className="min-w-[310px]">
-                            <KpiCard
-                                icon={<UserCheck size={26} />}
-                                label="Comparecimento avaliação"
-                                currentValue={kpis.evaluation_show_rate}
-                                previousValue={previousKpis.evaluation_show_rate}
-                                suffix="%"
-                                color="green"
-                            />
-                        </div>
-
-                        <div className="min-w-[310px]">
-                            <KpiCard
-                                icon={<TrendingUp size={26} />}
-                                label="Procedimentos agendados"
-                                currentValue={kpis.procedures_scheduled}
-                                previousValue={previousKpis.procedures_scheduled}
-                                color="pink"
-                            />
-                        </div>
-
-                        <div className="min-w-[310px]">
-                            <KpiCard
-                                icon={<Users size={26} />}
-                                label="Comparecimento procedimento"
-                                currentValue={kpis.procedure_show_rate}
-                                previousValue={previousKpis.procedure_show_rate}
-                                suffix="%"
-                                color="blue"
-                            />
-                        </div>
+                        <div className="min-w-[310px]"><KpiCard icon={<CalendarCheck size={26} />} label="Avaliações agendadas" currentValue={kpis.evaluations_scheduled} previousValue={previousKpis.evaluations_scheduled} color="purple" /></div>
+                        <div className="min-w-[310px]"><KpiCard icon={<UserCheck size={26} />} label="Comparecimento avaliação" currentValue={kpis.evaluation_show_rate} previousValue={previousKpis.evaluation_show_rate} suffix="%" color="green" /></div>
+                        <div className="min-w-[310px]"><KpiCard icon={<TrendingUp size={26} />} label="Procedimentos agendados" currentValue={kpis.procedures_scheduled} previousValue={previousKpis.procedures_scheduled} color="pink" /></div>
+                        <div className="min-w-[310px]"><KpiCard icon={<Users size={26} />} label="Comparecimento procedimento" currentValue={kpis.procedure_show_rate} previousValue={previousKpis.procedure_show_rate} suffix="%" color="blue" /></div>
                     </HorizontalScroller>
                 </section>
 
                 <section>
                     <div className="mb-5 flex items-center justify-between gap-6">
                         <div>
-                            <h2 className="text-xl font-bold text-text">
-                                {selectedFunnel?.name ?? "Funil FIV"}
-                            </h2>
-
-                            <p className="mt-1 text-sm text-muted">
-                                {totalClients} clientes distribuídos em{" "}
-                                {visibleStages.length} etapas
-                            </p>
+                            <h2 className="text-xl font-bold text-text">{selectedFunnel?.name ?? "Funil FIV"}</h2>
+                            <p className="mt-1 text-sm text-muted">{totalClients} clientes distribuídos em {visibleStages.length} etapas</p>
                         </div>
-
                         <div className="flex items-center gap-3">
-                            <SearchFilter
-                                value={search}
-                                onChange={setSearch}
-                                placeholder="Buscar cliente ou telefone..."
-                                widthClassName="w-[360px]"
-                            />
-
+                            <SearchFilter value={search} onChange={setSearch} placeholder="Buscar cliente ou telefone..." widthClassName="w-[360px]" />
                             <AdvancedFilterButton
                                 sections={[
                                     {
@@ -1367,12 +1083,7 @@ export default function FunnelPage() {
                                     },
                                 ]}
                             />
-
-                            <button
-                                type="button"
-                                onClick={openAddClientModal}
-                                className="flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-                            >
+                            <button type="button" onClick={openAddClientModal} className="flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90">
                                 + Cliente
                             </button>
                         </div>
@@ -1397,25 +1108,19 @@ export default function FunnelPage() {
                                 onOpenClientSchedule={openClientSchedule}
                                 onOpenClientCall={openClientCall}
                             />
-
-                            {visibleStages.map((stage) => {
-                                const stageClients =
-                                    clientsByStage[stage.id] ?? [];
-
-                                return (
-                                    <FunnelColumn
-                                        key={stage.id}
-                                        stage={stage}
-                                        clients={stageClients}
-                                        blurPhone={blurClientPhones}
-                                        onMoveClient={moveClient}
-                                        onRemoveClient={requestFunnelClientRemoval}
-                                        onOpenClientProfile={openClientProfile}
-                                        onOpenClientSchedule={openClientSchedule}
-                                        onOpenClientCall={openClientCall}
-                                    />
-                                );
-                            })}
+                            {visibleStages.map((stage) => (
+                                <FunnelColumn
+                                    key={stage.id}
+                                    stage={stage}
+                                    clients={clientsByStage[stage.id] ?? []}
+                                    blurPhone={blurClientPhones}
+                                    onMoveClient={moveClient}
+                                    onRemoveClient={requestFunnelClientRemoval}
+                                    onOpenClientProfile={openClientProfile}
+                                    onOpenClientSchedule={openClientSchedule}
+                                    onOpenClientCall={openClientCall}
+                                />
+                            ))}
                         </HorizontalScroller>
                     </div>
                 </section>
@@ -1430,44 +1135,16 @@ export default function FunnelPage() {
                 ariaLabelledBy="funnel-remove-client-title"
             >
                 <div className="p-7">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-soft text-red">
-                        <Trash2 size={22} />
-                    </div>
-
-                    <h2
-                        id="funnel-remove-client-title"
-                        className="mt-5 text-xl font-bold text-slate-950"
-                    >
-                        Remover desta coluna?
-                    </h2>
-
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-soft text-red"><Trash2 size={22} /></div>
+                    <h2 id="funnel-remove-client-title" className="mt-5 text-xl font-bold text-slate-950">Remover desta coluna?</h2>
                     <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                        Remova{" "}
-                        <strong className="text-slate-700">
-                            {removeClientConfirmation?.clientName ?? "esta pessoa"}
-                        </strong>{" "}
+                        Remova <strong className="text-slate-700">{removeClientConfirmation?.clientName ?? "esta pessoa"}</strong>{" "}
                         apenas se ela não deveria estar aqui e não pertence à coluna{" "}
-                        <strong className="text-slate-700">
-                            {removeClientConfirmation?.columnName ?? "atual"}
-                        </strong>
-                        .
+                        <strong className="text-slate-700">{removeClientConfirmation?.columnName ?? "atual"}</strong>.
                     </p>
-
                     <div className="mt-7 flex justify-end gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setRemoveClientConfirmation(null)}
-                            className="h-11 cursor-pointer rounded-xl px-5 text-sm font-bold text-slate-500 transition hover:bg-slate-100"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => void confirmClientRemoval()}
-                            className="h-11 cursor-pointer rounded-xl bg-red px-5 text-sm font-bold text-white transition hover:opacity-90"
-                        >
-                            Remover
-                        </button>
+                        <button type="button" onClick={() => setRemoveClientConfirmation(null)} className="h-11 cursor-pointer rounded-xl px-5 text-sm font-bold text-slate-500 transition hover:bg-slate-100">Cancelar</button>
+                        <button type="button" onClick={() => void confirmClientRemoval()} className="h-11 cursor-pointer rounded-xl bg-red px-5 text-sm font-bold text-white transition hover:opacity-90">Remover</button>
                     </div>
                 </div>
             </Modal>
@@ -1558,29 +1235,18 @@ function IntakeColumn({
 
     async function showMore() {
         const nextLimit = Math.min(total, visibleLimit + CLIENTS_PER_BATCH);
-
-        if (nextLimit > clients.length && clients.length < total) {
-            await onLoadMore();
-        }
-
+        if (nextLimit > clients.length && clients.length < total) await onLoadMore();
         setVisibleLimit(nextLimit);
     }
 
     return (
-        <div
-            className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
-        >
+        <div className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400" />
-                    <h3 className="truncate text-sm font-bold text-text">
-                        Não agendou
-                    </h3>
+                    <h3 className="truncate text-sm font-bold text-text">Não agendou</h3>
                 </div>
-
-                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">
-                    {total}
-                </span>
+                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">{total}</span>
             </div>
 
             <div className="space-y-3">
@@ -1591,9 +1257,7 @@ function IntakeColumn({
                         <Skeleton className="h-[150px] rounded-xl" />
                     </>
                 ) : visibleClients.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-8 text-center text-xs font-medium text-slate-400">
-                        Nenhum cliente encontrado.
-                    </div>
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-8 text-center text-xs font-medium text-slate-400">Nenhum cliente encontrado.</div>
                 ) : (
                     visibleClients.map((client) => (
                         <FunnelClientCard
@@ -1615,29 +1279,12 @@ function IntakeColumn({
             {!loading && total > COLLAPSED_CLIENTS ? (
                 <div className="mt-5 flex items-center justify-center gap-3 text-sm font-semibold">
                     {hasMore ? (
-                        <button
-                            type="button"
-                            disabled={loadingMore}
-                            onClick={() => void showMore()}
-                            className="cursor-pointer text-blue disabled:cursor-wait disabled:opacity-60"
-                        >
-                            {loadingMore
-                                ? "Carregando..."
-                                : `+ Ver mais ${Math.min(
-                                      CLIENTS_PER_BATCH,
-                                      total - visibleLimit,
-                                  )}`}
+                        <button type="button" disabled={loadingMore} onClick={() => void showMore()} className="cursor-pointer text-blue disabled:cursor-wait disabled:opacity-60">
+                            {loadingMore ? "Carregando..." : `+ Ver mais ${Math.min(CLIENTS_PER_BATCH, total - visibleLimit)}`}
                         </button>
                     ) : null}
-
                     {visibleLimit > COLLAPSED_CLIENTS ? (
-                        <button
-                            type="button"
-                            onClick={() => setVisibleLimit(COLLAPSED_CLIENTS)}
-                            className="cursor-pointer text-slate-500"
-                        >
-                            − Ver menos
-                        </button>
+                        <button type="button" onClick={() => setVisibleLimit(COLLAPSED_CLIENTS)} className="cursor-pointer text-slate-500">− Ver menos</button>
                     ) : null}
                 </div>
             ) : null}
@@ -1646,15 +1293,15 @@ function IntakeColumn({
 }
 
 function FunnelColumn({
-                            stage,
-                            clients,
-                            onMoveClient,
-                            onRemoveClient,
-                            onOpenClientProfile,
-                            onOpenClientSchedule,
-                            onOpenClientCall,
-                            blurPhone,
-                        }: {
+    stage,
+    clients,
+    onMoveClient,
+    onRemoveClient,
+    onOpenClientProfile,
+    onOpenClientSchedule,
+    onOpenClientCall,
+    blurPhone,
+}: {
     stage: FunnelStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
@@ -1681,19 +1328,10 @@ function FunnelColumn({
         >
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
-                    <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: stage.color ?? "#64748b" }}
-                    />
-
-                    <h3 className="truncate text-sm font-bold text-text">
-                        {stage.name}
-                    </h3>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#64748b" }} />
+                    <h3 className="truncate text-sm font-bold text-text">{stage.name}</h3>
                 </div>
-
-                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">
-                    {clients.length}
-                </span>
+                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">{clients.length}</span>
             </div>
 
             <div className="space-y-3">
@@ -1702,9 +1340,7 @@ function FunnelColumn({
                         key={client.id}
                         client={client}
                         blurPhone={blurPhone}
-                        onRemoveClient={(clientId) =>
-                            onRemoveClient(clientId, stage.name)
-                        }
+                        onRemoveClient={(clientId) => onRemoveClient(clientId, stage.name)}
                         onOpenClientProfile={onOpenClientProfile}
                         onOpenClientSchedule={onOpenClientSchedule}
                         onOpenClientCall={onOpenClientCall}
@@ -1717,33 +1353,14 @@ function FunnelColumn({
                     {hiddenClientsCount > 0 ? (
                         <button
                             type="button"
-                            onClick={() =>
-                                setVisibleLimit((current) =>
-                                    Math.min(
-                                        clients.length,
-                                        current + CLIENTS_PER_BATCH,
-                                    ),
-                                )
-                            }
+                            onClick={() => setVisibleLimit((current) => Math.min(clients.length, current + CLIENTS_PER_BATCH))}
                             className="cursor-pointer text-blue"
                         >
-                            + Ver mais{" "}
-                            {Math.min(
-                                CLIENTS_PER_BATCH,
-                                hiddenClientsCount,
-                            )}
+                            + Ver mais {Math.min(CLIENTS_PER_BATCH, hiddenClientsCount)}
                         </button>
                     ) : null}
                     {visibleLimit > COLLAPSED_CLIENTS ? (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setVisibleLimit(COLLAPSED_CLIENTS)
-                            }
-                            className="cursor-pointer text-slate-500"
-                        >
-                            − Ver menos
-                        </button>
+                        <button type="button" onClick={() => setVisibleLimit(COLLAPSED_CLIENTS)} className="cursor-pointer text-slate-500">− Ver menos</button>
                     ) : null}
                 </div>
             ) : null}
@@ -1757,17 +1374,17 @@ const FUNNEL_CARD_DELETE_BUTTON_CLASS =
     "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-red-soft hover:text-red";
 
 function FunnelClientCard({
-                                client,
-                                onRemoveClient,
-                                onOpenClientProfile,
-                                onOpenClientSchedule,
-                                onOpenClientCall,
-                                blurPhone,
-                                showRemoveAction = true,
-                                removeActionTitle = "Remover do funil",
-                                showClosingTagDate = false,
-                                intakeCallState = false,
-                            }: {
+    client,
+    onRemoveClient,
+    onOpenClientProfile,
+    onOpenClientSchedule,
+    onOpenClientCall,
+    blurPhone,
+    showRemoveAction = true,
+    removeActionTitle = "Remover do funil",
+    showClosingTagDate = false,
+    intakeCallState = false,
+}: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
     onOpenClientProfile: (clientId: string) => void;
@@ -1787,135 +1404,55 @@ function FunnelClientCard({
             : null;
 
     return (
-        <Card
-            className={[
-                "group relative overflow-hidden rounded-xl p-3",
-                getCallStateCardClass(callState),
-            ].join(" ")}
-        >
+        <Card className={["group relative overflow-hidden rounded-xl p-3", getCallStateCardClass(callState)].join(" ")}>
             {callState !== "none" && (
-                <span
-                    className={[
-                        "absolute inset-y-0 left-0 w-1",
-                        getCallStateAccentClass(callState),
-                    ].join(" ")}
-                />
+                <span className={["absolute inset-y-0 left-0 w-1", getCallStateAccentClass(callState)].join(" ")} />
             )}
 
             <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                 {showRemoveAction ? (
-                    <button
-                        type="button"
-                        title={removeActionTitle}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            onRemoveClient(client.id);
-                        }}
-                        className={FUNNEL_CARD_DELETE_BUTTON_CLASS}
-                    >
+                    <button type="button" title={removeActionTitle} onClick={(event) => { event.stopPropagation(); onRemoveClient(client.id); }} className={FUNNEL_CARD_DELETE_BUTTON_CLASS}>
                         <Trash2 size={14} />
                     </button>
                 ) : null}
-
-                <button
-                    type="button"
-                    title={
-                        client.appointment
-                            ? "Editar agendamento"
-                            : "Agendar cliente"
-                    }
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenClientSchedule(client.id);
-                    }}
-                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
-                >
+                <button type="button" title={client.appointment ? "Editar agendamento" : "Agendar cliente"} onClick={(event) => { event.stopPropagation(); onOpenClientSchedule(client.id); }} className={FUNNEL_CARD_ACTION_BUTTON_CLASS}>
                     <CalendarDays size={14} />
                 </button>
-
-                <button
-                    type="button"
-                    title="Abrir perfil do cliente"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenClientProfile(client.id);
-                    }}
-                    className={FUNNEL_CARD_ACTION_BUTTON_CLASS}
-                >
+                <button type="button" title="Abrir perfil do cliente" onClick={(event) => { event.stopPropagation(); onOpenClientProfile(client.id); }} className={FUNNEL_CARD_ACTION_BUTTON_CLASS}>
                     <ExternalLink size={14} />
                 </button>
-
-                <button
-                    type="button"
-                    title="Registrar ligação"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenClientCall(client.id);
-                    }}
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition hover:opacity-90"
-                >
+                <button type="button" title="Registrar ligação" onClick={(event) => { event.stopPropagation(); onOpenClientCall(client.id); }} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition hover:opacity-90">
                     <PhoneCall size={14} />
                 </button>
             </div>
 
-            <div
-                draggable
-                onDragStart={(event) => {
-                    event.dataTransfer.setData("client_id", client.id);
-                }}
-                className="flex cursor-grab gap-3 active:cursor-grabbing"
-            >
+            <div draggable onDragStart={(event) => event.dataTransfer.setData("client_id", client.id)} className="flex cursor-grab gap-3 active:cursor-grabbing">
                 <button
                     type="button"
                     draggable={false}
                     title={`Abrir perfil de ${client.name ?? "cliente"}`}
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenClientProfile(client.id);
-                    }}
+                    onClick={(event) => { event.stopPropagation(); onOpenClientProfile(client.id); }}
                     className="shrink-0 cursor-pointer rounded-full transition-opacity hover:opacity-80"
                 >
                     <InitialsAvatar name={client.name ?? "Cliente"} />
                 </button>
-
                 <div className="min-w-0 flex-1 pr-1">
                     <button
                         type="button"
                         draggable={false}
                         title={client.name ?? "Cliente sem nome"}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            onOpenClientProfile(client.id);
-                        }}
+                        onClick={(event) => { event.stopPropagation(); onOpenClientProfile(client.id); }}
                         className="block max-w-full cursor-pointer truncate text-left text-sm font-bold text-text transition-colors hover:text-brand"
                     >
                         {client.name ?? "Cliente sem nome"}
                     </button>
-
-                    <div
-                        className={[
-                            "mt-1 truncate text-xs text-muted",
-                            blurPhone ? "select-none blur-[2px]" : "",
-                        ].join(" ")}
-                    >
+                    <div className={["mt-1 truncate text-xs text-muted", blurPhone ? "select-none blur-[2px]" : ""].join(" ")}>
                         {client.phone ?? "Sem telefone"}
                     </div>
-
-                    <div
-                        className="mt-2 truncate text-xs text-slate-600"
-                        title={
-                            client.last_closing_tag ??
-                            schedule?.procedure_name ??
-                            "Procedimento não informado"
-                        }
-                    >
-                        {client.last_closing_tag ??
-                            schedule?.procedure_name ??
-                            "Não informado"}
+                    <div className="mt-2 truncate text-xs text-slate-600" title={client.last_closing_tag ?? schedule?.procedure_name ?? "Procedimento não informado"}>
+                        {client.last_closing_tag ?? schedule?.procedure_name ?? "Não informado"}
                     </div>
-
-                    {(schedule?.attention_label ||
-                        (intakeCallState && followUpLabel)) && (
+                    {(schedule?.attention_label || (intakeCallState && followUpLabel)) && (
                         <div className="mt-2 flex flex-wrap items-center gap-1">
                             {schedule?.attention_label ? (
                                 <div className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-red">
@@ -1924,21 +1461,12 @@ function FunnelClientCard({
                                 </div>
                             ) : null}
                             {followUpLabel ? (
-                                <div
-                                    className={[
-                                        "inline-flex max-w-full items-center rounded-md px-2 py-1 text-[10px] font-bold",
-                                        getCallStateBadgeClass(callState),
-                                    ].join(" ")}
-                                    title={followUpLabel}
-                                >
-                                    <span className="truncate">
-                                        {followUpLabel}
-                                    </span>
+                                <div className={["inline-flex max-w-full items-center rounded-md px-2 py-1 text-[10px] font-bold", getCallStateBadgeClass(callState)].join(" ")} title={followUpLabel}>
+                                    <span className="truncate">{followUpLabel}</span>
                                 </div>
                             ) : null}
                         </div>
                     )}
-
                     <div
                         className="mt-3 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-muted"
                         title={
@@ -1947,9 +1475,7 @@ function FunnelClientCard({
                                     ? `Tag atribuída em ${formatClosingTagDate(client.last_closing_tag_at)}`
                                     : "Data da tag não disponível"
                                 : schedule
-                                  ? `${schedule.procedure_name ?? "Agendamento"} · ${
-                                        schedule.status ?? "Sem status"
-                                    }`
+                                  ? `${schedule.procedure_name ?? "Agendamento"} · ${schedule.status ?? "Sem status"}`
                                   : "Nenhum agendamento ligado ao cliente"
                         }
                     >
@@ -1970,10 +1496,7 @@ function FunnelClientCard({
     );
 }
 
-function getFunnelCallState(
-    client: Client,
-    intakeCallState = false,
-): FunnelCallState {
+function getFunnelCallState(client: Client, intakeCallState = false): FunnelCallState {
     if (intakeCallState) {
         if (!calledWithinLastDays(client.last_called_at, 28)) return "none";
         return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
@@ -1981,18 +1504,7 @@ function getFunnelCallState(
 
     const schedule = client.schedule_summary;
     if (!schedule?.attention) return "none";
-
-    if (
-        !client.last_called_at ||
-        !schedule.created_at ||
-        !callHappenedAfterScheduleCreated(
-            client.last_called_at,
-            schedule.created_at,
-        )
-    ) {
-        return "pending";
-    }
-
+    if (!client.last_called_at || !schedule.created_at || !callHappenedAfterScheduleCreated(client.last_called_at, schedule.created_at)) return "pending";
     return getClientCallClosureTone(client.last_call_closure_tag) ?? "neutral";
 }
 
@@ -2000,23 +1512,14 @@ function calledWithinLastDays(value: string | null, days: number) {
     if (!value) return false;
     const calledAt = new Date(value).getTime();
     if (!Number.isFinite(calledAt)) return false;
-
     const age = Math.max(0, Date.now() - calledAt);
     return age <= days * 24 * 60 * 60 * 1000;
 }
 
-function callHappenedAfterScheduleCreated(
-    calledAt: string,
-    scheduleCreatedAt: string,
-) {
+function callHappenedAfterScheduleCreated(calledAt: string, scheduleCreatedAt: string) {
     const calledAtTime = new Date(calledAt).getTime();
     const scheduleCreatedAtTime = new Date(scheduleCreatedAt).getTime();
-
-    return (
-        Number.isFinite(calledAtTime) &&
-        Number.isFinite(scheduleCreatedAtTime) &&
-        calledAtTime > scheduleCreatedAtTime
-    );
+    return Number.isFinite(calledAtTime) && Number.isFinite(scheduleCreatedAtTime) && calledAtTime > scheduleCreatedAtTime;
 }
 
 function getCallStateCardClass(state: FunnelCallState) {
@@ -2026,39 +1529,25 @@ function getCallStateCardClass(state: FunnelCallState) {
     if (state === "negative") return "ring-2 ring-red/20";
     return "";
 }
-
 function getCallStateAccentClass(state: FunnelCallState) {
     if (state === "neutral") return "bg-blue";
     if (state === "positive") return "bg-green";
     if (state === "negative") return "bg-red/50";
     return "bg-red";
 }
-
 function getCallStateBadgeClass(state: FunnelCallState) {
     if (state === "positive") return "bg-green/10 text-green";
     if (state === "negative") return "bg-blue/10 text-blue";
     return "bg-white/70 text-slate-600";
 }
-
 function sortFunnelClients(left: Client, right: Client) {
-    const callStateDifference =
-        getFunnelCallSortPriority(left) - getFunnelCallSortPriority(right);
+    const callStateDifference = getFunnelCallSortPriority(left) - getFunnelCallSortPriority(right);
     if (callStateDifference !== 0) return callStateDifference;
-
-    const leftDistance = scheduleDistanceFromToday(
-        left.schedule_summary?.scheduled_for,
-    );
-    const rightDistance = scheduleDistanceFromToday(
-        right.schedule_summary?.scheduled_for,
-    );
+    const leftDistance = scheduleDistanceFromToday(left.schedule_summary?.scheduled_for);
+    const rightDistance = scheduleDistanceFromToday(right.schedule_summary?.scheduled_for);
     if (leftDistance !== rightDistance) return leftDistance - rightDistance;
-
-    return (
-        dateOnlyTime(right.schedule_summary?.scheduled_for) -
-        dateOnlyTime(left.schedule_summary?.scheduled_for)
-    );
+    return dateOnlyTime(right.schedule_summary?.scheduled_for) - dateOnlyTime(left.schedule_summary?.scheduled_for);
 }
-
 function getFunnelCallSortPriority(client: Client) {
     const state = getFunnelCallState(client);
     if (state === "pending") return 0;
@@ -2066,61 +1555,55 @@ function getFunnelCallSortPriority(client: Client) {
     if (state === "none") return 2;
     return 3;
 }
-
 function scheduleDistanceFromToday(value: string | null | undefined) {
     if (!value) return Number.POSITIVE_INFINITY;
     const today = new Date();
     today.setHours(12, 0, 0, 0);
     return Math.abs(dateOnlyTime(value) - today.getTime());
 }
-
 function dateOnlyTime(value: string | null | undefined) {
     if (!value) return 0;
     const [year, month, day] = value.slice(0, 10).split("-").map(Number);
     return new Date(year, month - 1, day, 12).getTime();
 }
-
 function formatScheduleDate(value: string) {
     const [year, month, day] = value.slice(0, 10).split("-");
     return `${day}/${month}/${year}`;
 }
-
 function formatClosingTagDate(value: string) {
     const [year, month, day] = value.slice(0, 10).split("-");
     return `${day}/${month}/${year}`;
 }
-
 function timeAgo(date: string) {
     const diff = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
-
     if (minutes < 60) return `${Math.max(minutes, 1)} min`;
     if (hours < 24) return `${hours} h`;
     return `${days} dia${days > 1 ? "s" : ""}`;
 }
 
 function AddClientToFunnelModal({
-                                      open,
-                                      clients,
-                                      stageById,
-                                      selectedFunnelStageIds,
-                                      selectedClientIds,
-                                      currentPage,
-                                      onPageChange,
-                                      search,
-                                      setSearch,
-                                      loading,
-                                      addingClientId,
-                                      addingManyClients,
-                                      firstStageName,
-                                      onClose,
-                                      onExitComplete,
-                                      onAddClient,
-                                      onToggleClient,
-                                      onAddSelectedClients,
-                                  }: {
+    open,
+    clients,
+    stageById,
+    selectedFunnelStageIds,
+    selectedClientIds,
+    currentPage,
+    onPageChange,
+    search,
+    setSearch,
+    loading,
+    addingClientId,
+    addingManyClients,
+    firstStageName,
+    onClose,
+    onExitComplete,
+    onAddClient,
+    onToggleClient,
+    onAddSelectedClients,
+}: {
     open: boolean;
     clients: AvailableClient[];
     stageById: Map<string, FunnelStage>;
@@ -2141,63 +1624,29 @@ function AddClientToFunnelModal({
     onAddSelectedClients: () => void;
 }) {
     const selectedCount = selectedClientIds.length;
-
-    const selectedIdsSet = useMemo(() => {
-        return new Set(selectedClientIds);
-    }, [selectedClientIds]);
-
+    const selectedIdsSet = useMemo(() => new Set(selectedClientIds), [selectedClientIds]);
     const clientsPerPage = 10;
-
     const totalPages = Math.max(1, Math.ceil(clients.length / clientsPerPage));
-
     const safeCurrentPage = Math.min(currentPage, totalPages);
-
-    const paginatedClients = clients.slice(
-        (safeCurrentPage - 1) * clientsPerPage,
-        safeCurrentPage * clientsPerPage
-    );
-
+    const paginatedClients = clients.slice((safeCurrentPage - 1) * clientsPerPage, safeCurrentPage * clientsPerPage);
     const gridTemplateColumns = "44px minmax(0, 1fr) 150px 140px 85px 120px";
 
     return (
-        <Modal
-            open={open}
-            onClose={onClose}
-            onExitComplete={onExitComplete}
-            width={920}
-            maxWidth="calc(100vw - 48px)"
-            height="82vh"
-            maxHeight="82vh"
-        >
+        <Modal open={open} onClose={onClose} onExitComplete={onExitComplete} width={920} maxWidth="calc(100vw - 48px)" height="82vh" maxHeight="82vh">
             <div className="flex shrink-0 items-start justify-between border-border px-6 pt-5 pb-2 pr-16">
                 <div>
-                    <h2 className="text-2xl font-bold text-text">
-                        Adicionar cliente
-                    </h2>
-
+                    <h2 className="text-2xl font-bold text-text">Adicionar cliente</h2>
                     <p className="mt-1 text-sm text-muted">
-                        Selecione clientes para adicionar em{" "}
-                        <span className="font-bold text-text">
-                            {firstStageName ?? "primeira etapa"}
-                        </span>
-                        .
+                        Selecione clientes para adicionar em <span className="font-bold text-text">{firstStageName ?? "primeira etapa"}</span>.
                     </p>
                 </div>
             </div>
 
             <div className="shrink-0 border-b border-border px-6 py-4">
-                <SearchFilter
-                    value={search}
-                    onChange={setSearch}
-                    placeholder="Buscar por nome, telefone ou email..."
-                    widthClassName="w-full"
-                />
+                <SearchFilter value={search} onChange={setSearch} placeholder="Buscar por nome, telefone ou email..." widthClassName="w-full" />
             </div>
 
-            <div
-                className="grid shrink-0 items-center border-b border-border bg-slate-50 px-4 py-3 text-xs font-bold tracking-wide text-muted"
-                style={{ gridTemplateColumns }}
-            >
+            <div className="grid shrink-0 items-center border-b border-border bg-slate-50 px-4 py-3 text-xs font-bold tracking-wide text-muted" style={{ gridTemplateColumns }}>
                 <div />
                 <div>Cliente</div>
                 <div>Origem</div>
@@ -2215,33 +1664,20 @@ function AddClientToFunnelModal({
                     </div>
                 ) : clients.length === 0 ? (
                     <div className="flex h-full items-center justify-center p-6">
-                        <div className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 text-sm font-medium text-muted">
-                            Nenhum cliente encontrado.
-                        </div>
+                        <div className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 text-sm font-medium text-muted">Nenhum cliente encontrado.</div>
                     </div>
                 ) : (
                     <div>
                         {paginatedClients.map((client) => {
-                            const currentStage = client.funnel_stage_id
-                                ? stageById.get(client.funnel_stage_id)
-                                : null;
-
-                            const alreadyInCurrentFunnel =
-                                selectedFunnelStageIds.has(
-                                    client.funnel_stage_id ?? ""
-                                );
-
+                            const currentStage = client.funnel_stage_id ? stageById.get(client.funnel_stage_id) : null;
+                            const alreadyInCurrentFunnel = selectedFunnelStageIds.has(client.funnel_stage_id ?? "");
                             return (
                                 <SelectableClientRow
                                     key={client.id}
                                     client={client}
-                                    currentStageName={
-                                        currentStage?.name ?? "Sem funil"
-                                    }
+                                    currentStageName={currentStage?.name ?? "Sem funil"}
                                     checked={selectedIdsSet.has(client.id)}
-                                    alreadyInCurrentFunnel={
-                                        alreadyInCurrentFunnel
-                                    }
+                                    alreadyInCurrentFunnel={alreadyInCurrentFunnel}
                                     addingClientId={addingClientId}
                                     addingManyClients={addingManyClients}
                                     onToggleClient={onToggleClient}
@@ -2253,42 +1689,19 @@ function AddClientToFunnelModal({
                 )}
 
                 <div className="flex justify-center pt-12 pb-8">
-                    {totalPages > 1 && (
-                        <Pagination
-                            totalPages={totalPages}
-                            currentPage={safeCurrentPage}
-                            onPageChange={onPageChange}
-                        />
-                    )}
+                    {totalPages > 1 && <Pagination totalPages={totalPages} currentPage={safeCurrentPage} onPageChange={onPageChange} />}
                 </div>
             </div>
 
             <div className="flex shrink-0 items-center justify-between gap-4 border-t border-border bg-white px-6 py-4">
                 <div className="min-w-[220px]">
                     <p className="text-sm text-muted">
-                        {clients.length} cliente
-                        {clients.length === 1 ? "" : "s"} encontrado
-                        {clients.length === 1 ? "" : "s"}
-
-                        {selectedCount > 0 && (
-                            <span className="font-semibold text-text">
-                                {" "}
-                                • {selectedCount} selecionado
-                                {selectedCount === 1 ? "" : "s"}
-                            </span>
-                        )}
+                        {clients.length} cliente{clients.length === 1 ? "" : "s"} encontrado{clients.length === 1 ? "" : "s"}
+                        {selectedCount > 0 && <span className="font-semibold text-text"> • {selectedCount} selecionado{selectedCount === 1 ? "" : "s"}</span>}
                     </p>
                 </div>
-
                 <div className="flex min-w-[290px] items-center justify-end gap-3">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="h-10 cursor-pointer rounded-xl border border-border bg-white px-5 text-sm font-semibold text-text shadow-sm transition hover:bg-slate-50"
-                    >
-                        Fechar
-                    </button>
-
+                    <button type="button" onClick={onClose} className="h-10 cursor-pointer rounded-xl border border-border bg-white px-5 text-sm font-semibold text-text shadow-sm transition hover:bg-slate-50">Fechar</button>
                     <button
                         type="button"
                         disabled={selectedCount === 0 || addingManyClients}
@@ -2300,11 +1713,7 @@ function AddClientToFunnelModal({
                                 : "cursor-pointer bg-brand text-white hover:opacity-90",
                         ].join(" ")}
                     >
-                        {addingManyClients
-                            ? "Adicionando..."
-                            : `Adicionar selecionados${
-                                selectedCount > 0 ? ` (${selectedCount})` : ""
-                            }`}
+                        {addingManyClients ? "Adicionando..." : `Adicionar selecionados${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
                     </button>
                 </div>
             </div>
@@ -2313,15 +1722,15 @@ function AddClientToFunnelModal({
 }
 
 const SelectableClientRow = memo(function SelectableClientRow({
-                                                                  client,
-                                                                  currentStageName,
-                                                                  checked,
-                                                                  alreadyInCurrentFunnel,
-                                                                  addingClientId,
-                                                                  addingManyClients,
-                                                                  onToggleClient,
-                                                                  onAddClient,
-                                                              }: {
+    client,
+    currentStageName,
+    checked,
+    alreadyInCurrentFunnel,
+    addingClientId,
+    addingManyClients,
+    onToggleClient,
+    onAddClient,
+}: {
     client: AvailableClient;
     currentStageName: string;
     checked: boolean;
@@ -2337,9 +1746,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
         <div
             className={[
                 "grid min-h-[76px] items-center border-b border-slate-100 px-4 py-3",
-                alreadyInCurrentFunnel
-                    ? "bg-slate-50 opacity-55"
-                    : "hover:bg-slate-50",
+                alreadyInCurrentFunnel ? "bg-slate-50 opacity-55" : "hover:bg-slate-50",
             ].join(" ")}
             style={{ gridTemplateColumns }}
         >
@@ -2363,19 +1770,19 @@ const SelectableClientRow = memo(function SelectableClientRow({
             </div>
 
             <div className="min-w-0 pr-3">
-                <div className="flex min-w-0 items-center gap-3">
+                <button
+                    type="button"
+                    onClick={() => openClientProfile(client.id)}
+                    title={`Abrir perfil de ${client.name ?? "cliente"}`}
+                    className="flex min-w-0 max-w-full cursor-pointer items-center gap-3 text-left transition-opacity hover:opacity-80"
+                >
                     <InitialsAvatar name={client.name ?? "Cliente"} />
-
                     <div className="min-w-0">
                         <div className="truncate text-sm font-bold text-text">
                             {client.name ?? "Cliente sem nome"}
                         </div>
-
                         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted">
-                            <span className="truncate">
-                                {client.phone ?? "Sem telefone"}
-                            </span>
-
+                            <span className="truncate">{client.phone ?? "Sem telefone"}</span>
                             {client.email && (
                                 <>
                                     <span className="text-slate-300">•</span>
@@ -2384,29 +1791,16 @@ const SelectableClientRow = memo(function SelectableClientRow({
                             )}
                         </div>
                     </div>
-                </div>
+                </button>
             </div>
 
-            <div className="min-w-0 pr-3">
-                <Badge value={client.utm_source} />
-            </div>
-
-            <div className="min-w-0 pr-3">
-                <Badge value={currentStageName} />
-            </div>
-
-            <div className="flex justify-center whitespace-nowrap text-sm text-slate-700">
-                {timeAgo(client.last_interaction_at)}
-            </div>
-
+            <div className="min-w-0 pr-3"><Badge value={client.utm_source} /></div>
+            <div className="min-w-0 pr-3"><Badge value={currentStageName} /></div>
+            <div className="flex justify-center whitespace-nowrap text-sm text-slate-700">{timeAgo(client.last_interaction_at)}</div>
             <div className="text-right">
                 <button
                     type="button"
-                    disabled={
-                        alreadyInCurrentFunnel ||
-                        addingClientId === client.id ||
-                        addingManyClients
-                    }
+                    disabled={alreadyInCurrentFunnel || addingClientId === client.id || addingManyClients}
                     onClick={() => onAddClient(client)}
                     className={[
                         "h-9 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition",
@@ -2415,11 +1809,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
                             : "cursor-pointer bg-brand text-white shadow-sm hover:opacity-90",
                     ].join(" ")}
                 >
-                    {alreadyInCurrentFunnel
-                        ? "Adicionado"
-                        : addingClientId === client.id
-                            ? "..."
-                            : "Adicionar"}
+                    {alreadyInCurrentFunnel ? "Adicionado" : addingClientId === client.id ? "..." : "Adicionar"}
                 </button>
             </div>
         </div>
@@ -2428,9 +1818,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
 
 async function readJsonSafely(response: Response) {
     const text = await response.text();
-
     if (!text) return null;
-
     try {
         return JSON.parse(text);
     } catch {
