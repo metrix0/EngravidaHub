@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
   ChatMessageList,
@@ -1738,9 +1739,7 @@ export function FloatingConversationPanel() {
               onToggleCollapsed={handleToggleChatCollapsed}
               onClose={handleCloseDock}
               onOpenDetails={() => handleOpenDetails(selectedTicket)}
-              onOpenClientProfile={(clientId) =>
-                router.push(`/clientes?client_id=${encodeURIComponent(clientId)}`)
-              }
+              onOpenClientProfile={openClientProfile}
             />
           ) : selected.kind === "internal" ? (
             <InternalFloatingPanel
