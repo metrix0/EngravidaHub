@@ -1,7 +1,7 @@
 // app/conversas/page.tsx
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type MouseEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, CircleAlert } from "lucide-react";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
@@ -62,8 +62,23 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         label: "Cliente",
         width: "25%",
         render: (conversation) => {
-            const identity = (
-                <>
+            const hasClientProfile = Boolean(conversation.client_id);
+
+            return (
+                <span
+                    data-client-profile-id={conversation.client_id ?? undefined}
+                    title={
+                        hasClientProfile
+                            ? `Abrir perfil de ${conversation.client_name}`
+                            : conversation.client_name
+                    }
+                    className={[
+                        "-m-1 flex min-w-0 items-center gap-3 rounded-lg p-1 text-left transition-colors",
+                        hasClientProfile
+                            ? "cursor-pointer hover:bg-slate-100/80"
+                            : "cursor-default",
+                    ].join(" ")}
+                >
                     <InitialsAvatar
                         name={conversation.client_name}
                         conversationState={
@@ -74,31 +89,10 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
                     />
                     <span
                         title={conversation.client_name}
-                        className="truncate font-medium text-slate-700 transition-colors group-hover/client:text-brand"
+                        className="truncate font-medium text-slate-700"
                     >
                         {conversation.client_name}
                     </span>
-                </>
-            );
-
-            if (!conversation.client_id) {
-                return (
-                    <div className="flex min-w-0 items-center gap-3">
-                        {identity}
-                    </div>
-                );
-            }
-
-            return (
-                <span
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        openClientProfile(conversation.client_id!);
-                    }}
-                    title={`Abrir perfil de ${conversation.client_name}`}
-                    className="group/client -m-1 flex min-w-0 cursor-pointer items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-slate-100/80"
-                >
-                    {identity}
                 </span>
             );
         },
@@ -304,7 +298,21 @@ function MessagesPageContent() {
     const firstItem = totalConversations === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
     const lastItem = Math.min(currentPage * PAGE_SIZE, totalConversations);
 
-    function handleOpenConversation(conversation: ConversationRow) {
+    function handleOpenConversation(
+        conversation: ConversationRow,
+        _index: number,
+        event: MouseEvent<HTMLButtonElement>,
+    ) {
+        const profileTrigger = (event.target as HTMLElement).closest(
+            "[data-client-profile-id]",
+        );
+        const clientId = profileTrigger?.getAttribute("data-client-profile-id");
+
+        if (clientId) {
+            openClientProfile(clientId);
+            return;
+        }
+
         const nextSearchParams = new URLSearchParams(searchParams.toString());
         nextSearchParams.delete("conversation_id");
         nextSearchParams.delete("thread_id");
@@ -546,7 +554,6 @@ function ConversationResultCell({
             </span>
         );
     }
-
 
     return (
         <span className="inline-flex min-w-max">

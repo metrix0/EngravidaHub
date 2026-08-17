@@ -5,6 +5,7 @@ import {
     Children,
     cloneElement,
     isValidElement,
+    type MouseEvent,
     type ReactElement,
     type ReactNode,
 } from "react";
@@ -27,7 +28,11 @@ type DataTableProps<TRow> = {
     columns: DataTableColumn<TRow>[];
     rows: TRow[];
     getRowKey: (row: TRow, index: number) => string;
-    onRowClick?: (row: TRow, index: number) => void;
+    onRowClick?: (
+        row: TRow,
+        index: number,
+        event: MouseEvent<HTMLButtonElement>,
+    ) => void;
     emptyMessage?: string;
 };
 

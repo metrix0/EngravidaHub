@@ -1,6 +1,8 @@
 // components/table/DataTableRow.tsx
 "use client";
 
+import type { MouseEvent } from "react";
+
 import type { DataTableColumn } from "./DataTable";
 
 type DataTableRowProps<TRow> = {
@@ -8,7 +10,11 @@ type DataTableRowProps<TRow> = {
     index: number;
     columns: DataTableColumn<TRow>[];
     gridTemplateColumns: string;
-    onClick?: (row: TRow, index: number) => void;
+    onClick?: (
+        row: TRow,
+        index: number,
+        event: MouseEvent<HTMLButtonElement>,
+    ) => void;
 };
 
 export function DataTableRow<TRow,>({
@@ -43,7 +49,7 @@ export function DataTableRow<TRow,>({
         return (
             <button
                 type="button"
-                onClick={() => onClick(row, index)}
+                onClick={(event) => onClick(row, index, event)}
                 className={className}
                 style={{ gridTemplateColumns }}
             >

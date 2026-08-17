@@ -233,11 +233,21 @@ body::-webkit-scrollbar-corner,
     display: none !important;
 }
 
-/* Keep funnel cards slightly taller on Full HD / large desktop layouts. */
+/* Explicitly keep the permanent client profile above regular details panels. */
+.z-60 {
+    z-index: 60;
+}
+
+/* Keep the Conversas sidepanel client hover neutral instead of brand-colored. */
+[class~="group/client"]:hover .truncate.text-base.font-bold.text-slate-950 {
+    color: rgb(15 23 42) !important;
+}
+
+/* Increase the actual inner top/bottom space before funnel card content on Full HD. */
 @media (min-width: 1536px) {
-    .group.relative.overflow-hidden.rounded-xl:has(> .cursor-grab) {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
+    .group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
     }
 }
 
