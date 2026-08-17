@@ -55,6 +55,7 @@ type PanelData = {
     item_type: "conversation" | "thread";
     conversation: {
         id: string;
+        client_id?: string | null;
         started_at: string;
         ended_at: string | null;
         attendant_chat_name: string | null;
@@ -213,6 +214,9 @@ export function ConversationPanel({
     const isSocialIdentity = data?.client.identity_type === "instagram";
     const isMessengerIdentity =
         isSocialIdentity && data?.conversation.channel === "Facebook";
+    const clientProfileId =
+        data?.conversation.client_id ??
+        (data?.client.is_clickable ? data.client.id : null);
 
     function handleClose() {
         setPanelOpen(false);
@@ -220,6 +224,17 @@ export function ConversationPanel({
             setActiveConversationId(null);
             onClose();
         }, 250);
+    }
+
+    function handleOpenClientProfile() {
+        if (!clientProfileId) return;
+
+        setPanelOpen(false);
+        window.setTimeout(() => {
+            setActiveConversationId(null);
+            onClose();
+            openClientProfile(clientProfileId);
+        }, 80);
     }
 
     return (
@@ -253,18 +268,15 @@ export function ConversationPanel({
                         <div className="mb-5 flex items-start justify-between gap-4">
                             <button
                                 type="button"
-                                disabled={!data.client.is_clickable}
-                                onClick={() => {
-                                    if (!data.client.is_clickable) return;
-                                    openClientProfile(data.client.id);
-                                }}
-                                className={`group/client flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
-                                    data.client.is_clickable
+                                disabled={!clientProfileId}
+                                onClick={handleOpenClientProfile}
+                                className={`flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
+                                    clientProfileId
                                         ? "cursor-pointer transition-opacity hover:opacity-80"
                                         : "cursor-default"
                                 }`}
                                 aria-label={
-                                    data.client.is_clickable
+                                    clientProfileId
                                         ? `Abrir perfil de ${clientName}`
                                         : undefined
                                 }
@@ -282,7 +294,7 @@ export function ConversationPanel({
                                     <div className="min-w-0">
                                         <div
                                             title={clientName}
-                                            className="truncate text-base font-bold text-slate-950 transition-colors group-hover/client:text-brand"
+                                            className="truncate text-base font-bold text-slate-950"
                                         >
                                             {clientName}
                                         </div>

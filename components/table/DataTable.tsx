@@ -31,7 +31,7 @@ type DataTableProps<TRow> = {
     onRowClick?: (
         row: TRow,
         index: number,
-        event: MouseEvent<HTMLButtonElement>,
+        event: MouseEvent<HTMLElement>,
     ) => void;
     emptyMessage?: string;
 };

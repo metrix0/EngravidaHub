@@ -1,7 +1,7 @@
 // app/conversas/page.tsx
 "use client";
 
-import { Suspense, useEffect, useState, type MouseEvent } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, CircleAlert } from "lucide-react";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
@@ -65,8 +65,14 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
             const hasClientProfile = Boolean(conversation.client_id);
 
             return (
-                <span
-                    data-client-profile-id={conversation.client_id ?? undefined}
+                <button
+                    type="button"
+                    disabled={!hasClientProfile}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        if (!conversation.client_id) return;
+                        openClientProfile(conversation.client_id);
+                    }}
                     title={
                         hasClientProfile
                             ? `Abrir perfil de ${conversation.client_name}`
@@ -93,7 +99,7 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
                     >
                         {conversation.client_name}
                     </span>
-                </span>
+                </button>
             );
         },
     },
@@ -298,21 +304,7 @@ function MessagesPageContent() {
     const firstItem = totalConversations === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
     const lastItem = Math.min(currentPage * PAGE_SIZE, totalConversations);
 
-    function handleOpenConversation(
-        conversation: ConversationRow,
-        _index: number,
-        event: MouseEvent<HTMLButtonElement>,
-    ) {
-        const profileTrigger = (event.target as HTMLElement).closest(
-            "[data-client-profile-id]",
-        );
-        const clientId = profileTrigger?.getAttribute("data-client-profile-id");
-
-        if (clientId) {
-            openClientProfile(clientId);
-            return;
-        }
-
+    function handleOpenConversation(conversation: ConversationRow) {
         const nextSearchParams = new URLSearchParams(searchParams.toString());
         nextSearchParams.delete("conversation_id");
         nextSearchParams.delete("thread_id");

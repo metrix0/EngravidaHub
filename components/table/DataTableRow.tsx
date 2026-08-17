@@ -13,7 +13,7 @@ type DataTableRowProps<TRow> = {
     onClick?: (
         row: TRow,
         index: number,
-        event: MouseEvent<HTMLButtonElement>,
+        event: MouseEvent<HTMLElement>,
     ) => void;
 };
 
@@ -47,14 +47,20 @@ export function DataTableRow<TRow,>({
 
     if (onClick) {
         return (
-            <button
-                type="button"
+            <div
+                role="button"
+                tabIndex={0}
                 onClick={(event) => onClick(row, index, event)}
+                onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.currentTarget.click();
+                }}
                 className={className}
                 style={{ gridTemplateColumns }}
             >
                 {cells}
-            </button>
+            </div>
         );
     }
 

@@ -238,16 +238,11 @@ body::-webkit-scrollbar-corner,
     z-index: 60;
 }
 
-/* Keep the Conversas sidepanel client hover neutral instead of brand-colored. */
-[class~="group/client"]:hover .truncate.text-base.font-bold.text-slate-950 {
-    color: rgb(15 23 42) !important;
-}
-
 /* Increase the actual inner top/bottom space before funnel card content on Full HD. */
 @media (min-width: 1536px) {
     .group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab {
-        padding-top: 0.5rem;
-        padding-bottom: 0.5rem;
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
     }
 }
 
