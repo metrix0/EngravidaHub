@@ -78,6 +78,7 @@ type AttendantRow = {
 
 type InternalConversationRow = {
     id: string;
+    client_id: string | null;
     item_type: "conversation" | "thread";
     attendant_name: string;
     phone: string;
@@ -172,6 +173,7 @@ export async function GET(request: Request) {
 
                 return {
                     id: conversation.id,
+                    client_id: conversation.client_id,
                     item_type: "conversation" as const,
                     attendant_name:
                         conversation.attendant_chat_name ?? "Sem atendente",
@@ -217,6 +219,7 @@ export async function GET(request: Request) {
 
                 return {
                     id: thread.id,
+                    client_id: thread.client_id,
                     item_type: "thread" as const,
                     attendant_name: attendant?.name ?? "Sem atendente",
                     phone: client?.phone ?? "-",

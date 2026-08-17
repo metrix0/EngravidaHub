@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, CircleAlert } from "lucide-react";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import {
     applyArrayParams,
     applyCalendarDateParams,
@@ -33,6 +34,7 @@ import {
 
 type ConversationRow = {
     id: string;
+    client_id: string | null;
     item_type: "conversation" | "thread";
     attendant_name: string;
     phone: string;
@@ -59,21 +61,48 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         id: "client",
         label: "Cliente",
         width: "25%",
-        render: (conversation) => (
-            <div className="flex min-w-0 items-center gap-3">
-                <InitialsAvatar
-                    name={conversation.client_name}
-                    conversationState={
-                        conversation.item_type === "thread"
-                            ? "live"
-                            : undefined
-                    }
-                />
-                <span title={conversation.client_name} className="truncate font-medium text-slate-700">
-                    {conversation.client_name}
-                </span>
-            </div>
-        ),
+        render: (conversation) => {
+            const identity = (
+                <>
+                    <InitialsAvatar
+                        name={conversation.client_name}
+                        conversationState={
+                            conversation.item_type === "thread"
+                                ? "live"
+                                : undefined
+                        }
+                    />
+                    <span
+                        title={conversation.client_name}
+                        className="truncate font-medium text-slate-700 transition-colors group-hover/client:text-brand"
+                    >
+                        {conversation.client_name}
+                    </span>
+                </>
+            );
+
+            if (!conversation.client_id) {
+                return (
+                    <div className="flex min-w-0 items-center gap-3">
+                        {identity}
+                    </div>
+                );
+            }
+
+            return (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        openClientProfile(conversation.client_id!);
+                    }}
+                    title={`Abrir perfil de ${conversation.client_name}`}
+                    className="group/client -m-1 flex min-w-0 cursor-pointer items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-slate-50"
+                >
+                    {identity}
+                </button>
+            );
+        },
     },
     {
         id: "platform",

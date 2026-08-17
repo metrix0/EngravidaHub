@@ -982,7 +982,7 @@ export default function FunnelPage() {
                         <div className="overflow-hidden pb-16">
                             <HorizontalScroller scrollAmount={520}>
                                 {Array.from({ length: 4 }).map((_, columnIndex) => (
-                                    <div key={columnIndex} className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
+                                    <div key={columnIndex} className="min-h-[560px] w-[260px] 2xl:w-[290px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
                                         <div className="mb-4 flex items-center justify-between">
                                             <Skeleton className="h-4 w-[120px]" />
                                             <Skeleton className="h-6 w-8 rounded-md" />
@@ -1240,7 +1240,7 @@ function IntakeColumn({
     }
 
     return (
-        <div className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
+        <div className="min-h-[560px] w-[260px] 2xl:w-[290px] shrink-0 rounded-xl border border-border bg-slate-50 p-3">
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400" />
@@ -1324,7 +1324,7 @@ function FunnelColumn({
                 const clientId = event.dataTransfer.getData("client_id");
                 if (clientId) onMoveClient(clientId, stage.id);
             }}
-            className="min-h-[560px] w-[260px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
+            className="min-h-[560px] w-[260px] 2xl:w-[290px] shrink-0 rounded-xl border border-border bg-slate-50 p-3"
         >
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
