@@ -53,19 +53,34 @@ export default async function RootLayout({
                 >
                     <InviteRedirect />
 
-                    <CurrentUserProvider>
-                        <PermissionGuard>
-                            <div className="flex h-screen w-screen overflow-hidden">
-                                <SidePanel persistent />
+                    <div className="flex min-h-screen items-center justify-center bg-white px-6 text-center md:hidden">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-950">
+                                Acesse pelo computador
+                            </h1>
 
-                                <div className="min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
-                                    {children}
+                            <p className="mt-3 text-sm leading-6 text-slate-500">
+                                O Engravida Hub foi feito para telas maiores.
+                                Abra em um notebook ou computador para visualizar o dashboard.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="hidden md:block">
+                        <CurrentUserProvider>
+                            <PermissionGuard>
+                                <div className="flex h-screen w-screen overflow-hidden">
+                                    <SidePanel persistent />
+
+                                    <div className="min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
+                                        {children}
+                                    </div>
+
+                                    <FloatingConversationPanel />
                                 </div>
-
-                                <FloatingConversationPanel />
-                            </div>
-                        </PermissionGuard>
-                    </CurrentUserProvider>
+                            </PermissionGuard>
+                        </CurrentUserProvider>
+                    </div>
                 </DashboardDateFilterProvider>
             </body>
         </html>
