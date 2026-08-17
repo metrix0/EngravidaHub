@@ -233,6 +233,14 @@ body::-webkit-scrollbar-corner,
     display: none !important;
 }
 
+/* Keep funnel cards slightly taller on Full HD / large desktop layouts. */
+@media (min-width: 1536px) {
+    .group.relative.overflow-hidden.rounded-xl:has(> .cursor-grab) {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+}
+
 /* Keep the floating chat menu separated from its expanded chat rail. */
 button[title="Ocultar chats"] {
     right: calc(100% + 234px) !important;

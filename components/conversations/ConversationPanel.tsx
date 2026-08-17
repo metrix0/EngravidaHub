@@ -258,7 +258,7 @@ export function ConversationPanel({
                                     if (!data.client.is_clickable) return;
                                     openClientProfile(data.client.id);
                                 }}
-                                className={`flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
+                                className={`group/client flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
                                     data.client.is_clickable
                                         ? "cursor-pointer transition-opacity hover:opacity-80"
                                         : "cursor-default"
@@ -282,7 +282,7 @@ export function ConversationPanel({
                                     <div className="min-w-0">
                                         <div
                                             title={clientName}
-                                            className="truncate text-base font-bold text-slate-950"
+                                            className="truncate text-base font-bold text-slate-950 transition-colors group-hover/client:text-brand"
                                         >
                                             {clientName}
                                         </div>

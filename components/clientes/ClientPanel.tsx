@@ -210,7 +210,7 @@ export default function ClientPanel({
             open={panelOpen}
             title="Perfil do cliente"
             onClose={handleClose}
-            zIndexClassName="z-40"
+            zIndexClassName="z-60"
             headerContent={
                 loading || !data ? (
                     <ClientPanelHeaderSkeleton />

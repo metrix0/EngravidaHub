@@ -90,17 +90,16 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
             }
 
             return (
-                <button
-                    type="button"
+                <span
                     onClick={(event) => {
                         event.stopPropagation();
                         openClientProfile(conversation.client_id!);
                     }}
                     title={`Abrir perfil de ${conversation.client_name}`}
-                    className="group/client -m-1 flex min-w-0 cursor-pointer items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-slate-50"
+                    className="group/client -m-1 flex min-w-0 cursor-pointer items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-slate-100/80"
                 >
                     {identity}
-                </button>
+                </span>
             );
         },
     },
