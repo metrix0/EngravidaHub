@@ -6,6 +6,10 @@ import {
     executeAssistantSocialDataTool,
     isAssistantSocialDataTool,
 } from "@/lib/ai/assistantSocialDataTools";
+import {
+    executeAssistantOperationalTool,
+    isAssistantOperationalTool,
+} from "@/lib/ai/assistantOperationalTools";
 import { openai } from "@/lib/ai/openai";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import type {
@@ -357,6 +361,79 @@ const TOOLS = [
     },
     {
         type: "function",
+        name: "get_funnel_overview",
+        description:
+            "Retorna a posição atual dos clientes por funil/etapa e os KPIs de jornada do CliniSys no período. Use para perguntas sobre /funil, quantidade por etapa, avaliações, procedimentos ou comparecimento da jornada.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD; null usa os últimos 30 dias para KPIs de jornada." },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD; null usa hoje." },
+                unit_name: { type: ["string", "null"] },
+            },
+            required: ["date_from", "date_to", "unit_name"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_active_message_overview",
+        description:
+            "Consulta Mensagem Ativa e automações como resgate: lotes, mensagens enviadas, respostas, agendamentos, desempenho por template/automação e execuções recentes.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD; null usa os últimos 30 dias." },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD; null usa hoje." },
+                automation: { type: ["string", "null"], description: "null/all = tudo; resgate = somente resgate; manual = envios sem automação; ou outro nome exato." },
+            },
+            required: ["date_from", "date_to", "automation"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_tracking_events_overview",
+        description:
+            "Consulta a tela Eventos e o pipeline de eventos enviados pelo Hub para Meta Ads/Google Ads: enviados, falhas, cobertura fbclid/gclid, tipos, plataformas, status e evolução. Para investimento/campanhas use get_paid_media_overview.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD; null usa os últimos 30 dias." },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD; null usa hoje." },
+                unit_name: { type: ["string", "null"] },
+                platform: { type: "string", enum: ["all", "meta_ads", "google_ads"] },
+                event_types: { type: "array", items: { type: "string", enum: ["lead", "schedule"] } },
+                statuses: { type: "array", items: { type: "string", enum: ["sent", "failed"] } },
+                sources: { type: "array", items: { type: "string" } },
+                tunnels: { type: "array", items: { type: "string" } },
+                origins: { type: "array", items: { type: "string" } },
+            },
+            required: ["date_from", "date_to", "unit_name", "platform", "event_types", "statuses", "sources", "tunnels", "origins"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_internal_team_overview",
+        description:
+            "Consulta o diretório interno do Hub para saber quem está online/offline, função e fila. Use para perguntas sobre equipe interna ou disponibilidade de atendentes. É somente leitura.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                query: { type: ["string", "null"], description: "Nome, função ou fila; null retorna visão geral." },
+                status: { type: "string", enum: ["all", "online", "offline"] },
+            },
+            required: ["query", "status"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "get_business_overview",
         description:
             "Retorna visão macro de clientes, conversas, análises, agendamentos, threads abertas, mensagens ativas, follow-ups e unidades.",
@@ -471,15 +548,20 @@ export async function POST(request: Request) {
                 let execution;
 
                 try {
-                    execution = isAssistantSocialDataTool(name)
-                        ? await executeAssistantSocialDataTool(
+                    execution = isAssistantOperationalTool(name)
+                        ? await executeAssistantOperationalTool(
                               name,
                               parsedArguments,
                           )
-                        : await executeAssistantDataTool(
-                              name,
-                              parsedArguments,
-                          );
+                        : isAssistantSocialDataTool(name)
+                          ? await executeAssistantSocialDataTool(
+                                name,
+                                parsedArguments,
+                            )
+                          : await executeAssistantDataTool(
+                                name,
+                                parsedArguments,
+                            );
                 } catch (error) {
                     console.error("[assistente] tool execution failed", {
                         tool: name,
@@ -602,13 +684,19 @@ Data e hora atuais em America/Sao_Paulo: ${now}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
-2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook ou operação. Nunca invente dados.
+2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook, funil, Mensagem Ativa, resgate, eventos de conversão, equipe interna ou operação. Nunca invente dados.
 3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
 4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
 5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
 8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.
+
+FERRAMENTAS OPERACIONAIS RECENTES:
+- Para quantidade atual de clientes por etapa do Funil ou KPIs de avaliação/procedimento, use get_funnel_overview. As contagens de etapa são posição atual; o período se aplica aos KPIs de jornada.
+- Para Mensagem Ativa, recaptacao e resgate, use get_active_message_overview. Diferencie lotes de mensagens efetivamente enviadas, respostas e agendamentos atribuídos.
+- Para a tela Eventos, falhas de envio, fbclid/gclid ou eventos lead/schedule enviados pelo Hub, use get_tracking_events_overview. Isso é entrega de eventos; não confunda com investimento, campanhas, CTR, CPC ou ROAS de get_paid_media_overview.
+- Para saber quem está online/offline ou em qual fila interna, use get_internal_team_overview. Não diga que enviou mensagens ou mudou status: o assistente continua somente leitura.
 
 FORMATO DA RESPOSTA:
 9. Sempre comece com um título Markdown descritivo usando ##.
