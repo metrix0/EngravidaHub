@@ -17,6 +17,7 @@ import {
     scheduleShowedUp,
 } from "@/lib/schedules/status";
 import type { CalendarAppointment } from "@/types/scheduling";
+import { getClientCallClosureTone } from "@/lib/clients/callTracking";
 
 type DateRange = {
     start: string;
@@ -43,12 +44,46 @@ type FunnelJourneyEvent = ClinisysJourneyEvent & {
     created_in_source_at: string | null;
 };
 
+type FunnelCardClient = FunnelClient & {
+    schedule_summary: {
+        created_at: string | null;
+        scheduled_for: string;
+        attention: boolean;
+    } | null;
+    appointment: CalendarAppointment | null;
+};
+
+type FunnelClientIndex = Pick<
+    FunnelClient,
+    | "id"
+    | "name"
+    | "phone"
+    | "email"
+    | "funnel_stage_id"
+    | "last_called_at"
+    | "last_call_closure_tag"
+    | "utm_source"
+>;
+
+type FunnelSortableClient = FunnelClientIndex & {
+    schedule_summary: FunnelCardClient["schedule_summary"];
+};
+
 const DEFAULT_DAYS = 30;
 const PAGE_SIZE = 1_000;
+const FUNNEL_CLIENT_BATCH_SIZE = 40;
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const unitIds = parseIds(searchParams.get("unit_ids"));
+    const origins = parseIds(searchParams.get("origins"));
+    const search = searchParams.get("search")?.trim().toLowerCase() ?? "";
+    const requestedStageId = searchParams.get("stage_id")?.trim() || null;
+    const requestedOffset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
+    const requestedLimit = Math.min(
+        FUNNEL_CLIENT_BATCH_SIZE,
+        Math.max(1, Number(searchParams.get("limit") ?? FUNNEL_CLIENT_BATCH_SIZE) || FUNNEL_CLIENT_BATCH_SIZE),
+    );
     const currentRange = getDateRange({
         days: Number(searchParams.get("days") ?? DEFAULT_DAYS),
         startDate: searchParams.get("start_date"),
@@ -60,7 +95,7 @@ export async function GET(request: Request) {
         { data: funnels, error: funnelsError },
         { data: stages, error: stagesError },
         { data: units, error: unitsError },
-        clientsResult,
+        clientIndexResult,
         unitClientIdsResult,
     ] = await Promise.all([
         supabase
@@ -77,7 +112,7 @@ export async function GET(request: Request) {
             .select("id, name, active")
             .eq("active", true)
             .order("name"),
-        getFunnelClients({ unitIds }),
+        getFunnelClientIndex({ unitIds, requestedStageId }),
         getClientIdsForUnitFilter(unitIds),
     ]);
 
@@ -85,7 +120,7 @@ export async function GET(request: Request) {
         funnelsError ||
         stagesError ||
         unitsError ||
-        clientsResult.error ||
+        clientIndexResult.error ||
         unitClientIdsResult.error
     ) {
         return NextResponse.json(
@@ -95,7 +130,7 @@ export async function GET(request: Request) {
                     funnelsError,
                     stagesError,
                     unitsError,
-                    clientsError: clientsResult.error,
+                    clientsError: clientIndexResult.error,
                     unitClientIdsError: unitClientIdsResult.error,
                 },
             },
@@ -103,8 +138,8 @@ export async function GET(request: Request) {
         );
     }
 
-    const clients = clientsResult.clients as FunnelClient[];
-    const clientIds = new Set(clients.map((client) => client.id));
+    const clientIndex = clientIndexResult.clients;
+    const clientIds = new Set(clientIndex.map((client) => client.id));
     const kpiClientIds = unitClientIdsResult.clientIds
         ? new Set(unitClientIdsResult.clientIds)
         : null;
@@ -129,54 +164,58 @@ export async function GET(request: Request) {
         const eventsByClient = groupEventsByClient(cardEvents);
         const appointmentsByClient = groupAppointmentsByClient(appointments);
 
+        const sortableClients: FunnelSortableClient[] = clientIndex.map((client) => ({
+            ...client,
+            schedule_summary: buildFunnelClientContext(
+                client.id,
+                client.funnel_stage_id,
+                eventsByClient,
+                appointmentsByClient,
+            ).schedule_summary,
+        }));
+        const cardPage = paginateFunnelClients(sortableClients, {
+            stageIds: requestedStageId
+                ? [requestedStageId]
+                : (stages ?? []).map((stage) => stage.id),
+            currentRange,
+            origins,
+            search,
+            requestedStageId,
+            requestedOffset,
+            requestedLimit,
+        });
+
+        const pageClientsResult = await getFunnelClientsByIds(cardPage.clientIds);
+        if (pageClientsResult.error) throw pageClientsResult.error;
+        const pageClientsById = new Map(
+            pageClientsResult.clients.map((client) => [client.id, client]),
+        );
+        const enrichedClients: FunnelCardClient[] = cardPage.clientIds.flatMap(
+            (clientId) => {
+                const client = pageClientsById.get(clientId);
+                if (!client) return [];
+                return [
+                    {
+                        ...client,
+                        ...buildFunnelClientContext(
+                            client.id,
+                            client.funnel_stage_id,
+                            eventsByClient,
+                            appointmentsByClient,
+                        ),
+                    },
+                ];
+            },
+        );
+
         return NextResponse.json(
             {
                 funnels: funnels ?? [],
                 stages: stages ?? [],
                 units: units ?? [],
-                clients: clients.map((client) => {
-                    const milestone = resolveFunnelMilestone(
-                        eventsByClient.get(client.id) ?? [],
-                    );
-                    const appointment = chooseNearestAppointment(
-                        appointmentsByClient.get(client.id) ?? [],
-                    );
-
-                    return {
-                        ...client,
-                        schedule_summary: appointment
-                            ? appointmentToSummary(
-                                  appointment,
-                                  client.funnel_stage_id,
-                              )
-                            : milestone
-                              ? {
-                                    id: milestone.event.id,
-                                    created_at:
-                                        (milestone.event as FunnelJourneyEvent)
-                                            .created_in_source_at,
-                                    scheduled_for:
-                                        milestone.event.scheduled_for,
-                                    procedure_name:
-                                        milestone.event.procedure_name,
-                                    status: milestone.event.status,
-                                    status_group: milestone.statusGroup,
-                                    event_kind:
-                                        milestone.event.event_kind,
-                                    attention: isFunnelAttentionState(
-                                        client.funnel_stage_id,
-                                        milestone.event.status,
-                                    ),
-                                    attention_label:
-                                        getFunnelAttentionLabel(
-                                            client.funnel_stage_id,
-                                            milestone.event.status,
-                                        ),
-                                }
-                              : null,
-                        appointment,
-                    };
-                }),
+                clients: enrichedClients,
+                stage_totals: cardPage.stageTotals,
+                total_clients: cardPage.total,
                 kpis: buildFunnelKpis(
                     filterEventsByRange(periodEvents, currentRange),
                 ),
@@ -187,7 +226,7 @@ export async function GET(request: Request) {
             {
                 headers: {
                     "Cache-Control": "private, no-store",
-                    "Server-Timing": `funnel-events;desc="${allEvents.length}", funnel-clients;desc="${clients.length}"`,
+                    "Server-Timing": `funnel-events;desc="${allEvents.length}", funnel-client-index;desc="${clientIndex.length}", funnel-clients;desc="${enrichedClients.length}"`,
                 },
             },
         );
@@ -204,13 +243,20 @@ export async function GET(request: Request) {
     }
 }
 
-async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
-    const first = await loadFunnelClientPage({
+async function getFunnelClientIndex({
+    unitIds,
+    requestedStageId,
+}: {
+    unitIds: string[];
+    requestedStageId: string | null;
+}) {
+    const first = await loadFunnelClientIndexPage({
         unitIds,
+        requestedStageId,
         from: 0,
         withCount: true,
     });
-    if (first.error) return { clients: [], error: first.error };
+    if (first.error) return { clients: [] as FunnelClientIndex[], error: first.error };
 
     const total = first.count ?? first.clients.length;
     const remainingOffsets = Array.from(
@@ -224,8 +270,9 @@ async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
     );
     const remaining = await Promise.all(
         remainingOffsets.map((from) =>
-            loadFunnelClientPage({
+            loadFunnelClientIndexPage({
                 unitIds,
+                requestedStageId,
                 from,
                 withCount: false,
             }),
@@ -242,19 +289,47 @@ async function getFunnelClients({ unitIds }: { unitIds: string[] }) {
     };
 }
 
-async function loadFunnelClientPage({
+async function loadFunnelClientIndexPage({
     unitIds,
+    requestedStageId,
     from,
     withCount,
 }: {
     unitIds: string[];
+    requestedStageId: string | null;
     from: number;
     withCount: boolean;
 }) {
     let query = supabase
         .from("clients")
         .select(
-            `
+            "id, name, phone, email, funnel_stage_id, last_called_at, last_call_closure_tag, utm_source",
+            withCount ? { count: "exact" } : undefined,
+        )
+        .not("funnel_stage_id", "is", null)
+        .order("last_interaction_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+    if (unitIds.length > 0) query = query.in("unit_id", unitIds);
+    if (requestedStageId) query = query.eq("funnel_stage_id", requestedStageId);
+    const { data, error, count } = await query;
+
+    return {
+        clients: (data ?? []) as FunnelClientIndex[],
+        error,
+        count,
+    };
+}
+
+async function getFunnelClientsByIds(clientIds: string[]) {
+    if (clientIds.length === 0) {
+        return { clients: [] as FunnelClient[], error: null };
+    }
+
+    const { data, error } = await supabase
+        .from("clients")
+        .select(`
             id,
             name,
             phone,
@@ -268,22 +343,10 @@ async function loadFunnelClientPage({
             utm_medium,
             utm_campaign,
             updated_at
-            `,
-            withCount ? { count: "exact" } : undefined,
-        )
-        .not("funnel_stage_id", "is", null)
-        .order("last_interaction_at", { ascending: false })
-        .order("id", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
+        `)
+        .in("id", clientIds);
 
-    if (unitIds.length > 0) query = query.in("unit_id", unitIds);
-    const { data, error, count } = await query;
-
-    return {
-        clients: (data ?? []) as FunnelClient[],
-        error,
-        count,
-    };
+    return { clients: (data ?? []) as FunnelClient[], error };
 }
 
 async function getClientIdsForUnitFilter(unitIds: string[]) {
@@ -425,6 +488,160 @@ async function loadAppointmentPage(from: number, withCount: boolean) {
         error,
         count,
     };
+}
+
+function buildFunnelClientContext(
+    clientId: string,
+    stageId: string | null,
+    eventsByClient: Map<string, FunnelJourneyEvent[]>,
+    appointmentsByClient: Map<string, CalendarAppointment[]>,
+) {
+    const milestone = resolveFunnelMilestone(eventsByClient.get(clientId) ?? []);
+    const appointment = chooseNearestAppointment(
+        appointmentsByClient.get(clientId) ?? [],
+    );
+
+    return {
+        schedule_summary: appointment
+            ? appointmentToSummary(appointment, stageId)
+            : milestone
+              ? {
+                    id: milestone.event.id,
+                    created_at: (milestone.event as FunnelJourneyEvent)
+                        .created_in_source_at,
+                    scheduled_for: milestone.event.scheduled_for,
+                    procedure_name: milestone.event.procedure_name,
+                    status: milestone.event.status,
+                    status_group: milestone.statusGroup,
+                    event_kind: milestone.event.event_kind,
+                    attention: isFunnelAttentionState(
+                        stageId,
+                        milestone.event.status,
+                    ),
+                    attention_label: getFunnelAttentionLabel(
+                        stageId,
+                        milestone.event.status,
+                    ),
+                }
+              : null,
+        appointment,
+    };
+}
+
+function paginateFunnelClients(
+    clients: FunnelSortableClient[],
+    {
+        stageIds,
+        currentRange,
+        origins,
+        search,
+        requestedStageId,
+        requestedOffset,
+        requestedLimit,
+    }: {
+        stageIds: string[];
+        currentRange: DateRange;
+        origins: string[];
+        search: string;
+        requestedStageId: string | null;
+        requestedOffset: number;
+        requestedLimit: number;
+    },
+) {
+    const startDate = toDateKey(currentRange.start);
+    const endDate = toDateKey(currentRange.end);
+    const filtered = clients
+        .filter((client) => {
+            const scheduledFor = client.schedule_summary?.scheduled_for?.slice(0, 10);
+            if (scheduledFor && (scheduledFor < startDate || scheduledFor > endDate)) {
+                return false;
+            }
+
+            if (origins.length > 0 && !origins.includes(client.utm_source ?? "-")) {
+                return false;
+            }
+
+            if (!search) return true;
+            return (
+                client.name?.toLowerCase().includes(search) ||
+                client.phone?.toLowerCase().includes(search) ||
+                client.email?.toLowerCase().includes(search)
+            );
+        })
+        .sort(sortFunnelCardClients);
+
+    const stageTotals = Object.fromEntries(
+        stageIds.map((stageId) => [
+            stageId,
+            filtered.filter((client) => client.funnel_stage_id === stageId).length,
+        ]),
+    );
+
+    const pageClients = requestedStageId
+        ? filtered
+              .filter((client) => client.funnel_stage_id === requestedStageId)
+              .slice(requestedOffset, requestedOffset + requestedLimit)
+        : stageIds.flatMap((stageId) =>
+              filtered
+                  .filter((client) => client.funnel_stage_id === stageId)
+                  .slice(0, FUNNEL_CLIENT_BATCH_SIZE),
+          );
+
+    return {
+        clientIds: pageClients.map((client) => client.id),
+        stageTotals,
+        total: Object.values(stageTotals).reduce((sum, count) => sum + count, 0),
+    };
+}
+
+function sortFunnelCardClients(left: FunnelSortableClient, right: FunnelSortableClient) {
+    const priorityDifference =
+        getFunnelCardCallPriority(left) - getFunnelCardCallPriority(right);
+    if (priorityDifference !== 0) return priorityDifference;
+
+    const leftDistance = funnelScheduleDistanceFromToday(
+        left.schedule_summary?.scheduled_for,
+    );
+    const rightDistance = funnelScheduleDistanceFromToday(
+        right.schedule_summary?.scheduled_for,
+    );
+    if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+
+    return (
+        funnelDateOnlyTime(right.schedule_summary?.scheduled_for) -
+        funnelDateOnlyTime(left.schedule_summary?.scheduled_for)
+    );
+}
+
+function getFunnelCardCallPriority(client: FunnelSortableClient) {
+    const schedule = client.schedule_summary;
+    if (!schedule?.attention) return 2;
+
+    if (
+        !client.last_called_at ||
+        !schedule.created_at ||
+        new Date(client.last_called_at).getTime() <=
+            new Date(schedule.created_at).getTime()
+    ) {
+        return 0;
+    }
+
+    const tone = getClientCallClosureTone(client.last_call_closure_tag);
+    if (tone === "neutral") return 1;
+    return 3;
+}
+
+function funnelScheduleDistanceFromToday(value: string | null | undefined) {
+    if (!value) return Number.POSITIVE_INFINITY;
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    return Math.abs(funnelDateOnlyTime(value) - today.getTime());
+}
+
+function funnelDateOnlyTime(value: string | null | undefined) {
+    if (!value) return 0;
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+    return new Date(year, month - 1, day, 12).getTime();
 }
 
 function buildFunnelKpis(events: ClinisysJourneyEvent[]) {
