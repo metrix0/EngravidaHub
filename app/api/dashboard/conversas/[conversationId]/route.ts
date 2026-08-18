@@ -190,7 +190,7 @@ async function fetchSocialUser(
     if (!data) return null;
 
     return {
-        id: data.id,
+        id: `social:${data.id}`,
         name:
             data.display_name?.trim() ||
             (data.username
@@ -200,7 +200,7 @@ async function fetchSocialUser(
                   : "Usuário do Instagram"),
         phone: null,
         identity_type: "instagram" as const,
-        is_clickable: false,
+        is_clickable: true,
         instagram_username: data.username ?? null,
         last_tunnel: null,
         last_origin: null,

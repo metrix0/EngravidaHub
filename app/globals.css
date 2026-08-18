@@ -238,12 +238,11 @@ body::-webkit-scrollbar-corner,
     z-index: 60;
 }
 
-/* Increase the actual inner top/bottom space before funnel card content on Full HD. */
-@media (min-width: 1536px) {
-    .group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab {
-        padding-top: 0.25rem;
-        padding-bottom: 0.25rem;
-    }
+/* Funnel card identity is display-only, matching the original card behavior. */
+.group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab > button,
+.group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab > .min-w-0.flex-1.pr-1 > button {
+    pointer-events: none;
+    cursor: inherit;
 }
 
 /* Keep the floating chat menu separated from its expanded chat rail. */

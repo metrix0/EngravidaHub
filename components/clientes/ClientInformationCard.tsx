@@ -52,11 +52,13 @@ export default function ClientInformationCard({
     units,
     upcomingAppointmentCount,
     onSaved,
+    readOnly = false,
 }: {
     client: EditableClientDetail;
     units: ClientUnitOption[];
     upcomingAppointmentCount: number;
     onSaved: (client: EditableClientDetail) => void;
+    readOnly?: boolean;
 }) {
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -151,7 +153,7 @@ export default function ClientInformationCard({
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <h3 className="text-lg font-bold text-text">Informações do cliente</h3>
-                    <p className="mt-1 text-xs text-muted">Dados pessoais, contato e endereço</p>
+                    <p className="mt-1 text-xs text-muted">{readOnly ? "Dados disponíveis deste contato" : "Dados pessoais, contato e endereço"}</p>
                 </div>
 
                 {editing ? (
@@ -175,7 +177,7 @@ export default function ClientInformationCard({
                             Salvar
                         </button>
                     </div>
-                ) : (
+                ) : readOnly ? null : (
                     <button
                         type="button"
                         onClick={() => setEditing(true)}

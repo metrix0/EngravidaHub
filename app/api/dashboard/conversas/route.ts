@@ -173,7 +173,7 @@ export async function GET(request: Request) {
 
                 return {
                     id: conversation.id,
-                    client_id: conversation.client_id,
+                    client_id: conversation.client_id ?? (conversation.instagram_user_id ? `social:${conversation.instagram_user_id}` : null),
                     item_type: "conversation" as const,
                     attendant_name:
                         conversation.attendant_chat_name ?? "Sem atendente",
@@ -219,7 +219,7 @@ export async function GET(request: Request) {
 
                 return {
                     id: thread.id,
-                    client_id: thread.client_id,
+                    client_id: thread.client_id ?? (thread.instagram_user_id ? `social:${thread.instagram_user_id}` : null),
                     item_type: "thread" as const,
                     attendant_name: attendant?.name ?? "Sem atendente",
                     phone: client?.phone ?? "-",

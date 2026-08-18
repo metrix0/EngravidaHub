@@ -139,6 +139,7 @@ type ClientDetailResponse = {
     upcoming_appointment_count: number;
     live_thread: ClientLiveThread | null;
     conversations: ClientConversationSummary[];
+    read_only?: boolean;
 };
 
 export default function ClientPanel({
@@ -208,7 +209,7 @@ export default function ClientPanel({
     return (
         <DetailsSidePanel
             open={panelOpen}
-            title="Perfil do cliente"
+            title={data?.read_only ? "Perfil do contato" : "Perfil do cliente"}
             onClose={handleClose}
             zIndexClassName="z-60"
             headerContent={
@@ -232,6 +233,7 @@ export default function ClientPanel({
                         upcomingAppointmentCount={
                             data.upcoming_appointment_count ?? 0
                         }
+                        readOnly={Boolean(data.read_only)}
                         onSaved={(savedClient) =>
                             setData((current) =>
                                 current
@@ -245,8 +247,10 @@ export default function ClientPanel({
                     />
                     <LiveConversationButton thread={data.live_thread} />
                     <ConversationHistorySection conversations={data.conversations} />
-                    <ClientCallHistorySection clientId={data.client.id} />
-                    <ActiveMessageButton client={data.client} />
+                    {!data.read_only ? (
+                        <ClientCallHistorySection clientId={data.client.id} />
+                    ) : null}
+                    {!data.read_only ? <ActiveMessageButton client={data.client} /> : null}
                 </div>
             )}
         </DetailsSidePanel>

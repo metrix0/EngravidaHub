@@ -23,6 +23,10 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         );
     }
 
+    if (clientId.startsWith("social:")) {
+        return fetchSocialClientProfile(clientId.slice("social:".length));
+    }
+
     const { data: client, error: clientError } = await supabase
         .from("clients")
         .select(
@@ -132,6 +136,46 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
                 dropoff_moment: analysis?.dropoff_moment ?? null,
             };
         }),
+    });
+}
+
+async function fetchSocialClientProfile(socialId: string) {
+    const { data: social, error } = await supabase
+        .from("instagram_users")
+        .select("id, username, display_name, first_seen_at, last_interaction_at")
+        .eq("id", socialId)
+        .maybeSingle();
+
+    if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!social) {
+        return NextResponse.json({ error: "Social identity not found" }, { status: 404 });
+    }
+
+    const name =
+        social.display_name?.trim() ||
+        (social.username ? `@${social.username.replace(/^@+/, "")}` : "Contato social");
+    const id = `social:${social.id}`;
+
+    return NextResponse.json({
+        read_only: true,
+        client: {
+            id, name, phone: null, email: null, cpf: null, birth_date: null,
+            street: null, number: null, complement: null, neighborhood: null,
+            city: null, cep: null, first_seen_at: social.first_seen_at,
+            last_interaction_at: social.last_interaction_at,
+            last_active_message_sent_at: null, created_at: social.first_seen_at,
+            updated_at: social.last_interaction_at, external_contact_id: null,
+            last_origin: null, last_tunnel: null, utm_source: null, utm_medium: null,
+            utm_campaign: null, utm_content: null, utm_term: null, state: null,
+            country: null, funnel_stage_id: null, unit_id: null, notes: null,
+            unit: null, stage: null, funnel: null,
+        },
+        units: [],
+        upcoming_appointment_count: 0,
+        live_thread: null,
+        conversations: [],
     });
 }
 
