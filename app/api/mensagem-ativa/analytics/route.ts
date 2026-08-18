@@ -1,3 +1,4 @@
+// app/api/mensagem-ativa/analytics/route.ts
 import { NextResponse } from "next/server";
 
 import { requireActiveMessageAccess } from "@/lib/active-messages/access";

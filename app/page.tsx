@@ -378,7 +378,7 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={data.kpis.conversations_analyzed}
                                         previousValue={data.previous_kpis.conversations_analyzed}
                                         formatter={(value: number) => value.toLocaleString("pt-BR")}
-                                        color="purple"
+                                        color="blue"
                                     />
                                 </div>
 
@@ -400,7 +400,7 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={data.kpis.clear_satisfaction_rate}
                                         previousValue={data.previous_kpis.clear_satisfaction_rate}
                                         suffix="%"
-                                        color="blue"
+                                        color="purple"
                                     />
                                 </div>
 
@@ -515,11 +515,11 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
     return (
         <Card>
             <div className="mb-5">
-                <h2 className="text-lg font-bold">Evolução diária</h2>
+                <h2 className="text-lg font-bold">Evolução de conversas</h2>
                 <div className="mt-3 flex items-center gap-6 text-xs text-slate-500">
                     <LegendDot color="bg-blue-500" label="Conversas" />
-                    <LegendDot color="bg-violet-500" label="Resolução (%)" />
-                    <LegendDot color="bg-emerald-500" label="Satisfação (%)" />
+                    <LegendDot color="bg-emerald-500" label="Resolução (%)" />
+                    <LegendDot color="bg-violet-500" label="Satisfação (%)" />
                 </div>
             </div>
 
@@ -564,7 +564,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             type="monotone"
                             dataKey="resolution_rate"
                             yAxisId="percentage"
-                            stroke="#8b5cf6"
+                            stroke="#10b981"
                             strokeWidth={3}
                             dot={{ r: 4 }}
                         />
@@ -572,7 +572,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             type="monotone"
                             dataKey="satisfaction_rate"
                             yAxisId="percentage"
-                            stroke="#10b981"
+                            stroke="#8b5cf6"
                             strokeWidth={3}
                             dot={{ r: 4 }}
                         />
