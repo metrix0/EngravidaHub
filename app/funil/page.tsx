@@ -151,6 +151,8 @@ type FunnelResponse = {
     stages: FunnelStage[];
     units: Unit[];
     clients: Client[];
+    stage_totals: Record<string, number>;
+    total_clients: number;
     kpis: FunnelKpis;
     previous_kpis: FunnelKpis;
 };
@@ -170,8 +172,9 @@ type RemoveClientConfirmation = {
 };
 
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
-const INTAKE_INITIAL_LIMIT = 25;
-const INTAKE_LOAD_MORE_LIMIT = 20;
+const INTAKE_INITIAL_LIMIT = 40;
+const INTAKE_LOAD_MORE_LIMIT = 40;
+const FUNNEL_STAGE_LOAD_LIMIT = 40;
 const FUNNEL_DATE_PRESETS: CalendarPreset[] = [
     {
         label: "Hoje",
@@ -211,6 +214,8 @@ export default function FunnelPage() {
     const [funnels, setFunnels] = useState<Funnel[]>([]);
     const [stages, setStages] = useState<FunnelStage[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [stageTotals, setStageTotals] = useState<Record<string, number>>({});
+    const [stageLoadingMore, setStageLoadingMore] = useState<Record<string, boolean>>({});
     const [intakeClients, setIntakeClients] = useState<Client[]>([]);
     const [intakeTotal, setIntakeTotal] = useState(0);
     const [intakeLoading, setIntakeLoading] = useState(true);
@@ -382,6 +387,8 @@ export default function FunnelPage() {
                 });
 
                 applyArrayParams(params, { unit_ids: unitIds });
+                if (sourceValues.length > 0) params.set("origins", sourceValues.join(","));
+                if (search.trim()) params.set("search", search.trim());
 
                 const response = await fetch(`/api/funnel?${params.toString()}`, {
                     cache: "no-store",
@@ -397,6 +404,7 @@ export default function FunnelPage() {
                 setFunnels(data.funnels ?? []);
                 setStages(data.stages ?? []);
                 setClients(data.clients ?? []);
+                setStageTotals(data.stage_totals ?? {});
                 setKpis(data.kpis ?? EMPTY_FUNNEL_KPIS);
                 setPreviousKpis(data.previous_kpis ?? EMPTY_FUNNEL_KPIS);
             } catch (error) {
@@ -406,7 +414,7 @@ export default function FunnelPage() {
                 if (showLoading && !signal?.aborted) setLoading(false);
             }
         },
-        [period, selectedRange, unitIds],
+        [period, search, selectedRange, sourceValues, unitIds],
     );
 
     useEffect(() => {
@@ -515,33 +523,15 @@ export default function FunnelPage() {
         return { start: range.start ?? "", end: range.end ?? range.start ?? "" };
     }, [period, selectedRange]);
 
-    const filteredClients = useMemo(() => {
-        const term = search.trim().toLowerCase();
-
-        return clients.filter((client) => {
-            if (!client.funnel_stage_id) return false;
-            if (!visibleStageIds.has(client.funnel_stage_id)) return false;
-
-            const scheduledFor = client.schedule_summary?.scheduled_for?.slice(0, 10);
-            if (
-                scheduledFor &&
-                (scheduledFor < scheduleDateRange.start || scheduledFor > scheduleDateRange.end)
-            ) return false;
-
-            if (
-                sourceValues.length > 0 &&
-                !sourceValues.includes(client.utm_source ?? "-")
-            ) return false;
-
-            if (!term) return true;
-
-            return (
-                client.name?.toLowerCase().includes(term) ||
-                client.phone?.toLowerCase().includes(term) ||
-                client.email?.toLowerCase().includes(term)
-            );
-        });
-    }, [clients, scheduleDateRange.end, scheduleDateRange.start, search, sourceValues, visibleStageIds]);
+    const filteredClients = useMemo(
+        () =>
+            clients.filter(
+                (client) =>
+                    Boolean(client.funnel_stage_id) &&
+                    visibleStageIds.has(client.funnel_stage_id ?? ""),
+            ),
+        [clients, visibleStageIds],
+    );
 
     const clientsByStage = useMemo(() => {
         const grouped: Record<string, Client[]> = {};
@@ -571,7 +561,10 @@ export default function FunnelPage() {
     }, [availableClients, clientSearch]);
 
     const selectedFunnel = funnels.find((funnel) => funnel.id === selectedFunnelId);
-    const totalClients = filteredClients.length;
+    const totalClients = visibleStages.reduce(
+        (sum, stage) => sum + (stageTotals[stage.id] ?? 0),
+        0,
+    );
     const schedulingClient = schedulingClientId
         ? clients.find((client) => client.id === schedulingClientId) ??
           intakeClients.find((client) => client.id === schedulingClientId) ??
@@ -685,6 +678,57 @@ export default function FunnelPage() {
     async function loadMoreIntakeClients() {
         if (intakeLoadingMore || intakeClients.length >= intakeTotal) return;
         await loadIntakeClients({ offset: intakeClients.length, append: true });
+    }
+
+    async function loadMoreStageClients(stageId: string) {
+        if (stageLoadingMore[stageId]) return;
+
+        const loadedCount = clients.filter(
+            (client) => client.funnel_stage_id === stageId,
+        ).length;
+        const total = stageTotals[stageId] ?? loadedCount;
+        if (loadedCount >= total) return;
+
+        setStageLoadingMore((current) => ({ ...current, [stageId]: true }));
+        try {
+            const params = new URLSearchParams({
+                stage_id: stageId,
+                offset: String(loadedCount),
+                limit: String(FUNNEL_STAGE_LOAD_LIMIT),
+            });
+            applyCalendarDateParams({
+                params,
+                selectedRange,
+                selectedPreset: period,
+                presets: FUNNEL_DATE_PRESETS,
+            });
+            applyArrayParams(params, { unit_ids: unitIds });
+            if (sourceValues.length > 0) params.set("origins", sourceValues.join(","));
+            if (search.trim()) params.set("search", search.trim());
+
+            const response = await fetch(`/api/funnel?${params.toString()}`, {
+                cache: "no-store",
+            });
+            if (!response.ok) {
+                const body = await response.json().catch(() => null);
+                throw new Error(body?.error ?? "Falha ao carregar mais clientes.");
+            }
+
+            const data = (await response.json()) as FunnelResponse;
+            setStageTotals((current) => ({
+                ...current,
+                ...(data.stage_totals ?? {}),
+            }));
+            setClients((current) => {
+                const byId = new Map(current.map((client) => [client.id, client]));
+                for (const client of data.clients ?? []) byId.set(client.id, client);
+                return [...byId.values()];
+            });
+        } catch (error) {
+            console.error("[funil] stage load more failed", error);
+        } finally {
+            setStageLoadingMore((current) => ({ ...current, [stageId]: false }));
+        }
     }
 
     async function removeIntakeClosingTag(clientId: string) {
@@ -1079,6 +1123,9 @@ export default function FunnelPage() {
                                     key={stage.id}
                                     stage={stage}
                                     clients={clientsByStage[stage.id] ?? []}
+                                    total={stageTotals[stage.id] ?? 0}
+                                    loadingMore={Boolean(stageLoadingMore[stage.id])}
+                                    onLoadMore={() => loadMoreStageClients(stage.id)}
                                     blurPhone={blurClientPhones}
                                     onMoveClient={moveClient}
                                     onRemoveClient={requestFunnelClientRemoval}
@@ -1201,7 +1248,7 @@ function IntakeColumn({
 
     async function showMore() {
         const nextLimit = Math.min(total, visibleLimit + CLIENTS_PER_BATCH);
-        if (nextLimit > clients.length && clients.length < total) await onLoadMore();
+        if (clients.length < total) await onLoadMore();
         setVisibleLimit(nextLimit);
     }
 
@@ -1261,6 +1308,9 @@ function IntakeColumn({
 function FunnelColumn({
     stage,
     clients,
+    total,
+    loadingMore,
+    onLoadMore,
     onMoveClient,
     onRemoveClient,
     onOpenClientProfile,
@@ -1270,6 +1320,9 @@ function FunnelColumn({
 }: {
     stage: FunnelStage;
     clients: Client[];
+    total: number;
+    loadingMore: boolean;
+    onLoadMore: () => Promise<void>;
     onMoveClient: (clientId: string, stageId: string) => void;
     onRemoveClient: (clientId: string, columnName: string) => void;
     onOpenClientProfile: (clientId: string) => void;
@@ -1281,7 +1334,13 @@ function FunnelColumn({
     const CLIENTS_PER_BATCH = 20;
     const [visibleLimit, setVisibleLimit] = useState(COLLAPSED_CLIENTS);
     const visibleClients = clients.slice(0, visibleLimit);
-    const hiddenClientsCount = Math.max(0, clients.length - visibleLimit);
+    const hasMore = visibleLimit < total;
+
+    async function showMore() {
+        const nextLimit = Math.min(total, visibleLimit + CLIENTS_PER_BATCH);
+        if (clients.length < total) await onLoadMore();
+        setVisibleLimit(nextLimit);
+    }
 
     return (
         <div
@@ -1297,7 +1356,7 @@ function FunnelColumn({
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#64748b" }} />
                     <h3 className="truncate text-sm font-bold text-text">{stage.name}</h3>
                 </div>
-                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">{clients.length}</span>
+                <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold text-muted">{total}</span>
             </div>
 
             <div className="space-y-3">
@@ -1314,15 +1373,18 @@ function FunnelColumn({
                 ))}
             </div>
 
-            {clients.length > COLLAPSED_CLIENTS ? (
+            {total > COLLAPSED_CLIENTS ? (
                 <div className="mt-5 flex items-center justify-center gap-3 text-sm font-semibold">
-                    {hiddenClientsCount > 0 ? (
+                    {hasMore ? (
                         <button
                             type="button"
-                            onClick={() => setVisibleLimit((current) => Math.min(clients.length, current + CLIENTS_PER_BATCH))}
-                            className="cursor-pointer text-blue"
+                            disabled={loadingMore}
+                            onClick={() => void showMore()}
+                            className="cursor-pointer text-blue disabled:cursor-wait disabled:opacity-60"
                         >
-                            + Ver mais {Math.min(CLIENTS_PER_BATCH, hiddenClientsCount)}
+                            {loadingMore
+                                ? "Carregando..."
+                                : `+ Ver mais ${Math.min(CLIENTS_PER_BATCH, total - visibleLimit)}`}
                         </button>
                     ) : null}
                     {visibleLimit > COLLAPSED_CLIENTS ? (
