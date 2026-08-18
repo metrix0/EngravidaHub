@@ -269,3 +269,20 @@ button[title="Ocultar chats"] {
 .recharts-tooltip-cursor {
     fill: #f8fafc !important;
 }
+
+/* Match /conversas client identity hover to Mensagem Ativa. */
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "] {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    transition: opacity 150ms ease !important;
+}
+
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "]:hover {
+    background: transparent !important;
+    opacity: 0.8;
+}
+
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "]:hover > span {
+    text-decoration: underline;
+}
