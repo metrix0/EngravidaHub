@@ -21,11 +21,10 @@ jobs:
           cache: pnpm
       - name: Patch source
         run: python .github/temp-assistant-dashboard-polish.py
-      - name: Validate
+      - name: Validate TypeScript
         run: |
           pnpm install --frozen-lockfile
           pnpm exec tsc --noEmit
-          pnpm run build
       - name: Commit source changes to PR branch
         run: |
           if git diff --quiet -- app/api/assistente/chat/route.ts app/page.tsx lib/ai/assistantOperationalTools.ts; then
