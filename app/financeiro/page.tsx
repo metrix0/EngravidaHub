@@ -36,6 +36,8 @@ import { FaGoogle, FaMeta } from "react-icons/fa6";
 import {
     Card,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     FilterButton,
     HorizontalScroller,
     InfoTooltip,
@@ -207,36 +209,12 @@ export default function FinancialDashboardPage() {
         dateFilterReady,
     ]);
 
-    if (!dateFilterReady) {
+    if (!dateFilterReady || loading) {
         return (
             <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <FinancialDashboardSkeleton />
-                </section>
-            </main>
-        );
-    }
-
-    if (loading) {
-        return (
-            <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
-                <section className="min-w-0 flex-1 px-8 py-8">
-                    <DashboardHeader
-                        title="Financeiro"
-                        description="Acompanhe faturamento, mix de serviços e eficiência comercial"
-                        period={period}
-                        setPeriod={setPeriod}
-                        selectedRange={selectedRange}
-                        setSelectedRange={setSelectedRange}
-                        storageManaged
-                        storageReady
-                    />
-
-                    <div className="mb-8 flex justify-end gap-3">
-                        <Skeleton className="h-12 w-[230px]" />
-                        <Skeleton className="h-12 w-[250px]" />
-                    </div>
-
+                    <DashboardHeader title="Financeiro" description="Acompanhe faturamento, mix de serviços e eficiência comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[250px]"]} />
                     <FinancialBodySkeleton />
                 </section>
             </main>
@@ -277,7 +255,7 @@ export default function FinancialDashboardPage() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-3 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         units={filters?.units}
                         unitValues={unitIds}
@@ -298,7 +276,7 @@ export default function FinancialDashboardPage() {
                         options={data.available_filters.categories}
                         widthClassName="w-[250px]"
                     />
-                </div>
+                </DashboardFilterBar>
 
                 {isRefreshing ? (
                     <FinancialBodySkeleton />

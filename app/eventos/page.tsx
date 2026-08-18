@@ -35,6 +35,8 @@ import { ConversationPanel } from "@/components/conversations/ConversationPanel"
 import {
     Card,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     HorizontalScroller,
     HoverBadgeList,
     type HoverBadgeListItem,
@@ -268,11 +270,13 @@ export default function EventsPage() {
         dateFilterReady,
     ]);
 
-    if (loadingFilters || loadingData) {
+    if (!dateFilterReady || loadingFilters || loadingData) {
         return (
             <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 px-8 py-8">
-                    <EventsSkeleton />
+                    <DashboardHeader title="Eventos" description="Acompanhe os eventos enviados para as plataformas de anúncios" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[150px]", "w-[150px]"]} />
+                    <EventsBodySkeleton />
                 </section>
             </main>
         );
@@ -292,7 +296,7 @@ export default function EventsPage() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-8 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
@@ -345,7 +349,7 @@ export default function EventsPage() {
                             },
                         ]}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 {isRefreshing ? (
                     <EventsBodySkeleton />

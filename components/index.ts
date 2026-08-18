@@ -19,6 +19,7 @@ export { DetailsSidePanel } from "./ui/DetailsSidePanel";
 export { DropdownSelect } from "./ui/DropdownSelect";
 
 export { DashboardHeader } from "./dashboard/DashboardHeader";
+export { DashboardFilterBar, DashboardFilterBarSkeleton } from "./dashboard/DashboardFilterBar";
 export { MainFilters } from "./dashboard/MainFilters";
 
 export { default as SidePanel } from "./layout/SidePanel";

@@ -6,7 +6,7 @@ import {
     CalendarDays,
     CalendarCheck,
     CircleAlert,
-    ExternalLink,
+    UserRound,
     PhoneCall,
     Trash2,
     TrendingUp,
@@ -17,8 +17,9 @@ import {
 import {
     AdvancedFilterButton,
     Badge,
-    ButtonGroup,
-    CalendarButton,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
+    DashboardHeader,
     Card,
     HorizontalScroller,
     KpiCard,
@@ -171,7 +172,6 @@ type RemoveClientConfirmation = {
 const DEFAULT_FUNNEL_ID = "22222222-2222-2222-2222-222222222222";
 const INTAKE_INITIAL_LIMIT = 25;
 const INTAKE_LOAD_MORE_LIMIT = 20;
-const EMPTY_DATE_RANGE: DateRange = { start: null, end: null };
 const FUNNEL_DATE_PRESETS: CalendarPreset[] = [
     {
         label: "Hoje",
@@ -950,16 +950,8 @@ export default function FunnelPage() {
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <div className="mb-8 flex items-start justify-between">
-                        <div>
-                            <Skeleton className="h-10 w-48" />
-                            <Skeleton className="mt-3 h-5 w-96" />
-                        </div>
-                        <Skeleton className="h-12 w-[310px] rounded-xl" />
-                    </div>
-                    <div className="mb-8 flex justify-end">
-                        <Skeleton className="h-12 w-[230px] rounded-xl" />
-                    </div>
+                    <DashboardHeader title="Funil" description="Acompanhe e mova clientes pelo funil comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={FUNNEL_DATE_PRESETS} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]"]} className="flex-wrap" />
                     <section className="mb-8 grid grid-cols-1 gap-5">
                         <HorizontalScroller scrollAmount={400}>
                             {Array.from({ length: 4 }).map((_, index) => (
@@ -1018,42 +1010,16 @@ export default function FunnelPage() {
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
             <section className="min-w-0 flex-1 px-8 py-8">
-                <header className="mb-8 flex items-start justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-950">Funil</h1>
-                        <p className="mt-2 text-sm text-slate-500">Acompanhe e mova clientes pelo funil comercial</p>
-                    </div>
-                    <ButtonGroup
-                        value={period}
-                        onChange={(value) => {
-                            setPeriod(value);
-                            setSelectedRange(EMPTY_DATE_RANGE);
-                        }}
-                        options={FUNNEL_DATE_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
-                    >
-                        <CalendarButton
-                            value={selectedRange}
-                            onChange={setSelectedRange}
-                            onApply={(range) => {
-                                if (range.start) {
-                                    setPeriod(null);
-                                    return;
-                                }
-                                setPeriod(FUNNEL_DATE_PRESETS[0].value);
-                            }}
-                            allowFutureDates
-                        />
-                    </ButtonGroup>
-                </header>
+                <DashboardHeader title="Funil" description="Acompanhe e mova clientes pelo funil comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={FUNNEL_DATE_PRESETS} storageManaged storageReady={dateFilterReady} />
 
-                <div className="mb-8 flex flex-wrap justify-end gap-3">
+                <DashboardFilterBar className="flex-wrap">
                     <MainFilters
                         units={filters?.units}
                         unitValues={unitIds}
                         setUnitValues={setUnitIds}
                         show={{ attendants: false, tunnels: false, origins: false }}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 <section className="mb-8 grid grid-cols-1 gap-5">
                     <HorizontalScroller scrollAmount={400}>
@@ -1419,7 +1385,7 @@ function FunnelClientCard({
                     <CalendarDays size={14} />
                 </button>
                 <button type="button" title="Abrir perfil do cliente" onClick={(event) => { event.stopPropagation(); onOpenClientProfile(client.id); }} className={FUNNEL_CARD_ACTION_BUTTON_CLASS}>
-                    <ExternalLink size={14} />
+                    <UserRound size={14} />
                 </button>
                 <button type="button" title="Registrar ligação" onClick={(event) => { event.stopPropagation(); onOpenClientCall(client.id); }} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition hover:opacity-90">
                     <PhoneCall size={14} />

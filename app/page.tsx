@@ -37,6 +37,8 @@ import {
 import {
     Card,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     HorizontalScroller,
     InfoTooltip,
     KpiCard,
@@ -294,42 +296,13 @@ export default function ExecutiveDashboardPage() {
         urlFiltersReady,
     ]);
 
-    if (!dateFilterReady || !urlFiltersReady) {
+    if (!dateFilterReady || !urlFiltersReady || loading) {
         return (
             <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <DashboardSkeleton />
-                </section>
-            </main>
-        );
-    }
-
-    if (loading) {
-        return (
-            <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
-                <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">
-                    <DashboardHeader
-                        title="Dashboard"
-                        description="Acompanhe os principais indicadores de atendimento"
-                        period={period}
-                        setPeriod={setPeriod}
-                        selectedRange={selectedRange}
-                        setSelectedRange={setSelectedRange}
-                        storageManaged
-                        storageReady
-                    />
-
-                    <div className="mb-8 flex justify-end gap-3">
-                        {Array.from({ length: 4 }).map((_, index) => (
-                            <Skeleton
-                                key={index}
-                                className="h-12 w-[220px]"
-                            />
-                        ))}
-                    </div>
-
+                    <DashboardHeader title="Dashboard" description="Acompanhe os principais indicadores de atendimento" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <DashboardBodySkeleton />
                 </section>
             </main>
@@ -375,7 +348,7 @@ export default function ExecutiveDashboardPage() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-8 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         units={filters?.units}
                         attendants={filters?.attendants}
@@ -390,7 +363,7 @@ export default function ExecutiveDashboardPage() {
                         originValues={originValues}
                         setOriginValues={setOriginValues}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 {isRefreshing ? (
                     <DashboardBodySkeleton />
