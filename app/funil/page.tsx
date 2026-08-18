@@ -991,9 +991,9 @@ export default function FunnelPage() {
 
     if (!dateFilterReady || !urlFiltersReady || loading || loadingFilters) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Funil" description="Acompanhe e mova clientes pelo funil comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={FUNNEL_DATE_PRESETS} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]"]} className="flex-wrap" />
                     <section className="mb-8 grid grid-cols-1 gap-5">
@@ -1004,7 +1004,7 @@ export default function FunnelPage() {
                         </HorizontalScroller>
                     </section>
                     <section>
-                        <div className="mb-5 flex items-center justify-between gap-6">
+                        <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
                             <div>
                                 <Skeleton className="h-7 w-[180px]" />
                                 <Skeleton className="mt-2 h-4 w-[250px]" />
@@ -1051,9 +1051,9 @@ export default function FunnelPage() {
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader title="Funil" description="Acompanhe e mova clientes pelo funil comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={FUNNEL_DATE_PRESETS} storageManaged storageReady={dateFilterReady} />
 
                 <DashboardFilterBar className="flex-wrap">
@@ -1075,12 +1075,12 @@ export default function FunnelPage() {
                 </section>
 
                 <section>
-                    <div className="mb-5 flex items-center justify-between gap-6">
+                    <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
                         <div>
                             <h2 className="text-xl font-bold text-text">{selectedFunnel?.name ?? "Funil FIV"}</h2>
                             <p className="mt-1 text-sm text-muted">{totalClients} clientes distribuídos em {visibleStages.length} etapas</p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap">
                             <SearchFilter value={search} onChange={setSearch} placeholder="Buscar cliente ou telefone..." widthClassName="w-[360px]" />
                             <AdvancedFilterButton
                                 sections={[

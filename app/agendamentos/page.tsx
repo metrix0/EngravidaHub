@@ -505,10 +505,10 @@ export default function AppointmentsPage() {
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-7 py-7">
-                <header className="mb-5 flex shrink-0 items-start justify-between gap-6">
+            <section className="flex min-w-0 flex-1 flex-col px-3 py-4 sm:px-4 md:px-7 md:py-7">
+                <header className="mb-5 flex shrink-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                        <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                             Agendamentos
                         </h1>
                         <p className="mt-1 text-sm text-slate-500">
@@ -516,7 +516,7 @@ export default function AppointmentsPage() {
                         </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap">
                         <button
                             type="button"
                             onClick={() => setSchedulingPanelOpen(true)}
@@ -540,7 +540,7 @@ export default function AppointmentsPage() {
                         >
                             <ChevronLeft size={18} />
                         </button>
-                        <div className="min-w-52 text-center text-sm font-bold text-slate-700">
+                        <div className="min-w-0 flex-1 text-center text-sm font-bold text-slate-700 md:min-w-52 md:flex-none">
                             {formatWeekRange(weekDays)}
                         </div>
                         <button

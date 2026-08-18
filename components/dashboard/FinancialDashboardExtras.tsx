@@ -349,7 +349,7 @@ export function ProcedureMixByCityCard({
                     {Array.from({ length: 7 }).map((_, index) => (
                         <div
                             key={index}
-                            className="grid grid-cols-[150px_minmax(0,1fr)_52px] items-center gap-4"
+                            className="grid grid-cols-[90px_minmax(0,1fr)_44px] items-center gap-2 sm:grid-cols-[120px_minmax(0,1fr)_52px] sm:gap-3 md:grid-cols-[150px_minmax(0,1fr)_52px] md:gap-4"
                         >
                             <Skeleton className="h-4 w-[110px]" />
                             <Skeleton className="h-9 w-full rounded-lg" />
@@ -383,7 +383,7 @@ function ProcedureMixRows({ rows }: { rows: ProcedureCityRow[] }) {
                 return (
                     <div
                         key={row.unit_id ?? row.unit_name}
-                        className="grid grid-cols-[150px_minmax(0,1fr)_52px] items-center gap-4"
+                        className="grid grid-cols-[90px_minmax(0,1fr)_44px] items-center gap-2 sm:grid-cols-[120px_minmax(0,1fr)_52px] sm:gap-3 md:grid-cols-[150px_minmax(0,1fr)_52px] md:gap-4"
                     >
                         <div className="min-w-0">
                             <div
@@ -595,7 +595,7 @@ export function RevenueEvolutionComparisonCard({
 
                     {menuOpen ? (
                         <div
-                            className="absolute right-0 z-50 mt-2 w-[230px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)]"
+                            className="absolute right-0 z-50 mt-2 w-[230px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)]"
                             role="listbox"
                             aria-label="Mês para comparação"
                         >
@@ -653,7 +653,7 @@ export function RevenueEvolutionComparisonCard({
                 ) : null}
             </div>
 
-            <div className="h-[300px]">
+            <div className="h-[260px] min-w-0 sm:h-[300px]">
                 {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%" debounce={200}>
                         <ComposedChart data={chartData}>

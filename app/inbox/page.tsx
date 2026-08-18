@@ -843,7 +843,7 @@ export default function InboxPage() {
             <SidePanel affectLayout={false} defaultExpanded={false}/>
 
             <section
-                className="grid h-screen min-w-0 flex-1 grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] gap-3 px-3 py-3"
+                className="flex h-full min-w-0 flex-1 snap-x snap-mandatory overflow-x-auto gap-3 px-3 py-3 md:grid md:h-screen md:snap-none md:grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] md:overflow-x-visible"
             >
                 {isLoadingCurrentAttendant ? (
                     <>
@@ -1025,7 +1025,7 @@ function ConversationListPanel({
     isLoading: boolean;
 }) {
     return (
-        <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+        <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:min-w-0">
             <div className="mb-4 shrink-0">
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                     Inbox

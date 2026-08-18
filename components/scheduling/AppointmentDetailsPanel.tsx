@@ -429,10 +429,10 @@ export default function AppointmentDetailsPanel({
                         }
                     />
                 }
-                bodyClassName="min-h-0 flex-1 overflow-y-auto px-6 py-6 pt-3"
+                bodyClassName="min-h-0 flex-1 overflow-y-auto px-4 py-4 pt-3 md:px-6 md:py-6"
             >
                 <div className="space-y-6">
-                    <div className="grid grid-cols-[0.75fr_1.25fr] gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[0.75fr_1.25fr]">
                         <SelectField
                             label="Unidade"
                             value={form.unitId}
@@ -463,7 +463,7 @@ export default function AppointmentDetailsPanel({
                         />
                     </div>
 
-                    <div className="grid grid-cols-[0.75fr_1.25fr] gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[0.75fr_1.25fr]">
                         <SelectField
                             label="Duração"
                             value={String(form.durationMinutes)}
@@ -511,7 +511,7 @@ export default function AppointmentDetailsPanel({
                         </div>
                     </section>
 
-                    <div className="grid grid-cols-[1.2fr_0.8fr] gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_0.8fr]">
                         <Field label="Data" error={errors.schedulingDate}>
                             <CalendarDatePicker
                                 value={toDateInputValue(form.schedulingDate)}
@@ -611,7 +611,7 @@ export default function AppointmentDetailsPanel({
                 maxHeight="calc(100vh - 48px)"
                 closeOnOverlayClick={!deleting}
                 showCloseButton={!deleting}
-                panelClassName="p-6"
+                panelClassName="p-4 md:p-6"
             >
                 <div className="pr-10">
                     <div className="text-lg font-bold text-slate-950">
@@ -625,7 +625,7 @@ export default function AppointmentDetailsPanel({
                         será removido permanentemente.
                     </p>
                 </div>
-                <div className="mt-6 flex justify-end gap-3">
+                <div className="mt-6 flex flex-wrap justify-end gap-3">
                     <button
                         type="button"
                         onClick={() => setConfirmOpen(false)}
@@ -735,7 +735,7 @@ function PersonSection({
                 error={errors[`${person}.fullName`]}
                 placeholder="Nome e sobrenome"
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <TextField
                     label="CPF"
                     value={values.cpf}
@@ -753,7 +753,7 @@ function PersonSection({
                     inputMode="numeric"
                 />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <TextField
                     label="E-mail"
                     value={values.email}
@@ -786,7 +786,7 @@ function AddressSection({
 }) {
     return (
         <section className="space-y-4">
-            <div className="grid grid-cols-[0.8fr_1.2fr] gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[0.8fr_1.2fr]">
                 <TextField
                     label="CEP"
                     value={values.cep}
@@ -803,7 +803,7 @@ function AddressSection({
                     placeholder="Nome da rua"
                 />
             </div>
-            <div className="grid grid-cols-[0.7fr_1.3fr] gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[0.7fr_1.3fr]">
                 <TextField
                     label="Número"
                     value={values.number}
@@ -819,7 +819,7 @@ function AddressSection({
                     placeholder="Apto, bloco..."
                 />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <TextField
                     label="Bairro"
                     optional
@@ -835,7 +835,7 @@ function AddressSection({
                     placeholder="Cidade"
                 />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <TextField
                     label="Estado"
                     value={values.state}

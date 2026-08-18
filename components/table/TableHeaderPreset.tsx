@@ -25,7 +25,7 @@ export function TableHeaderPreset({
     children,
 }: TableHeaderPresetProps) {
     return (
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-bold text-text">
                 {title}{" "}
                 <span className="text-slate-500">
@@ -33,7 +33,7 @@ export function TableHeaderPreset({
                 </span>
             </h2>
 
-            <div className="flex items-center gap-3">
+            <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap">
                 <SearchFilter
                     value={searchValue}
                     onChange={onSearchChange}

@@ -286,3 +286,48 @@ button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-
 button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "]:hover > span {
     text-decoration: underline;
 }
+
+
+/* Mobile responsive shell. Desktop rules remain unchanged. */
+@media (max-width: 767px) {
+    html,
+    body {
+        width: 100%;
+        min-height: 100dvh;
+        overflow-x: hidden;
+    }
+
+    .app-content {
+        width: 100%;
+        min-height: 0;
+    }
+
+    .app-content > main {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+    }
+
+    .recharts-wrapper,
+    .recharts-responsive-container {
+        max-width: 100% !important;
+    }
+
+    .floating-conversation-dock {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: 8px !important;
+        width: auto !important;
+        height: min(480px, calc(100dvh - 72px)) !important;
+    }
+
+    .floating-chat-rail {
+        right: 0 !important;
+        width: 100% !important;
+    }
+
+    .floating-chat-rail-toggle {
+        right: 8px !important;
+    }
+}

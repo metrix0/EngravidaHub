@@ -1,3 +1,4 @@
+// components/dashboard/DashboardFilterBar.tsx
 import type { ReactNode } from "react";
 
 import Skeleton from "@/components/ui/Skeleton";
@@ -7,7 +8,7 @@ type DashboardFilterBarSkeletonProps = { widths: string[]; className?: string };
 
 export function DashboardFilterBar({ children, className = "" }: DashboardFilterBarProps) {
     return (
-        <div className={`mb-8 flex justify-end gap-3 ${className}`.trim()}>
+        <div className={`mb-8 flex flex-wrap justify-start gap-3 md:justify-end ${className}`.trim()}>
             {children}
         </div>
     );

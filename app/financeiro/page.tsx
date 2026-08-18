@@ -212,7 +212,7 @@ export default function FinancialDashboardPage() {
     if (!dateFilterReady || loading) {
         return (
             <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Financeiro" description="Acompanhe faturamento, mix de serviços e eficiência comercial" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[250px]"]} />
                     <FinancialBodySkeleton />
@@ -224,7 +224,7 @@ export default function FinancialDashboardPage() {
     if (!data) {
         return (
             <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
-                <section className="flex min-w-0 flex-1 items-center justify-center px-8 py-8">
+                <section className="flex min-w-0 flex-1 items-center justify-center px-4 py-5 md:px-8 md:py-8">
                     <Card className="max-w-xl text-center">
                         <h1 className="text-xl font-bold">
                             Não foi possível carregar o Financeiro
@@ -243,7 +243,7 @@ export default function FinancialDashboardPage() {
         data.kpis.authorized_revenue;
     return (
         <main className="flex h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Financeiro"
                     description="Acompanhe faturamento, mix de serviços e eficiência comercial"

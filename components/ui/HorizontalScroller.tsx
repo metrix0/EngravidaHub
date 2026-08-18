@@ -63,7 +63,7 @@ export default function HorizontalScroller({
                     <button
                         type="button"
                         onClick={() => scroll("left")}
-                        className="absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-white shadow-sm transition hover:bg-slate-50"
+                        className="absolute left-0 top-1/2 z-20 hidden h-9 md:flex w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-white shadow-sm transition hover:bg-slate-50"
                         style={{
                             borderColor: "var(--color-border)",
                             color: "var(--color-muted)",
@@ -72,18 +72,18 @@ export default function HorizontalScroller({
                         <ChevronLeft size={18} />
                     </button>
 
-                    <div className="pointer-events-none absolute left-0 top-0 z-10 h-full w-16 bg-gradient-to-r from-white to-transparent" />
+                    <div className="pointer-events-none absolute left-0 top-0 z-10 hidden h-full w-16 md:block bg-gradient-to-r from-white to-transparent" />
                 </>
             )}
 
             {canScrollRight && (
                 <>
-                    <div className="pointer-events-none absolute right-0 top-0 z-10 h-full w-16 bg-gradient-to-l from-white to-transparent" />
+                    <div className="pointer-events-none absolute right-0 top-0 z-10 hidden h-full w-16 md:block bg-gradient-to-l from-white to-transparent" />
 
                     <button
                         type="button"
                         onClick={() => scroll("right")}
-                        className="absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-white shadow-sm transition hover:bg-slate-50"
+                        className="absolute right-0 top-1/2 z-20 hidden h-9 md:flex w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-white shadow-sm transition hover:bg-slate-50"
                         style={{
                             borderColor: "var(--color-border)",
                             color: "var(--color-muted)",
@@ -96,7 +96,7 @@ export default function HorizontalScroller({
 
             <div
                 ref={scrollRef}
-                className="scrollbar-hide flex gap-5 overflow-x-auto py-1 pr-12"
+                className="scrollbar-hide flex gap-3 overflow-x-auto py-1 pr-0 md:gap-5 md:pr-12"
             >
                 {children}
             </div>

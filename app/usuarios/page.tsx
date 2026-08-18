@@ -744,9 +744,9 @@ export default function UsuariosPage() {
 
     if (loading) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <UsuariosSkeleton />
                 </section>
             </main>
@@ -754,12 +754,12 @@ export default function UsuariosPage() {
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
 
-            <section className="min-w-0 flex-1 px-8 py-8 pb-16">
+            <section className="min-w-0 flex-1 px-4 py-5 pb-16 md:px-8 md:py-8">
                 <header className="mb-8">
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                         Usuários
                     </h1>
                     <p className="mt-2 text-sm text-slate-500">
@@ -774,7 +774,7 @@ export default function UsuariosPage() {
                 )}
 
                 <section className="mb-6">
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                         {PRESETS.map((preset) => (
                             <PresetCard
                                 key={preset.id}
@@ -1534,7 +1534,7 @@ function UsuariosSkeleton() {
                 <Skeleton className="mt-3 h-4 w-[430px]" />
             </div>
             <section className="mb-6">
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                     {Array.from({ length: 4 }).map((_, index) => (
                         <Skeleton key={index} className="h-[190px] rounded-2xl" />
                     ))}

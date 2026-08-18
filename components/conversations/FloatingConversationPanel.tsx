@@ -1691,7 +1691,7 @@ export function FloatingConversationPanel() {
 
   return (
     <div
-      className="fixed bottom-6 z-[45] h-[480px] w-[365px] will-change-transform"
+      className="floating-conversation-dock fixed bottom-6 z-[45] h-[480px] w-[365px] will-change-transform"
       style={{
         right: rightOffset,
         opacity: dockOpacity,
@@ -2045,7 +2045,7 @@ function ChatRail({
       }`}
     >
       <aside
-        className={`absolute bottom-0 flex h-full w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`floating-chat-rail absolute bottom-0 flex h-full w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           collapsed
             ? "pointer-events-none translate-x-5 opacity-0"
             : "pointer-events-auto translate-x-0 opacity-100"
@@ -2136,7 +2136,7 @@ function ChatRail({
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className={`pointer-events-auto absolute top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 shadow-lg transition-[right,background-color,color,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-slate-50 hover:text-slate-700 active:scale-95 ${
+        className={`floating-chat-rail-toggle pointer-events-auto absolute top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 shadow-lg transition-[right,background-color,color,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-slate-50 hover:text-slate-700 active:scale-95 ${
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
         style={{

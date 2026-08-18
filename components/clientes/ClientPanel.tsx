@@ -219,7 +219,7 @@ export default function ClientPanel({
                     <ClientProfileSummary client={data.client} />
                 )
             }
-            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-5 py-5"
+            bodyClassName="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4 md:px-5 md:py-5"
         >
             {loading ? (
                 <ClientPanelSkeleton />
@@ -288,7 +288,7 @@ export function ClientProfileSummary({ client }: { client: ClientProfileSummaryD
                 )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-xs">
+            <div className="grid grid-cols-2 gap-4 text-xs md:grid-cols-3">
 
                 <HeaderInfoItem
                     icon={<Calendar size={18} />}

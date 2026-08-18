@@ -387,9 +387,9 @@ export default function JourneyPage() {
 
     if (!dateFilterReady || loadingFilters || loadingData) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Jornada" description="Entenda o caminho dos clientes ao longo do atendimento" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <JourneyBodySkeleton />
@@ -400,9 +400,9 @@ export default function JourneyPage() {
 
     if (!data) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">Nenhum dado encontrado.</section>
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">Nenhum dado encontrado.</section>
             </main>
         );
     }
@@ -410,9 +410,9 @@ export default function JourneyPage() {
     const current = data;
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Jornada"
                     description="Entenda o caminho dos clientes ao longo do atendimento"
@@ -445,11 +445,11 @@ export default function JourneyPage() {
                     <JourneyBodySkeleton />
                 ) : (
                     <div className="overflow-x-hidden pb-12">
-                        <section className="mb-6 grid grid-cols-[1.7fr_0.8fr] gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.7fr_0.8fr]">
                             <JourneyFunnelCard data={current} />
                             <DropoffCard data={current} />
                         </section>
-                        <section className="grid grid-cols-[1.5fr_0.9fr] gap-5">
+                        <section className="grid grid-cols-1 gap-5 md:grid-cols-[1.5fr_0.9fr]">
                             <IntentPathsCard data={current} />
                             <ObjectionsCard data={current} />
                         </section>

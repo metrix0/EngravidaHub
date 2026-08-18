@@ -15,6 +15,7 @@ import {
     HelpCircle,
     LayoutDashboard,
     LogOut,
+    Menu,
     Megaphone,
     MessageCircle,
     MessagesSquare,
@@ -22,6 +23,7 @@ import {
     Sparkles,
     UserCog,
     Users,
+    X,
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -227,10 +229,16 @@ function PersistentSidePanel({
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
     const [helpModalOpen, setHelpModalOpen] = useState(false);
+    const [mobileOpen, setMobileOpen] = useState(false);
 
     useEffect(() => {
         if (isCompactPage) setIsExpanded(false);
     }, [isCompactPage]);
+
+    useEffect(() => {
+        setMobileOpen(false);
+        setIsStatusMenuOpen(false);
+    }, [pathname]);
 
     useEffect(() => {
         let mounted = true;
@@ -355,11 +363,37 @@ function PersistentSidePanel({
 
     return (
         <div
-            className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
+            className="relative z-50 h-14 w-full shrink-0 transition-[width] duration-300 ease-out max-md:!w-full md:h-screen md:w-auto"
             style={{ width: layoutWidth, willChange: "width" }}
         >
+            <div className="fixed inset-x-0 top-0 z-[70] flex h-14 items-center justify-between border-b border-border bg-white px-4 shadow-sm md:hidden">
+                <Link href={homeHref} onClick={() => setMobileOpen(false)} className="flex min-w-0 items-center">
+                    <img src="/logo.png" className="h-8 w-auto max-w-[190px] object-contain" alt="Engravida" />
+                </Link>
+                <button
+                    type="button"
+                    onClick={() => setMobileOpen((value) => !value)}
+                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100"
+                    aria-label={mobileOpen ? "Fechar menu" : "Abrir menu"}
+                    aria-expanded={mobileOpen}
+                >
+                    {mobileOpen ? <X size={21} /> : <Menu size={21} />}
+                </button>
+            </div>
+
+            {mobileOpen ? (
+                <button
+                    type="button"
+                    aria-label="Fechar menu"
+                    onClick={() => setMobileOpen(false)}
+                    className="fixed inset-x-0 bottom-0 top-14 z-40 bg-slate-950/25 md:hidden"
+                />
+            ) : null}
+
             <aside
-                className="group fixed left-0 top-0 z-50 h-screen max-h-screen overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow] duration-300 ease-out"
+                className={`group fixed left-0 top-14 z-50 h-[calc(100dvh-3.5rem)] max-h-screen w-[320px] max-w-[86vw] overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow,transform] duration-300 ease-out max-md:!w-[320px] md:top-0 md:h-screen md:max-w-none md:translate-x-0 ${
+                    mobileOpen ? "translate-x-0" : "-translate-x-full"
+                }`}
                 style={{
                     width: sidebarWidth,
                     boxShadow:
@@ -371,7 +405,7 @@ function PersistentSidePanel({
                 <button
                     type="button"
                     onClick={() => setIsExpanded((value) => !value)}
-                    className={`absolute top-[46px] z-[60] flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-[right,opacity,background-color,color] duration-200 hover:bg-selection hover:text-text ${
+                    className={`absolute top-[46px] z-[60] hidden h-9 w-9 cursor-pointer md:flex items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-[right,opacity,background-color,color] duration-200 hover:bg-selection hover:text-text ${
                         isExpanded
                             ? "pointer-events-none -right-5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
                             : "pointer-events-auto right-5 opacity-100"
@@ -388,8 +422,8 @@ function PersistentSidePanel({
 
                 {isStatusMenuOpen && currentAttendant && (
                     <div
-                        className={`fixed bottom-7 z-[90] w-44 rounded-xl border border-border bg-white p-2 shadow-lg transition-[left] duration-200 ${
-                            isExpanded ? "left-[258px]" : "left-[84px]"
+                        className={`fixed bottom-20 left-4 z-[90] w-52 rounded-xl border border-border bg-white p-2 shadow-lg transition-[left] duration-200 md:bottom-7 md:w-44 ${
+                            isExpanded ? "md:left-[258px]" : "md:left-[84px]"
                         }`}
                     >
                         <button
@@ -435,8 +469,8 @@ function PersistentSidePanel({
                         >
                             <img
                                 src="/logo.png"
-                                className={`block max-h-9 w-full shrink-0 object-contain transition-opacity duration-150 ${
-                                    isExpanded ? "opacity-100" : "opacity-0"
+                                className={`block max-h-9 w-full shrink-0 object-contain opacity-100 transition-opacity duration-150 ${
+                                    isExpanded ? "md:opacity-100" : "md:opacity-0"
                                 }`}
                                 alt="Engravida"
                             />
@@ -460,10 +494,10 @@ function PersistentSidePanel({
                                                 className="my-3 flex h-px items-center px-3"
                                             >
                                                 <div
-                                                    className={`h-px bg-border transition-[width] duration-200 ${
+                                                    className={`h-px w-full bg-border transition-[width] duration-200 ${
                                                         isExpanded
-                                                            ? "w-full"
-                                                            : "w-5"
+                                                            ? "md:w-full"
+                                                            : "md:w-5"
                                                     }`}
                                                 />
                                             </div>
@@ -479,6 +513,7 @@ function PersistentSidePanel({
                                             key={item.href}
                                             href={item.href}
                                             title={item.label}
+                                            onClick={() => setMobileOpen(false)}
                                             className={`flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-xl px-3 py-3 text-sm leading-none transition-colors duration-150 ${
                                                 isActive
                                                     ? "bg-brand-soft font-semibold text-brand"
@@ -489,10 +524,10 @@ function PersistentSidePanel({
                                                 {item.icon}
                                             </span>
                                             <span
-                                                className={`min-w-0 whitespace-nowrap leading-none transition-[width,margin,opacity,transform] duration-150 ${
+                                                className={`ml-4 min-w-0 w-[200px] translate-x-0 whitespace-nowrap leading-none opacity-100 transition-[width,margin,opacity,transform] duration-150 ${
                                                     isExpanded
-                                                        ? "ml-4 w-[160px] translate-x-0 opacity-100"
-                                                        : "ml-0 w-0 -translate-x-1 opacity-0"
+                                                        ? "md:ml-4 md:w-[160px] md:translate-x-0 md:opacity-100"
+                                                        : "md:ml-0 md:w-0 md:-translate-x-1 md:opacity-0"
                                                 }`}
                                             >
                                                 {item.label}
@@ -511,17 +546,17 @@ function PersistentSidePanel({
                             onClick={() => setHelpModalOpen(true)}
                             title="Precisa de ajuda?"
                             className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded ? "border-border" : "border-transparent"
+                                isExpanded ? "md:border-border" : "md:border-transparent"
                             }`}
                         >
                             <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
                                 <HelpCircle size={22} />
                             </span>
                             <span
-                                className={`whitespace-nowrap transition-[width,margin,opacity] duration-150 ${
+                                className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
                                     isExpanded
-                                        ? "ml-3 w-[150px] opacity-100"
-                                        : "ml-0 w-0 opacity-0"
+                                        ? "md:ml-3 md:w-[150px] md:opacity-100"
+                                        : "md:ml-0 md:w-0 md:opacity-0"
                                 }`}
                             >
                                 Precisa de ajuda?
@@ -540,13 +575,13 @@ function PersistentSidePanel({
                             }
                             title={profileName}
                             className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white text-left transition-[padding,background-color] duration-150 ${
-                                isExpanded ? "px-2" : "px-1"
-                            } ${
+                                isExpanded ? "md:px-2" : "md:px-1"
+                            } max-md:px-2 ${
                                 currentAttendant
                                     ? "cursor-pointer hover:bg-slate-50"
                                     : "cursor-default"
                             } ${
-                                isExpanded ? "border-border" : "border-transparent"
+                                isExpanded ? "md:border-border" : "md:border-transparent"
                             }`}
                         >
                             <div className="relative shrink-0">
@@ -562,10 +597,10 @@ function PersistentSidePanel({
                                 )}
                             </div>
                             <div
-                                className={`min-w-0 transition-[width,margin,opacity] duration-150 ${
+                                className={`ml-3 min-w-0 w-[200px] opacity-100 transition-[width,margin,opacity] duration-150 ${
                                     isExpanded
-                                        ? "ml-3 w-[150px] opacity-100"
-                                        : "ml-0 w-0 opacity-0"
+                                        ? "md:ml-3 md:w-[150px] md:opacity-100"
+                                        : "md:ml-0 md:w-0 md:opacity-0"
                                 }`}
                             >
                                 <div className="truncate text-sm font-bold text-slate-950">

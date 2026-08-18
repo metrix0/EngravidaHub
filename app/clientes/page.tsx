@@ -653,10 +653,10 @@ export default function ClientesPage() {
         !urlFiltersReady
     ) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
 
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Clientes" description="Visualize e gerencie todos os clientes do CRM" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} presets={CLIENTES_DATE_PRESETS} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]", "w-[150px]"]} />
 
@@ -668,7 +668,7 @@ export default function ClientesPage() {
                         </HorizontalScroller>
                     </section>
 
-                    <section className="overflow-hidden rounded-2xl border border-slate-100">
+                    <section className="overflow-x-auto rounded-2xl border border-slate-100 md:overflow-hidden">
                         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
                             <Skeleton className="h-6 w-[150px]" />
                             <div className="flex items-center gap-3">
@@ -677,14 +677,14 @@ export default function ClientesPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3">
+                        <div className="grid min-w-[860px] grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3">
                             {Array.from({length: 8}).map((_, index) => (
                                 <Skeleton key={index} className="h-3 w-[70%]" />
                             ))}
                         </div>
 
                         {Array.from({length: 7}).map((_, rowIndex) => (
-                            <div key={rowIndex} className="grid grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] items-center gap-4 border-b border-slate-100 px-6 py-4">
+                            <div key={rowIndex} className="grid min-w-[860px] grid-cols-[1.6fr_0.9fr_1fr_0.8fr_0.8fr_1.1fr_1.1fr_48px] items-center gap-4 border-b border-slate-100 px-6 py-4">
                                 <div className="flex items-center gap-3">
                                     <Skeleton className="h-9 w-9 rounded-full" />
                                     <Skeleton className="h-4 w-[110px]" />
@@ -705,10 +705,10 @@ export default function ClientesPage() {
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
 
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Clientes"
                     description="Visualize e gerencie todos os clientes do CRM"
@@ -822,7 +822,7 @@ export default function ClientesPage() {
                         onRowClick={({client}) => openClientProfile(client.id)}
                     />
                     {filteredClients.length > CLIENTS_PER_PAGE ? (
-                        <div className="mt-5 flex items-center justify-between pb-16">
+                        <div className="mt-5 flex flex-col gap-4 pb-16 sm:flex-row sm:items-center sm:justify-between">
                             <p className="text-sm font-medium text-muted">
                                 Mostrando {pageStart}–{pageEnd} de {filteredClients.length}{" "}
                                 clientes

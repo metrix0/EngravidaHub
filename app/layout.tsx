@@ -54,35 +54,20 @@ export default async function RootLayout({
                 >
                     <InviteRedirect />
 
-                    <div className="flex min-h-screen items-center justify-center bg-white px-6 text-center md:hidden">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-950">
-                                Acesse pelo computador
-                            </h1>
+                    <CurrentUserProvider>
+                        <PermissionGuard>
+                            <div className="flex min-h-dvh w-full flex-col overflow-hidden md:h-screen md:min-h-0 md:w-screen md:flex-row">
+                                <SidePanel persistent />
 
-                            <p className="mt-3 text-sm leading-6 text-slate-500">
-                                O Engravida Hub foi feito para telas maiores.
-                                Abra em um notebook ou computador para visualizar o dashboard.
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="hidden md:block">
-                        <CurrentUserProvider>
-                            <PermissionGuard>
-                                <div className="flex h-screen w-screen overflow-hidden">
-                                    <SidePanel persistent />
-
-                                    <div className="min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
-                                        {children}
-                                    </div>
-
-                                    <FloatingConversationPanel />
-                                    <PermanentClientProfilePanel />
+                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
+                                    {children}
                                 </div>
-                            </PermissionGuard>
-                        </CurrentUserProvider>
-                    </div>
+
+                                <FloatingConversationPanel />
+                                <PermanentClientProfilePanel />
+                            </div>
+                        </PermissionGuard>
+                    </CurrentUserProvider>
                 </DashboardDateFilterProvider>
             </body>
         </html>

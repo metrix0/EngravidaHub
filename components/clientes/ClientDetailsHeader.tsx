@@ -66,7 +66,7 @@ export default function ClientDetailsHeader({
                 )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-xs">
+            <div className="grid grid-cols-2 gap-4 text-xs md:grid-cols-3">
                 <HeaderInfoItem
                     icon={<Calendar size={18} />}
                     label="Desde"

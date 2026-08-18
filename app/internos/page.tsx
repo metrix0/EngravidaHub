@@ -324,12 +324,12 @@ export default function InternosPage() {
   ];
 
   return (
-    <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+    <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
       <SidePanel />
 
-      <section className="min-w-0 flex-1 px-8 pt-8 pb-16">
+      <section className="min-w-0 flex-1 px-4 pt-5 pb-16 md:px-8 md:pt-8">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
             Internos
           </h1>
           <p className="mt-2 text-sm text-slate-500">

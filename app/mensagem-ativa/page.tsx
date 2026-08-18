@@ -917,12 +917,12 @@ export default function MensagemAtivaPage() {
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
 
-            <section className="min-w-0 flex-1 px-8 py-8 pb-16">
+            <section className="min-w-0 flex-1 px-4 py-5 pb-16 md:px-8 md:py-8">
                 <header className="mb-8">
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                         Mensagem Ativa
                     </h1>
                     <p className="mt-2 text-sm text-slate-500">
@@ -956,7 +956,7 @@ export default function MensagemAtivaPage() {
 
                 <section className="mt-8">
                     <div className="border-b border-slate-100">
-                        <div className="flex flex-wrap items-center justify-between gap-3 px-6 pt-5 pb-2">
+                        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-5 pb-2 sm:px-6">
                             <h2 className="text-lg font-bold text-text">
                                 Destinatários{" "}
                                 <span className="text-slate-500">
@@ -1042,7 +1042,7 @@ export default function MensagemAtivaPage() {
                             </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-end gap-2 px-6 pt-1 pb-4">
+                        <div className="flex flex-wrap items-center justify-start gap-2 px-4 pt-1 pb-4 sm:px-6 md:justify-end">
                             <SelectionSummary
                                 count={selectedCount}
                                 onClear={clearSelection}
@@ -1201,7 +1201,7 @@ function TemplateCard({
     ) => void;
 }) {
     return (
-        <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+        <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
             <div className="min-w-0">
                 <div className="flex items-start gap-3">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-soft text-purple">
@@ -2362,11 +2362,11 @@ function FeedbackBanner({
 
 function MensagemAtivaSkeleton() {
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="min-w-0 flex-1 px-8 py-8 pb-16">
+            <section className="min-w-0 flex-1 px-4 py-5 pb-16 md:px-8 md:py-8">
                 <header className="mb-8">
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-950">Mensagem Ativa</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Mensagem Ativa</h1>
                     <p className="mt-2 text-sm text-slate-500">Envie mensagens proativas pelo WhatsApp com seleção e segmentação de clientes.</p>
                 </header>
                 <Skeleton className="h-56 rounded-2xl" />

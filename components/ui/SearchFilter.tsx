@@ -16,7 +16,7 @@ export function SearchFilter({
 }) {
     return (
         <div
-            className={`flex h-11 cursor-text items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-500 shadow-sm transition-colors hover:bg-slate-50 ${widthClassName}`}
+            className={`flex h-11 max-w-full cursor-text items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-500 shadow-sm transition-colors hover:bg-slate-50 max-md:w-full ${widthClassName}`}
         >
             <input
                 value={value}
