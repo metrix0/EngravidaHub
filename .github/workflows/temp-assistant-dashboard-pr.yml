@@ -1,0 +1,38 @@
+name: Temp assistant dashboard PR validator
+on:
+  pull_request:
+    branches: [preview]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.head_ref == 'temp-assistant-dashboard-polish'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Patch source
+        run: python .github/temp-assistant-dashboard-polish.py
+      - name: Validate
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm run build
+      - name: Commit source changes to PR branch
+        run: |
+          if git diff --quiet -- app/api/assistente/chat/route.ts app/page.tsx lib/ai/assistantOperationalTools.ts; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/assistente/chat/route.ts app/page.tsx lib/ai/assistantOperationalTools.ts
+          git commit -m 'Update assistant coverage and dashboard colors'
+          git push origin HEAD:${{ github.head_ref }}
