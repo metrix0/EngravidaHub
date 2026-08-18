@@ -546,7 +546,7 @@ function PersistentSidePanel({
                             onClick={() => setHelpModalOpen(true)}
                             title="Precisa de ajuda?"
                             className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded ? "md:border-border" : "md:border-transparent"
+                                isExpanded ? "border-border" : "border-transparent"
                             }`}
                         >
                             <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
@@ -581,7 +581,7 @@ function PersistentSidePanel({
                                     ? "cursor-pointer hover:bg-slate-50"
                                     : "cursor-default"
                             } ${
-                                isExpanded ? "md:border-border" : "md:border-transparent"
+                                isExpanded ? "border-border" : "border-transparent"
                             }`}
                         >
                             <div className="relative shrink-0">
