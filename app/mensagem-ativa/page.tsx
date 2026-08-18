@@ -2365,9 +2365,11 @@ function MensagemAtivaSkeleton() {
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
             <section className="min-w-0 flex-1 px-8 py-8 pb-16">
-                <Skeleton className="h-10 w-64" />
-                <Skeleton className="mt-3 h-5 w-[520px] max-w-full" />
-                <Skeleton className="mt-8 h-56 rounded-2xl" />
+                <header className="mb-8">
+                    <h1 className="text-3xl font-bold tracking-tight text-slate-950">Mensagem Ativa</h1>
+                    <p className="mt-2 text-sm text-slate-500">Envie mensagens proativas pelo WhatsApp com seleção e segmentação de clientes.</p>
+                </header>
+                <Skeleton className="h-56 rounded-2xl" />
                 <Skeleton className="mt-8 h-[520px] rounded-2xl" />
                 <Skeleton className="mt-10 h-72 rounded-2xl" />
             </section>

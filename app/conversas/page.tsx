@@ -16,6 +16,8 @@ import {
     Badge,
     MainFilters,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     SidePanel,
     Skeleton,
     Pagination,
@@ -331,16 +333,16 @@ function MessagesPageContent() {
         });
     }
 
-    if (loadingFilters && loadingConversations) {
+    if (!dateFilterReady || (loadingFilters && loadingConversations)) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel/>
-                <section className="flex-1 px-8 py-8"><MessagesSkeleton/></section>
-                <ConversationPanel
-                    conversationId={requestedConversationId}
-                    threadId={requestedThreadId}
-                    onClose={handleCloseConversationPanel}
-                />
+                <section className="flex-1 px-8 py-8">
+                    <DashboardHeader title="Conversas" description="Visualize e explore todas as conversas com seus clientes" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
+                    <MessagesTableSkeleton />
+                </section>
+                <ConversationPanel conversationId={requestedConversationId} threadId={requestedThreadId} onClose={handleCloseConversationPanel} />
             </main>
         );
     }
@@ -360,7 +362,7 @@ function MessagesPageContent() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-8 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         units={filters?.units}
                         attendants={filters?.attendants}
@@ -375,7 +377,7 @@ function MessagesPageContent() {
                         originValues={originValues}
                         setOriginValues={resetPageAndSet(setOriginValues)}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 <TableHeaderPreset
                     title="Conversas"
@@ -492,7 +494,20 @@ function MessagesPageLoading() {
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
             <section className="flex-1 px-8 py-8">
-                <MessagesSkeleton />
+                <DashboardHeader
+                    title="Conversas"
+                    description="Visualize e explore todas as conversas com seus clientes"
+                    period="yesterday"
+                    setPeriod={() => undefined}
+                    selectedRange={{ start: null, end: null }}
+                    setSelectedRange={() => undefined}
+                    storageManaged
+                    storageReady
+                />
+                <DashboardFilterBarSkeleton
+                    widths={["w-[230px]", "w-[230px]", "w-[150px]"]}
+                />
+                <MessagesTableSkeleton />
             </section>
         </main>
     );
@@ -554,24 +569,16 @@ function ConversationResultCell({
     );
 }
 
-function MessagesSkeleton() {
-    return (
-        <>
-            <div className="mb-8 flex items-start justify-between">
-                <div><Skeleton className="h-9 w-[220px]"/><Skeleton className="mt-3 h-4 w-[360px]"/></div>
-                <Skeleton className="h-12 w-[310px]"/>
-            </div>
-            <div className="mb-8 flex justify-end gap-3">
-                {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-12 w-[220px]"/>)}
-            </div>
-            <MessagesTableSkeleton/>
-        </>
-    );
-}
-
 function MessagesTableSkeleton() {
     return (
         <div className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+                <Skeleton className="h-6 w-[150px]" />
+                <div className="flex items-center gap-3">
+                    <Skeleton className="h-11 w-[310px] rounded-xl" />
+                    <Skeleton className="h-11 w-[150px] rounded-xl" />
+                </div>
+            </div>
             <div className="grid grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
                 {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
             </div>

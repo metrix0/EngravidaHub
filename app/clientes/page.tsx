@@ -14,6 +14,8 @@ import {
     AdvancedFilterButton,
     Badge,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     HorizontalScroller,
     KpiCard,
     MainFilters,
@@ -655,19 +657,8 @@ export default function ClientesPage() {
                 <SidePanel />
 
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <div className="mb-8 flex items-start justify-between">
-                        <div>
-                            <Skeleton className="h-10 w-48" />
-                            <Skeleton className="mt-3 h-5 w-96" />
-                        </div>
-                        <Skeleton className="h-12 w-[310px] rounded-xl" />
-                    </div>
-
-                    <div className="mb-8 flex justify-end gap-3">
-                        {Array.from({length: 5}).map((_, index) => (
-                            <Skeleton key={index} className="h-12 w-[230px] rounded-xl" />
-                        ))}
-                    </div>
+                    <DashboardHeader title="Clientes" description="Visualize e gerencie todos os clientes do CRM" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} presets={CLIENTES_DATE_PRESETS} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]", "w-[150px]"]} />
 
                     <section className="mb-8 grid grid-cols-1 gap-5">
                         <HorizontalScroller scrollAmount={400}>
@@ -730,7 +721,7 @@ export default function ClientesPage() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-8 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         units={filters?.units}
                         attendants={filters?.attendants}
@@ -769,7 +760,7 @@ export default function ClientesPage() {
                             },
                         ]}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 <section className="mb-8 grid grid-cols-1 gap-5">
                     <HorizontalScroller scrollAmount={400}>

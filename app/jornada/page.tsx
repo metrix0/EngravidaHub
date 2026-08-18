@@ -42,6 +42,8 @@ import {
 import {
     Card,
     DashboardHeader,
+    DashboardFilterBar,
+    DashboardFilterBarSkeleton,
     InfoTooltip,
     MainFilters,
     PercentageBar,
@@ -383,12 +385,14 @@ export default function JourneyPage() {
         dateFilterReady,
     ]);
 
-    if (loadingFilters || loadingData) {
+    if (!dateFilterReady || loadingFilters || loadingData) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-8 py-8">
-                    <JourneySkeleton />
+                    <DashboardHeader title="Jornada" description="Entenda o caminho dos clientes ao longo do atendimento" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
+                    <JourneyBodySkeleton />
                 </section>
             </main>
         );
@@ -420,7 +424,7 @@ export default function JourneyPage() {
                     storageReady={dateFilterReady}
                 />
 
-                <div className="mb-8 flex justify-end gap-3">
+                <DashboardFilterBar>
                     <MainFilters
                         units={filters?.units}
                         attendants={filters?.attendants}
@@ -435,7 +439,7 @@ export default function JourneyPage() {
                         originValues={originValues}
                         setOriginValues={setOriginValues}
                     />
-                </div>
+                </DashboardFilterBar>
 
                 {isRefreshing ? (
                     <JourneyBodySkeleton />
