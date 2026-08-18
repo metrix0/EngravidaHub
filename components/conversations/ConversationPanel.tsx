@@ -353,7 +353,7 @@ export function ConversationPanel({
                             ) : null}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-4 text-xs">
+                        <div className="grid grid-cols-2 gap-4 text-xs md:grid-cols-3">
                             <InfoItem
                                 icon={<User size={18} />}
                                 label="Atendente"
@@ -386,7 +386,7 @@ export function ConversationPanel({
             }
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
         >
-            <div className="flex border-b border-slate-100">
+            <div className="scrollbar-hide flex overflow-x-auto border-b border-slate-100">
                 <PanelTab active={tab === "messages"} onClick={() => setTab("messages")}>
                     Mensagens
                 </PanelTab>
@@ -401,7 +401,7 @@ export function ConversationPanel({
                 </PanelTab>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5 md:py-5">
                 {loading || !data ? (
                     <PanelBodySkeleton />
                 ) : (

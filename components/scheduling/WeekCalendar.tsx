@@ -222,7 +222,7 @@ export default function WeekCalendar(props: Props) {
 
     return (
         <>
-            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
                 {props.loading ? (
                     <WeekCalendarSkeleton />
                 ) : (

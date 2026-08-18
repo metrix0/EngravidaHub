@@ -280,8 +280,8 @@ export function SpreadsheetImportModal({
             showCloseButton={!sending && !analyzing}
             ariaLabelledBy="spreadsheet-import-title"
         >
-            <div className="min-h-0 overflow-y-auto p-7">
-                <div className="flex items-start justify-between gap-5 pr-12">
+            <div className="min-h-0 overflow-y-auto p-4 sm:p-7">
+                <div className="flex flex-col gap-4 pr-10 sm:flex-row sm:items-start sm:justify-between sm:gap-5 sm:pr-12">
                     <div className="flex min-w-0 items-start gap-4">
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-green-soft text-green">
                             <FileSpreadsheet size={23} />
@@ -302,7 +302,7 @@ export function SpreadsheetImportModal({
                     <a
                         href={MODEL_SPREADSHEET_PATH}
                         download="modelo-mensagem-ativa.csv"
-                        className="flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-600 transition hover:border-brand/30 hover:bg-brand-soft hover:text-brand"
+                        className="flex h-10 w-fit shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-600 transition hover:border-brand/30 hover:bg-brand-soft hover:text-brand"
                     >
                         <Download size={15} />
                         Baixar modelo
@@ -463,7 +463,7 @@ export function SpreadsheetImportModal({
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
                         {result ? (
                             <button
                                 type="button"
@@ -603,7 +603,7 @@ function ImportResults({
                 <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
                     Grupos do envio
                 </div>
-                <div className="mb-2 grid grid-cols-[22px_minmax(0,1fr)_90px_130px] gap-3 px-4 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                <div className="mb-2 hidden grid-cols-[22px_minmax(0,1fr)_90px_130px] gap-3 px-4 sm:grid text-[10px] font-bold uppercase tracking-wide text-slate-400">
                     <span />
                     <span>Grupo</span>
                     <span className="text-right">Clientes</span>
@@ -719,7 +719,7 @@ function SelectableGroup({
             type="button"
             disabled={disabled}
             onClick={onToggle}
-            className={`grid w-full grid-cols-[22px_minmax(0,1fr)_90px_130px] items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+            className={`grid w-full grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-xl border px-4 py-3 sm:grid-cols-[22px_minmax(0,1fr)_90px_130px] text-left transition ${
                 disabled
                     ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-50"
                     : checked
@@ -746,10 +746,10 @@ function SelectableGroup({
                     {description}
                 </span>
             </span>
-            <span className="text-right text-sm font-bold text-slate-700">
-                {formatInteger(count)}
+            <span className="col-start-2 text-left text-xs font-bold text-slate-500 sm:col-start-auto sm:text-right sm:text-sm sm:text-slate-700">
+                <span className="sm:hidden">{formatInteger(count)} clientes · </span><span className="hidden sm:inline">{formatInteger(count)}</span>
             </span>
-            <span className="text-right text-sm font-bold text-slate-700">
+            <span className="col-start-2 -mt-3 text-left text-xs font-bold text-slate-700 sm:col-start-auto sm:mt-0 sm:text-right sm:text-sm">
                 {formatEstimatedCost(cost)}
             </span>
         </button>

@@ -39,8 +39,8 @@ export function DetailsSidePanel({
     width = DEFAULT_DETAILS_SIDE_PANEL_WIDTH,
     widthClassName,
     zIndexClassName = "z-50",
-    bodyClassName = "min-h-0 flex-1 overflow-y-auto px-5 py-5",
-    headerClassName = "border-b border-slate-100 px-6 py-5",
+    bodyClassName = "min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5 md:py-5",
+    headerClassName = "border-b border-slate-100 px-4 py-4 md:px-6 md:py-5",
 }: DetailsSidePanelProps) {
     const panelIdRef = useRef(
         `details-panel-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -120,7 +120,7 @@ export function DetailsSidePanel({
     return (
         <div className={`fixed inset-0 ${zIndexClassName} pointer-events-none`}>
             <aside
-                className={`pointer-events-auto absolute right-0 top-0 flex h-full max-w-[calc(100vw-64px)] flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${widthClassName ?? ""} ${
+                className={`pointer-events-auto absolute right-0 top-0 flex h-full w-full max-w-full flex-col max-md:!w-full md:w-auto md:max-w-[calc(100vw-64px)] border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${widthClassName ?? ""} ${
                     visible ? "translate-x-0" : "translate-x-full"
                 }`}
                 style={panelStyle}

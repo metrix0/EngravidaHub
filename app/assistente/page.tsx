@@ -399,10 +399,13 @@ export default function AssistentePage() {
     return (
         <main className="flex h-full min-h-0 w-full overflow-hidden bg-white text-slate-900">
             <section className="flex min-w-0 flex-1 overflow-hidden">
-                <div className="flex min-w-0 flex-1 overflow-hidden bg-white">
+                <div className="relative flex min-w-0 flex-1 overflow-hidden bg-white">
+                    {historyOpen ? (
+                        <button type="button" aria-label="Fechar histórico" onClick={() => setHistoryOpen(false)} className="absolute inset-0 z-20 bg-slate-950/20 md:hidden" />
+                    ) : null}
                     <aside
-                        className={`relative shrink-0 overflow-hidden border-r border-border bg-card transition-[width] duration-300 ${
-                            historyOpen ? "w-[280px]" : "w-0 border-r-0"
+                        className={`absolute inset-y-0 left-0 z-30 shrink-0 overflow-hidden border-r border-border bg-card shadow-xl transition-[width] duration-300 md:relative md:z-auto md:shadow-none ${
+                            historyOpen ? "w-[280px] max-w-[86vw]" : "w-0 border-r-0"
                         }`}
                     >
                         <div className="flex h-full w-[280px] flex-col px-3 pb-3 pt-5">

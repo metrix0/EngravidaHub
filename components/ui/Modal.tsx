@@ -104,7 +104,7 @@ export function Modal({
         <div
             onMouseDown={handleOverlayClick}
             className={[
-                "fixed inset-0 flex items-center justify-center bg-slate-950/40 px-6 py-8",
+                "fixed inset-0 flex items-center justify-center bg-slate-950/40 px-3 py-3 md:px-6 md:py-8",
                 zIndexClassName,
                 isClosing ? "animate-fade-out" : "animate-fade-in",
                 overlayClassName,
@@ -116,7 +116,7 @@ export function Modal({
                 aria-labelledby={ariaLabelledBy}
                 aria-describedby={ariaDescribedBy}
                 className={[
-                    "relative flex flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl",
+                    "relative flex max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl max-md:!max-h-[calc(100dvh-24px)] max-md:!max-w-[calc(100vw-24px)] max-md:!w-[calc(100vw-24px)] md:max-w-none",
                     isClosing ? "animate-modal-pop-out" : "animate-modal-pop",
                     panelClassName,
                 ].join(" ")}
@@ -126,7 +126,7 @@ export function Modal({
                     <button
                         type="button"
                         onClick={onClose}
-                        className="absolute right-6 top-5 z-10 flex h-9 w-9 cursor-pointer shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-slate-100 hover:text-text"
+                        className="absolute right-3 top-3 z-10 flex h-9 md:right-6 md:top-5 w-9 cursor-pointer shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-slate-100 hover:text-text"
                         aria-label="Fechar modal"
                     >
                         <X size={18} />

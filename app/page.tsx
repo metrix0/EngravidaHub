@@ -298,9 +298,9 @@ export default function ExecutiveDashboardPage() {
 
     if (!dateFilterReady || !urlFiltersReady || loading) {
         return (
-            <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
-                <section className="min-w-0 flex-1 px-8 py-8">
+                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Dashboard" description="Acompanhe os principais indicadores de atendimento" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <DashboardBodySkeleton />
@@ -334,9 +334,9 @@ export default function ExecutiveDashboardPage() {
     );
 
     return (
-        <main className="flex h-screen w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-x-hidden overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="min-w-0 flex-1 px-8 py-8">
+            <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Dashboard"
                     description="Acompanhe os principais indicadores de atendimento"
@@ -446,7 +446,7 @@ export default function ExecutiveDashboardPage() {
                             </HorizontalScroller>
                         </section>
 
-                        <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.45fr_0.95fr]">
                             <DailyEvolutionCard data={data} />
                             <DropoffCard data={data} />
                         </section>
@@ -456,7 +456,7 @@ export default function ExecutiveDashboardPage() {
                             <ScheduleCreationEvolutionCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-2 gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2">
                             <ConversationGoalsCard data={data} />
                             <UnitViewCard data={data} />
                         </section>
@@ -1361,7 +1361,7 @@ function DashboardBodySkeleton() {
                     ))}
                 </HorizontalScroller>
             </section>
-            <section className="mb-6 grid grid-cols-[1.45fr_0.95fr] gap-5">
+            <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.45fr_0.95fr]">
                 <Card>
                     <div className="mb-5"><Skeleton className="h-6 w-[30%]" /><Skeleton className="mt-3 h-4 w-[55%]" /></div>
                     <Skeleton className="h-[290px] w-full" />

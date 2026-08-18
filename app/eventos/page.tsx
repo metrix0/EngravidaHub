@@ -273,7 +273,7 @@ export default function EventsPage() {
     if (!dateFilterReady || loadingFilters || loadingData) {
         return (
             <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
-                <section className="min-w-0 px-8 py-8">
+                <section className="min-w-0 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Eventos" description="Acompanhe os eventos enviados para as plataformas de anúncios" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[150px]", "w-[150px]"]} />
                     <EventsBodySkeleton />
@@ -284,7 +284,7 @@ export default function EventsPage() {
 
     return (
         <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
-            <section className="min-w-0 px-8 py-8">
+            <section className="min-w-0 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Eventos"
                     description="Acompanhe os eventos enviados para as plataformas de anúncios"
@@ -356,7 +356,7 @@ export default function EventsPage() {
                 ) : data ? (
                     <div className="min-w-0 overflow-x-clip pb-12">
                         <KpiSection data={data} />
-                        <section className="mb-6 grid grid-cols-[1.8fr_0.8fr_0.8fr] gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.8fr_0.8fr_0.8fr]">
                             <EventsByDayCard data={data} />
                             <EventsByTypeCard data={data} />
                             <ClickIdRatesCard data={data} />
@@ -931,7 +931,7 @@ function EventsBodySkeleton() {
     return (
         <>
             <section className="mb-6 grid grid-cols-1 gap-5"><HorizontalScroller scrollAmount={400}>{Array.from({ length: 8 }).map((_, index) => (<div key={index} className="min-w-[260px]"><Card><div className="flex items-center gap-5 overflow-hidden"><Skeleton className="h-14 w-14 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><Skeleton className="h-3 w-[65%]" /><Skeleton className="mt-3 h-8 w-[45%]" /><Skeleton className="mt-3 h-3 w-[75%]" /></div></div></Card></div>))}</HorizontalScroller></section>
-            <section className="mb-6 grid grid-cols-[1.8fr_0.8fr_0.8fr] gap-5"><Card><Skeleton className="mb-6 h-6 w-[40%]" /><Skeleton className="h-[285px] w-full" /></Card><Card><Skeleton className="mb-6 h-6 w-[60%]" /><Skeleton className="h-[215px] w-full" /></Card><Card><Skeleton className="mb-6 h-6 w-[55%]" /><Skeleton className="h-[215px] w-full" /></Card></section>
+            <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.8fr_0.8fr_0.8fr]"><Card><Skeleton className="mb-6 h-6 w-[40%]" /><Skeleton className="h-[285px] w-full" /></Card><Card><Skeleton className="mb-6 h-6 w-[60%]" /><Skeleton className="h-[215px] w-full" /></Card><Card><Skeleton className="mb-6 h-6 w-[55%]" /><Skeleton className="h-[215px] w-full" /></Card></section>
             <Card><Skeleton className="mb-5 h-6 w-[180px]" /><div className="space-y-4">{Array.from({ length: 5 }).map((_, index) => (<Skeleton key={index} className="h-10 w-full" />))}</div></Card>
         </>
     );

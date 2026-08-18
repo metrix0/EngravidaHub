@@ -149,8 +149,8 @@ export default function ClientInformationCard({
 
     return (
         <>
-            <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-sm md:p-5">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h3 className="text-lg font-bold text-text">Informações do cliente</h3>
                     <p className="mt-1 text-xs text-muted">{readOnly ? "Dados disponíveis deste contato" : "Dados pessoais, contato e endereço"}</p>
@@ -192,11 +192,11 @@ export default function ClientInformationCard({
             {editing ? (
                 <div className="space-y-4">
                     <Input label="Nome completo" value={form.name} onChange={(value) => update("name", value)} />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <Input label="CPF" value={form.cpf} onChange={(value) => update("cpf", formatCpf(value))} placeholder="000.000.000-00" />
                         <Input label="Data de nascimento" type="date" value={form.birthDate} onChange={(value) => update("birthDate", value)} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <Input label="E-mail" type="email" value={form.email} onChange={(value) => update("email", value)} placeholder="nome@exemplo.com" />
                         <Input label="Telefone" value={form.phone} onChange={(value) => update("phone", formatPhoneInput(value))} placeholder="(00) 00000-0000" />
                     </div>
@@ -213,25 +213,25 @@ export default function ClientInformationCard({
                             ))}
                         </select>
                     </label>
-                    <div className="grid grid-cols-[.8fr_1.2fr] gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[.8fr_1.2fr]">
                         <Input label="CEP" value={form.cep} onChange={(value) => update("cep", formatCep(value))} placeholder="00000-000" />
                         <Input label="Rua" value={form.street} onChange={(value) => update("street", value)} />
                     </div>
-                    <div className="grid grid-cols-[.7fr_1.3fr] gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[.7fr_1.3fr]">
                         <Input label="Número" value={form.number} onChange={(value) => update("number", value)} />
                         <Input label="Complemento" value={form.complement} onChange={(value) => update("complement", value)} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <Input label="Bairro" value={form.neighborhood} onChange={(value) => update("neighborhood", value)} />
                         <Input label="Cidade" value={form.city} onChange={(value) => update("city", value)} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <Input label="Estado" value={form.state} onChange={(value) => update("state", value)} />
                         <Input label="País" value={form.country} onChange={(value) => update("country", value)} />
                     </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 gap-x-5 gap-y-4 text-sm">
+                <div className="grid grid-cols-1 gap-x-5 gap-y-4 text-sm md:grid-cols-2">
                     <Value label="Nome completo" value={client.name} full />
                     <Value label="CPF" value={formatCpf(client.cpf ?? "")} />
                     <Value label="Data de nascimento" value={formatBirthDate(client.birth_date)} />

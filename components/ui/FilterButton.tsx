@@ -120,7 +120,7 @@ export default function FilterButton({
     }
 
     return (
-        <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
+        <div ref={wrapperRef} className={`relative inline-block max-w-full ${widthClassName}`}>
             <button
                 type="button"
                 disabled={disabled}

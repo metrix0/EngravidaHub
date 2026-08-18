@@ -45,7 +45,7 @@ export default function ButtonGroup<T extends string>({
 
     return (
         <div
-            className={`flex items-center rounded-xl border bg-white p-1 ${className}`}
+            className={`scrollbar-hide flex max-w-full items-center overflow-x-auto rounded-xl border bg-white p-1 md:overflow-visible ${className}`}
             style={{ borderColor: "var(--color-border)" }}
         >
             {options.map((option) => {
@@ -56,7 +56,7 @@ export default function ButtonGroup<T extends string>({
                         key={option.value}
                         type="button"
                         onClick={() => handleChange(option.value)}
-                        className={`cursor-pointer rounded-lg truncate px-6 py-3 text-sm font-semibold transition-all duration-200 ${
+                        className={`shrink-0 cursor-pointer rounded-lg truncate px-4 py-2.5 text-sm font-semibold md:px-6 md:py-3 transition-all duration-200 ${
                             active
                                 ? "bg-brand text-white"
                                 : "text-muted hover:bg-selection"

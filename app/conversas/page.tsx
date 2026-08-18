@@ -335,9 +335,9 @@ function MessagesPageContent() {
 
     if (!dateFilterReady || (loadingFilters && loadingConversations)) {
         return (
-            <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel/>
-                <section className="flex-1 px-8 py-8">
+                <section className="flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Conversas" description="Visualize e explore todas as conversas com seus clientes" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <MessagesTableSkeleton />
@@ -348,9 +348,9 @@ function MessagesPageContent() {
     }
 
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel/>
-            <section className="flex-1 px-8 py-8">
+            <section className="flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Conversas"
                     description="Visualize e explore todas as conversas com seus clientes"
@@ -469,7 +469,7 @@ function MessagesPageContent() {
                     />
                 )}
 
-                <div className="flex items-center justify-between border-t border-slate-100 px-6 py-5">
+                <div className="flex flex-col gap-4 border-t border-slate-100 px-4 py-4 sm:px-6 sm:py-5 md:flex-row md:items-center md:justify-between">
                     <div className="text-sm text-slate-500">
                         Mostrando {firstItem} a {lastItem} de {totalConversations} conversas
                     </div>
@@ -491,9 +491,9 @@ function MessagesPageContent() {
 
 function MessagesPageLoading() {
     return (
-        <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
+        <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
             <SidePanel />
-            <section className="flex-1 px-8 py-8">
+            <section className="flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Conversas"
                     description="Visualize e explore todas as conversas com seus clientes"
@@ -571,19 +571,19 @@ function ConversationResultCell({
 
 function MessagesTableSkeleton() {
     return (
-        <div className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+        <div className="overflow-x-auto md:overflow-hidden">
+            <div className="flex min-w-[860px] items-center justify-between border-b border-slate-100 px-6 py-5">
                 <Skeleton className="h-6 w-[150px]" />
                 <div className="flex items-center gap-3">
                     <Skeleton className="h-11 w-[310px] rounded-xl" />
                     <Skeleton className="h-11 w-[150px] rounded-xl" />
                 </div>
             </div>
-            <div className="grid grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
+            <div className="grid min-w-[860px] grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] border-b border-slate-100 bg-slate-50 px-6 py-3">
                 {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-3 w-[70%]"/>)}
             </div>
             {Array.from({ length: 8 }).map((_, rowIndex) => (
-                <div key={rowIndex} className="grid grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
+                <div key={rowIndex} className="grid min-w-[860px] grid-cols-[2.45fr_0.85fr_1fr_1.55fr_1.35fr_1.2fr_0.8fr_48px] items-center border-b border-slate-100 px-6 py-4">
                     {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-4 w-[75%]"/>)}
                 </div>
             ))}

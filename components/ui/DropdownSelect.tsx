@@ -72,7 +72,7 @@ export function DropdownSelect({
     }
 
     return (
-        <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
+        <div ref={wrapperRef} className={`relative inline-block max-w-full ${widthClassName}`}>
             {searchable ? (
                 <div className={`flex h-11 w-full items-center gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition ${invalid ? "border-red" : "border-border focus-within:border-brand"}`}>
                     {icon}
@@ -113,7 +113,7 @@ export function DropdownSelect({
                 </button>
             )}
 
-            <div className={`absolute right-0 z-[80] mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
+            <div className={`absolute right-0 z-[80] mt-2 max-w-[calc(100vw-2rem)] origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
                 <div className="max-h-72 overflow-y-auto py-1">
                     {loading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-muted">

@@ -111,7 +111,7 @@ export default function AdvancedFilterButton({
     }
 
     return (
-        <div ref={wrapperRef} className={`relative inline-block ${widthClassName}`}>
+        <div ref={wrapperRef} className={`relative inline-block max-w-full ${widthClassName}`}>
             <button
                 type="button"
                 onClick={handleToggleOpen}
@@ -124,7 +124,7 @@ export default function AdvancedFilterButton({
             </button>
 
             <div
-                className={`absolute right-0 z-50 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${
+                className={`absolute right-0 z-50 mt-2 max-w-[calc(100vw-2rem)] origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${
                     open
                         ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                         : "pointer-events-none -translate-y-1 scale-98 opacity-0"

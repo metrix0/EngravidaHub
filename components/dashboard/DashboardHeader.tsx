@@ -214,9 +214,9 @@ export function DashboardHeader({
     ]);
 
     return (
-        <header className="mb-8 flex items-start justify-between">
+        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-0">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                     {title}
                 </h1>
 
@@ -227,8 +227,8 @@ export function DashboardHeader({
                 aria-hidden={!controlsReady}
                 className={
                     controlsReady
-                        ? ""
-                        : "invisible pointer-events-none select-none"
+                        ? "max-w-full"
+                        : "invisible pointer-events-none max-w-full select-none"
                 }
             >
                 <ButtonGroup

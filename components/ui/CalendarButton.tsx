@@ -277,7 +277,7 @@ export default function CalendarButton({
     }, [open, appliedRange]);
 
     return (
-        <div ref={wrapperRef} className={`relative ${className}`}>
+        <div ref={wrapperRef} className={`relative max-w-full ${className}`}>
             <button
                 type="button"
                 onClick={toggleCalendar}
@@ -296,7 +296,7 @@ export default function CalendarButton({
             </button>
 
             <div
-                className={`absolute right-0 z-50 mt-2 w-[320px] origin-top rounded-2xl border bg-white p-4 shadow-lg transition-all duration-150 ${
+                className={`absolute right-0 z-50 mt-2 w-[320px] max-w-[calc(100vw-2rem)] origin-top rounded-2xl border bg-white p-4 shadow-lg transition-all duration-150 ${
                     open
                         ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                         : "pointer-events-none -translate-y-1 scale-98 opacity-0"

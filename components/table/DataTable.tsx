@@ -48,7 +48,8 @@ export function DataTable<TRow,>({
         .join(" ");
 
     return (
-        <div className="overflow-hidden">
+        <div className="overflow-x-auto md:overflow-hidden">
+            <div className="min-w-[860px] md:min-w-0">
             <div
                 className="grid border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold text-slate-500"
                 style={{ gridTemplateColumns }}
@@ -86,6 +87,7 @@ export function DataTable<TRow,>({
                     {emptyMessage}
                 </div>
             )}
+            </div>
         </div>
     );
 }
