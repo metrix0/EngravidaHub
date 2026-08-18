@@ -305,8 +305,22 @@ button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-
     .app-content > main {
         width: 100% !important;
         max-width: 100% !important;
+    }
+
+    .app-content > main:not(.min-h-screen) {
         height: 100% !important;
         min-height: 0 !important;
+    }
+
+    aside.group.fixed.left-0.top-14 {
+        transition-property: transform !important;
+        transition-duration: 300ms !important;
+        transition-timing-function: ease-out !important;
+        will-change: transform;
+    }
+
+    aside.group.fixed.left-0.top-14 button.border {
+        border-color: transparent !important;
     }
 
     .recharts-wrapper,
