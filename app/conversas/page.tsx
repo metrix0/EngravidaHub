@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, CircleAlert } from "lucide-react";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import {
     applyArrayParams,
     applyCalendarDateParams,
@@ -33,6 +34,7 @@ import {
 
 type ConversationRow = {
     id: string;
+    client_id: string | null;
     item_type: "conversation" | "thread";
     attendant_name: string;
     phone: string;
@@ -59,21 +61,47 @@ const CONVERSATION_COLUMNS: DataTableColumn<ConversationRow>[] = [
         id: "client",
         label: "Cliente",
         width: "25%",
-        render: (conversation) => (
-            <div className="flex min-w-0 items-center gap-3">
-                <InitialsAvatar
-                    name={conversation.client_name}
-                    conversationState={
-                        conversation.item_type === "thread"
-                            ? "live"
-                            : undefined
+        render: (conversation) => {
+            const hasClientProfile = Boolean(conversation.client_id);
+
+            return (
+                <button
+                    type="button"
+                    disabled={!hasClientProfile}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        if (!conversation.client_id) return;
+                        openClientProfile(conversation.client_id);
+                    }}
+                    title={
+                        hasClientProfile
+                            ? `Abrir perfil de ${conversation.client_name}`
+                            : conversation.client_name
                     }
-                />
-                <span title={conversation.client_name} className="truncate font-medium text-slate-700">
-                    {conversation.client_name}
-                </span>
-            </div>
-        ),
+                    className={[
+                        "-m-1 flex min-w-0 items-center gap-3 rounded-lg p-1 text-left transition-colors",
+                        hasClientProfile
+                            ? "cursor-pointer hover:bg-slate-100/80"
+                            : "cursor-default",
+                    ].join(" ")}
+                >
+                    <InitialsAvatar
+                        name={conversation.client_name}
+                        conversationState={
+                            conversation.item_type === "thread"
+                                ? "live"
+                                : undefined
+                        }
+                    />
+                    <span
+                        title={conversation.client_name}
+                        className="truncate font-medium text-slate-700"
+                    >
+                        {conversation.client_name}
+                    </span>
+                </button>
+            );
+        },
     },
     {
         id: "platform",
@@ -518,7 +546,6 @@ function ConversationResultCell({
             </span>
         );
     }
-
 
     return (
         <span className="inline-flex min-w-max">

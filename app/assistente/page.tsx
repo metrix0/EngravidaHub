@@ -24,7 +24,7 @@ import AssistantClientCard from "@/components/assistant/AssistantClientCard";
 import AssistantConversationCard from "@/components/assistant/AssistantConversationCard";
 import AssistantMarkdown from "@/components/assistant/AssistantMarkdown";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
-import ClientPanel from "@/components/clientes/ClientPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
     type CurrentAttendant,
@@ -62,7 +62,6 @@ export default function AssistentePage() {
     const [loading, setLoading] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(true);
     const [historyOpen, setHistoryOpen] = useState(true);
-    const [clientProfileId, setClientProfileId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -528,9 +527,7 @@ export default function AssistentePage() {
                                                 <ChatMessage
                                                     key={message.id}
                                                     message={message}
-                                                    onOpenClient={
-                                                        setClientProfileId
-                                                    }
+                                                    onOpenClient={openClientProfile}
                                                     userName={profileName}
                                                 />
                                             ),
@@ -591,11 +588,6 @@ export default function AssistentePage() {
                     </section>
                 </div>
             </section>
-
-            <ClientPanel
-                clientId={clientProfileId}
-                onClose={() => setClientProfileId(null)}
-            />
         </main>
     );
 }

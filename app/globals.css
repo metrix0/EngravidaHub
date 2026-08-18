@@ -233,6 +233,18 @@ body::-webkit-scrollbar-corner,
     display: none !important;
 }
 
+/* Explicitly keep the permanent client profile above regular details panels. */
+.z-60 {
+    z-index: 60;
+}
+
+/* Funnel card identity is display-only, matching the original card behavior. */
+.group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab > button,
+.group.relative.overflow-hidden.rounded-xl > [draggable="true"].cursor-grab > .min-w-0.flex-1.pr-1 > button {
+    pointer-events: none;
+    cursor: inherit;
+}
+
 /* Keep the floating chat menu separated from its expanded chat rail. */
 button[title="Ocultar chats"] {
     right: calc(100% + 234px) !important;
@@ -256,4 +268,21 @@ button[title="Ocultar chats"] {
 /* Match every Recharts hover cursor to the light dashboard chart highlight. */
 .recharts-tooltip-cursor {
     fill: #f8fafc !important;
+}
+
+/* Match /conversas client identity hover to Mensagem Ativa. */
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "] {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    transition: opacity 150ms ease !important;
+}
+
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "]:hover {
+    background: transparent !important;
+    opacity: 0.8;
+}
+
+button.-m-1.flex.min-w-0.items-center.gap-3.rounded-lg.p-1.text-left.transition-colors[title^="Abrir perfil de "]:hover > span {
+    text-decoration: underline;
 }

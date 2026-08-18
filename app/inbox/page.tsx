@@ -27,7 +27,7 @@ import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
-import ClientPanel from "@/components/clientes/ClientPanel";
+import {openClientProfile} from "@/components/clientes/PermanentClientProfilePanel";
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
@@ -157,7 +157,6 @@ export default function InboxPage() {
     const [totalThreads, setTotalThreads] = useState(0);
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
-    const [clientProfileId, setClientProfileId] = useState<string | null>(null);
 
     const [isLoadingThreads, setIsLoadingThreads] = useState(true);
     const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
@@ -908,6 +907,7 @@ export default function InboxPage() {
                                     headerConversation={
                                         selectedThreadMatchesSelection ? selectedThread : selectedListThread
                                     }
+                                    clientId={selectedClientId}
                                     itemId={selectedId}
                                     itemType={selectedItemType}
                                     displayMessages={displayedMessages}
@@ -924,6 +924,9 @@ export default function InboxPage() {
                                     hasOlderConversations={hasOlderConversations}
                                     isLoadingHistory={isLoadingHistory}
                                     isLoading={isClientLoading}
+                                    onOpenClientProfile={() => {
+                                        if (selectedClientId) openClientProfile(selectedClientId);
+                                    }}
                                 />
 
                                 <CustomerPanel
@@ -936,9 +939,7 @@ export default function InboxPage() {
                                     onAddNote={handleAddNote}
                                     onSchedule={() => setSchedulingPanelOpen(true)}
                                     onOpenClientProfile={() => {
-                                        if (selectedClientId) {
-                                            setClientProfileId(selectedClientId);
-                                        }
+                                        if (selectedClientId) openClientProfile(selectedClientId);
                                     }}
                                 />
                             </>
@@ -966,7 +967,7 @@ export default function InboxPage() {
                 onClose={() => setSchedulingPanelOpen(false)}
                 onOpenClientProfile={(clientId) => {
                     setSchedulingPanelOpen(false);
-                    setClientProfileId(clientId);
+                    openClientProfile(clientId);
                 }}
                 client={
                     selectedThreadMatchesSelection && selectedThread
@@ -985,11 +986,6 @@ export default function InboxPage() {
                             }
                             : null
                 }
-            />
-
-            <ClientPanel
-                clientId={clientProfileId}
-                onClose={() => setClientProfileId(null)}
             />
         </main>
     );
@@ -1211,6 +1207,7 @@ function ConversationListItem({
 function ChatPanel({
                        conversation,
                        headerConversation,
+                       clientId,
                        itemId,
                        itemType,
                        displayMessages,
@@ -1223,9 +1220,11 @@ function ChatPanel({
                        hasOlderConversations,
                        isLoadingHistory,
                        isLoading,
+                       onOpenClientProfile,
                    }: {
     conversation: Conversation | null;
     headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
+    clientId: string | null;
     itemId: string | null;
     itemType: InboxItemType;
     displayMessages: InboxMessage[];
@@ -1238,6 +1237,7 @@ function ChatPanel({
     hasOlderConversations: boolean;
     isLoadingHistory: boolean;
     isLoading: boolean;
+    onOpenClientProfile: () => void;
 }) {
     const [messageText, setMessageText] = useState("");
     const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
@@ -1333,7 +1333,17 @@ function ChatPanel({
         <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-0">
             <div
                 className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 px-5 pb-3">
-                <div className="flex min-w-0 items-center gap-4">
+                <button
+                    type="button"
+                    disabled={!clientId}
+                    onClick={onOpenClientProfile}
+                    title={clientId ? `Abrir perfil de ${headerName}` : undefined}
+                    className={`flex min-w-0 items-center gap-4 text-left ${
+                        clientId
+                            ? "cursor-pointer transition-opacity hover:opacity-80"
+                            : "cursor-default"
+                    }`}
+                >
                     <div className="shrink-0">
                         <InitialsAvatar name={headerName}/>
                     </div>
@@ -1349,7 +1359,7 @@ function ChatPanel({
                             <ChannelBadge channel={headerChannel} />
                         </div>
                     </div>
-                </div>
+                </button>
 
                 <div className="flex shrink-0 items-center gap-3">
                     <span

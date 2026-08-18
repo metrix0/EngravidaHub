@@ -8,6 +8,7 @@ import {
     ClientProfileSummary,
     type ClientProfileSummaryData,
 } from "@/components/clientes/ClientPanel";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import {
     DropdownSelect,
     type DropdownSelectOption,
@@ -179,9 +180,18 @@ export default function ClientCallModal({
                     </div>
                 ) : data ? (
                     <div className="space-y-4">
-                        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!clientId) return;
+                                onClose();
+                                openClientProfile(clientId);
+                            }}
+                            className="w-full cursor-pointer rounded-2xl border border-border bg-white p-5 text-left shadow-sm transition hover:bg-slate-50"
+                            title={`Abrir perfil de ${data.client.name ?? "cliente"}`}
+                        >
                             <ClientProfileSummary client={data.client} />
-                        </section>
+                        </button>
 
                         <div className="pt-1">
                             <DropdownSelect

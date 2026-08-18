@@ -8,7 +8,6 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
 import { AtSign, Calendar, ChevronRight, CircleAlert, Clock, Phone, Target, User } from "lucide-react";
 import { FaFacebookMessenger, FaGoogle, FaMeta } from "react-icons/fa6";
 
@@ -34,6 +33,7 @@ import {
     Skeleton,
     type ConversationResult,
 } from "@/components";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "./InitialsAvatar";
 import { ChatMessageContent } from "./ChatMessageBubble";
 import { ConversationChannelBadge } from "./ConversationChannelBadge";
@@ -55,6 +55,7 @@ type PanelData = {
     item_type: "conversation" | "thread";
     conversation: {
         id: string;
+        client_id?: string | null;
         started_at: string;
         ended_at: string | null;
         attendant_chat_name: string | null;
@@ -89,7 +90,6 @@ export function ConversationPanel({
     threadId = null,
     onClose,
 }: ConversationPanelProps) {
-    const router = useRouter();
     const [data, setData] = useState<PanelData | null>(null);
     const [loading, setLoading] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
@@ -214,6 +214,9 @@ export function ConversationPanel({
     const isSocialIdentity = data?.client.identity_type === "instagram";
     const isMessengerIdentity =
         isSocialIdentity && data?.conversation.channel === "Facebook";
+    const clientProfileId =
+        data?.conversation.client_id ??
+        (data?.client.is_clickable ? data.client.id : null);
 
     function handleClose() {
         setPanelOpen(false);
@@ -221,6 +224,17 @@ export function ConversationPanel({
             setActiveConversationId(null);
             onClose();
         }, 250);
+    }
+
+    function handleOpenClientProfile() {
+        if (!clientProfileId) return;
+
+        setPanelOpen(false);
+        window.setTimeout(() => {
+            setActiveConversationId(null);
+            onClose();
+            openClientProfile(clientProfileId);
+        }, 80);
     }
 
     return (
@@ -254,20 +268,15 @@ export function ConversationPanel({
                         <div className="mb-5 flex items-start justify-between gap-4">
                             <button
                                 type="button"
-                                disabled={!data.client.is_clickable}
-                                onClick={() => {
-                                    if (!data.client.is_clickable) return;
-                                    router.push(
-                                        `/clientes?client_id=${encodeURIComponent(data.client.id)}`,
-                                    );
-                                }}
+                                disabled={!clientProfileId}
+                                onClick={handleOpenClientProfile}
                                 className={`flex min-w-0 flex-1 items-center justify-between gap-4 text-left ${
-                                    data.client.is_clickable
+                                    clientProfileId
                                         ? "cursor-pointer transition-opacity hover:opacity-80"
                                         : "cursor-default"
                                 }`}
                                 aria-label={
-                                    data.client.is_clickable
+                                    clientProfileId
                                         ? `Abrir perfil de ${clientName}`
                                         : undefined
                                 }

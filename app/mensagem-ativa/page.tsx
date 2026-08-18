@@ -44,6 +44,7 @@ import {
     type DataTableColumn,
     type DateRange,
 } from "@/components";
+import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import {
@@ -598,7 +599,12 @@ export default function MensagemAtivaPage() {
             label: "Cliente",
             width: "20%",
             render: ({ client }) => (
-                <div className="flex min-w-0 items-center gap-3">
+                <button
+                    type="button"
+                    onClick={() => openClientProfile(client.id)}
+                    title={`Abrir perfil de ${client.name ?? "cliente"}`}
+                    className="flex min-w-0 cursor-pointer items-center gap-3 text-left transition-opacity hover:opacity-80"
+                >
                     <InitialsAvatar
                         name={client.name ?? "Cliente"}
                     />
@@ -607,7 +613,7 @@ export default function MensagemAtivaPage() {
                             {client.name ?? "Cliente sem nome"}
                         </div>
                     </div>
-                </div>
+                </button>
             ),
         },
         {
