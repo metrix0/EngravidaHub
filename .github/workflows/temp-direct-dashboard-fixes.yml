@@ -1,0 +1,167 @@
+name: Temp direct dashboard fixes
+on:
+  push:
+    branches: [preview]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply requested dashboard corrections'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: preview
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply requested fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Dashboard: show unique appointments in Visão por unidade.
+          replace_once(
+              'app/page.tsx',
+              '''                    <div>Agendamentos</div>''',
+              '''                    <div>Agendamentos únicos</div>''',
+          )
+          replace_once(
+              'app/page.tsx',
+              '''                        <div title="Agendamentos importados da agenda do CliniSys">
+                            <span className="font-semibold text-slate-700">
+                                {unit.appointments_count.toLocaleString("pt-BR")}
+                            </span>
+                        </div>''',
+              '''                        <div title="Clientes únicos com agendamento no CliniSys; registros repetidos e reagendamentos do mesmo paciente não aumentam a contagem.">
+                            <span className="font-semibold text-slate-700">
+                                {unit.unique_appointments_count.toLocaleString("pt-BR")}
+                            </span>
+                        </div>''',
+          )
+
+          # Financeiro: restore the requested information order.
+          replace_once(
+              'app/financeiro/page.tsx',
+              '''                        <section className="mb-6">
+                            <ProcedureMixByCityCard
+                                data={financialSummary.data}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
+
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <FinancialUnitTableCard
+                                data={financialSummary.data}
+                                operationalUnits={data.by_unit}
+                                operationalKpis={data.kpis}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>''',
+              '''                        <section className="mb-6 min-w-0 max-w-full">
+                            <FinancialUnitTableCard
+                                data={financialSummary.data}
+                                operationalUnits={data.by_unit}
+                                operationalKpis={data.kpis}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
+
+                        <section className="mb-6">
+                            <ProcedureMixByCityCard
+                                data={financialSummary.data}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>''',
+          )
+          replace_once(
+              'app/financeiro/page.tsx',
+              '''                    <div className="mb-5">
+                        <AdsPlatformRoasCard data={data} />
+                    </div>
+
+                    <div className="mb-5">
+                        <AdsPlatformCard data={data} />
+                    </div>''',
+              '''                    <div className="mb-5">
+                        <AdsPlatformCard data={data} />
+                    </div>
+
+                    <div className="mb-5">
+                        <AdsPlatformRoasCard data={data} />
+                    </div>''',
+          )
+
+          # Jornada/funnel analysis: keep the two large WhatsApp cards full-width.
+          replace_once(
+              'app/jornada/page.tsx',
+              '''                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+                            <WhatsappCoverageCard
+                                pipeline={current.full_pipeline}
+                            />
+                            <TrackedWhatsappSourcesCard
+                                pipeline={current.full_pipeline}
+                            />
+                        </section>''',
+              '''                        <section className="mb-6 min-w-0 max-w-full">
+                            <WhatsappCoverageCard
+                                pipeline={current.full_pipeline}
+                            />
+                        </section>
+
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <TrackedWhatsappSourcesCard
+                                pipeline={current.full_pipeline}
+                            />
+                        </section>''',
+          )
+
+          # Instagram share: explicitly state that this is volume comparison, not tracking.
+          replace_once(
+              'components/dashboard/InstagramConversationInsights.tsx',
+              '''            <InsightHeader
+                title="Participação do Instagram nas conversas"
+                description="Percentual diário entre Instagram e WhatsApp. Quanto maior o valor de Participação, maior a conversão entre Instagram e Whatsapp"
+            />
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">''',
+              '''            <InsightHeader
+                title="Participação do Instagram nas conversas"
+                description="Comparação do volume de conversas entre Instagram e WhatsApp."
+            />
+
+            <div className="mt-3 inline-flex max-w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                Informação: este indicador compara apenas o volume de conversas entre os canais. Não rastreia se uma conversa do Instagram virou uma conversa no WhatsApp.
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">''',
+          )
+          PY
+      - name: Validate TypeScript
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+      - name: Commit source-only result
+        run: |
+          rm -f .github/workflows/temp-direct-dashboard-fixes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/page.tsx app/financeiro/page.tsx app/jornada/page.tsx components/dashboard/InstagramConversationInsights.tsx .github/workflows/temp-direct-dashboard-fixes.yml
+          git commit -m 'Fix dashboard metrics and card layout'
+          git push origin HEAD:preview
