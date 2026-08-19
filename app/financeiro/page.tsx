@@ -303,7 +303,7 @@ export default function FinancialDashboardPage() {
                             <CategoryCard data={data} />
                         </section>
 
-                                                <section className="mb-6">
+                        <section className="mb-6">
                             <ProcedureMixByCityCard
                                 data={financialSummary.data}
                                 loading={financialSummary.loading}
@@ -534,27 +534,27 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                         </HorizontalScroller>
                     </section>
 
-                                            <section className="mb-5">
-                            <AdsEvolutionCard data={data} />
-                        </section>
+                    <section className="mb-5">
+                        <AdsEvolutionCard data={data} />
+                    </section>
 
-                        <div className="mb-5">
-                            <AdsPlatformRoasCard data={data} />
-                        </div>
+                    <div className="mb-5">
+                        <AdsPlatformRoasCard data={data} />
+                    </div>
 
-                        <div className="mb-5">
-                            <AdsPlatformCard data={data} />
-                        </div>
+                    <div className="mb-5">
+                        <AdsPlatformCard data={data} />
+                    </div>
 
-                        <div className="mb-5">
-                            <PaidCityReturnCard data={data} />
-                        </div>
+                    <div className="mb-5">
+                        <PaidCityReturnCard data={data} />
+                    </div>
 
-                        <div className="mb-5">
-                            <MediaBudgetByCityCard data={data} />
-                        </div>
+                    <div className="mb-5">
+                        <MediaBudgetByCityCard data={data} />
+                    </div>
 
-                        <AdsCampaignCard data={data} />
+                    <AdsCampaignCard data={data} />
                 </>
             )}
         </section>

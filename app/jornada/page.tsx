@@ -445,7 +445,7 @@ export default function JourneyPage() {
                     <JourneyBodySkeleton />
                 ) : (
                     <div className="overflow-x-hidden pb-12">
-                                                <section className="mb-6 min-w-0 max-w-full">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <FullJourneyPipelineCard
                                 data={current}
                                 onSelectRecommendedMonth={() => {

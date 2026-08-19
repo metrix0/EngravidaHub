@@ -446,7 +446,7 @@ export default function ExecutiveDashboardPage() {
                             </HorizontalScroller>
                         </section>
 
-                                                <section className="mb-6 min-w-0 max-w-full">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <DailyEvolutionCard data={data} />
                         </section>
 
