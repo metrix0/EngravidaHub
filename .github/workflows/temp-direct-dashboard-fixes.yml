@@ -1,12 +1,12 @@
 name: Temp direct dashboard fixes
 on:
-  push:
-    branches: [preview]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Apply requested dashboard corrections'
+    if: github.head_ref == 'preview'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,6 @@ jobs:
                   raise SystemExit(f"{path}: expected exactly one match, found {count}")
               p.write_text(text.replace(old, new, 1))
 
-          # Dashboard: show unique appointments in Visão por unidade.
           replace_once(
               'app/page.tsx',
               '''                    <div>Agendamentos</div>''',
@@ -52,7 +51,6 @@ jobs:
                         </div>''',
           )
 
-          # Financeiro: restore the requested information order.
           replace_once(
               'app/financeiro/page.tsx',
               '''                        <section className="mb-6">
@@ -108,7 +106,6 @@ jobs:
                     </div>''',
           )
 
-          # Jornada/funnel analysis: keep the two large WhatsApp cards full-width.
           replace_once(
               'app/jornada/page.tsx',
               '''                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -132,7 +129,6 @@ jobs:
                         </section>''',
           )
 
-          # Instagram share: explicitly state that this is volume comparison, not tracking.
           replace_once(
               'components/dashboard/InstagramConversationInsights.tsx',
               '''            <InsightHeader
