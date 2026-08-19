@@ -303,19 +303,19 @@ export default function FinancialDashboardPage() {
                             <CategoryCard data={data} />
                         </section>
 
-                        <section className="mb-6 min-w-0 max-w-full">
-                            <FinancialUnitTableCard
+                        <section className="mb-6">
+                            <ProcedureMixByCityCard
                                 data={financialSummary.data}
-                                operationalUnits={data.by_unit}
-                                operationalKpis={data.kpis}
                                 loading={financialSummary.loading}
                                 error={financialSummary.error}
                             />
                         </section>
 
-                        <section className="mb-6">
-                            <ProcedureMixByCityCard
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <FinancialUnitTableCard
                                 data={financialSummary.data}
+                                operationalUnits={data.by_unit}
+                                operationalKpis={data.kpis}
                                 loading={financialSummary.loading}
                                 error={financialSummary.error}
                             />
@@ -327,14 +327,6 @@ export default function FinancialDashboardPage() {
                         </section>
 
                         <AdsSection data={data} />
-
-                        <section className="mt-6 min-w-0 max-w-full">
-                            <MediaBudgetByCityCard data={data} />
-                        </section>
-
-                        <section className="mt-6 min-w-0 max-w-full">
-                            <PaidCityReturnCard data={data} />
-                        </section>
                     </div>
                 )}
             </section>
@@ -547,11 +539,19 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                     </section>
 
                     <div className="mb-5">
+                        <AdsPlatformRoasCard data={data} />
+                    </div>
+
+                    <div className="mb-5">
                         <AdsPlatformCard data={data} />
                     </div>
 
                     <div className="mb-5">
-                        <AdsPlatformRoasCard data={data} />
+                        <PaidCityReturnCard data={data} />
+                    </div>
+
+                    <div className="mb-5">
+                        <MediaBudgetByCityCard data={data} />
                     </div>
 
                     <AdsCampaignCard data={data} />

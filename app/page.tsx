@@ -446,32 +446,32 @@ export default function ExecutiveDashboardPage() {
                             </HorizontalScroller>
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.45fr_0.95fr]">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <DailyEvolutionCard data={data} />
+                        </section>
+
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                            <ConversationGoalsCard data={data} />
                             <DropoffCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <ScheduleEvolutionCard data={data} />
                             <ScheduleCreationEvolutionCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-                            <ConversationGoalsCard data={data} />
-                            <UnitViewCard data={data} />
-                        </section>
-
-                        <section className="min-w-0 max-w-full">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <ExecutiveScheduleTable
                                 data={data.schedule_unit_table}
                             />
                         </section>
 
-                        <section className="mt-6 min-w-0 max-w-full">
+                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 2xl:grid-cols-[1.35fr_1fr]">
                             <UnitEfficiencyMapCard data={data} />
+                            <UnitViewCard data={data} />
                         </section>
 
-                        <section className="mt-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
+                        <section className="grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
                             <WordMapCard
                                 data={data}
                                 loading={wordMapLoading}
