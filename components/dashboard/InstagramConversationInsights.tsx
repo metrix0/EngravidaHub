@@ -882,8 +882,12 @@ function InstagramShareCard({ data }: { data: InstagramShareData }) {
         <Card className="mb-8 min-w-0 overflow-hidden border-pink-100">
             <InsightHeader
                 title="Participação do Instagram nas conversas"
-                description="Percentual diário entre Instagram e WhatsApp. Quanto maior o valor de Participação, maior a conversão entre Instagram e Whatsapp"
+                description="Comparação do volume de conversas entre Instagram e WhatsApp."
             />
+
+            <div className="mt-3 inline-flex max-w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                Informação: este indicador compara apenas o volume de conversas entre os canais. Não rastreia se uma conversa do Instagram virou uma conversa no WhatsApp.
+            </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <MetricBox

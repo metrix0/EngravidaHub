@@ -303,19 +303,19 @@ export default function FinancialDashboardPage() {
                             <CategoryCard data={data} />
                         </section>
 
-                        <section className="mb-6">
-                            <ProcedureMixByCityCard
-                                data={financialSummary.data}
-                                loading={financialSummary.loading}
-                                error={financialSummary.error}
-                            />
-                        </section>
-
                         <section className="mb-6 min-w-0 max-w-full">
                             <FinancialUnitTableCard
                                 data={financialSummary.data}
                                 operationalUnits={data.by_unit}
                                 operationalKpis={data.kpis}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
+
+                        <section className="mb-6">
+                            <ProcedureMixByCityCard
+                                data={financialSummary.data}
                                 loading={financialSummary.loading}
                                 error={financialSummary.error}
                             />
@@ -539,11 +539,11 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                     </section>
 
                     <div className="mb-5">
-                        <AdsPlatformRoasCard data={data} />
+                        <AdsPlatformCard data={data} />
                     </div>
 
                     <div className="mb-5">
-                        <AdsPlatformCard data={data} />
+                        <AdsPlatformRoasCard data={data} />
                     </div>
 
                     <div className="mb-5">

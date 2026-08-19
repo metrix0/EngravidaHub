@@ -457,10 +457,13 @@ export default function JourneyPage() {
                             />
                         </section>
 
-                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <WhatsappCoverageCard
                                 pipeline={current.full_pipeline}
                             />
+                        </section>
+
+                        <section className="mb-6 min-w-0 max-w-full">
                             <TrackedWhatsappSourcesCard
                                 pipeline={current.full_pipeline}
                             />

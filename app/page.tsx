@@ -813,7 +813,7 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                     <div>Unidade</div>
                     <div>Resolução</div>
                     <div>Satisfação</div>
-                    <div>Agendamentos</div>
+                    <div>Agendamentos únicos</div>
                     <div>No-show</div>
                 </div>
 
@@ -829,9 +829,9 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                         <div title={`Base observável: ${unit.satisfaction_observed}`}>
                             <PercentageValue value={unit.satisfaction_rate} greenFrom={70} orangeFrom={40} />
                         </div>
-                        <div title="Agendamentos importados da agenda do CliniSys">
+                        <div title="Clientes únicos com agendamento no CliniSys; registros repetidos e reagendamentos do mesmo paciente não aumentam a contagem.">
                             <span className="font-semibold text-slate-700">
-                                {unit.appointments_count.toLocaleString("pt-BR")}
+                                {unit.unique_appointments_count.toLocaleString("pt-BR")}
                             </span>
                         </div>
                         <div title={`Faltas: ${unit.no_show} · base observada: ${unit.outcomes_observed}`}>
