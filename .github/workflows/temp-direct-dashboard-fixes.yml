@@ -23,131 +23,87 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           def replace_once(path, old, new):
               p = Path(path)
               text = p.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+                  raise SystemExit(f"{path}: expected one `{old[:70]}` match, found {count}")
               p.write_text(text.replace(old, new, 1))
 
+          def swap_component_sections(path, first_component, second_component):
+              p = Path(path)
+              text = p.read_text()
+              first_at = text.index(f'<{first_component}')
+              second_at = text.index(f'<{second_component}')
+              if first_at > second_at:
+                  return
+              first_start = text.rfind('<section', 0, first_at)
+              first_start = text.rfind('\n', 0, first_start) + 1
+              first_end = text.index('</section>', first_at) + len('</section>')
+              second_start = text.rfind('<section', first_end, second_at)
+              second_start = text.rfind('\n', 0, second_start) + 1
+              second_end = text.index('</section>', second_at) + len('</section>')
+              between = text[first_end:second_start]
+              first_block = text[first_start:first_end]
+              second_block = text[second_start:second_end]
+              p.write_text(text[:first_start] + second_block + between + first_block + text[second_end:])
+
+          # Dashboard unit table: use the already-available unique appointment metric.
+          replace_once('app/page.tsx', '<div>Agendamentos</div>', '<div>Agendamentos únicos</div>')
           replace_once(
               'app/page.tsx',
-              '''                    <div>Agendamentos</div>''',
-              '''                    <div>Agendamentos únicos</div>''',
+              'title="Agendamentos importados da agenda do CliniSys"',
+              'title="Clientes únicos com agendamento no CliniSys; registros repetidos e reagendamentos do mesmo paciente não aumentam a contagem."',
           )
           replace_once(
               'app/page.tsx',
-              '''                        <div title="Agendamentos importados da agenda do CliniSys">
-                            <span className="font-semibold text-slate-700">
-                                {unit.appointments_count.toLocaleString("pt-BR")}
-                            </span>
-                        </div>''',
-              '''                        <div title="Clientes únicos com agendamento no CliniSys; registros repetidos e reagendamentos do mesmo paciente não aumentam a contagem.">
-                            <span className="font-semibold text-slate-700">
-                                {unit.unique_appointments_count.toLocaleString("pt-BR")}
-                            </span>
-                        </div>''',
+              'unit.appointments_count.toLocaleString("pt-BR")',
+              'unit.unique_appointments_count.toLocaleString("pt-BR")',
           )
 
-          replace_once(
-              'app/financeiro/page.tsx',
-              '''                        <section className="mb-6">
-                            <ProcedureMixByCityCard
-                                data={financialSummary.data}
-                                loading={financialSummary.loading}
-                                error={financialSummary.error}
-                            />
-                        </section>
+          # Financeiro: Faturamento por unidade before Procedimentos por cidade.
+          swap_component_sections('app/financeiro/page.tsx', 'ProcedureMixByCityCard', 'FinancialUnitTableCard')
 
-                        <section className="mb-6 min-w-0 max-w-full">
-                            <FinancialUnitTableCard
-                                data={financialSummary.data}
-                                operationalUnits={data.by_unit}
-                                operationalKpis={data.kpis}
-                                loading={financialSummary.loading}
-                                error={financialSummary.error}
-                            />
-                        </section>''',
-              '''                        <section className="mb-6 min-w-0 max-w-full">
-                            <FinancialUnitTableCard
-                                data={financialSummary.data}
-                                operationalUnits={data.by_unit}
-                                operationalKpis={data.kpis}
-                                loading={financialSummary.loading}
-                                error={financialSummary.error}
-                            />
-                        </section>
-
-                        <section className="mb-6">
-                            <ProcedureMixByCityCard
-                                data={financialSummary.data}
-                                loading={financialSummary.loading}
-                                error={financialSummary.error}
-                            />
-                        </section>''',
+          # Paid media: Eficiência por plataforma before ROAS por Plataforma.
+          p = Path('app/financeiro/page.tsx')
+          text = p.read_text()
+          pattern = re.compile(
+              r'(\s*<div className="mb-5">\s*<AdsPlatformRoasCard data=\{data\} />\s*</div>)(\s*<div className="mb-5">\s*<AdsPlatformCard data=\{data\} />\s*</div>)'
           )
-          replace_once(
-              'app/financeiro/page.tsx',
-              '''                    <div className="mb-5">
-                        <AdsPlatformRoasCard data={data} />
-                    </div>
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit('app/financeiro/page.tsx: platform card pair not found')
+          text = text[:match.start()] + match.group(2) + match.group(1) + text[match.end():]
+          p.write_text(text)
 
-                    <div className="mb-5">
-                        <AdsPlatformCard data={data} />
-                    </div>''',
-              '''                    <div className="mb-5">
-                        <AdsPlatformCard data={data} />
-                    </div>
+          # Jornada: these two large WhatsApp cards need the full row to avoid internal overflow.
+          p = Path('app/jornada/page.tsx')
+          text = p.read_text()
+          whatsapp_at = text.index('<WhatsappCoverageCard')
+          tracked_at = text.index('<TrackedWhatsappSourcesCard', whatsapp_at)
+          start_tag = text.rfind('<section', 0, whatsapp_at)
+          start = text.rfind('\n', 0, start_tag) + 1
+          end = text.index('</section>', tracked_at) + len('</section>')
+          indent = ' ' * 24
+          replacement = f'''{indent}<section className="mb-6 min-w-0 max-w-full">\n{indent}    <WhatsappCoverageCard\n{indent}        pipeline={{current.full_pipeline}}\n{indent}    />\n{indent}</section>\n\n{indent}<section className="mb-6 min-w-0 max-w-full">\n{indent}    <TrackedWhatsappSourcesCard\n{indent}        pipeline={{current.full_pipeline}}\n{indent}    />\n{indent}</section>'''
+          p.write_text(text[:start] + replacement + text[end:])
 
-                    <div className="mb-5">
-                        <AdsPlatformRoasCard data={data} />
-                    </div>''',
-          )
-
-          replace_once(
-              'app/jornada/page.tsx',
-              '''                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                            <WhatsappCoverageCard
-                                pipeline={current.full_pipeline}
-                            />
-                            <TrackedWhatsappSourcesCard
-                                pipeline={current.full_pipeline}
-                            />
-                        </section>''',
-              '''                        <section className="mb-6 min-w-0 max-w-full">
-                            <WhatsappCoverageCard
-                                pipeline={current.full_pipeline}
-                            />
-                        </section>
-
-                        <section className="mb-6 min-w-0 max-w-full">
-                            <TrackedWhatsappSourcesCard
-                                pipeline={current.full_pipeline}
-                            />
-                        </section>''',
-          )
-
+          # Instagram participation is a volume comparison, not cross-channel tracking.
           replace_once(
               'components/dashboard/InstagramConversationInsights.tsx',
-              '''            <InsightHeader
-                title="Participação do Instagram nas conversas"
-                description="Percentual diário entre Instagram e WhatsApp. Quanto maior o valor de Participação, maior a conversão entre Instagram e Whatsapp"
-            />
-
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">''',
-              '''            <InsightHeader
-                title="Participação do Instagram nas conversas"
-                description="Comparação do volume de conversas entre Instagram e WhatsApp."
-            />
-
-            <div className="mt-3 inline-flex max-w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-                Informação: este indicador compara apenas o volume de conversas entre os canais. Não rastreia se uma conversa do Instagram virou uma conversa no WhatsApp.
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">''',
+              'description="Percentual diário entre Instagram e WhatsApp. Quanto maior o valor de Participação, maior a conversão entre Instagram e Whatsapp"',
+              'description="Comparação do volume de conversas entre Instagram e WhatsApp."',
           )
+          p = Path('components/dashboard/InstagramConversationInsights.tsx')
+          text = p.read_text()
+          anchor = '''            <InsightHeader\n                title="Participação do Instagram nas conversas"\n                description="Comparação do volume de conversas entre Instagram e WhatsApp."\n            />'''
+          if text.count(anchor) != 1:
+              raise SystemExit('Instagram share header anchor not found exactly once')
+          info = '''\n\n            <div className="mt-3 inline-flex max-w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">\n                Informação: este indicador compara apenas o volume de conversas entre os canais. Não rastreia se uma conversa do Instagram virou uma conversa no WhatsApp.\n            </div>'''
+          p.write_text(text.replace(anchor, anchor + info, 1))
           PY
       - name: Validate TypeScript
         run: |
