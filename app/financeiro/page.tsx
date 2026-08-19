@@ -303,30 +303,30 @@ export default function FinancialDashboardPage() {
                             <CategoryCard data={data} />
                         </section>
 
-                        <section className="mb-6">
-                  <ProcedureMixByCityCard
-                      data={financialSummary.data}
-                      loading={financialSummary.loading}
-                      error={financialSummary.error}
-                  />
-              </section>
+                                                <section className="mb-6">
+                            <ProcedureMixByCityCard
+                                data={financialSummary.data}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
 
-              <section className="mb-6 min-w-0 max-w-full">
-                  <FinancialUnitTableCard
-                      data={financialSummary.data}
-                      operationalUnits={data.by_unit}
-                      operationalKpis={data.kpis}
-                      loading={financialSummary.loading}
-                      error={financialSummary.error}
-                  />
-              </section>
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <FinancialUnitTableCard
+                                data={financialSummary.data}
+                                operationalUnits={data.by_unit}
+                                operationalKpis={data.kpis}
+                                loading={financialSummary.loading}
+                                error={financialSummary.error}
+                            />
+                        </section>
 
-              <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
-                  <CrmCard data={data} />
-                  <DoctorCard data={data} />
-              </section>
+                        <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+                            <CrmCard data={data} />
+                            <DoctorCard data={data} />
+                        </section>
 
-              <AdsSection data={data} />
+                        <AdsSection data={data} />
                     </div>
                 )}
             </section>
@@ -534,27 +534,27 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                         </HorizontalScroller>
                     </section>
 
-                    <section className="mb-5">
-              <AdsEvolutionCard data={data} />
-          </section>
+                                            <section className="mb-5">
+                            <AdsEvolutionCard data={data} />
+                        </section>
 
-          <div className="mb-5">
-              <AdsPlatformRoasCard data={data} />
-          </div>
+                        <div className="mb-5">
+                            <AdsPlatformRoasCard data={data} />
+                        </div>
 
-          <div className="mb-5">
-              <AdsPlatformCard data={data} />
-          </div>
+                        <div className="mb-5">
+                            <AdsPlatformCard data={data} />
+                        </div>
 
-          <div className="mb-5">
-              <PaidCityReturnCard data={data} />
-          </div>
+                        <div className="mb-5">
+                            <PaidCityReturnCard data={data} />
+                        </div>
 
-          <div className="mb-5">
-              <MediaBudgetByCityCard data={data} />
-          </div>
+                        <div className="mb-5">
+                            <MediaBudgetByCityCard data={data} />
+                        </div>
 
-          <AdsCampaignCard data={data} />
+                        <AdsCampaignCard data={data} />
                 </>
             )}
         </section>
