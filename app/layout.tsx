@@ -10,6 +10,7 @@ import PermanentClientProfilePanel from "@/components/clientes/PermanentClientPr
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
 import SidePanel from "@/components/layout/SidePanel";
+import SidePanelSectionNav from "@/components/layout/SidePanelSectionNav";
 import {
     dashboardDateFilterBootstrapScript,
     DATE_FILTER_COOKIE_NAME,
@@ -58,8 +59,9 @@ export default async function RootLayout({
                         <PermissionGuard>
                             <div className="flex min-h-dvh w-full flex-col overflow-hidden md:h-screen md:min-h-0 md:w-screen md:flex-row">
                                 <SidePanel persistent />
+                                <SidePanelSectionNav />
 
-                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
+                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full [&>main]:!overflow-x-hidden">
                                     {children}
                                 </div>
 

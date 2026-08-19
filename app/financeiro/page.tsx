@@ -543,10 +543,6 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                     </div>
 
                     <div className="mb-5">
-                        <AdsPlatformRoasCard data={data} />
-                    </div>
-
-                    <div className="mb-5">
                         <PaidCityReturnCard data={data} />
                     </div>
 
