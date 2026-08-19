@@ -445,35 +445,36 @@ export default function JourneyPage() {
                     <JourneyBodySkeleton />
                 ) : (
                     <div className="overflow-x-hidden pb-12">
-                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.7fr_0.8fr]">
-                            <JourneyFunnelCard data={current} />
-                            <DropoffCard data={current} />
-                        </section>
-                        <section className="grid grid-cols-1 gap-5 md:grid-cols-[1.5fr_0.9fr]">
-                            <IntentPathsCard data={current} />
-                            <ObjectionsCard data={current} />
-                        </section>
-                        <section className="mt-6 min-w-0 max-w-full">
-                            <FullJourneyPipelineCard
-                                data={current}
-                                onSelectRecommendedMonth={() => {
-                                    setPeriod(null);
-                                    setSelectedRange(
-                                        getRecommendedMatureMonthRange(),
-                                    );
-                                }}
-                            />
-                        </section>
-                        <section className="mt-6 min-w-0 max-w-full">
-                            <WhatsappCoverageCard
-                                pipeline={current.full_pipeline}
-                            />
-                        </section>
-                        <section className="mt-6 min-w-0 max-w-full">
-                            <TrackedWhatsappSourcesCard
-                                pipeline={current.full_pipeline}
-                            />
-                        </section>
+                        <section className="mb-6 min-w-0 max-w-full">
+                  <FullJourneyPipelineCard
+                      data={current}
+                      onSelectRecommendedMonth={() => {
+                          setPeriod(null);
+                          setSelectedRange(
+                              getRecommendedMatureMonthRange(),
+                          );
+                      }}
+                  />
+              </section>
+
+              <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+                  <WhatsappCoverageCard
+                      pipeline={current.full_pipeline}
+                  />
+                  <TrackedWhatsappSourcesCard
+                      pipeline={current.full_pipeline}
+                  />
+              </section>
+
+              <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
+                  <JourneyFunnelCard data={current} />
+                  <DropoffCard data={current} />
+              </section>
+
+              <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_0.9fr]">
+                  <IntentPathsCard data={current} />
+                  <ObjectionsCard data={current} />
+              </section>
 
                         <section className="mt-6 min-w-0 max-w-full">
                             <InstagramConversationInsights

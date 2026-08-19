@@ -1,3 +1,4 @@
+// lib/ai/assistantOperationalTools.ts
 import { supabase } from "@/lib";
 import { getInternalChatUsers } from "@/lib/internal-chat/internalChatServer";
 import {
