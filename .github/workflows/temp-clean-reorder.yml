@@ -19,10 +19,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - name: Clean source diff
+      - name: Apply clean reorder
         run: |
           git fetch origin preview --depth=1
-          git checkout origin/preview -- app/api/mensagem-ativa/analytics/route.ts app/api/usuarios/units/route.ts lib/ai/assistantOperationalTools.ts
+          git checkout origin/preview -- app/page.tsx app/financeiro/page.tsx app/jornada/page.tsx app/api/mensagem-ativa/analytics/route.ts app/api/usuarios/units/route.ts lib/ai/assistantOperationalTools.ts
           python - <<'PY'
           from pathlib import Path
           from textwrap import dedent, indent
@@ -37,6 +37,8 @@ jobs:
               text = p.read_text()
               start_component_at = text.index(f'<{start_component}')
               start = text.rfind('<section', 0, start_component_at)
+              if start < 0:
+                  raise SystemExit(f'{path}: start section not found')
               end_component_at = text.index(f'<{end_component}', start_component_at)
               end = text.index('</section>', end_component_at) + len('</section>')
               p.write_text(text[:start] + formatted(replacement) + text[end:])
@@ -88,7 +90,7 @@ jobs:
           </section>
           ''')
 
-          replace_section_range('app/financeiro/page.tsx', 'ProcedureMixByCityCard', 'AdsSection', '''
+          replace_section_range('app/financeiro/page.tsx', 'FinancialUnitTableCard', 'PaidCityReturnCard', '''
           <section className="mb-6">
               <ProcedureMixByCityCard
                   data={financialSummary.data}
@@ -139,7 +141,7 @@ jobs:
           <AdsCampaignCard data={data} />
           ''')
 
-          replace_section_range('app/jornada/page.tsx', 'FullJourneyPipelineCard', 'ObjectionsCard', '''
+          replace_section_range('app/jornada/page.tsx', 'JourneyFunnelCard', 'TrackedWhatsappSourcesCard', '''
           <section className="mb-6 min-w-0 max-w-full">
               <FullJourneyPipelineCard
                   data={current}
@@ -176,11 +178,11 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec tsc --noEmit
-      - name: Commit clean source result
+      - name: Commit source-only result
         run: |
           rm -f .github/workflows/temp-clean-reorder.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/page.tsx app/financeiro/page.tsx app/jornada/page.tsx app/api/mensagem-ativa/analytics/route.ts app/api/usuarios/units/route.ts lib/ai/assistantOperationalTools.ts .github/workflows/temp-clean-reorder.yml
-          git commit -m 'Clean dashboard reordering diff'
+          git commit -m 'Finalize first dashboard page organization'
           git push origin HEAD:${{ github.head_ref }}
