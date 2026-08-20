@@ -9,6 +9,7 @@ import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import PermanentClientProfilePanel from "@/components/clientes/PermanentClientProfilePanel";
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
+import DashboardInstagramAttributionPortal from "@/components/dashboard/DashboardInstagramAttributionPortal";
 import SidePanel from "@/components/layout/SidePanel";
 import SidePanelSectionNav from "@/components/layout/SidePanelSectionNav";
 import {
@@ -60,6 +61,7 @@ export default async function RootLayout({
                             <div className="flex min-h-dvh w-full flex-col overflow-hidden md:h-screen md:min-h-0 md:w-screen md:flex-row">
                                 <SidePanel persistent />
                                 <SidePanelSectionNav />
+                                <DashboardInstagramAttributionPortal />
 
                                 <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
                                     {children}
