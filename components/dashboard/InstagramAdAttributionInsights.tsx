@@ -14,11 +14,6 @@ import {
     YAxis,
 } from "recharts";
 
-import {
-    applyCalendarDateParams,
-    type CalendarPresetValue,
-    type DateRange,
-} from "@/components/ui/CalendarButton";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 
@@ -57,13 +52,11 @@ type InstagramAttributionData = {
 };
 
 type Props = {
-    period: CalendarPresetValue | null;
-    selectedRange: DateRange;
+    searchParams: string;
 };
 
 export default function InstagramAdAttributionInsights({
-    period,
-    selectedRange,
+    searchParams,
 }: Props) {
     const [data, setData] = useState<InstagramAttributionData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -80,12 +73,7 @@ export default function InstagramAdAttributionInsights({
             setError(null);
 
             try {
-                const params = new URLSearchParams();
-                applyCalendarDateParams({
-                    params,
-                    selectedRange,
-                    selectedPreset: period,
-                });
+                const params = new URLSearchParams(searchParams);
                 const response = await fetch(
                     `/api/dashboard/instagram-attribution?${params.toString()}`,
                     {
@@ -123,7 +111,7 @@ export default function InstagramAdAttributionInsights({
             window.clearTimeout(debounceId);
             controller.abort();
         };
-    }, [period, selectedRange.end, selectedRange.start]);
+    }, [searchParams]);
 
     if (loading) return <AttributionSkeleton />;
 
@@ -165,7 +153,7 @@ export default function InstagramAdAttributionInsights({
         .slice(0, 8);
 
     return (
-        <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
             <Card className="min-w-0 overflow-hidden border-pink-100">
                 <div className="mb-4">
                     <h3 className="text-lg font-bold text-slate-800">
@@ -324,7 +312,7 @@ export default function InstagramAdAttributionInsights({
 
 function AttributionSkeleton() {
     return (
-        <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, index) => (
                 <Card key={index} className="border-pink-100">
                     <Skeleton className="h-6 w-[42%]" />
