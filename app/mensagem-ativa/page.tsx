@@ -603,12 +603,12 @@ export default function MensagemAtivaPage() {
                     type="button"
                     onClick={() => openClientProfile(client.id)}
                     title={`Abrir perfil de ${client.name ?? "cliente"}`}
-                    className="flex min-w-0 cursor-pointer items-center gap-3 text-left transition-opacity hover:opacity-80"
+                    className="flex w-full min-w-0 max-w-full cursor-pointer items-center gap-3 overflow-hidden text-left transition-opacity hover:opacity-80"
                 >
                     <InitialsAvatar
                         name={client.name ?? "Cliente"}
                     />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                         <div className="truncate font-medium text-slate-700">
                             {client.name ?? "Cliente sem nome"}
                         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 
@@ -33,16 +33,6 @@ const DASHBOARD_SECTIONS: SectionDefinition[] = [
 
 const FINANCEIRO_SECTIONS: SectionDefinition[] = [
     { id: "financeiro-visao-geral", label: "Visão geral" },
-    {
-        id: "financeiro-unidades",
-        label: "Unidades",
-        heading: "Faturamento por unidade",
-    },
-    {
-        id: "financeiro-origem-medicos",
-        label: "Origem e médicos",
-        heading: "Faturamento por Origem",
-    },
     {
         id: "financeiro-midia-paga",
         label: "Mídia paga",
@@ -80,6 +70,24 @@ function findHeading(root: HTMLElement, text: string) {
     ) ?? null;
 }
 
+function findDashboardChannelTarget(
+    scroller: HTMLElement,
+    sectionId: string,
+) {
+    const channelIndex = {
+        "dashboard-instagram": 0,
+        "dashboard-messenger": 1,
+        "dashboard-ligacoes": 2,
+    }[sectionId];
+
+    if (channelIndex === undefined) return null;
+
+    const channelSections = scroller.querySelectorAll<HTMLElement>(
+        "section.mt-6.min-w-0.max-w-full",
+    );
+    return channelSections[channelIndex] ?? null;
+}
+
 function resolveSectionTarget(
     scroller: HTMLElement,
     section: SectionDefinition,
@@ -90,9 +98,11 @@ function resolveSectionTarget(
     }
 
     const heading = findHeading(scroller, section.heading);
-    if (!heading) return null;
+    if (heading) {
+        return heading.closest<HTMLElement>("section") ?? heading;
+    }
 
-    return heading.closest<HTMLElement>("section") ?? heading;
+    return findDashboardChannelTarget(scroller, section.id);
 }
 
 function getTargetTop(scroller: HTMLElement, target: HTMLElement) {
@@ -123,8 +133,10 @@ export default function SidePanelSectionNav() {
     const [activeSectionId, setActiveSectionId] = useState<string | null>(
         config?.sections[0]?.id ?? null,
     );
+    const scrollSpyLockRef = useRef<string | null>(null);
 
     useEffect(() => {
+        scrollSpyLockRef.current = null;
         setActiveSectionId(config?.sections[0]?.id ?? null);
     }, [config]);
 
@@ -214,6 +226,11 @@ export default function SidePanelSectionNav() {
         };
 
         const updateActiveSection = () => {
+            if (scrollSpyLockRef.current) {
+                setActiveSectionId(scrollSpyLockRef.current);
+                return;
+            }
+
             if (targets.size === 0) resolveTargets();
 
             const marker = scroller.scrollTop + Math.min(220, scroller.clientHeight * 0.28);
@@ -270,10 +287,16 @@ export default function SidePanelSectionNav() {
         );
         if (!target) return;
 
+        scrollSpyLockRef.current = section.id;
         setActiveSectionId(section.id);
         scroller.scrollTo({
             top: Math.max(0, getTargetTop(scroller, target) - 18),
-            behavior: "smooth",
+            behavior: "auto",
+        });
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                scrollSpyLockRef.current = null;
+            });
         });
 
         if (window.matchMedia("(max-width: 767px)").matches) {

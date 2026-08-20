@@ -61,7 +61,7 @@ export default async function RootLayout({
                                 <SidePanel persistent />
                                 <SidePanelSectionNav />
 
-                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full [&>main]:!overflow-x-hidden">
+                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
                                     {children}
                                 </div>
 
