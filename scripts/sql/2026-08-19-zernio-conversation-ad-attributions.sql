@@ -1,7 +1,7 @@
 create table if not exists public.conversation_ad_attributions (
     id uuid primary key default gen_random_uuid(),
     instagram_user_id uuid not null references public.instagram_users(id) on delete cascade,
-    thread_id uuid not null references public.thread(id) on delete cascade,
+    thread_id uuid references public.thread(id) on delete set null,
     message_id uuid references public.messages(id) on delete set null,
     channel text not null check (channel in ('Instagram', 'Facebook')),
     zernio_conversation_id text not null,
@@ -33,8 +33,7 @@ create table if not exists public.conversation_ad_attributions (
 );
 
 create unique index if not exists conversation_ad_attributions_message_id_uidx
-    on public.conversation_ad_attributions(message_id)
-    where message_id is not null;
+    on public.conversation_ad_attributions(message_id);
 
 create index if not exists conversation_ad_attributions_instagram_user_idx
     on public.conversation_ad_attributions(instagram_user_id, referral_received_at desc);
