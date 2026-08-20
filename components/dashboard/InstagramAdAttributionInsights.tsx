@@ -14,6 +14,10 @@ import {
     YAxis,
 } from "recharts";
 
+import {
+    DEFAULT_CALENDAR_PRESETS,
+    getDateRangeFromPreset,
+} from "@/components/ui/CalendarButton";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 
@@ -73,7 +77,7 @@ export default function InstagramAdAttributionInsights({
             setError(null);
 
             try {
-                const params = new URLSearchParams(searchParams);
+                const params = resolveDateParams(searchParams);
                 const response = await fetch(
                     `/api/dashboard/instagram-attribution?${params.toString()}`,
                     {
@@ -308,6 +312,24 @@ export default function InstagramAdAttributionInsights({
             </Card>
         </div>
     );
+}
+
+function resolveDateParams(searchParams: string) {
+    const params = new URLSearchParams(searchParams);
+    if (params.get("start_date")) return params;
+
+    const period = params.get("period");
+    const preset = DEFAULT_CALENDAR_PRESETS.find(
+        (candidate) => candidate.value === period,
+    );
+    if (!preset) return params;
+
+    const range = getDateRangeFromPreset(preset);
+    if (range.start) params.set("start_date", range.start);
+    if (range.end ?? range.start) {
+        params.set("end_date", range.end ?? range.start ?? "");
+    }
+    return params;
 }
 
 function AttributionSkeleton() {
