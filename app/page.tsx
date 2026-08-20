@@ -446,32 +446,32 @@ export default function ExecutiveDashboardPage() {
                             </HorizontalScroller>
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.45fr_0.95fr]">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <DailyEvolutionCard data={data} />
+                        </section>
+
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                            <ConversationGoalsCard data={data} />
                             <DropoffCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5">
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <ScheduleEvolutionCard data={data} />
                             <ScheduleCreationEvolutionCard data={data} />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-                            <ConversationGoalsCard data={data} />
-                            <UnitViewCard data={data} />
-                        </section>
-
-                        <section className="min-w-0 max-w-full">
+                        <section className="mb-6 min-w-0 max-w-full">
                             <ExecutiveScheduleTable
                                 data={data.schedule_unit_table}
                             />
                         </section>
 
-                        <section className="mt-6 min-w-0 max-w-full">
+                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 2xl:grid-cols-[1.35fr_1fr]">
                             <UnitEfficiencyMapCard data={data} />
+                            <UnitViewCard data={data} />
                         </section>
 
-                        <section className="mt-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
+                        <section className="grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
                             <WordMapCard
                                 data={data}
                                 loading={wordMapLoading}
@@ -813,7 +813,7 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                     <div>Unidade</div>
                     <div>Resolução</div>
                     <div>Satisfação</div>
-                    <div>Agendamentos</div>
+                    <div>Agendamentos únicos</div>
                     <div>No-show</div>
                 </div>
 
@@ -829,9 +829,9 @@ function UnitViewCard({ data }: { data: ExecutiveDashboardData }) {
                         <div title={`Base observável: ${unit.satisfaction_observed}`}>
                             <PercentageValue value={unit.satisfaction_rate} greenFrom={70} orangeFrom={40} />
                         </div>
-                        <div title="Agendamentos importados da agenda do CliniSys">
+                        <div title="Clientes únicos com agendamento no CliniSys; registros repetidos e reagendamentos do mesmo paciente não aumentam a contagem.">
                             <span className="font-semibold text-slate-700">
-                                {unit.appointments_count.toLocaleString("pt-BR")}
+                                {unit.unique_appointments_count.toLocaleString("pt-BR")}
                             </span>
                         </div>
                         <div title={`Faltas: ${unit.no_show} · base observada: ${unit.outcomes_observed}`}>
