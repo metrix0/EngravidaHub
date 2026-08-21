@@ -274,9 +274,6 @@ export default function ExecutiveDashboardPage() {
             }
         }
 
-        // React Strict Mode runs effects twice in development. Debouncing and
-        // aborting the obsolete request prevents duplicate dashboard RPCs and
-        // also collapses rapid filter changes into one database load.
         const debounceId = window.setTimeout(() => {
             void loadDashboard();
         }, 150);
@@ -1361,44 +1358,156 @@ function DashboardBodySkeleton() {
                     ))}
                 </HorizontalScroller>
             </section>
-            <section className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-[1.45fr_0.95fr]">
+
+            <section className="mb-6 min-w-0 max-w-full">
+                <DashboardChartSkeleton heightClassName="h-[290px]" />
+            </section>
+
+            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
                 <Card>
-                    <div className="mb-5"><Skeleton className="h-6 w-[30%]" /><Skeleton className="mt-3 h-4 w-[55%]" /></div>
-                    <Skeleton className="h-[290px] w-full" />
+                    <Skeleton className="mb-5 h-6 w-[38%]" />
+                    <div className="grid grid-cols-[180px_1fr] items-center gap-4">
+                        <Skeleton className="h-48 w-48 rounded-full" />
+                        <div className="space-y-4">
+                            {Array.from({ length: 5 }).map((_, index) => (
+                                <Skeleton key={index} className="h-4 w-full" />
+                            ))}
+                        </div>
+                    </div>
                 </Card>
                 <Card>
-                    <Skeleton className="h-6 w-[55%]" /><Skeleton className="mt-3 h-4 w-[72%]" />
-                    <div className="mt-7 space-y-6">{Array.from({ length: 4 }).map((_, index) => (<div key={index} className="grid grid-cols-[32px_minmax(0,1fr)_48px] items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><div><Skeleton className="h-4 w-[72%]" /><Skeleton className="mt-2 h-2 w-full rounded-full" /></div><Skeleton className="h-4 w-10" /></div>))}</div>
-                </Card>
-            </section>
-            <section className="mb-6 grid grid-cols-1 gap-5">
-                {Array.from({ length: 2 }).map((_, index) => (
-                    <Card key={index}>
-                        <Skeleton className="h-6 w-[40%]" />
-                        <Skeleton className="mt-3 h-4 w-[62%]" />
-                        <Skeleton className="mt-5 h-[290px] w-full" />
-                    </Card>
-                ))}
-            </section>
-            <section className="mb-6">
-                <Card>
-                    <Skeleton className="mb-5 h-6 w-[28%]" />
-                    <Skeleton className="h-11 w-full rounded-xl" />
-                    <div className="mt-1 space-y-1">
-                        {Array.from({ length: 7 }).map((_, index) => (
-                            <Skeleton
-                                key={index}
-                                className="h-10 w-full rounded-none"
-                            />
+                    <Skeleton className="mb-6 h-6 w-[48%]" />
+                    <div className="space-y-7">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <div key={index} className="flex items-center gap-3">
+                                <Skeleton className="h-6 w-6 shrink-0 rounded-full" />
+                                <div className="min-w-0 flex-1">
+                                    <Skeleton className="h-4 w-[58%]" />
+                                    <Skeleton className="mt-2 h-2 w-full rounded-full" />
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </Card>
             </section>
-            <section className="grid grid-cols-2 gap-5">
-                <Card><Skeleton className="mb-5 h-6 w-[45%]" /><div className="grid grid-cols-[180px_1fr] items-center gap-6"><Skeleton className="h-[170px] w-[170px] rounded-full" /><div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-4 w-full" />))}</div></div></Card>
-                <Card><Skeleton className="mb-5 h-6 w-[35%]" /><div className="overflow-hidden rounded-xl border border-slate-100"><div className="grid grid-cols-4 gap-4 bg-slate-50 px-2 py-3">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-3 w-[70%]" />))}</div>{Array.from({ length: 4 }).map((_, rowIndex) => (<div key={rowIndex} className="grid grid-cols-4 gap-4 border-t border-slate-100 px-2 py-3">{Array.from({ length: 4 }).map((_, columnIndex) => (<Skeleton key={columnIndex} className="h-4 w-[72%]" />))}</div>))}</div></Card>
+
+            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <DashboardChartSkeleton heightClassName="h-[290px]" />
+                <DashboardChartSkeleton heightClassName="h-[290px]" />
             </section>
+
+            <section className="mb-6 min-w-0 max-w-full">
+                <DashboardTableSkeleton columns={5} rows={7} />
+            </section>
+
+            <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 2xl:grid-cols-[1.35fr_1fr]">
+                <DashboardChartSkeleton heightClassName="h-[390px]" />
+                <DashboardTableSkeleton columns={5} rows={6} />
+            </section>
+
+            <section className="grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
+                <Card>
+                    <Skeleton className="h-6 w-[34%]" />
+                    <Skeleton className="mt-5 h-[300px] w-full rounded-2xl" />
+                </Card>
+                <Card>
+                    <Skeleton className="h-6 w-[38%]" />
+                    <Skeleton className="mt-5 h-[300px] w-full rounded-xl" />
+                </Card>
+            </section>
+
+            <div className="mt-6">
+                <DashboardChannelSkeleton />
+            </div>
+            <div className="mt-6">
+                <DashboardChannelSkeleton />
+            </div>
+            <div className="mt-6">
+                <DashboardChannelSkeleton compact />
+            </div>
         </>
+    );
+}
+
+function DashboardChartSkeleton({
+    heightClassName,
+}: {
+    heightClassName: string;
+}) {
+    return (
+        <Card>
+            <Skeleton className="h-6 w-[36%]" />
+            <div className="mt-3 flex gap-4">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className={`mt-5 w-full ${heightClassName}`} />
+        </Card>
+    );
+}
+
+function DashboardTableSkeleton({
+    columns,
+    rows,
+}: {
+    columns: number;
+    rows: number;
+}) {
+    return (
+        <Card>
+            <Skeleton className="mb-5 h-6 w-[32%]" />
+            <div className="overflow-hidden rounded-xl border border-slate-100">
+                <div
+                    className="grid gap-4 bg-slate-50 px-3 py-3"
+                    style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                >
+                    {Array.from({ length: columns }).map((_, index) => (
+                        <Skeleton key={index} className="h-3 w-[72%]" />
+                    ))}
+                </div>
+                {Array.from({ length: rows }).map((_, rowIndex) => (
+                    <div
+                        key={rowIndex}
+                        className="grid gap-4 border-t border-slate-100 px-3 py-3"
+                        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                    >
+                        {Array.from({ length: columns }).map((_, columnIndex) => (
+                            <Skeleton key={columnIndex} className="h-4 w-[76%]" />
+                        ))}
+                    </div>
+                ))}
+            </div>
+        </Card>
+    );
+}
+
+function DashboardChannelSkeleton({ compact = false }: { compact?: boolean }) {
+    return (
+        <div className="space-y-5">
+            <div className="flex items-center gap-3 px-1">
+                <Skeleton className="h-9 w-9 rounded-xl" />
+                <div className="min-w-0 flex-1">
+                    <Skeleton className="h-5 w-[250px] max-w-[62%]" />
+                    <Skeleton className="mt-2 h-3 w-[420px] max-w-[82%]" />
+                </div>
+            </div>
+            <div className="flex gap-5 overflow-hidden">
+                {Array.from({ length: compact ? 3 : 4 }).map((_, index) => (
+                    <Skeleton
+                        key={index}
+                        className="h-[118px] min-w-[250px] flex-1 rounded-2xl"
+                    />
+                ))}
+            </div>
+            <Skeleton className={`${compact ? "h-[280px]" : "h-[340px]"} w-full rounded-2xl`} />
+            {!compact ? (
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                    <Skeleton className="h-[320px] w-full rounded-2xl" />
+                    <Skeleton className="h-[320px] w-full rounded-2xl" />
+                </div>
+            ) : null}
+        </div>
     );
 }
 

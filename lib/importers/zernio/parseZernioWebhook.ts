@@ -12,6 +12,17 @@ export type ParsedZernioAttachment = {
     name: string | null;
 };
 
+export type ParsedZernioReferral = {
+    ad_id: string;
+    ref: string | null;
+    source: string | null;
+    type: string | null;
+    ad_title: string | null;
+    photo_url: string | null;
+    video_url: string | null;
+    post_id: string | null;
+};
+
 export type ParsedZernioMessage = {
     platform: ZernioInboxPlatform;
     channel: "Instagram" | "Facebook";
@@ -21,6 +32,7 @@ export type ParsedZernioMessage = {
     sender_id: string | null;
     text: string;
     attachment: ParsedZernioAttachment | null;
+    referral: ParsedZernioReferral | null;
     sent_at: string;
     external_id: string;
     external_thread_id: string;
@@ -103,6 +115,10 @@ export function parseZernioMessageWebhook(
     const attachment = firstAttachment(message?.attachments);
     const rawText =
         stringValue(message?.text) ?? stringValue(message?.message) ?? "";
+    const referral =
+        event === "message.received" && direction === "incoming"
+            ? parseReferral(message, root)
+            : null;
 
     return {
         platform,
@@ -114,6 +130,7 @@ export function parseZernioMessageWebhook(
         sender_id: stringValue(sender?.id),
         text: rawText || attachmentLabel(attachment, channel),
         attachment,
+        referral,
         sent_at: normalizeDate(message?.sentAt ?? root?.timestamp),
         external_id: zernioExternalMessageId(
             platform === "facebook" ? `facebook:${messageId}` : messageId,
@@ -133,6 +150,28 @@ export function parseZernioMessageWebhook(
                 ? stringValue(sender?.profilePictureUrl) ??
                   stringValue(sender?.picture)
                 : null),
+    };
+}
+
+function parseReferral(
+    message: Record<string, unknown> | null,
+    root: Record<string, unknown> | null,
+): ParsedZernioReferral | null {
+    const metadata = asRecord(message?.metadata) ?? asRecord(root?.metadata);
+    const referral = asRecord(metadata?.referral);
+    const adId = stringValue(referral?.ad_id);
+    if (!adId) return null;
+
+    const adsContext = asRecord(referral?.adscontextdata);
+    return {
+        ad_id: adId,
+        ref: stringValue(referral?.ref),
+        source: stringValue(referral?.source),
+        type: stringValue(referral?.type),
+        ad_title: stringValue(adsContext?.adtitle),
+        photo_url: stringValue(adsContext?.photo_url),
+        video_url: stringValue(adsContext?.videourl),
+        post_id: stringValue(adsContext?.post_id),
     };
 }
 

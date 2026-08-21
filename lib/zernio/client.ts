@@ -55,6 +55,19 @@ export type SentZernioMessage = {
     message: string | null;
 };
 
+export type ZernioAd = {
+    id: string | null;
+    name: string | null;
+    platform: string | null;
+    platform_ad_id: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+    ad_set_id: string | null;
+    ad_set_name: string | null;
+    image_url: string | null;
+    video_url: string | null;
+};
+
 export class ZernioConfigurationError extends Error {
     constructor(message: string) {
         super(message);
@@ -103,7 +116,6 @@ export async function listZernioAccounts(platform: ZernioInboxPlatform) {
         : [];
 }
 
-
 export async function listZernioWebhooks() {
     const response = await zernioRequest<{ webhooks?: ZernioWebhook[] }>(
         "/webhooks/settings",
@@ -145,7 +157,6 @@ export async function getZernioConnectUrl({
 
     return authUrl;
 }
-
 
 export async function ensureZernioInboxWebhook({
     webhookUrl,
@@ -264,6 +275,37 @@ export async function sendZernioInboxMessage({
         sentAt: normalizeDate(response.data?.sentAt),
         message: response.data?.message ?? (normalizedMessage || null),
     } satisfies SentZernioMessage;
+}
+
+export async function getZernioAd(adId: string): Promise<ZernioAd> {
+    const normalizedAdId = adId.trim();
+    if (!normalizedAdId) {
+        throw new Error("Zernio ad ID is required.");
+    }
+
+    const response = await zernioRequest<{ ad?: unknown }>(
+        `/ads/${encodeURIComponent(normalizedAdId)}`,
+    );
+    const ad = asRecord(response.ad);
+    if (!ad) {
+        throw new ZernioApiError("O Zernio não retornou os dados do anúncio.");
+    }
+    const creative = asRecord(ad.creative);
+
+    return {
+        id: stringValue(ad._id),
+        name: stringValue(ad.name),
+        platform: stringValue(ad.platform),
+        platform_ad_id: stringValue(ad.platformAdId),
+        campaign_id: stringValue(ad.platformCampaignId),
+        campaign_name: stringValue(ad.campaignName),
+        ad_set_id: stringValue(ad.platformAdSetId),
+        ad_set_name: stringValue(ad.adSetName),
+        image_url:
+            stringValue(creative?.imageUrl) ??
+            stringValue(creative?.thumbnailUrl),
+        video_url: stringValue(creative?.videoUrl),
+    };
 }
 
 export function zernioExternalMessageId(messageId: string) {

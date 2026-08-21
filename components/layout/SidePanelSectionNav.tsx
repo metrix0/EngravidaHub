@@ -125,6 +125,19 @@ function findParentLink(nav: HTMLElement, href: string) {
     ) ?? null;
 }
 
+function releaseScrollSpyLock(
+    scrollSpyLockRef: { current: string | null },
+    sectionId: string,
+) {
+    window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+            if (scrollSpyLockRef.current === sectionId) {
+                scrollSpyLockRef.current = null;
+            }
+        });
+    });
+}
+
 export default function SidePanelSectionNav() {
     const pathname = usePathname();
     const config = useMemo(() => getNavigationConfig(pathname), [pathname]);
@@ -134,9 +147,11 @@ export default function SidePanelSectionNav() {
         config?.sections[0]?.id ?? null,
     );
     const scrollSpyLockRef = useRef<string | null>(null);
+    const pendingSectionRef = useRef<string | null>(null);
 
     useEffect(() => {
         scrollSpyLockRef.current = null;
+        pendingSectionRef.current = null;
         setActiveSectionId(config?.sections[0]?.id ?? null);
     }, [config]);
 
@@ -225,7 +240,30 @@ export default function SidePanelSectionNav() {
             targets = nextTargets;
         };
 
+        const scrollPendingSectionIfReady = () => {
+            const pendingSectionId = pendingSectionRef.current;
+            if (!pendingSectionId) return false;
+
+            const target = targets.get(pendingSectionId);
+            if (!target) return false;
+
+            pendingSectionRef.current = null;
+            scrollSpyLockRef.current = pendingSectionId;
+            setActiveSectionId(pendingSectionId);
+            scroller.scrollTo({
+                top: Math.max(0, getTargetTop(scroller, target) - 18),
+                behavior: "auto",
+            });
+            releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId);
+            return true;
+        };
+
         const updateActiveSection = () => {
+            if (pendingSectionRef.current) {
+                setActiveSectionId(pendingSectionRef.current);
+                return;
+            }
+
             if (scrollSpyLockRef.current) {
                 setActiveSectionId(scrollSpyLockRef.current);
                 return;
@@ -248,19 +286,23 @@ export default function SidePanelSectionNav() {
             setActiveSectionId(active);
         };
 
-        resolveTargets();
-        updateActiveSection();
-
-        const mutationObserver = new MutationObserver(() => {
+        const refreshTargetsAndSelection = () => {
             resolveTargets();
-            updateActiveSection();
-        });
+            if (!scrollPendingSectionIfReady()) {
+                updateActiveSection();
+            }
+        };
+
+        refreshTargetsAndSelection();
+
+        const mutationObserver = new MutationObserver(
+            refreshTargetsAndSelection,
+        );
         mutationObserver.observe(scroller, { childList: true, subtree: true });
 
-        const resizeObserver = new ResizeObserver(() => {
-            resolveTargets();
-            updateActiveSection();
-        });
+        const resizeObserver = new ResizeObserver(
+            refreshTargetsAndSelection,
+        );
         resizeObserver.observe(scroller);
 
         scroller.addEventListener("scroll", updateActiveSection, {
@@ -285,19 +327,21 @@ export default function SidePanelSectionNav() {
             section,
             config.sections[0]?.id ?? "",
         );
-        if (!target) return;
 
-        scrollSpyLockRef.current = section.id;
         setActiveSectionId(section.id);
-        scroller.scrollTo({
-            top: Math.max(0, getTargetTop(scroller, target) - 18),
-            behavior: "auto",
-        });
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => {
-                scrollSpyLockRef.current = null;
+
+        if (!target) {
+            pendingSectionRef.current = section.id;
+            scrollSpyLockRef.current = section.id;
+        } else {
+            pendingSectionRef.current = null;
+            scrollSpyLockRef.current = section.id;
+            scroller.scrollTo({
+                top: Math.max(0, getTargetTop(scroller, target) - 18),
+                behavior: "auto",
             });
-        });
+            releaseScrollSpyLock(scrollSpyLockRef, section.id);
+        }
 
         if (window.matchMedia("(max-width: 767px)").matches) {
             const closeButton = document.querySelector<HTMLButtonElement>(

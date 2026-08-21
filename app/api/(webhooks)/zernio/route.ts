@@ -10,6 +10,7 @@ import {
 } from "@/lib/importers/zernio/parseZernioWebhook";
 import { queueThreadForMessage } from "@/lib/inbox/queueThreadForMessage";
 import { supabase } from "@/lib/supabase/client";
+import { persistConversationAdAttribution } from "@/lib/zernio/conversationAdAttribution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -159,6 +160,18 @@ export async function POST(request: Request) {
             );
         }
 
+        if (parsedMessage.referral?.ad_id) {
+            after(() =>
+                persistConversationAdAttribution({
+                    message: parsedMessage,
+                    messageId,
+                    threadId: thread.id,
+                    instagramUserId: instagramUser.id,
+                    requestId,
+                }),
+            );
+        }
+
         console.info(
             `[zernio-webhook:${requestId}] ${parsedMessage.channel} message saved`,
             {
@@ -168,6 +181,7 @@ export async function POST(request: Request) {
                 sender_type: parsedMessage.sender_type,
                 has_attachment: Boolean(parsedMessage.attachment),
                 attachment_queued: Boolean(parsedMessage.attachment),
+                ad_referral_queued: Boolean(parsedMessage.referral?.ad_id),
                 duration_ms: Date.now() - startedAt,
             },
         );
@@ -180,6 +194,7 @@ export async function POST(request: Request) {
             thread_id: thread.id,
             instagram_user_id: instagramUser.id,
             attachment_queued: Boolean(parsedMessage.attachment),
+            ad_referral_queued: Boolean(parsedMessage.referral?.ad_id),
             request_id: requestId,
             duration_ms: Date.now() - startedAt,
         });
