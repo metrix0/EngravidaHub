@@ -39,13 +39,12 @@ export default function DashboardInstagramAttributionPortal() {
             const section = heading?.closest<HTMLElement>(
                 "section.mt-6.min-w-0.max-w-full",
             );
-            const headerBlock = heading?.closest<HTMLElement>("div.px-1");
-            if (!section || !headerBlock) return;
+            if (!section) return;
 
             currentHost?.remove();
             currentHost = document.createElement("div");
             currentHost.dataset.instagramAdAttribution = "true";
-            headerBlock.insertAdjacentElement("afterend", currentHost);
+            section.appendChild(currentHost);
             setHost(currentHost);
         };
 
