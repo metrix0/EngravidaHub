@@ -28,10 +28,18 @@ export default function DashboardInstagramAttributionPortal() {
 
         const install = () => {
             syncSearch();
-            if (currentHost?.isConnected) return;
 
             const root = document.querySelector<HTMLElement>(".app-content > main");
             if (!root) return;
+
+            if (!currentHost?.isConnected) {
+                currentHost?.remove();
+                currentHost = document.createElement("div");
+                currentHost.dataset.instagramAdAttribution = "true";
+                currentHost.style.display = "none";
+                root.appendChild(currentHost);
+                setHost(currentHost);
+            }
 
             const heading = [...root.querySelectorAll<HTMLElement>("h1, h2, h3")].find(
                 (element) => element.textContent?.trim() === INSTAGRAM_HEADING,
@@ -41,11 +49,10 @@ export default function DashboardInstagramAttributionPortal() {
             );
             if (!section) return;
 
-            currentHost?.remove();
-            currentHost = document.createElement("div");
-            currentHost.dataset.instagramAdAttribution = "true";
-            section.appendChild(currentHost);
-            setHost(currentHost);
+            if (currentHost.parentElement !== section) {
+                section.appendChild(currentHost);
+            }
+            currentHost.style.removeProperty("display");
         };
 
         install();
