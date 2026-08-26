@@ -88,6 +88,11 @@ type GroupResult = {
     error: string | null;
 };
 
+type ResgateRunResult = {
+    body: Record<string, unknown>;
+    status: number;
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const requestedCountResult = parseRequestedCount(searchParams.get("n"));
@@ -100,28 +105,91 @@ export async function GET(request: Request) {
     }
 
     const requestedCount = requestedCountResult.value;
-    const targetDate = getSaoPauloDateDaysAgo(
-        DAYS_SINCE_LAST_CLIENT_MESSAGE,
+    const dayOfWeek = getSaoPauloDayOfWeek();
+
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return NextResponse.json({
+            ok: true,
+            skipped: true,
+            reason: "weekend",
+            automation: "resgate",
+            requested_count: requestedCount,
+            selected_count: 0,
+            sent_count: 0,
+            failed_count: 0,
+            groups: [],
+        });
+    }
+
+    const targetDates = [
+        getSaoPauloDateDaysAgo(DAYS_SINCE_LAST_CLIENT_MESSAGE),
+    ];
+
+    if (dayOfWeek === 1 || dayOfWeek === 2) {
+        targetDates.unshift(
+            getSaoPauloDateDaysAgo(DAYS_SINCE_LAST_CLIENT_MESSAGE + 2),
+        );
+    }
+
+    const runs: ResgateRunResult[] = [];
+
+    for (const targetDate of targetDates) {
+        runs.push(await runResgateForTargetDate({ requestedCount, targetDate }));
+    }
+
+    if (runs.length === 1) {
+        return NextResponse.json(runs[0].body, { status: runs[0].status });
+    }
+
+    const selectedCount = sumRunCount(runs, "selected_count");
+    const sentCount = sumRunCount(runs, "sent_count");
+    const failedCount = sumRunCount(runs, "failed_count");
+    const hasFatalError = runs.some((run) => run.status >= 500);
+
+    return NextResponse.json(
+        {
+            ok: !hasFatalError && failedCount === 0,
+            automation: "resgate",
+            requested_count: requestedCount,
+            target_last_client_message_dates: targetDates,
+            selected_count: selectedCount,
+            sent_count: sentCount,
+            failed_count: failedCount,
+            runs: runs.map((run) => run.body),
+        },
+        { status: hasFatalError ? 500 : 200 },
     );
+}
+
+async function runResgateForTargetDate({
+    requestedCount,
+    targetDate,
+}: {
+    requestedCount: number;
+    targetDate: string;
+}): Promise<ResgateRunResult> {
     const { start, end } = getSaoPauloDayBounds(targetDate);
 
     try {
         const previousRun = await loadPreviousRun(targetDate);
 
         if (previousRun.processing) {
-            return NextResponse.json({
-                ok: true,
-                skipped: true,
-                reason: "already_processing",
-                automation: "resgate",
-                requested_count: requestedCount,
-                target_last_client_message_date: targetDate,
-                already_sent_count: previousRun.sentClientIds.size,
-                selected_count: 0,
-                sent_count: 0,
-                failed_count: 0,
-                groups: [],
-            });
+            return {
+                status: 200,
+                body: {
+                    ok: true,
+                    skipped: true,
+                    reason: "already_processing",
+                    automation: "resgate",
+                    requested_count: requestedCount,
+                    target_last_client_message_date: targetDate,
+                    already_sent_count: previousRun.sentClientIds.size,
+                    selected_count: 0,
+                    sent_count: 0,
+                    failed_count: 0,
+                    groups: [],
+                },
+            };
         }
 
         const eligibleClients = (
@@ -136,8 +204,7 @@ export async function GET(request: Request) {
 
         for (const bucketConfig of RESGATE_BUCKETS) {
             const selected = selectedByBucket[bucketConfig.key];
-            const eligibleCount =
-                candidatesByBucket[bucketConfig.key].length;
+            const eligibleCount = candidatesByBucket[bucketConfig.key].length;
 
             if (selected.length === 0) {
                 groupResults.push({
@@ -226,8 +293,9 @@ export async function GET(request: Request) {
             (group) => group.status === "error",
         );
 
-        return NextResponse.json(
-            {
+        return {
+            status: hasFatalError ? 500 : 200,
+            body: {
                 ok: !hasFatalError && failedCount === 0,
                 automation: "resgate",
                 requested_count: requestedCount,
@@ -236,18 +304,17 @@ export async function GET(request: Request) {
                 eligible_count: eligibleClients.length,
                 selected_count: selectedCount,
                 sent_count: sentCount,
-                total_sent_count:
-                    previousRun.sentClientIds.size + sentCount,
+                total_sent_count: previousRun.sentClientIds.size + sentCount,
                 failed_count: failedCount,
                 groups: groupResults,
             },
-            { status: hasFatalError ? 500 : 200 },
-        );
+        };
     } catch (error) {
         console.error("[automations/resgate] failed", error);
 
-        return NextResponse.json(
-            {
+        return {
+            status: 500,
+            body: {
                 ok: false,
                 automation: "resgate",
                 requested_count: requestedCount,
@@ -256,10 +323,19 @@ export async function GET(request: Request) {
                     error instanceof Error
                         ? error.message
                         : "Não foi possível executar o resgate",
+                selected_count: 0,
+                sent_count: 0,
+                failed_count: 0,
             },
-            { status: 500 },
-        );
+        };
     }
+}
+
+function sumRunCount(runs: ResgateRunResult[], key: string) {
+    return runs.reduce((total, run) => {
+        const value = run.body[key];
+        return total + (typeof value === "number" ? value : 0);
+    }, 0);
 }
 
 async function loadPreviousRun(targetDate: string) {
@@ -326,10 +402,7 @@ async function loadEligibleClients({
         supabase.from("funnels").select("id, name"),
     ]);
 
-    const firstError = [
-        stagesResult.error,
-        funnelsResult.error,
-    ].find(Boolean);
+    const firstError = [stagesResult.error, funnelsResult.error].find(Boolean);
 
     if (firstError) throw firstError;
 
@@ -567,6 +640,11 @@ function parseRequestedCount(value: string | null):
     }
 
     return { ok: true, value: parsed };
+}
+
+function getSaoPauloDayOfWeek(now = new Date()) {
+    const date = getSaoPauloDateDaysAgo(0, now);
+    return new Date(`${date}T12:00:00.000Z`).getUTCDay();
 }
 
 function getSaoPauloDateDaysAgo(daysAgo: number, now = new Date()) {
