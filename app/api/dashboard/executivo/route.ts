@@ -494,6 +494,17 @@ function isMissingRpcFunction(error: {
     );
 }
 
+function isMissingDailySatisfactionRpc(error: {
+    code?: string;
+    message?: string;
+}) {
+    return (
+        error.code === "PGRST202" ||
+        error.code === "42883" ||
+        error.message?.includes("dashboard_daily_clear_satisfaction_v1") === true
+    );
+}
+
 async function loadDailySatisfactionEvolution({
     range,
     filters,
@@ -505,6 +516,87 @@ async function loadDailySatisfactionEvolution({
     basePoints: ExecutiveMetricsPayload["daily_evolution"];
     signal: AbortSignal;
 }): Promise<ExecutiveMetricsPayload["daily_evolution"]> {
+    const aggregateResult = await supabase
+        .rpc(
+            "dashboard_daily_clear_satisfaction_v1",
+            executiveRpcParams(
+                { startAt: range.startAt, endAt: range.endAt },
+                filters,
+            ),
+        )
+        .abortSignal(signal);
+
+    if (!aggregateResult.error) {
+        const totals = new Map<
+            string,
+            { analyzed: number; observed: number; satisfied: number }
+        >();
+
+        for (const value of arrayOrEmpty<Record<string, unknown>>(
+            aggregateResult.data,
+        )) {
+            const dateIso =
+                typeof value.date_iso === "string" ? value.date_iso : "";
+            if (!dateIso) continue;
+
+            totals.set(dateIso, {
+                analyzed:
+                    typeof value.analyzed === "number" ? value.analyzed : 0,
+                observed:
+                    typeof value.observed === "number" ? value.observed : 0,
+                satisfied:
+                    typeof value.satisfied === "number" ? value.satisfied : 0,
+            });
+        }
+
+        const existingByDate = new Map<
+            string,
+            ExecutiveMetricsPayload["daily_evolution"][number]
+        >();
+        for (const point of basePoints) {
+            if (point.date_iso) existingByDate.set(point.date_iso, point);
+            existingByDate.set(point.date, point);
+        }
+
+        const startDate = range.startDate ?? brazilDate(range.startAt);
+        const endDate =
+            range.endDate ??
+            brazilDate(
+                new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+            );
+
+        return buildDateRange(startDate, endDate).map((dateIso) => {
+            const [, month, day] = dateIso.split("-");
+            const date = `${day}/${month}`;
+            const base = existingByDate.get(dateIso) ?? existingByDate.get(date);
+            const current = totals.get(dateIso) ?? {
+                analyzed: 0,
+                observed: 0,
+                satisfied: 0,
+            };
+
+            return {
+                date,
+                date_iso: dateIso,
+                conversations: base?.conversations ?? current.analyzed,
+                resolution_rate: base?.resolution_rate ?? null,
+                resolution_observed: base?.resolution_observed ?? 0,
+                satisfaction_rate:
+                    current.observed > 0 && current.analyzed > 0
+                        ? percentage(current.satisfied, current.analyzed)
+                        : null,
+                satisfaction_observed: current.observed,
+            };
+        });
+    }
+
+    if (!isMissingDailySatisfactionRpc(aggregateResult.error)) {
+        console.warn(
+            "[dashboard/executivo] daily satisfaction RPC unavailable; using compatibility reads",
+            aggregateResult.error,
+        );
+    }
+
     try {
         const [analyses, whatsappConversationIds] = await Promise.all([
             loadSatisfactionAnalyses(range, signal),
