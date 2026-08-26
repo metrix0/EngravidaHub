@@ -252,7 +252,7 @@ export default function ExecutiveDashboardPage() {
                 const response = await fetch(
                     `/api/dashboard/executivo?${wordParams.toString()}`,
                     {
-                        cache: "no-store",
+                        cache: "default",
                         signal: controller.signal,
                     },
                 );
