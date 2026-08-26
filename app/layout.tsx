@@ -10,6 +10,7 @@ import PermanentClientProfilePanel from "@/components/clientes/PermanentClientPr
 import { FloatingConversationPanel } from "@/components/conversations/FloatingConversationPanel";
 import { DashboardDateFilterProvider } from "@/components/dashboard/DashboardDateFilterProvider";
 import DashboardInstagramAttributionPortal from "@/components/dashboard/DashboardInstagramAttributionPortal";
+import DashboardRuntimeGuard from "@/components/dashboard/DashboardRuntimeGuard";
 import SidePanel from "@/components/layout/SidePanel";
 import SidePanelSectionNav from "@/components/layout/SidePanelSectionNav";
 import {
@@ -42,7 +43,11 @@ export default async function RootLayout({
     );
 
     return (
-        <html lang="pt-BR" className={`${inter.variable} antialiased`}>
+        <html
+            lang="pt-BR"
+            className={`${inter.variable} antialiased`}
+            suppressHydrationWarning
+        >
             <head>
                 <script
                     dangerouslySetInnerHTML={{
@@ -64,7 +69,9 @@ export default async function RootLayout({
                                 <DashboardInstagramAttributionPortal />
 
                                 <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
-                                    {children}
+                                    <DashboardRuntimeGuard>
+                                        {children}
+                                    </DashboardRuntimeGuard>
                                 </div>
 
                                 <FloatingConversationPanel />
