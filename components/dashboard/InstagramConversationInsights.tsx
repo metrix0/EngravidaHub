@@ -169,9 +169,6 @@ export default function InstagramConversationInsights({
 
     useEffect(() => {
         const controller = new AbortController();
-        const debounceId = window.setTimeout(() => {
-            void loadInstagramInsights();
-        }, 120);
 
         async function loadInstagramInsights() {
             setLoading(true);
@@ -222,8 +219,9 @@ export default function InstagramConversationInsights({
             }
         }
 
+        void loadInstagramInsights();
+
         return () => {
-            window.clearTimeout(debounceId);
             controller.abort();
         };
     }, [mode, period, selectedRange.end, selectedRange.start]);
@@ -1324,4 +1322,3 @@ function formatDuration(value: number | null) {
     const minutes = Math.round((seconds % 3_600) / 60);
     return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
 }
-

@@ -1,6 +1,7 @@
 // lib/ads/finance/syncAdsFinance.ts
 import { supabase } from "@/lib";
 import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
+import { backfillConversationAdAttributions } from "@/lib/zernio/conversationAdAttribution";
 
 export type AdsFinancePlatform = "google_ads" | "meta_ads";
 export type AdsFinancePlatformFilter = AdsFinancePlatform | "all";
@@ -151,6 +152,31 @@ export async function syncAdsFinance({
     }
 
     const platforms = await Promise.all(jobs);
+    const metaResult = platforms.find(
+        (item) => item.platform === "meta_ads" && item.ok && !item.skipped,
+    );
+    let conversationAttributionBackfill = null;
+
+    if (metaResult) {
+        try {
+            conversationAttributionBackfill =
+                await backfillConversationAdAttributions();
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            console.error("[syncAdsFinance] attribution backfill failed", {
+                reason,
+            });
+            conversationAttributionBackfill = {
+                attempted_ads: 0,
+                resolved_ads: 0,
+                failed_ads: 0,
+                resolved_attributions: 0,
+                locations_updated: 0,
+                first_error: reason,
+            };
+        }
+    }
+
     const attempted = platforms.filter((item) => !item.skipped);
     const result = {
         sync_version: ADS_FINANCE_SYNC_VERSION,
@@ -177,6 +203,7 @@ export async function syncAdsFinance({
             (total, item) => total + item.city_unmatched,
             0,
         ),
+        conversation_attribution_backfill: conversationAttributionBackfill,
         duration_ms: Date.now() - startedAt,
     };
 

@@ -1,3 +1,4 @@
+// components/dashboard/DashboardInstagramAttributionPortal.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,7 +20,9 @@ export default function DashboardInstagramAttributionPortal() {
             return;
         }
 
-        let currentHost: HTMLDivElement | null = null;
+        const currentHost = document.createElement("div");
+        currentHost.dataset.instagramAdAttribution = "true";
+        setHost(currentHost);
 
         const syncSearch = () => {
             const next = window.location.search.replace(/^\?/, "");
@@ -41,11 +44,7 @@ export default function DashboardInstagramAttributionPortal() {
             );
             if (!section) return;
 
-            currentHost?.remove();
-            currentHost = document.createElement("div");
-            currentHost.dataset.instagramAdAttribution = "true";
             section.appendChild(currentHost);
-            setHost(currentHost);
         };
 
         install();
@@ -57,7 +56,7 @@ export default function DashboardInstagramAttributionPortal() {
         return () => {
             observer.disconnect();
             window.clearInterval(intervalId);
-            currentHost?.remove();
+            currentHost.remove();
             setHost(null);
         };
     }, [pathname]);
