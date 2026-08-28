@@ -172,17 +172,15 @@ function buildPayload(
 
     for (const attribution of latestByClient.values()) {
         const campaignKey =
-            attribution.campaign_id ??
-            attribution.campaign_name ??
-            "__unresolved_meta_campaign__";
-        const campaignLabel =
-            attribution.campaign_name ?? "Meta Ads — campanha não resolvida";
-        const campaign = campaigns.get(campaignKey) ?? {
-            label: campaignLabel,
-            count: 0,
-        };
-        campaign.count += 1;
-        campaigns.set(campaignKey, campaign);
+            attribution.campaign_id ?? attribution.campaign_name;
+        if (campaignKey) {
+            const campaign = campaigns.get(campaignKey) ?? {
+                label: attribution.campaign_name ?? "Campanha Meta",
+                count: 0,
+            };
+            campaign.count += 1;
+            campaigns.set(campaignKey, campaign);
+        }
 
         const adKey = attribution.meta_ad_id;
         const ad = ads.get(adKey) ?? {
