@@ -24,6 +24,8 @@ export const maxDuration = 300;
 const MODEL = process.env.OPENAI_AI_CHAT_MODEL ?? "gpt-5-mini";
 const MAX_MESSAGES = 30;
 const MAX_TOOL_ROUNDS = 8;
+const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_OUTPUT_TOKENS = 6_000;
 const MAX_RESPONSE_CARDS = 2;
 const MAX_CONVERSATION_CARDS = 1;
 const MAX_CLIENT_CARDS = 1;
@@ -195,6 +197,52 @@ const TOOLS = [
                 conversation_id: { type: "string" },
             },
             required: ["conversation_id"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_conversation_analysis_overview",
+        description:
+            "Analisa conversas agregadas do WhatsApp por período e unidade, com foco em agendamento, não agendamento, objeções, abandono, resolução, satisfação e qualidade. Use para explicar por que clientes não agendaram.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    enum: ["WhatsApp"],
+                },
+                relative_days: {
+                    type: ["integer", "null"],
+                    minimum: 1,
+                    maximum: 365,
+                    description:
+                        "Use N para pedidos de últimos N dias; o servidor inclui hoje no período. Use null para datas explícitas.",
+                },
+                date_from: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa os últimos 30 dias.",
+                },
+                date_to: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa hoje.",
+                },
+                unit_name: { type: ["string", "null"] },
+                include_example: {
+                    type: "boolean",
+                    description:
+                        "Use true quando uma conversa real ajudar a sustentar a conclusão principal.",
+                },
+            },
+            required: [
+                "channel",
+                "relative_days",
+                "date_from",
+                "date_to",
+                "unit_name",
+                "include_example",
+            ],
             additionalProperties: false,
         },
     },
@@ -495,6 +543,7 @@ export async function POST(request: Request) {
 
     try {
         const cards = new Map<string, AssistantCard>();
+        let emptyResponseRetries = 0;
         let input: unknown[] = messages.map((message) => ({
             role: message.role,
             content: message.content,
@@ -509,7 +558,7 @@ export async function POST(request: Request) {
                 input,
                 tools: TOOLS,
                 tool_choice: "auto",
-                max_output_tokens: 2_500,
+                max_output_tokens: MAX_OUTPUT_TOKENS,
             });
 
             const output = (response.output ?? []) as unknown as Array<
@@ -525,13 +574,39 @@ export async function POST(request: Request) {
                         ? sanitizeAssistantMarkdown(response.output_text)
                         : "";
 
+                if (
+                    !content &&
+                    emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
+                ) {
+                    emptyResponseRetries += 1;
+                    console.error("[assistente] empty model response", {
+                        model: response.model,
+                        status: response.status,
+                        incompleteReason:
+                            response.incomplete_details?.reason ?? null,
+                        outputTypes: output.map((item) => item.type),
+                        outputTokens: response.usage?.output_tokens ?? null,
+                    });
+
+                    input = [
+                        ...input,
+                        ...toStatelessContinuationItems(output),
+                        {
+                            role: "user",
+                            content:
+                                "A tentativa anterior terminou sem texto. Conclua a resposta agora. Se faltarem dados, use a ferramenta adequada; se os dados realmente não existirem, explique exatamente qual cobertura está ausente.",
+                        },
+                    ];
+                    continue;
+                }
+
                 return NextResponse.json({
                     ok: true,
                     message: {
                         role: "assistant",
                         content:
                             content ||
-                            "Não consegui produzir uma resposta com os dados disponíveis.",
+                            "## Não foi possível concluir a consulta\n\nO modelo não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o erro técnico.",
                         cards: selectResponseCards(cards),
                     },
                 });
@@ -687,7 +762,7 @@ REGRAS:
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook, funil, Mensagem Ativa, resgate, eventos de conversão, equipe interna ou operação. Nunca invente dados.
 3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
 4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
-5. Em perguntas de baixa conversão, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
+5. Para uma análise geral de conversas do WhatsApp, objeções ou motivos de não agendamento, use get_conversation_analysis_overview. Em pedidos de “últimos N dias”, envie relative_days=N para que hoje conte como o primeiro dia; não calcule date_from manualmente. Para Instagram/Facebook, use somente as ferramentas sociais disponíveis e informe quando elas não oferecerem uma análise agregada. Em perguntas de baixa conversão de uma unidade, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
 8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.

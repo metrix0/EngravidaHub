@@ -34,6 +34,11 @@ const MAX_ANALYTICS_ROWS = 25_000;
 const MAX_FINANCIAL_ROWS = 25_000;
 const ANALYTICS_PAGE_SIZE = 1_000;
 const TIME_ZONE = "America/Sao_Paulo";
+const SCHEDULED_CONVERSATION_STATES = new Set([
+    "scheduled",
+    "rescheduled",
+    "confirmed_attendance",
+]);
 
 type ScheduleSearchRow = {
     id: string;
@@ -87,6 +92,8 @@ export async function executeAssistantDataTool(
             return searchConversations(args);
         case "get_conversation_context":
             return getConversationContext(args);
+        case "get_conversation_analysis_overview":
+            return getConversationAnalysisOverview(args);
         case "analyze_unit_performance":
             return analyzeUnitPerformance(args);
         case "compare_unit_performance":
@@ -822,6 +829,161 @@ async function getConversationContext(
             transcript_truncated: context.transcriptTruncated,
         },
         cards: [{ type: "conversation", data: context.card }],
+    };
+}
+
+async function getConversationAnalysisOverview(
+    args: JsonRecord,
+): Promise<ToolExecution> {
+    const relativeDays = integerArg(args, "relative_days", 0, 0, 365);
+    const today = todayInBrazil();
+    const requestedFrom =
+        relativeDays > 0
+            ? addDays(today, 1 - relativeDays)
+            : validDateArg(args, "date_from") ?? dateDaysAgo(30);
+    const requestedTo =
+        relativeDays > 0
+            ? today
+            : validDateArg(args, "date_to") ?? today;
+    const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
+    const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const unitName = stringArg(args, "unit_name");
+    const includeExample = booleanArg(args, "include_example", true);
+    const unit = unitName ? await resolveSingleUnit(unitName) : null;
+
+    if (unitName && !unit) {
+        return {
+            output: {
+                ok: true,
+                period: { date_from: dateFrom, date_to: dateTo },
+                channel: "WhatsApp",
+                unit: null,
+                note: `Unidade “${unitName}” não encontrada.`,
+            },
+            cards: [],
+        };
+    }
+
+    const [rows, conversationCoverage] = await Promise.all([
+        loadAnalysisRows({
+            dateFrom,
+            dateTo,
+            unitId: unit?.id,
+            channel: "WhatsApp",
+        }),
+        countWhatsAppConversations({
+            dateFrom,
+            dateTo,
+            unitId: unit?.id,
+        }),
+    ]);
+    const scheduledRows = rows.filter(isScheduledConversationOutcome);
+    const notScheduledRows = rows.filter(
+        (row) => !isScheduledConversationOutcome(row),
+    );
+    const rowsWithObjections = notScheduledRows.filter(hasTypedObjection);
+    const dropoffRows = notScheduledRows.filter(
+        (row) => row.dropoff_happened === true,
+    );
+    const metrics = calculateAnalysisMetrics(rows);
+    const cards: AssistantCard[] = [];
+
+    if (includeExample) {
+        const evidenceRows =
+            rowsWithObjections.length > 0
+                ? rowsWithObjections
+                : notScheduledRows;
+        const conversationId = selectRepresentativeConversations(
+            evidenceRows,
+            1,
+        )[0];
+
+        if (conversationId) {
+            const context = await loadConversationContext(conversationId);
+            if (context) cards.push({ type: "conversation", data: context.card });
+        }
+    }
+
+    const coverageNote = conversationCoverage.error
+        ? conversationCoverage.error
+        : rows.length >= MAX_ANALYTICS_ROWS
+          ? `A leitura atingiu o limite de ${MAX_ANALYTICS_ROWS.toLocaleString("pt-BR")} análises; refine o período para precisão total.`
+          : "Todas as análises disponíveis no período foram lidas.";
+
+    return {
+        output: {
+            ok: true,
+            period: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                timezone: TIME_ZONE,
+            },
+            channel: "WhatsApp",
+            unit: unit ? { name: unit.name } : null,
+            coverage: {
+                total_conversations: conversationCoverage.count,
+                analyzed_conversations: rows.length,
+                analysis_coverage_rate:
+                    conversationCoverage.count === null
+                        ? null
+                        : percentage(rows.length, conversationCoverage.count),
+                capped: rows.length >= MAX_ANALYTICS_ROWS,
+                note: coverageNote,
+            },
+            outcomes: {
+                scheduled_or_confirmed_conversations: scheduledRows.length,
+                not_scheduled_conversations: notScheduledRows.length,
+                scheduling_or_confirmation_rate: percentage(
+                    scheduledRows.length,
+                    rows.length,
+                ),
+                goal_achievement_rate: metrics.goal_achievement_rate,
+            },
+            non_scheduling: {
+                conversations: notScheduledRows.length,
+                conversations_with_objections: rowsWithObjections.length,
+                objection_coverage_rate: percentage(
+                    rowsWithObjections.length,
+                    notScheduledRows.length,
+                ),
+                unresolved_objection_conversations: notScheduledRows.filter(
+                    hasUnresolvedObjection,
+                ).length,
+                dropoffs: dropoffRows.length,
+                dropoff_rate: percentage(
+                    dropoffRows.length,
+                    notScheduledRows.length,
+                ),
+                top_objections: summarizeConversationObjections(
+                    notScheduledRows,
+                ),
+                top_dropoff_moments: labeledTopValues(
+                    dropoffRows.map((row) => row.dropoff_moment),
+                    dropoffMomentLabel,
+                    10,
+                ),
+                top_dropoff_reasons: topValues(
+                    dropoffRows.map((row) => row.dropoff_likely_reason),
+                    12,
+                ),
+            },
+            quality: {
+                resolution_rate: metrics.resolution_rate,
+                average_satisfaction_score:
+                    metrics.average_satisfaction_score,
+                average_attendant_quality_score:
+                    metrics.average_attendant_quality_score,
+                average_first_human_response_seconds:
+                    metrics.average_first_human_response_seconds,
+                average_human_response_seconds:
+                    metrics.average_human_response_seconds,
+            },
+            data_notes: [
+                "Não agendamento exclui os estados agendado, reagendado e presença confirmada.",
+                "Percentuais de objeção usam como base as conversas analisadas sem agendamento; uma conversa pode conter mais de uma objeção.",
+            ],
+        },
+        cards,
     };
 }
 
@@ -2143,10 +2305,12 @@ async function loadAnalysisRows({
     dateFrom,
     dateTo,
     unitId,
+    channel,
 }: {
     dateFrom: string;
     dateTo: string;
     unitId?: string;
+    channel?: "WhatsApp";
 }) {
     const rows: AnalysisRow[] = [];
     const fromIso = brazilDayBoundary(dateFrom);
@@ -2187,6 +2351,9 @@ async function loadAnalysisRows({
                         id,
                         name
                     )
+                ),
+                conversations!conversation_analysis_conversation_id_fkey!inner (
+                    channel
                 )
             `)
             .gte("started_at", fromIso)
@@ -2195,6 +2362,7 @@ async function loadAnalysisRows({
             .range(offset, offset + ANALYTICS_PAGE_SIZE - 1);
 
         if (unitId) query = query.eq("clients.unit_id", unitId);
+        if (channel) query = query.eq("conversations.channel", channel);
 
         const { data, error } = await query;
 
@@ -2249,11 +2417,7 @@ async function loadAnalysisRows({
 
 function calculateAnalysisMetrics(rows: AnalysisRow[]) {
     const total = rows.length;
-    const scheduled = rows.filter((row) =>
-        ["scheduled", "rescheduled"].includes(
-            row.customer_final_state ?? "",
-        ),
-    ).length;
+    const scheduled = rows.filter(isScheduledConversationOutcome).length;
     const achieved = rows.filter((row) => row.goal_status === "achieved").length;
     const dropoffs = rows.filter((row) => row.dropoff_happened === true).length;
     const resolved = rows.filter(
@@ -2302,6 +2466,204 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
             rows.map((row) => row.customer_sentiment),
         ),
     };
+}
+
+async function countWhatsAppConversations({
+    dateFrom,
+    dateTo,
+    unitId,
+}: {
+    dateFrom: string;
+    dateTo: string;
+    unitId?: string;
+}): Promise<{ count: number | null; error: string | null }> {
+    let query = supabase
+        .from("conversations")
+        .select(unitId ? "id, clients!inner(unit_id)" : "id", {
+            count: "exact",
+            head: true,
+        })
+        .eq("channel", "WhatsApp")
+        .gte("started_at", brazilDayBoundary(dateFrom))
+        .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)));
+
+    if (unitId) query = query.eq("clients.unit_id", unitId);
+
+    const { count, error } = await query;
+
+    if (error) {
+        console.error("[assistente] conversation coverage failed", error);
+        return {
+            count: null,
+            error: "A contagem total de conversas ficou indisponível.",
+        };
+    }
+
+    return { count: count ?? 0, error: null };
+}
+
+function summarizeConversationObjections(rows: AnalysisRow[]) {
+    const summaries = new Map<
+        string,
+        {
+            conversations: number;
+            mentions: number;
+            resolved: number;
+            unresolved: number;
+            severities: Map<string, number>;
+        }
+    >();
+
+    for (const row of rows) {
+        if (!Array.isArray(row.objections)) continue;
+
+        const typesInConversation = new Set<string>();
+
+        for (const objection of row.objections) {
+            if (!isRecord(objection)) continue;
+
+            const type = stringValue(objection.type);
+            if (!type) continue;
+
+            const current = summaries.get(type) ?? {
+                conversations: 0,
+                mentions: 0,
+                resolved: 0,
+                unresolved: 0,
+                severities: new Map<string, number>(),
+            };
+
+            current.mentions += 1;
+            if (!typesInConversation.has(type)) {
+                current.conversations += 1;
+                typesInConversation.add(type);
+            }
+
+            if (objectionIsResolved(objection)) current.resolved += 1;
+            else current.unresolved += 1;
+
+            const severity = stringValue(objection.severity) ?? "unknown";
+            current.severities.set(
+                severity,
+                (current.severities.get(severity) ?? 0) + 1,
+            );
+            summaries.set(type, current);
+        }
+    }
+
+    return [...summaries.entries()]
+        .map(([type, summary]) => ({
+            type,
+            label: objectionTypeLabel(type),
+            conversations: summary.conversations,
+            percentage_of_not_scheduled: percentage(
+                summary.conversations,
+                rows.length,
+            ),
+            mentions: summary.mentions,
+            resolved: summary.resolved,
+            unresolved: summary.unresolved,
+            resolution_rate: percentage(
+                summary.resolved,
+                summary.resolved + summary.unresolved,
+            ),
+            severity_distribution: Object.fromEntries(
+                [...summary.severities.entries()].sort(
+                    (first, second) => second[1] - first[1],
+                ),
+            ),
+        }))
+        .sort(
+            (first, second) =>
+                second.conversations - first.conversations ||
+                second.mentions - first.mentions,
+        )
+        .slice(0, 10);
+}
+
+function labeledTopValues(
+    values: Array<string | null | undefined>,
+    label: (value: string) => string,
+    limit: number,
+) {
+    return topValues(values, limit).map((row) => ({
+        key: row.value,
+        label: label(row.value),
+        count: row.count,
+    }));
+}
+
+function isScheduledConversationOutcome(row: AnalysisRow) {
+    return SCHEDULED_CONVERSATION_STATES.has(
+        row.customer_final_state ?? "",
+    );
+}
+
+function hasTypedObjection(row: AnalysisRow) {
+    return (
+        Array.isArray(row.objections) &&
+        row.objections.some(
+            (objection) =>
+                isRecord(objection) && Boolean(stringValue(objection.type)),
+        )
+    );
+}
+
+function hasUnresolvedObjection(row: AnalysisRow) {
+    return (
+        Array.isArray(row.objections) &&
+        row.objections.some(
+            (objection) =>
+                isRecord(objection) &&
+                Boolean(stringValue(objection.type)) &&
+                !objectionIsResolved(objection),
+        )
+    );
+}
+
+function objectionIsResolved(objection: JsonRecord) {
+    return objection.resolved === true;
+}
+
+function stringValue(value: unknown) {
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function objectionTypeLabel(value: string) {
+    const labels: Record<string, string> = {
+        price: "Preço",
+        time_availability: "Disponibilidade de horário",
+        distance: "Distância",
+        trust: "Confiança",
+        medical_uncertainty: "Incerteza médica",
+        online_consultation: "Consulta on-line",
+        partner_or_family: "Parceiro(a) ou família",
+        other: "Outros",
+    };
+
+    return labels[value] ?? humanizeAnalysisKey(value);
+}
+
+function dropoffMomentLabel(value: string) {
+    const labels: Record<string, string> = {
+        after_schedule_options: "Após receber opções de agendamento",
+        after_delay: "Após demora no atendimento",
+        after_unit_presented: "Após apresentação da unidade",
+        after_medical_question: "Após pergunta médica",
+        after_price: "Após apresentação do preço",
+        after_payment_info: "Após informações de pagamento",
+        after_consultation_online: "Após informações de consulta on-line",
+        unknown: "Momento não identificado",
+    };
+
+    return labels[value] ?? humanizeAnalysisKey(value);
+}
+
+function humanizeAnalysisKey(value: string) {
+    const normalized = value.replace(/_/g, " ").trim();
+    return normalized
+        ? normalized.charAt(0).toLocaleUpperCase("pt-BR") + normalized.slice(1)
+        : value;
 }
 
 function compareMetrics(
