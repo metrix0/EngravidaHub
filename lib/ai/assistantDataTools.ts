@@ -835,8 +835,16 @@ async function getConversationContext(
 async function getConversationAnalysisOverview(
     args: JsonRecord,
 ): Promise<ToolExecution> {
-    const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
-    const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
+    const relativeDays = integerArg(args, "relative_days", 0, 0, 365);
+    const today = todayInBrazil();
+    const requestedFrom =
+        relativeDays > 0
+            ? addDays(today, 1 - relativeDays)
+            : validDateArg(args, "date_from") ?? dateDaysAgo(30);
+    const requestedTo =
+        relativeDays > 0
+            ? today
+            : validDateArg(args, "date_to") ?? today;
     const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
     const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
     const unitName = stringArg(args, "unit_name");
