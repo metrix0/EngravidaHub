@@ -2,6 +2,7 @@
 import { randomUUID } from "crypto";
 
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
+import { assertHubMessageAllowed } from "@/lib/messaging/messageSuppression";
 
 const ACTIVE_CAMPAIGN_POSTMASTER = "postmaster@activecampaign.msging.net";
 const ACTIVE_CAMPAIGN_URI = "/campaign/full";
@@ -90,6 +91,8 @@ export async function sendBlipActiveTemplateMessage({
     template: ActiveMessageTemplate;
     messageParams: Record<string, string>;
 }): Promise<SentBlipActiveTemplateMessage> {
+    await assertHubMessageAllowed(recipientNumber);
+
     const config = getActiveRouterConfig();
     const normalizedPhone = normalizeBrazilianPhone(recipientNumber);
     const discoveredTemplate = await discoverApprovedTemplate({

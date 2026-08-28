@@ -2,6 +2,7 @@
 import { randomUUID } from "crypto";
 
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
+import { assertHubMessageAllowed } from "@/lib/messaging/messageSuppression";
 
 const ACTIVE_CAMPAIGN_POSTMASTER = "postmaster@activecampaign.msging.net";
 const ACTIVE_CAMPAIGN_URI = "/campaign/full";
@@ -136,6 +137,8 @@ export async function sendBlipTemplateMessage({
     template: ActiveMessageTemplate;
     messageParams: Record<string, string>;
 }): Promise<SentBlipTemplateMessage> {
+    await assertHubMessageAllowed(recipientNumber);
+
     const contractId = getRequiredEnvironmentValue("BLIP_CONTRACT_ID");
     const commandsEndpoint = `https://${contractId}.http.msging.net/commands`;
     const routerAuth = getRouterAuthorization(contractId);

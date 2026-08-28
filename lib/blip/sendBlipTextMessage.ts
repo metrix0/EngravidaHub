@@ -1,6 +1,8 @@
 // lib/blip/sendBlipTextMessage.ts
 import { randomUUID } from "crypto";
 
+import { assertHubMessageAllowed } from "@/lib/messaging/messageSuppression";
+
 const BLIP_WHATSAPP_SUFFIX = "@wa.gw.msging.net";
 const BLIP_REQUEST_TIMEOUT_MS = 20_000;
 const BLIP_MESSAGES_CONTRACT_ID = "engravida";
@@ -187,6 +189,8 @@ async function sendBlipEnvelope({
     requestId: string;
     body: BlipMessageBody;
 }): Promise<SentBlipMessage> {
+    await assertHubMessageAllowed(body.to);
+
     const auth = getBlipAuth();
     const endpoint = `https://${BLIP_MESSAGES_CONTRACT_ID}.http.msging.net/messages`;
     const startedAtMs = Date.now();

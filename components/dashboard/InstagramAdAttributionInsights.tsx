@@ -1,3 +1,4 @@
+// components/dashboard/InstagramAdAttributionInsights.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -68,9 +69,6 @@ export default function InstagramAdAttributionInsights({
 
     useEffect(() => {
         const controller = new AbortController();
-        const debounceId = window.setTimeout(() => {
-            void loadData();
-        }, 120);
 
         async function loadData() {
             setLoading(true);
@@ -111,8 +109,9 @@ export default function InstagramAdAttributionInsights({
             }
         }
 
+        void loadData();
+
         return () => {
-            window.clearTimeout(debounceId);
             controller.abort();
         };
     }, [searchParams]);

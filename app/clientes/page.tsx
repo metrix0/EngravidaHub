@@ -89,6 +89,7 @@ type ClientTableRow = {
 };
 
 const CLIENTS_PER_PAGE = 100;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
     {
@@ -253,6 +254,7 @@ export default function ClientesPage() {
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
 
     function resetPageAndSet<T>(setter: (value: T) => void) {
         return (value: T) => {
@@ -288,8 +290,19 @@ export default function ClientesPage() {
         setTunnelValues(
             readUrlFilterValues(params, ["tunnel", "tunnels"]),
         );
-        setSearch(readUrlFilterValue(params, ["search", "q"]) ?? "");
+        const initialSearch =
+            readUrlFilterValue(params, ["search", "q"]) ?? "";
+        setSearch(initialSearch);
+        setDebouncedSearch(initialSearch);
     }, []);
+
+    useEffect(() => {
+        const debounceId = window.setTimeout(() => {
+            setDebouncedSearch(search);
+        }, SEARCH_DEBOUNCE_MS);
+
+        return () => window.clearTimeout(debounceId);
+    }, [search]);
 
     const normalizedUnitUrlValues = useMemo(
         () =>
@@ -331,14 +344,14 @@ export default function ClientesPage() {
             },
             {
                 key: "search",
-                value: search.trim() || null,
+                value: debouncedSearch.trim() || null,
                 aliases: ["q"],
             },
         ]);
     }, [
         closingTagValues,
         dateFilterReady,
-        search,
+        debouncedSearch,
         sourceValues,
         stageValues,
         tunnelValues,
@@ -524,7 +537,7 @@ export default function ClientesPage() {
     }, [stages, stageValues]);
 
     const filteredClients = useMemo(() => {
-        const term = search.trim().toLowerCase();
+        const term = debouncedSearch.trim().toLowerCase();
 
         return clients.filter((client) => {
             if (
@@ -587,7 +600,7 @@ export default function ClientesPage() {
         clients,
         closingTagValues,
         interactionDateRange,
-        search,
+        debouncedSearch,
         sourceValues,
         stageValues,
         tunnelValues,
