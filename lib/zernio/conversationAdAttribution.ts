@@ -274,13 +274,32 @@ async function resolveConversationAd(metaAdId: string) {
 }
 
 async function getMetaGraphAd(metaAdId: string): Promise<ConversationAdDetails> {
-    const accessToken =
-        process.env.META_ADS_ACCESS_TOKEN?.trim() ||
-        process.env.META_ACCESS_TOKEN?.trim();
-    if (!accessToken) {
+    const accessTokens = [...new Set(
+        [
+            process.env.META_ADS_ACCESS_TOKEN?.trim(),
+            process.env.META_ACCESS_TOKEN?.trim(),
+        ].filter((value): value is string => Boolean(value)),
+    )];
+    if (accessTokens.length === 0) {
         throw new Error("Meta Ads access token is not configured");
     }
 
+    let firstError: unknown = null;
+    for (const accessToken of accessTokens) {
+        try {
+            return await requestMetaGraphAd(metaAdId, accessToken);
+        } catch (error) {
+            firstError ??= error;
+        }
+    }
+
+    throw firstError ?? new Error("Meta ad lookup failed");
+}
+
+async function requestMetaGraphAd(
+    metaAdId: string,
+    accessToken: string,
+): Promise<ConversationAdDetails> {
     const apiVersion = (
         process.env.META_GRAPH_API_VERSION?.trim() || "v25.0"
     ).replace(/^\/+|\/+$/g, "");
