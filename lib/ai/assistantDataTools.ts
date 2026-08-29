@@ -9,6 +9,7 @@ import {
     type DoctorReference,
 } from "@/lib/invoices/matchDoctor";
 import { getPaidMediaOverview } from "@/lib/ai/assistantPaidMediaTool";
+import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
 import {
     getScheduleStatusFlags,
     getScheduleStatusLabel,
@@ -975,6 +976,20 @@ async function getConversationAnalysisOverview(
                     metrics.average_attendant_quality_score,
                 average_first_human_response_seconds:
                     metrics.average_first_human_response_seconds,
+                raw_average_first_human_response_seconds:
+                    metrics.raw_average_first_human_response_seconds,
+                median_first_human_response_seconds:
+                    metrics.median_first_human_response_seconds,
+                p90_first_human_response_seconds:
+                    metrics.p90_first_human_response_seconds,
+                first_human_response_observed:
+                    metrics.first_human_response_observed,
+                first_human_response_included_in_average:
+                    metrics.first_human_response_included_in_average,
+                first_human_response_excluded_over_2h:
+                    metrics.first_human_response_excluded_over_2h,
+                first_human_response_normalization:
+                    metrics.normalization_rule,
                 average_human_response_seconds:
                     metrics.average_human_response_seconds,
             },
@@ -2423,6 +2438,9 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
     const resolved = rows.filter(
         (row) => row.resolution_result === "resolved",
     ).length;
+    const firstHumanResponse = summarizeFirstHumanResponseTimes(
+        rows.map((row) => row.first_human_response_time_seconds),
+    );
 
     return {
         analyzed_conversations: total,
@@ -2440,9 +2458,7 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
         average_attendant_quality_score: average(
             rows.map((row) => row.attendant_quality_score),
         ),
-        average_first_human_response_seconds: average(
-            rows.map((row) => row.first_human_response_time_seconds),
-        ),
+        ...firstHumanResponse,
         average_human_response_seconds: average(
             rows.map((row) => row.average_human_response_time_seconds),
         ),

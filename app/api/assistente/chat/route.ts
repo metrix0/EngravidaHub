@@ -1,6 +1,11 @@
 // app/api/assistente/chat/route.ts
 import { NextResponse } from "next/server";
 
+import { supabase } from "@/lib";
+import {
+    executeAssistantAdvancedDataTool,
+    isAssistantAdvancedDataTool,
+} from "@/lib/ai/assistantAdvancedDataTools";
 import { executeAssistantDataTool } from "@/lib/ai/assistantDataTools";
 import {
     executeAssistantSocialDataTool,
@@ -11,6 +16,7 @@ import {
     isAssistantOperationalTool,
 } from "@/lib/ai/assistantOperationalTools";
 import { openai } from "@/lib/ai/openai";
+import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import type {
     AssistantCard,
@@ -21,14 +27,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MODEL = process.env.OPENAI_AI_CHAT_MODEL ?? "gpt-5-mini";
-const MAX_MESSAGES = 30;
+const MODEL = "gpt-5.6-luna";
+const MAX_MESSAGES = 24;
 const MAX_TOOL_ROUNDS = 8;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
 const MAX_OUTPUT_TOKENS = 6_000;
-const MAX_RESPONSE_CARDS = 2;
+const MAX_RESPONSE_CARDS = 3;
 const MAX_CONVERSATION_CARDS = 1;
 const MAX_CLIENT_CARDS = 1;
+const MAX_EXPORT_CARDS = 1;
 const MAX_CARD_CANDIDATES = 12;
 
 const TOOLS = [
@@ -482,6 +489,133 @@ const TOOLS = [
     },
     {
         type: "function",
+        name: "search_conversation_content",
+        description:
+            "Pesquisa palavras ou frases no conteúdo real das mensagens de WhatsApp, Instagram e Facebook usando o índice canônico do Hub e valida os trechos na transcrição. Use quando o usuário perguntar quem falou algo, procurar frases/termos ou pedir exemplos textuais completos.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                query: { type: "string" },
+                channel: {
+                    type: "string",
+                    enum: ["all", "WhatsApp", "Instagram", "Facebook"],
+                },
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD" },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD" },
+                unit_name: { type: ["string", "null"] },
+                match_mode: { type: "string", enum: ["all", "any"] },
+                exact_phrase: {
+                    type: "boolean",
+                    description: "true quando a ordem exata das palavras precisa aparecer em uma mesma mensagem.",
+                },
+                limit: { type: "integer", minimum: 1, maximum: 50 },
+            },
+            required: [
+                "query",
+                "channel",
+                "date_from",
+                "date_to",
+                "unit_name",
+                "match_mode",
+                "exact_phrase",
+                "limit",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_cancellation_analysis",
+        description:
+            "Analisa cancelamentos e remarcações da agenda e cruza os pacientes com evidências textuais reais das conversas de WhatsApp. Use para motivos de cancelamento/remarcação, especialmente de primeiras avaliações; não inventa motivo quando a agenda não possui evidência.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD; null usa últimos 30 dias." },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD; null usa hoje." },
+                unit_name: { type: ["string", "null"] },
+                procedure_type: {
+                    type: "string",
+                    enum: ["all", "first_evaluation"],
+                },
+                include_evidence: { type: "boolean" },
+                evidence_limit: { type: "integer", minimum: 1, maximum: 25 },
+            },
+            required: [
+                "date_from",
+                "date_to",
+                "unit_name",
+                "procedure_type",
+                "include_evidence",
+                "evidence_limit",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "get_meta_attribution_overview",
+        description:
+            "Consulta atribuições reais de anúncios recebidas do Zernio/Meta por campanha e conjunto, cruza a cidade esperada pelo mapa do Financeiro com instagram_users.location e informa cobertura, ausências e divergências. Use para origem de Instagram/Facebook por campanha, conjunto ou cidade.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD; null usa últimos 30 dias." },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD; null usa hoje." },
+                channel: { type: "string", enum: ["all", "Instagram", "Facebook"] },
+                campaign_query: { type: ["string", "null"] },
+                ad_set_query: { type: ["string", "null"] },
+                city: { type: ["string", "null"] },
+            },
+            required: [
+                "date_from",
+                "date_to",
+                "channel",
+                "campaign_query",
+                "ad_set_query",
+                "city",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
+        name: "create_csv_export",
+        description:
+            "Cria um arquivo CSV real e seguro para download com clientes, agendamentos ou conversas filtradas. Use somente quando o usuário pedir explicitamente exportar, baixar, CSV ou planilha.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                dataset: { type: "string", enum: ["clients", "schedules", "conversations"] },
+                date_from: { type: ["string", "null"], description: "YYYY-MM-DD" },
+                date_to: { type: ["string", "null"], description: "YYYY-MM-DD" },
+                unit_name: { type: ["string", "null"] },
+                query: { type: ["string", "null"] },
+                channel: { type: "string", enum: ["all", "WhatsApp", "Instagram", "Facebook"] },
+                statuses: { type: "array", items: { type: "string" } },
+                non_scheduled_only: { type: "boolean" },
+                limit: { type: "integer", minimum: 1, maximum: 5000 },
+            },
+            required: [
+                "dataset",
+                "date_from",
+                "date_to",
+                "unit_name",
+                "query",
+                "channel",
+                "statuses",
+                "non_scheduled_only",
+                "limit",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "get_business_overview",
         description:
             "Retorna visão macro de clientes, conversas, análises, agendamentos, threads abertas, mensagens ativas, follow-ups e unidades.",
@@ -532,18 +666,42 @@ export async function POST(request: Request) {
     const messages = normalizeMessages(body.messages);
 
     if (
+        !isUuid(body.session_id) ||
         messages.length === 0 ||
         messages[messages.length - 1]?.role !== "user"
     ) {
         return NextResponse.json(
-            { ok: false, error: "Envie uma mensagem do usuário." },
+            { ok: false, error: "Chat ou mensagem do usuário inválidos." },
             { status: 400 },
         );
     }
 
+    const sessionMemory = await loadSessionMemory(
+        body.session_id,
+        access.user.id,
+    );
+
+    if (sessionMemory === null) {
+        return NextResponse.json(
+            { ok: false, error: "Chat não encontrado." },
+            { status: 404 },
+        );
+    }
+
+    const startedAt = Date.now();
+    const usage = emptyUsage();
+    const toolsUsed = new Set<string>();
+    let toolRounds = 0;
+
     try {
         const cards = new Map<string, AssistantCard>();
         let emptyResponseRetries = 0;
+        const selectedToolNames = new Set<string>(
+            selectAssistantToolNames(messages),
+        );
+        const availableTools = TOOLS.filter((tool) =>
+            selectedToolNames.has(tool.name),
+        );
         let input: unknown[] = messages.map((message) => ({
             role: message.role,
             content: message.content,
@@ -554,12 +712,17 @@ export async function POST(request: Request) {
                 model: MODEL,
                 store: false,
                 include: ["reasoning.encrypted_content"],
-                instructions: buildInstructions(access.user.name),
+                reasoning: { effort: "medium" },
+                instructions: buildInstructions(
+                    access.user.name,
+                    sessionMemory,
+                ),
                 input,
-                tools: TOOLS,
+                tools: availableTools,
                 tool_choice: "auto",
                 max_output_tokens: MAX_OUTPUT_TOKENS,
             });
+            addUsage(usage, response.usage);
 
             const output = (response.output ?? []) as unknown as Array<
                 Record<string, unknown>
@@ -600,43 +763,69 @@ export async function POST(request: Request) {
                     continue;
                 }
 
+                const finalContent =
+                    content ||
+                    "## Não foi possível concluir a consulta\n\nO modelo não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o erro técnico.";
+                await recordAssistantRun({
+                    authUserId: access.user.id,
+                    sessionId: body.session_id,
+                    status: content ? "completed" : "incomplete",
+                    usage,
+                    toolsUsed,
+                    toolRounds,
+                    durationMs: Date.now() - startedAt,
+                    errorMessage: content
+                        ? null
+                        : "Modelo sem resposta textual após nova tentativa.",
+                });
+
                 return NextResponse.json({
                     ok: true,
                     message: {
                         role: "assistant",
-                        content:
-                            content ||
-                            "## Não foi possível concluir a consulta\n\nO modelo não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o erro técnico.",
+                        content: finalContent,
                         cards: selectResponseCards(cards),
                     },
                 });
             }
 
-            const toolOutputs: Array<Record<string, unknown>> = [];
-
-            for (const call of functionCalls) {
+            toolRounds = round + 1;
+            const executions = await Promise.all(functionCalls.map(async (call) => {
                 const callId =
                     typeof call.call_id === "string" ? call.call_id : "";
                 const name =
                     typeof call.name === "string" ? call.name : "";
                 const parsedArguments = parseToolArguments(call.arguments);
-                let execution;
+                let execution: {
+                    output: unknown;
+                    cards: AssistantCard[];
+                };
+                toolsUsed.add(name);
 
                 try {
-                    execution = isAssistantOperationalTool(name)
-                        ? await executeAssistantOperationalTool(
+                    execution = isAssistantAdvancedDataTool(name)
+                        ? await executeAssistantAdvancedDataTool(
                               name,
                               parsedArguments,
+                              {
+                                  authUserId: access.user.id,
+                                  sessionId: body.session_id,
+                              },
                           )
-                        : isAssistantSocialDataTool(name)
-                          ? await executeAssistantSocialDataTool(
+                        : isAssistantOperationalTool(name)
+                          ? await executeAssistantOperationalTool(
                                 name,
                                 parsedArguments,
                             )
-                          : await executeAssistantDataTool(
-                                name,
-                                parsedArguments,
-                            );
+                          : isAssistantSocialDataTool(name)
+                            ? await executeAssistantSocialDataTool(
+                                  name,
+                                  parsedArguments,
+                              )
+                            : await executeAssistantDataTool(
+                                  name,
+                                  parsedArguments,
+                              );
                 } catch (error) {
                     console.error("[assistente] tool execution failed", {
                         tool: name,
@@ -655,13 +844,21 @@ export async function POST(request: Request) {
                     };
                 }
 
-                addRelevantCards(cards, execution.cards);
+                return {
+                    callId,
+                    execution,
+                    toolOutput: {
+                        type: "function_call_output",
+                        call_id: callId,
+                        output: JSON.stringify(execution.output),
+                    } as Record<string, unknown>,
+                };
+            }));
+            const toolOutputs: Array<Record<string, unknown>> = [];
 
-                toolOutputs.push({
-                    type: "function_call_output",
-                    call_id: callId,
-                    output: JSON.stringify(execution.output),
-                });
+            for (const result of executions) {
+                addRelevantCards(cards, result.execution.cards);
+                toolOutputs.push(result.toolOutput);
             }
 
             input = [
@@ -671,25 +868,47 @@ export async function POST(request: Request) {
             ];
         }
 
+        await recordAssistantRun({
+            authUserId: access.user.id,
+            sessionId: body.session_id,
+            status: "incomplete",
+            usage,
+            toolsUsed,
+            toolRounds,
+            durationMs: Date.now() - startedAt,
+            errorMessage: "Limite de etapas de ferramentas atingido.",
+        });
+
         return NextResponse.json({
             ok: true,
             message: {
                 role: "assistant",
                 content:
-                    "A consulta exigiu etapas demais. Tente deixar a pergunta um pouco mais específica.",
+                    "## Consulta incompleta\n\nA análise atingiu o limite seguro de etapas. Refinar o período ou o foco da pergunta permite concluir sem misturar resultados parciais.",
                 cards: selectResponseCards(cards),
             },
         });
     } catch (error) {
         console.error("[assistente] chat failed", error);
+        const errorMessage =
+            error instanceof Error
+                ? error.message
+                : "Não foi possível consultar o assistente.";
+        await recordAssistantRun({
+            authUserId: access.user.id,
+            sessionId: body.session_id,
+            status: "failed",
+            usage,
+            toolsUsed,
+            toolRounds,
+            durationMs: Date.now() - startedAt,
+            errorMessage,
+        });
 
         return NextResponse.json(
             {
                 ok: false,
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Não foi possível consultar o assistente.",
+                error: errorMessage,
             },
             { status: 500 },
         );
@@ -744,7 +963,7 @@ function toStatelessContinuationItems(
     return items;
 }
 
-function buildInstructions(userName: string) {
+function buildInstructions(userName: string, sessionMemory: string) {
     const now = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
         dateStyle: "full",
@@ -756,6 +975,11 @@ Você é o Assistente IA interno do Engravida Hub.
 
 Usuário atual: ${userName}
 Data e hora atuais em America/Sao_Paulo: ${now}
+${
+    sessionMemory
+        ? `\nCONTEXTO PERSISTENTE DE MENSAGENS ANTERIORES DESTE CHAT:\n<session_memory>\n${sessionMemory.slice(0, 12_000)}\n</session_memory>\nUse esse contexto apenas para continuidade. Para qualquer dado atual do Hub, consulte novamente a ferramenta correta.`
+        : ""
+}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
@@ -766,6 +990,10 @@ REGRAS:
 6. Informe limites de cobertura quando existirem.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
 8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.
+9. Sempre que usar “1ª resposta humana” ou “1º contato humano”, siga exatamente o Dashboard: a média principal inclui somente tempos observados de até 2 horas (7.200 segundos). Valores maiores não entram na média principal; informe quantos foram excluídos quando esse dado estiver disponível. Mediana e P90 podem incluir todos os tempos observados. Nunca apresente a média bruta como a métrica principal, salvo se o usuário pedir explicitamente.
+10. Para buscar uma palavra, frase ou fala dentro das mensagens, use search_conversation_content. Para motivos de cancelamento/remarcação cruzados com conversas, use get_cancellation_analysis e diferencie motivo comprovado em texto de motivo desconhecido. Para campanhas, conjuntos e cidade de origem social, use get_meta_attribution_overview.
+11. Quando o usuário pedir CSV, planilha, exportação ou download, use create_csv_export. Nunca prometa um arquivo sem criar o card de download.
+12. Informe o período consultado, a fonte e qualquer limite relevante. Se não houver cobertura suficiente, diga objetivamente qual dado está ausente; nunca responda apenas que “não conseguiu produzir uma resposta”.
 
 FERRAMENTAS OPERACIONAIS RECENTES:
 - Para quantidade atual de clientes por etapa do Funil ou KPIs de avaliação/procedimento, use get_funnel_overview. As contagens de etapa são posição atual; o período se aplica aos KPIs de jornada.
@@ -774,29 +1002,187 @@ FERRAMENTAS OPERACIONAIS RECENTES:
 - Para saber quem está online/offline ou em qual fila interna, use get_internal_team_overview. Não diga que enviou mensagens ou mudou status: o assistente continua somente leitura.
 
 FORMATO DA RESPOSTA:
-9. Sempre comece com um título Markdown descritivo usando ##.
-10. Em respostas com várias unidades, cada unidade deve aparecer obrigatoriamente como subtítulo ### Nome da unidade. Nunca escreva o nome da unidade como uma linha solta.
-11. Para comparar unidade e benchmark, use uma tabela Markdown compacta antes da análise textual.
-12. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
-13. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
-14. Evite repetir o mesmo dado na tabela e no texto.
-15. Nunca mostre UUIDs, IDs internos, nomes de colunas, chaves técnicas ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano.
-16. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
+13. Sempre comece com um título Markdown descritivo usando ##.
+14. Em respostas com várias unidades, cada unidade deve aparecer obrigatoriamente como subtítulo ### Nome da unidade. Nunca escreva o nome da unidade como uma linha solta.
+15. Para comparar unidade e benchmark, use uma tabela Markdown compacta antes da análise textual.
+16. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
+17. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
+18. Evite repetir o mesmo dado na tabela e no texto.
+19. Nunca mostre UUIDs, IDs internos, nomes de colunas, chaves técnicas ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano.
+20. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
 
 CARDS:
-17. Cards são evidência, não decoração. Use normalmente um card quando houver uma entidade ou conversa diretamente relevante.
-18. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
-19. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
-20. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
-21. Para perguntas sobre uma pessoa específica, inclua o card do cliente quando houver um cliente CRM associado.
-22. Não chame get_conversation_context repetidamente para aumentar o número de cards.
-23. O limite absoluto é dois cards: no máximo um de cliente e um de conversa.
-24. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
+21. Cards são evidência, não decoração. Use normalmente um card quando houver uma entidade ou conversa diretamente relevante.
+22. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
+23. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
+24. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
+25. Para perguntas sobre uma pessoa específica, inclua o card do cliente quando houver um cliente CRM associado.
+26. Não chame get_conversation_context repetidamente para aumentar o número de cards.
+27. Evidências visuais têm limite de um cliente e uma conversa; um arquivo de exportação solicitado pode aparecer adicionalmente.
+28. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
 \`\`\`assistant-chart
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
 \`\`\`
 Use \`line\` para evolução por dia, \`bar\` para comparação e \`pie\` para composição. Nunca escreva \`assistant-chart\` e o JSON fora do bloco.
 `.trim();
+}
+
+type AssistantUsageTotals = {
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    estimatedCostUsd: number | null;
+};
+
+function emptyUsage(): AssistantUsageTotals {
+    return {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        estimatedCostUsd: 0,
+    };
+}
+
+function addUsage(target: AssistantUsageTotals, value: unknown) {
+    const usage = asRecord(value);
+    if (!usage) return;
+
+    const inputTokens = nonnegativeInteger(usage.input_tokens);
+    const outputTokens = nonnegativeInteger(usage.output_tokens);
+    const inputDetails = asRecord(usage.input_tokens_details);
+    const outputDetails = asRecord(usage.output_tokens_details);
+    const cachedInputTokens = nonnegativeInteger(inputDetails?.cached_tokens);
+    const reasoningTokens = nonnegativeInteger(outputDetails?.reasoning_tokens);
+    const requestCost = estimateRequestCost({
+        model: MODEL,
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+    });
+
+    target.inputTokens += inputTokens;
+    target.cachedInputTokens += cachedInputTokens;
+    target.outputTokens += outputTokens;
+    target.reasoningTokens += reasoningTokens;
+    target.estimatedCostUsd =
+        target.estimatedCostUsd === null || requestCost === null
+            ? null
+            : target.estimatedCostUsd + requestCost;
+}
+
+function estimateRequestCost({
+    model,
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+}: {
+    model: string;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}) {
+    const longContext = inputTokens > 272_000;
+    const prices = model.startsWith("gpt-5.6-luna")
+        ? longContext
+            ? { input: 0.4, cached: 0.04, output: 1.8 }
+            : { input: 0.2, cached: 0.02, output: 1.2 }
+        : model.startsWith("gpt-5.6-terra")
+          ? longContext
+              ? { input: 4, cached: 0.4, output: 18 }
+              : { input: 2, cached: 0.2, output: 12 }
+          : model.startsWith("gpt-5-mini")
+            ? { input: 0.25, cached: 0.025, output: 2 }
+            : null;
+    if (!prices) return null;
+
+    const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+    return (
+        (uncachedInputTokens * prices.input +
+            cachedInputTokens * prices.cached +
+            outputTokens * prices.output) /
+        1_000_000
+    );
+}
+
+async function loadSessionMemory(sessionId: string, authUserId: string) {
+    const { data, error } = await supabase
+        .from("assistant_chat_sessions")
+        .select("summary")
+        .eq("id", sessionId)
+        .eq("auth_user_id", authUserId)
+        .maybeSingle();
+
+    if (error) {
+        throw new Error(`Falha ao carregar a memória do chat: ${error.message}`);
+    }
+
+    if (!data) return null;
+    return typeof data.summary === "string" ? data.summary.trim() : "";
+}
+
+async function recordAssistantRun({
+    authUserId,
+    sessionId,
+    status,
+    usage,
+    toolsUsed,
+    toolRounds,
+    durationMs,
+    errorMessage,
+}: {
+    authUserId: string;
+    sessionId: string;
+    status: "completed" | "failed" | "incomplete";
+    usage: AssistantUsageTotals;
+    toolsUsed: Set<string>;
+    toolRounds: number;
+    durationMs: number;
+    errorMessage: string | null;
+}) {
+    const { error } = await supabase.from("assistant_chat_runs").insert({
+        auth_user_id: authUserId,
+        session_id: sessionId,
+        model: MODEL,
+        status,
+        input_tokens: usage.inputTokens,
+        cached_input_tokens: usage.cachedInputTokens,
+        output_tokens: usage.outputTokens,
+        reasoning_tokens: usage.reasoningTokens,
+        estimated_cost_usd:
+            usage.estimatedCostUsd === null
+                ? null
+                : Math.round(usage.estimatedCostUsd * 1_000_000) / 1_000_000,
+        tool_names: [...toolsUsed].filter(Boolean),
+        tool_rounds: toolRounds,
+        duration_ms: Math.max(0, Math.trunc(durationMs)),
+        error_message: errorMessage?.slice(0, 1_000) ?? null,
+    });
+
+    if (error) {
+        console.error("[assistente] failed to save run telemetry", error);
+    }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
+}
+
+function nonnegativeInteger(value: unknown) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : 0;
+}
+
+function isUuid(value: unknown): value is string {
+    return (
+        typeof value === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            value,
+        )
+    );
 }
 
 
@@ -1006,6 +1392,10 @@ function selectResponseCards(
                 conversationEvidenceScore(second) -
                 conversationEvidenceScore(first),
         );
+    const exportCards = allCards.filter(
+        (card): card is Extract<AssistantCard, { type: "export" }> =>
+            card.type === "export",
+    );
 
     const selected: AssistantCard[] = [];
 
@@ -1020,6 +1410,15 @@ function selectResponseCards(
         selected.length < MAX_RESPONSE_CARDS
     ) {
         selected.push(conversationCards[0]);
+    }
+
+    if (
+        exportCards.length > 0 &&
+        selected.filter((card) => card.type === "export").length <
+            MAX_EXPORT_CARDS &&
+        selected.length < MAX_RESPONSE_CARDS
+    ) {
+        selected.push(exportCards[0]);
     }
 
     return selected.slice(0, MAX_RESPONSE_CARDS);

@@ -66,6 +66,15 @@ export type AssistantCard =
     | {
           type: "conversation";
           data: AssistantConversationCardData;
+      }
+    | {
+          type: "export";
+          data: {
+              id: string;
+              file_name: string;
+              row_count: number;
+              expires_at: string;
+          };
       };
 
 export type AssistantChatRole = "user" | "assistant";
@@ -75,6 +84,7 @@ export type AssistantChatMessage = {
     role: AssistantChatRole;
     content: string;
     cards?: AssistantCard[];
+    feedback?: "up" | "down" | null;
     created_at: string;
 };
 
@@ -87,6 +97,7 @@ export type AssistantChatSession = {
 };
 
 export type AssistantChatRequest = {
+    session_id: string;
     messages: Array<{
         role: AssistantChatRole;
         content: string;

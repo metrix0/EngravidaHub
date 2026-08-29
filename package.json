@@ -9,6 +9,7 @@
     "headers": "node scripts/update-file-headers.js",
     "ui": "node scripts/generate-ui-registry.mjs",
     "analyze": "node scripts/test-analyze.mjs",
+    "assistant:eval": "node --import tsx scripts/test-assistant-routing.ts",
     "analysis:save": "node --env-file=.env.local --import tsx scripts/test-save-analysis.ts",
     "analysis:ads": "node --env-file=.env.local --import tsx scripts/test-derive-ad-events.ts",
     "messages": "node --env-file=.env.local scripts/add-messages.mjs",
