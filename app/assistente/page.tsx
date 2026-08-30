@@ -2,12 +2,15 @@
 "use client";
 
 import {
+    Download,
     LoaderCircle,
     MessageSquarePlus,
     PanelLeftClose,
     PanelLeftOpen,
     Send,
     Sparkles,
+    ThumbsDown,
+    ThumbsUp,
     Trash2,
 } from "lucide-react";
 import {
@@ -299,6 +302,7 @@ export default function AssistentePage() {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
+                    session_id: sessionWithUser.id,
                     messages: messagesWithUser.map((message) => ({
                         role: message.role,
                         content: message.content,
@@ -321,6 +325,7 @@ export default function AssistentePage() {
                 role: "assistant",
                 content: payload.message.content,
                 cards: payload.message.cards,
+                feedback: null,
                 created_at: new Date().toISOString(),
             };
 
@@ -381,6 +386,57 @@ export default function AssistentePage() {
                 MAX_STORED_SESSIONS,
             );
         });
+    }
+
+    async function setMessageFeedback(
+        messageId: string,
+        rating: "up" | "down" | null,
+    ) {
+        const previous = sessions
+            .flatMap((session) => session.messages)
+            .find((message) => message.id === messageId)?.feedback ?? null;
+
+        setSessions((current) =>
+            current.map((session) => ({
+                ...session,
+                messages: session.messages.map((message) =>
+                    message.id === messageId
+                        ? { ...message, feedback: rating }
+                        : message,
+                ),
+            })),
+        );
+
+        try {
+            const response = await fetch("/api/assistente/feedback", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message_id: messageId, rating }),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload?.ok) {
+                throw new Error(
+                    payload?.error ?? "Não foi possível salvar a avaliação.",
+                );
+            }
+        } catch (feedbackError) {
+            setSessions((current) =>
+                current.map((session) => ({
+                    ...session,
+                    messages: session.messages.map((message) =>
+                        message.id === messageId
+                            ? { ...message, feedback: previous }
+                            : message,
+                    ),
+                })),
+            );
+            setError(
+                feedbackError instanceof Error
+                    ? feedbackError.message
+                    : "Não foi possível salvar a avaliação.",
+            );
+        }
     }
 
     function handleInputKeyDown(
@@ -531,6 +587,7 @@ export default function AssistentePage() {
                                                     key={message.id}
                                                     message={message}
                                                     onOpenClient={openClientProfile}
+                                                    onFeedback={setMessageFeedback}
                                                     userName={profileName}
                                                 />
                                             ),
@@ -743,10 +800,15 @@ function SessionButton({
 function ChatMessage({
     message,
     onOpenClient,
+    onFeedback,
     userName,
 }: {
     message: AssistantChatMessage;
     onOpenClient: (clientId: string) => void;
+    onFeedback: (
+        messageId: string,
+        rating: "up" | "down" | null,
+    ) => Promise<void>;
     userName: string;
 }) {
     const assistant = message.role === "assistant";
@@ -789,6 +851,47 @@ function ChatMessage({
                             ))}
                         </div>
                     )}
+
+                {assistant && (
+                    <div className="mt-3 flex items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={() =>
+                                void onFeedback(
+                                    message.id,
+                                    message.feedback === "up" ? null : "up",
+                                )
+                            }
+                            className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition ${
+                                message.feedback === "up"
+                                    ? "bg-purple-soft text-purple"
+                                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            }`}
+                            title="Resposta útil"
+                            aria-label="Resposta útil"
+                        >
+                            <ThumbsUp size={14} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() =>
+                                void onFeedback(
+                                    message.id,
+                                    message.feedback === "down" ? null : "down",
+                                )
+                            }
+                            className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition ${
+                                message.feedback === "down"
+                                    ? "bg-red-soft text-red"
+                                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            }`}
+                            title="Resposta não útil"
+                            aria-label="Resposta não útil"
+                        >
+                            <ThumbsDown size={14} />
+                        </button>
+                    </div>
+                )}
             </div>
 
             {!assistant && <InitialsAvatar name={userName} />}
@@ -812,6 +915,30 @@ function AssistantCardRenderer({
         );
     }
 
+
+    if (card.type === "export") {
+        return (
+            <a
+                href={`/api/assistente/exports/${card.data.id}`}
+                download={card.data.file_name}
+                className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-purple/30 hover:bg-purple-soft/20"
+            >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-soft text-purple">
+                    <Download size={18} />
+                </span>
+                <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-slate-900">
+                        {card.data.file_name}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                        {card.data.row_count.toLocaleString("pt-BR")} linhas ·
+                        baixar CSV
+                    </span>
+                </span>
+            </a>
+        );
+    }
+
     return (
         <AssistantConversationCard
             conversation={card.data}
@@ -821,6 +948,22 @@ function AssistantCardRenderer({
 }
 
 function AssistantThinking() {
+    const [statusIndex, setStatusIndex] = useState(0);
+    const statuses = [
+        "Entendendo a pergunta...",
+        "Consultando os dados do Hub...",
+        "Cruzando os resultados...",
+        "Preparando a resposta...",
+    ];
+
+    useEffect(() => {
+        const intervals = [2_500, 5_500, 9_000];
+        const timers = intervals.map((delay, index) =>
+            window.setTimeout(() => setStatusIndex(index + 1), delay),
+        );
+        return () => timers.forEach(window.clearTimeout);
+    }, []);
+
     return (
         <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-soft text-purple">
@@ -828,7 +971,7 @@ function AssistantThinking() {
             </span>
             <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                 <LoaderCircle size={16} className="animate-spin" />
-                Consultando os dados...
+                {statuses[statusIndex]}
             </div>
         </div>
     );

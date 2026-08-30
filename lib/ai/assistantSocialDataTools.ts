@@ -1,5 +1,6 @@
 // lib/ai/assistantSocialDataTools.ts
 import { supabase } from "@/lib";
+import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -295,7 +296,7 @@ function buildSocialOverview(
             .filter((id): id is string => Boolean(id)),
     );
 
-    const firstResponseValues = numericValues(
+    const firstResponseMetrics = summarizeFirstHumanResponseTimes(
         analyses.map((analysis) => analysis.first_human_response_time_seconds),
     );
     const averageResponseValues = numericValues(
@@ -367,12 +368,13 @@ function buildSocialOverview(
             ),
         },
         service_metrics: {
-            average_first_human_response_seconds: average(firstResponseValues),
+            ...firstResponseMetrics,
             average_human_response_seconds: average(averageResponseValues),
             average_attendant_quality_score: average(qualityValues),
             average_satisfaction_score: average(satisfactionValues),
             samples: {
-                first_response: firstResponseValues.length,
+                first_response:
+                    firstResponseMetrics.first_human_response_observed,
                 average_response: averageResponseValues.length,
                 quality: qualityValues.length,
                 satisfaction: satisfactionValues.length,

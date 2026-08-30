@@ -1,7 +1,7 @@
 // components/layout/SidePanel.tsx
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -67,6 +67,11 @@ type SidePanelProps = {
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 250;
+const MOBILE_SWIPE_EDGE_WIDTH = 28;
+const MOBILE_SWIPE_MIN_DISTANCE = 56;
+const MOBILE_SWIPE_AXIS_LOCK_DISTANCE = 8;
+const MOBILE_APP_PROMPT_DISMISSED_KEY =
+    "engravidahub:mobile-app-prompt-dismissed";
 
 const defaultItems: SidePanelEntry[] = [
     {
@@ -230,6 +235,12 @@ function PersistentSidePanel({
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
     const [helpModalOpen, setHelpModalOpen] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [mobileAppPromptOpen, setMobileAppPromptOpen] = useState(false);
+    const mobileSwipeRef = useRef<{
+        startX: number;
+        startY: number;
+        axis: "horizontal" | "vertical" | null;
+    } | null>(null);
 
     useEffect(() => {
         if (isCompactPage) setIsExpanded(false);
@@ -239,6 +250,129 @@ function PersistentSidePanel({
         setMobileOpen(false);
         setIsStatusMenuOpen(false);
     }, [pathname]);
+
+    useEffect(() => {
+        const isMobile = window.matchMedia("(max-width: 767px)").matches;
+        const isStandalone =
+            window.matchMedia("(display-mode: standalone)").matches ||
+            Boolean(
+                (window.navigator as Navigator & { standalone?: boolean })
+                    .standalone,
+            );
+
+        let wasDismissed = false;
+        try {
+            wasDismissed =
+                window.localStorage.getItem(
+                    MOBILE_APP_PROMPT_DISMISSED_KEY,
+                ) === "1";
+        } catch {
+            wasDismissed = false;
+        }
+
+        const frame =
+            isMobile && !isStandalone && !wasDismissed
+                ? window.requestAnimationFrame(() =>
+                      setMobileAppPromptOpen(true),
+                  )
+                : null;
+
+        return () => {
+            if (frame !== null) window.cancelAnimationFrame(frame);
+        };
+    }, []);
+
+    useEffect(() => {
+        function resetSwipe() {
+            mobileSwipeRef.current = null;
+        }
+
+        function handleTouchStart(event: TouchEvent) {
+            if (
+                !window.matchMedia("(max-width: 767px)").matches ||
+                event.touches.length !== 1
+            ) {
+                resetSwipe();
+                return;
+            }
+
+            const touch = event.touches[0];
+            if (!mobileOpen && touch.clientX > MOBILE_SWIPE_EDGE_WIDTH) {
+                resetSwipe();
+                return;
+            }
+
+            mobileSwipeRef.current = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                axis: null,
+            };
+        }
+
+        function handleTouchMove(event: TouchEvent) {
+            const swipe = mobileSwipeRef.current;
+            const touch = event.touches[0];
+            if (!swipe || event.touches.length !== 1 || !touch) return;
+
+            const deltaX = touch.clientX - swipe.startX;
+            const deltaY = touch.clientY - swipe.startY;
+
+            if (
+                !swipe.axis &&
+                Math.max(Math.abs(deltaX), Math.abs(deltaY)) >=
+                    MOBILE_SWIPE_AXIS_LOCK_DISTANCE
+            ) {
+                swipe.axis =
+                    Math.abs(deltaX) > Math.abs(deltaY)
+                        ? "horizontal"
+                        : "vertical";
+            }
+
+            if (swipe.axis === "horizontal" && event.cancelable) {
+                event.preventDefault();
+            }
+        }
+
+        function handleTouchEnd(event: TouchEvent) {
+            const swipe = mobileSwipeRef.current;
+            const touch = event.changedTouches[0];
+            resetSwipe();
+
+            if (!swipe || !touch || swipe.axis === "vertical") return;
+
+            const deltaX = touch.clientX - swipe.startX;
+            const deltaY = touch.clientY - swipe.startY;
+            const isHorizontalSwipe =
+                Math.abs(deltaX) >= MOBILE_SWIPE_MIN_DISTANCE &&
+                Math.abs(deltaX) > Math.abs(deltaY);
+
+            if (!isHorizontalSwipe) return;
+
+            if (mobileOpen && deltaX < 0) {
+                setMobileOpen(false);
+            } else if (!mobileOpen && deltaX > 0) {
+                setMobileOpen(true);
+            }
+        }
+
+        window.addEventListener("touchstart", handleTouchStart, {
+            passive: true,
+        });
+        window.addEventListener("touchmove", handleTouchMove, {
+            passive: false,
+        });
+        window.addEventListener("touchend", handleTouchEnd, {
+            passive: true,
+        });
+        window.addEventListener("touchcancel", resetSwipe, { passive: true });
+
+        return () => {
+            window.removeEventListener("touchstart", handleTouchStart);
+            window.removeEventListener("touchmove", handleTouchMove);
+            window.removeEventListener("touchend", handleTouchEnd);
+            window.removeEventListener("touchcancel", resetSwipe);
+        };
+    }, [mobileOpen]);
 
     useEffect(() => {
         let mounted = true;
@@ -326,6 +460,18 @@ function PersistentSidePanel({
 
         await supabase.auth.signOut();
         window.location.replace("/login");
+    }
+
+    function dismissMobileAppPrompt() {
+        setMobileAppPromptOpen(false);
+        try {
+            window.localStorage.setItem(
+                MOBILE_APP_PROMPT_DISMISSED_KEY,
+                "1",
+            );
+        } catch {
+            // The popup still closes if browser storage is unavailable.
+        }
     }
 
     async function handleToggleAttendantStatus() {
@@ -645,6 +791,62 @@ function PersistentSidePanel({
                     >
                         joao.almeida@engravida.com.br
                     </a>
+                </div>
+            </Modal>
+
+            <Modal
+                open={mobileAppPromptOpen}
+                onClose={dismissMobileAppPrompt}
+                width={440}
+                height="auto"
+                maxHeight="calc(100dvh - 24px)"
+                zIndexClassName="z-[110]"
+                ariaLabelledBy="mobile-app-prompt-title"
+                ariaDescribedBy="mobile-app-prompt-description"
+            >
+                <div className="p-6 pt-7">
+                    <h2
+                        id="mobile-app-prompt-title"
+                        className="pr-10 text-xl font-bold text-slate-950"
+                    >
+                        Adicione o Hub ao celular
+                    </h2>
+                    <p
+                        id="mobile-app-prompt-description"
+                        className="mt-2 text-sm leading-relaxed text-slate-500"
+                    >
+                        Abra o Engravida Hub diretamente pela tela inicial, como
+                        um aplicativo.
+                    </p>
+
+                    <div className="mt-5 space-y-3">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <h3 className="text-sm font-bold text-slate-900">
+                                iPhone — Safari
+                            </h3>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                                Toque em Compartilhar e selecione “Adicionar à
+                                Tela de Início”.
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <h3 className="text-sm font-bold text-slate-900">
+                                Android — Chrome
+                            </h3>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                                Abra o menu ⋮ e selecione “Adicionar à tela
+                                inicial” ou “Instalar app”.
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={dismissMobileAppPrompt}
+                        className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:opacity-90"
+                    >
+                        Entendi
+                    </button>
                 </div>
             </Modal>
         </div>

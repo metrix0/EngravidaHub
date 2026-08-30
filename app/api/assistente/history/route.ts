@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 
 const MAX_SESSIONS = 30;
 const MAX_MESSAGES_PER_SESSION = 100;
+const RECENT_MESSAGES_OUTSIDE_MEMORY = 20;
+const MAX_SESSION_MEMORY_CHARS = 12_000;
 
 export async function GET() {
     const access = await getServerTabAccess("assistente");
@@ -61,6 +63,32 @@ export async function GET() {
         );
     }
 
+    const assistantMessageIds = (messageRows ?? [])
+        .filter((message) => message.role === "assistant")
+        .map((message) => message.id);
+    const feedbackByMessage = new Map<string, "up" | "down">();
+
+    if (assistantMessageIds.length > 0) {
+        const { data: feedbackRows, error: feedbackError } = await supabase
+            .from("assistant_message_feedback")
+            .select("assistant_message_id, rating")
+            .eq("auth_user_id", access.user.id)
+            .in("assistant_message_id", assistantMessageIds);
+
+        if (feedbackError) {
+            return NextResponse.json(
+                { ok: false, error: feedbackError.message },
+                { status: 500 },
+            );
+        }
+
+        for (const row of feedbackRows ?? []) {
+            if (row.rating === "up" || row.rating === "down") {
+                feedbackByMessage.set(row.assistant_message_id, row.rating);
+            }
+        }
+    }
+
     const messagesBySession = new Map<string, AssistantChatMessage[]>();
 
     for (const row of messageRows ?? []) {
@@ -73,6 +101,7 @@ export async function GET() {
             role: row.role === "assistant" ? "assistant" : "user",
             content: row.content,
             cards: normalizeCards(row.cards),
+            feedback: feedbackByMessage.get(row.id) ?? null,
             created_at: row.created_at,
         });
         messagesBySession.set(row.session_id, current);
@@ -216,6 +245,25 @@ export async function POST(request: Request) {
         );
     }
 
+    const memory = buildSessionMemory(session.messages);
+    const { error: memoryError } = await supabase
+        .from("assistant_chat_sessions")
+        .update({
+            summary: memory.summary,
+            summary_message_count: memory.messageCount,
+            summary_updated_at:
+                memory.messageCount > 0 ? new Date().toISOString() : null,
+        })
+        .eq("id", session.id)
+        .eq("auth_user_id", access.user.id);
+
+    if (memoryError) {
+        return NextResponse.json(
+            { ok: false, error: memoryError.message },
+            { status: 500 },
+        );
+    }
+
     return NextResponse.json({ ok: true });
 }
 
@@ -271,4 +319,22 @@ function isUuid(value: string) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         value,
     );
+}
+
+function buildSessionMemory(messages: AssistantChatMessage[]) {
+    const olderMessages = messages.slice(0, -RECENT_MESSAGES_OUTSIDE_MEMORY);
+    if (olderMessages.length === 0) {
+        return { summary: "", messageCount: 0 };
+    }
+
+    const lines = olderMessages.slice(-40).map((message) => {
+        const label = message.role === "user" ? "Usuário" : "Assistente";
+        const content = message.content.replace(/\s+/g, " ").trim();
+        return `${label}: ${content.slice(0, 700)}`;
+    });
+
+    return {
+        summary: lines.join("\n").slice(-MAX_SESSION_MEMORY_CHARS),
+        messageCount: olderMessages.length,
+    };
 }
