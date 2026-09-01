@@ -18,7 +18,14 @@ type UserPermissionRow = {
     preset: string;
     allowed_tabs: unknown;
     attendant_id: string | null;
+    unit_id: string | null;
     active: boolean;
+};
+
+type UnitRow = {
+    id: string;
+    name: string;
+    city: string;
 };
 
 export type ServerTabAccess =
@@ -48,7 +55,7 @@ export async function getServerTabAccess(
 
     const { data, error } = await adminSupabase
         .from("user_permissions")
-        .select("auth_user_id, preset, allowed_tabs, attendant_id, active")
+        .select("auth_user_id, preset, allowed_tabs, attendant_id, unit_id, active")
         .eq("auth_user_id", user.id)
         .maybeSingle();
 
@@ -80,6 +87,35 @@ export async function getServerTabAccess(
         };
     }
 
+    let unitLock: UnitRow | null = null;
+
+    if (permissionRow.unit_id) {
+        const { data: unitData, error: unitError } = await adminSupabase
+            .from("units")
+            .select("id, name, city")
+            .eq("id", permissionRow.unit_id)
+            .eq("active", true)
+            .maybeSingle();
+
+        if (unitError) {
+            return {
+                ok: false,
+                status: 500,
+                error: unitError.message,
+            };
+        }
+
+        if (!unitData) {
+            return {
+                ok: false,
+                status: 403,
+                error: "Unit access unavailable",
+            };
+        }
+
+        unitLock = unitData as UnitRow;
+    }
+
     const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
 
     return {
@@ -100,6 +136,7 @@ export async function getServerTabAccess(
             allowed_tabs: allowedTabs,
             attendant_id: permissionRow.attendant_id,
             active: permissionRow.active,
+            unit_lock: unitLock,
         },
     };
 }

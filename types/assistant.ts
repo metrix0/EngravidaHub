@@ -78,6 +78,12 @@ export type AssistantCard =
       };
 
 export type AssistantChatRole = "user" | "assistant";
+export type AssistantFeedbackReason =
+    | "wrong_data"
+    | "wrong_interpretation"
+    | "incomplete"
+    | "slow"
+    | "other";
 
 export type AssistantChatMessage = {
     id: string;
@@ -85,6 +91,8 @@ export type AssistantChatMessage = {
     content: string;
     cards?: AssistantCard[];
     feedback?: "up" | "down" | null;
+    feedback_reason?: AssistantFeedbackReason | null;
+    run_id?: string | null;
     created_at: string;
 };
 
@@ -112,10 +120,26 @@ export type AssistantChatResponse =
               role: "assistant";
               content: string;
               cards: AssistantCard[];
+              run_id: string | null;
           };
       }
     | {
           ok: false;
           error: string;
           message?: never;
+      };
+
+export type AssistantChatStreamEvent =
+    | {
+          type: "status";
+          status: string;
+          tools?: string[];
+      }
+    | {
+          type: "message";
+          message: Extract<AssistantChatResponse, { ok: true }>["message"];
+      }
+    | {
+          type: "error";
+          error: string;
       };

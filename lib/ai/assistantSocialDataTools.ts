@@ -1,6 +1,10 @@
 // lib/ai/assistantSocialDataTools.ts
 import { supabase } from "@/lib";
 import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
+import {
+    type AssistantToolContext,
+    unitRestrictedToolOutput,
+} from "@/lib/ai/assistantToolContext";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -70,8 +74,16 @@ export function isAssistantSocialDataTool(name: string) {
 export async function executeAssistantSocialDataTool(
     name: string,
     rawArguments: unknown,
+    context: AssistantToolContext,
 ): Promise<ToolExecution> {
     const args = isRecord(rawArguments) ? rawArguments : {};
+
+    if (context.unitLock) {
+        return unitRestrictedToolOutput(
+            context,
+            "As conversas de Instagram e Facebook",
+        );
+    }
 
     if (name === "search_social_conversations") {
         return searchSocialConversations(args);

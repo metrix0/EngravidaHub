@@ -2,12 +2,15 @@
 "use client";
 
 import {
+    Copy,
     Download,
     LoaderCircle,
     MessageSquarePlus,
     PanelLeftClose,
     PanelLeftOpen,
+    RotateCcw,
     Send,
+    Square,
     Sparkles,
     ThumbsDown,
     ThumbsUp,
@@ -38,8 +41,9 @@ import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
 import type {
     AssistantCard,
     AssistantChatMessage,
-    AssistantChatResponse,
     AssistantChatSession,
+    AssistantChatStreamEvent,
+    AssistantFeedbackReason,
 } from "@/types/assistant";
 
 const MAX_STORED_SESSIONS = 30;
@@ -49,6 +53,17 @@ const SUGGESTIONS = [
     "Sheila dos Santos Oliveira Ferreira tem algo agendado?",
     "Compare faturamento, ticket e cancelamentos por unidade nos últimos 30 dias.",
     "Compare a conversão das unidades nos últimos 30 dias.",
+];
+
+const FEEDBACK_REASONS: Array<{
+    value: AssistantFeedbackReason;
+    label: string;
+}> = [
+    { value: "wrong_data", label: "Dados incorretos" },
+    { value: "wrong_interpretation", label: "Interpretação" },
+    { value: "incomplete", label: "Incompleta" },
+    { value: "slow", label: "Lenta" },
+    { value: "other", label: "Outro" },
 ];
 
 export default function AssistentePage() {
@@ -66,8 +81,12 @@ export default function AssistentePage() {
     const [historyLoading, setHistoryLoading] = useState(true);
     const [historyOpen, setHistoryOpen] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [streamStatus, setStreamStatus] = useState<string | null>(null);
+    const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
+    const [lastFailedMessageId, setLastFailedMessageId] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         let mounted = true;
@@ -128,6 +147,10 @@ export default function AssistentePage() {
             );
         };
     }, [currentUserId]);
+
+    useEffect(() => {
+        return () => abortControllerRef.current?.abort();
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -201,9 +224,13 @@ export default function AssistentePage() {
     }, [activeSession?.messages, loading]);
 
     function createNewChat() {
+        abortControllerRef.current?.abort();
         setActiveSessionId(null);
         setInput("");
         setError(null);
+        setStreamStatus(null);
+        setLastFailedPrompt(null);
+        setLastFailedMessageId(null);
         window.setTimeout(() => textareaRef.current?.focus(), 0);
     }
 
@@ -252,23 +279,33 @@ export default function AssistentePage() {
         await sendMessage(input);
     }
 
-    async function sendMessage(rawContent: string) {
+    async function sendMessage(rawContent: string, retryMessageId?: string) {
         const content = rawContent.trim();
         if (!content || loading) return;
 
         setLoading(true);
         setError(null);
+        setStreamStatus("Entendendo a pergunta...");
+        setLastFailedPrompt(null);
+        setLastFailedMessageId(null);
         setInput("");
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
 
         const now = new Date().toISOString();
-        const userMessage: AssistantChatMessage = {
+        let session = activeSession;
+        const retryMessage = retryMessageId
+            ? session?.messages.find(
+                  (message) =>
+                      message.id === retryMessageId && message.role === "user",
+              )
+            : null;
+        const userMessage: AssistantChatMessage = retryMessage ?? {
             id: crypto.randomUUID(),
             role: "user",
             content,
             created_at: now,
         };
-
-        let session = activeSession;
 
         if (!session) {
             session = {
@@ -282,7 +319,9 @@ export default function AssistentePage() {
             setActiveSessionId(session.id);
         }
 
-        const messagesWithUser = [...session.messages, userMessage];
+        const messagesWithUser = retryMessage
+            ? session.messages
+            : [...session.messages, userMessage];
 
         const sessionWithUser = {
             ...session,
@@ -293,7 +332,9 @@ export default function AssistentePage() {
         upsertSession(sessionWithUser);
 
         try {
-            await persistMessage(sessionWithUser, userMessage);
+            if (!retryMessage) {
+                await persistMessage(sessionWithUser, userMessage);
+            }
 
             const response = await fetch("/api/assistente/chat", {
                 method: "POST",
@@ -308,24 +349,25 @@ export default function AssistentePage() {
                         content: message.content,
                     })),
                 }),
+                signal: abortController.signal,
             });
-            const payload =
-                (await response.json()) as AssistantChatResponse;
-
-            if (!response.ok || !payload.ok) {
-                throw new Error(
-                    !payload.ok
-                        ? payload.error
-                        : "Não foi possível consultar o assistente.",
-                );
-            }
+            const streamedMessage = await readAssistantStream(
+                response,
+                (event) => {
+                    if (event.type === "status") {
+                        setStreamStatus(event.status);
+                    }
+                },
+            );
 
             const assistantMessage: AssistantChatMessage = {
                 id: crypto.randomUUID(),
                 role: "assistant",
-                content: payload.message.content,
-                cards: payload.message.cards,
+                content: streamedMessage.content,
+                cards: streamedMessage.cards,
                 feedback: null,
+                feedback_reason: null,
+                run_id: streamedMessage.run_id,
                 created_at: new Date().toISOString(),
             };
 
@@ -345,15 +387,31 @@ export default function AssistentePage() {
             upsertSession(sessionWithAssistant);
         } catch (sendError) {
             console.error("[assistente] failed to send message", sendError);
+            const interrupted =
+                abortController.signal.aborted ||
+                (sendError instanceof DOMException &&
+                    sendError.name === "AbortError");
             setError(
-                sendError instanceof Error
+                interrupted
+                    ? "Solicitação interrompida."
+                    : sendError instanceof Error
                     ? sendError.message
                     : "Não foi possível consultar o assistente.",
             );
+            setLastFailedPrompt(content);
+            setLastFailedMessageId(userMessage.id);
         } finally {
+            if (abortControllerRef.current === abortController) {
+                abortControllerRef.current = null;
+            }
+            setStreamStatus(null);
             setLoading(false);
             window.setTimeout(() => textareaRef.current?.focus(), 0);
         }
+    }
+
+    function stopRequest() {
+        abortControllerRef.current?.abort();
     }
 
     async function persistMessage(
@@ -391,17 +449,23 @@ export default function AssistentePage() {
     async function setMessageFeedback(
         messageId: string,
         rating: "up" | "down" | null,
+        reason: AssistantFeedbackReason | null = null,
     ) {
-        const previous = sessions
+        const previousMessage = sessions
             .flatMap((session) => session.messages)
-            .find((message) => message.id === messageId)?.feedback ?? null;
+            .find((message) => message.id === messageId);
 
         setSessions((current) =>
             current.map((session) => ({
                 ...session,
                 messages: session.messages.map((message) =>
                     message.id === messageId
-                        ? { ...message, feedback: rating }
+                        ? {
+                              ...message,
+                              feedback: rating,
+                              feedback_reason:
+                                  rating === "down" ? reason : null,
+                          }
                         : message,
                 ),
             })),
@@ -412,7 +476,11 @@ export default function AssistentePage() {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message_id: messageId, rating }),
+                body: JSON.stringify({
+                    message_id: messageId,
+                    rating,
+                    reason: rating === "down" ? reason : null,
+                }),
             });
             const payload = await response.json();
             if (!response.ok || !payload?.ok) {
@@ -426,7 +494,12 @@ export default function AssistentePage() {
                     ...session,
                     messages: session.messages.map((message) =>
                         message.id === messageId
-                            ? { ...message, feedback: previous }
+                            ? {
+                                  ...message,
+                                  feedback: previousMessage?.feedback ?? null,
+                                  feedback_reason:
+                                      previousMessage?.feedback_reason ?? null,
+                              }
                             : message,
                     ),
                 })),
@@ -593,10 +666,29 @@ export default function AssistentePage() {
                                             ),
                                         )}
 
-                                        {loading && <AssistantThinking />}
+                                        {loading && (
+                                            <AssistantThinking
+                                                status={streamStatus}
+                                            />
+                                        )}
                                         {error && (
-                                            <div className="ml-12 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-medium text-red">
-                                                {error}
+                                            <div className="ml-12 flex items-center justify-between gap-3 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-medium text-red">
+                                                <span>{error}</span>
+                                                {lastFailedPrompt && !loading && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            void sendMessage(
+                                                                lastFailedPrompt,
+                                                                lastFailedMessageId ?? undefined,
+                                                            )
+                                                        }
+                                                        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold transition hover:bg-white/60"
+                                                    >
+                                                        <RotateCcw size={13} />
+                                                        Tentar novamente
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                         <div ref={bottomRef} />
@@ -625,22 +717,25 @@ export default function AssistentePage() {
                                     />
 
                                     <div className="flex items-center justify-end gap-3 px-2 pb-1">
-                                        <button
-                                            type="submit"
-                                            disabled={
-                                                !input.trim() || loading
-                                            }
-                                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl bg-brand text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                                        >
-                                            {loading ? (
-                                                <LoaderCircle
-                                                    size={17}
-                                                    className="animate-spin"
-                                                />
-                                            ) : (
+                                        {loading ? (
+                                            <button
+                                                type="button"
+                                                onClick={stopRequest}
+                                                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl bg-slate-900 text-white transition hover:bg-slate-700"
+                                                title="Parar resposta"
+                                                aria-label="Parar resposta"
+                                            >
+                                                <Square size={14} fill="currentColor" />
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="submit"
+                                                disabled={!input.trim()}
+                                                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl bg-brand text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                                            >
                                                 <Send size={17} />
-                                            )}
-                                        </button>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </form>
@@ -650,6 +745,55 @@ export default function AssistentePage() {
             </section>
         </main>
     );
+}
+
+async function readAssistantStream(
+    response: Response,
+    onEvent: (event: AssistantChatStreamEvent) => void,
+) {
+    if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(
+            payload?.error ?? "Não foi possível consultar o assistente.",
+        );
+    }
+
+    if (!response.body) {
+        throw new Error("A resposta do assistente veio vazia.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalMessage:
+        | Extract<AssistantChatStreamEvent, { type: "message" }>["message"]
+        | null = null;
+
+    const consumeLine = (line: string) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line) as AssistantChatStreamEvent;
+        onEvent(event);
+
+        if (event.type === "error") throw new Error(event.error);
+        if (event.type === "message") finalMessage = event.message;
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) consumeLine(line);
+        if (done) break;
+    }
+
+    if (buffer.trim()) consumeLine(buffer);
+    if (!finalMessage) {
+        throw new Error("O assistente encerrou sem enviar uma resposta.");
+    }
+
+    return finalMessage;
 }
 
 function HistorySkeleton() {
@@ -808,10 +952,19 @@ function ChatMessage({
     onFeedback: (
         messageId: string,
         rating: "up" | "down" | null,
+        reason?: AssistantFeedbackReason | null,
     ) => Promise<void>;
     userName: string;
 }) {
     const assistant = message.role === "assistant";
+    const [copied, setCopied] = useState(false);
+    const [showFeedbackReasons, setShowFeedbackReasons] = useState(false);
+
+    async function copyMessage() {
+        await navigator.clipboard.writeText(message.content);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1_500);
+    }
 
     return (
         <article
@@ -874,12 +1027,15 @@ function ChatMessage({
                         </button>
                         <button
                             type="button"
-                            onClick={() =>
-                                void onFeedback(
-                                    message.id,
-                                    message.feedback === "down" ? null : "down",
-                                )
-                            }
+                            onClick={() => {
+                                if (message.feedback === "down") {
+                                    setShowFeedbackReasons(false);
+                                    void onFeedback(message.id, null);
+                                    return;
+                                }
+
+                                setShowFeedbackReasons(true);
+                            }}
                             className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition ${
                                 message.feedback === "down"
                                     ? "bg-red-soft text-red"
@@ -890,6 +1046,42 @@ function ChatMessage({
                         >
                             <ThumbsDown size={14} />
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => void copyMessage()}
+                            className="flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            title="Copiar resposta"
+                            aria-label="Copiar resposta"
+                        >
+                            <Copy size={14} />
+                            {copied && (
+                                <span className="text-[11px] font-semibold">
+                                    Copiado
+                                </span>
+                            )}
+                        </button>
+                    </div>
+                )}
+
+                {assistant && showFeedbackReasons && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {FEEDBACK_REASONS.map((reason) => (
+                            <button
+                                key={reason.value}
+                                type="button"
+                                onClick={() => {
+                                    setShowFeedbackReasons(false);
+                                    void onFeedback(
+                                        message.id,
+                                        "down",
+                                        reason.value,
+                                    );
+                                }}
+                                className="cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-red/30 hover:bg-red-soft hover:text-red"
+                            >
+                                {reason.label}
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
@@ -947,7 +1139,7 @@ function AssistantCardRenderer({
     );
 }
 
-function AssistantThinking() {
+function AssistantThinking({ status }: { status?: string | null }) {
     const [statusIndex, setStatusIndex] = useState(0);
     const statuses = [
         "Entendendo a pergunta...",
@@ -971,7 +1163,7 @@ function AssistantThinking() {
             </span>
             <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                 <LoaderCircle size={16} className="animate-spin" />
-                {statuses[statusIndex]}
+                {status ?? statuses[statusIndex]}
             </div>
         </div>
     );

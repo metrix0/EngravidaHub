@@ -16,6 +16,7 @@ import {
     isAssistantOperationalTool,
 } from "@/lib/ai/assistantOperationalTools";
 import { openai } from "@/lib/ai/openai";
+import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import type {
@@ -688,12 +689,38 @@ export async function POST(request: Request) {
         );
     }
 
-    const startedAt = Date.now();
-    const usage = emptyUsage();
-    const toolsUsed = new Set<string>();
-    let toolRounds = 0;
+    const encoder = new TextEncoder();
+    const stream = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = stream.writable.getWriter();
+    let streamClosed = false;
+    const sendEvent = async (event: Record<string, unknown>) => {
+        if (streamClosed) return;
 
-    try {
+        try {
+            await writer.write(
+                encoder.encode(`${JSON.stringify(event)}\n`),
+            );
+        } catch {
+            streamClosed = true;
+        }
+    };
+
+    void (async () => {
+        const startedAt = Date.now();
+        const usage = emptyUsage();
+        const toolsUsed = new Set<string>();
+        let toolRounds = 0;
+        const toolContext = {
+            authUserId: access.user.id,
+            sessionId: body.session_id,
+            unitLock: access.permission.unit_lock ?? null,
+        };
+
+        try {
+        await sendEvent({
+            type: "status",
+            status: "Entendendo a pergunta...",
+        });
         const cards = new Map<string, AssistantCard>();
         let emptyResponseRetries = 0;
         const selectedToolNames = new Set<string>(
@@ -708,6 +735,13 @@ export async function POST(request: Request) {
         }));
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+            await sendEvent({
+                type: "status",
+                status:
+                    round === 0
+                        ? "Analisando a solicitação..."
+                        : "Cruzando os resultados...",
+            });
             const response = await openai.responses.create({
                 model: MODEL,
                 store: false,
@@ -716,12 +750,14 @@ export async function POST(request: Request) {
                 instructions: buildInstructions(
                     access.user.name,
                     sessionMemory,
+                    access.permission.unit_lock?.name ?? null,
                 ),
                 input,
                 tools: availableTools,
                 tool_choice: "auto",
                 max_output_tokens: MAX_OUTPUT_TOKENS,
-            });
+                prompt_cache_key: `assistente:${access.user.id}`,
+            }, { signal: request.signal });
             addUsage(usage, response.usage);
 
             const output = (response.output ?? []) as unknown as Array<
@@ -766,7 +802,7 @@ export async function POST(request: Request) {
                 const finalContent =
                     content ||
                     "## Não foi possível concluir a consulta\n\nO modelo não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o erro técnico.";
-                await recordAssistantRun({
+                const runId = await recordAssistantRun({
                     authUserId: access.user.id,
                     sessionId: body.session_id,
                     status: content ? "completed" : "incomplete",
@@ -779,17 +815,28 @@ export async function POST(request: Request) {
                         : "Modelo sem resposta textual após nova tentativa.",
                 });
 
-                return NextResponse.json({
-                    ok: true,
+                await sendEvent({
+                    type: "message",
                     message: {
                         role: "assistant",
                         content: finalContent,
                         cards: selectResponseCards(cards),
+                        run_id: runId,
                     },
                 });
+                return;
             }
 
             toolRounds = round + 1;
+            await sendEvent({
+                type: "status",
+                status: "Consultando os dados do Hub...",
+                tools: functionCalls
+                    .map((call) =>
+                        typeof call.name === "string" ? call.name : "",
+                    )
+                    .filter(Boolean),
+            });
             const executions = await Promise.all(functionCalls.map(async (call) => {
                 const callId =
                     typeof call.call_id === "string" ? call.call_id : "";
@@ -807,24 +854,24 @@ export async function POST(request: Request) {
                         ? await executeAssistantAdvancedDataTool(
                               name,
                               parsedArguments,
-                              {
-                                  authUserId: access.user.id,
-                                  sessionId: body.session_id,
-                              },
+                              toolContext,
                           )
                         : isAssistantOperationalTool(name)
                           ? await executeAssistantOperationalTool(
                                 name,
                                 parsedArguments,
+                                toolContext,
                             )
                           : isAssistantSocialDataTool(name)
                             ? await executeAssistantSocialDataTool(
                                   name,
                                   parsedArguments,
+                                  toolContext,
                               )
                             : await executeAssistantDataTool(
                                   name,
                                   parsedArguments,
+                                  toolContext,
                               );
                 } catch (error) {
                     console.error("[assistente] tool execution failed", {
@@ -868,7 +915,7 @@ export async function POST(request: Request) {
             ];
         }
 
-        await recordAssistantRun({
+        const runId = await recordAssistantRun({
             authUserId: access.user.id,
             sessionId: body.session_id,
             status: "incomplete",
@@ -879,19 +926,22 @@ export async function POST(request: Request) {
             errorMessage: "Limite de etapas de ferramentas atingido.",
         });
 
-        return NextResponse.json({
-            ok: true,
+        await sendEvent({
+            type: "message",
             message: {
                 role: "assistant",
                 content:
                     "## Consulta incompleta\n\nA análise atingiu o limite seguro de etapas. Refinar o período ou o foco da pergunta permite concluir sem misturar resultados parciais.",
                 cards: selectResponseCards(cards),
+                run_id: runId,
             },
         });
     } catch (error) {
         console.error("[assistente] chat failed", error);
         const errorMessage =
-            error instanceof Error
+            request.signal.aborted
+                ? "Solicitação interrompida."
+                : error instanceof Error
                 ? error.message
                 : "Não foi possível consultar o assistente.";
         await recordAssistantRun({
@@ -905,65 +955,28 @@ export async function POST(request: Request) {
             errorMessage,
         });
 
-        return NextResponse.json(
-            {
-                ok: false,
-                error: errorMessage,
-            },
-            { status: 500 },
-        );
+        await sendEvent({ type: "error", error: errorMessage });
+    } finally {
+        if (!streamClosed) {
+            streamClosed = true;
+            await writer.close().catch(() => undefined);
+        }
     }
+    })();
+
+    return new Response(stream.readable, {
+        headers: {
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Cache-Control": "no-store",
+        },
+    });
 }
 
-function toStatelessContinuationItems(
-    output: Array<Record<string, unknown>>,
+function buildInstructions(
+    userName: string,
+    sessionMemory: string,
+    unitName: string | null,
 ) {
-    const items: Array<Record<string, unknown>> = [];
-
-    for (const item of output) {
-        if (item.type === "function_call") {
-            const callId =
-                typeof item.call_id === "string" ? item.call_id : null;
-            const name = typeof item.name === "string" ? item.name : null;
-            const argumentsValue =
-                typeof item.arguments === "string"
-                    ? item.arguments
-                    : "{}";
-
-            if (callId && name) {
-                items.push({
-                    type: "function_call",
-                    call_id: callId,
-                    name,
-                    arguments: argumentsValue,
-                });
-            }
-
-            continue;
-        }
-
-        if (item.type === "reasoning") {
-            const encryptedContent =
-                typeof item.encrypted_content === "string"
-                    ? item.encrypted_content
-                    : null;
-
-            if (encryptedContent) {
-                items.push({
-                    type: "reasoning",
-                    encrypted_content: encryptedContent,
-                    summary: Array.isArray(item.summary)
-                        ? item.summary
-                        : [],
-                });
-            }
-        }
-    }
-
-    return items;
-}
-
-function buildInstructions(userName: string, sessionMemory: string) {
     const now = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
         dateStyle: "full",
@@ -972,14 +985,6 @@ function buildInstructions(userName: string, sessionMemory: string) {
 
     return `
 Você é o Assistente IA interno do Engravida Hub.
-
-Usuário atual: ${userName}
-Data e hora atuais em America/Sao_Paulo: ${now}
-${
-    sessionMemory
-        ? `\nCONTEXTO PERSISTENTE DE MENSAGENS ANTERIORES DESTE CHAT:\n<session_memory>\n${sessionMemory.slice(0, 12_000)}\n</session_memory>\nUse esse contexto apenas para continuidade. Para qualquer dado atual do Hub, consulte novamente a ferramenta correta.`
-        : ""
-}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
@@ -994,6 +999,7 @@ REGRAS:
 10. Para buscar uma palavra, frase ou fala dentro das mensagens, use search_conversation_content. Para motivos de cancelamento/remarcação cruzados com conversas, use get_cancellation_analysis e diferencie motivo comprovado em texto de motivo desconhecido. Para campanhas, conjuntos e cidade de origem social, use get_meta_attribution_overview.
 11. Quando o usuário pedir CSV, planilha, exportação ou download, use create_csv_export. Nunca prometa um arquivo sem criar o card de download.
 12. Informe o período consultado, a fonte e qualquer limite relevante. Se não houver cobertura suficiente, diga objetivamente qual dado está ausente; nunca responda apenas que “não conseguiu produzir uma resposta”.
+12-A. Objeções, abandono, sentimento, satisfação e qualidade vindos da análise de conversas são classificações automáticas. Identifique-as assim, priorize sinais de alta confiança e separe ou ressalve sinais de baixa confiança.
 
 FERRAMENTAS OPERACIONAIS RECENTES:
 - Para quantidade atual de clientes por etapa do Funil ou KPIs de avaliação/procedimento, use get_funnel_overview. As contagens de etapa são posição atual; o período se aplica aos KPIs de jornada.
@@ -1024,12 +1030,23 @@ CARDS:
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
 \`\`\`
 Use \`line\` para evolução por dia, \`bar\` para comparação e \`pie\` para composição. Nunca escreva \`assistant-chart\` e o JSON fora do bloco.
+
+CONTEXTO DINÂMICO DESTA SOLICITAÇÃO:
+Usuário atual: ${userName}
+Data e hora atuais em America/Sao_Paulo: ${now}
+Escopo de unidade: ${unitName ?? "todas as unidades permitidas"}
+${
+    sessionMemory
+        ? `\nCONTEXTO PERSISTENTE DE MENSAGENS ANTERIORES DESTE CHAT:\n<session_memory>\n${sessionMemory.slice(0, 12_000)}\n</session_memory>\nUse esse contexto apenas para continuidade. Para qualquer dado atual do Hub, consulte novamente a ferramenta correta.`
+        : ""
+}
 `.trim();
 }
 
 type AssistantUsageTotals = {
     inputTokens: number;
     cachedInputTokens: number;
+    cacheWriteTokens: number;
     outputTokens: number;
     reasoningTokens: number;
     estimatedCostUsd: number | null;
@@ -1039,6 +1056,7 @@ function emptyUsage(): AssistantUsageTotals {
     return {
         inputTokens: 0,
         cachedInputTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
         reasoningTokens: 0,
         estimatedCostUsd: 0,
@@ -1054,6 +1072,9 @@ function addUsage(target: AssistantUsageTotals, value: unknown) {
     const inputDetails = asRecord(usage.input_tokens_details);
     const outputDetails = asRecord(usage.output_tokens_details);
     const cachedInputTokens = nonnegativeInteger(inputDetails?.cached_tokens);
+    const cacheWriteTokens = nonnegativeInteger(
+        inputDetails?.cache_write_tokens,
+    );
     const reasoningTokens = nonnegativeInteger(outputDetails?.reasoning_tokens);
     const requestCost = estimateRequestCost({
         model: MODEL,
@@ -1064,6 +1085,7 @@ function addUsage(target: AssistantUsageTotals, value: unknown) {
 
     target.inputTokens += inputTokens;
     target.cachedInputTokens += cachedInputTokens;
+    target.cacheWriteTokens += cacheWriteTokens;
     target.outputTokens += outputTokens;
     target.reasoningTokens += reasoningTokens;
     target.estimatedCostUsd =
@@ -1141,28 +1163,37 @@ async function recordAssistantRun({
     durationMs: number;
     errorMessage: string | null;
 }) {
-    const { error } = await supabase.from("assistant_chat_runs").insert({
-        auth_user_id: authUserId,
-        session_id: sessionId,
-        model: MODEL,
-        status,
-        input_tokens: usage.inputTokens,
-        cached_input_tokens: usage.cachedInputTokens,
-        output_tokens: usage.outputTokens,
-        reasoning_tokens: usage.reasoningTokens,
-        estimated_cost_usd:
-            usage.estimatedCostUsd === null
-                ? null
-                : Math.round(usage.estimatedCostUsd * 1_000_000) / 1_000_000,
-        tool_names: [...toolsUsed].filter(Boolean),
-        tool_rounds: toolRounds,
-        duration_ms: Math.max(0, Math.trunc(durationMs)),
-        error_message: errorMessage?.slice(0, 1_000) ?? null,
-    });
+    const { data, error } = await supabase
+        .from("assistant_chat_runs")
+        .insert({
+            auth_user_id: authUserId,
+            session_id: sessionId,
+            model: MODEL,
+            status,
+            input_tokens: usage.inputTokens,
+            cached_input_tokens: usage.cachedInputTokens,
+            cache_write_tokens: usage.cacheWriteTokens,
+            output_tokens: usage.outputTokens,
+            reasoning_tokens: usage.reasoningTokens,
+            estimated_cost_usd:
+                usage.estimatedCostUsd === null
+                    ? null
+                    : Math.round(usage.estimatedCostUsd * 1_000_000) /
+                      1_000_000,
+            tool_names: [...toolsUsed].filter(Boolean),
+            tool_rounds: toolRounds,
+            duration_ms: Math.max(0, Math.trunc(durationMs)),
+            error_message: errorMessage?.slice(0, 1_000) ?? null,
+        })
+        .select("id")
+        .single();
 
     if (error) {
         console.error("[assistente] failed to save run telemetry", error);
+        return null;
     }
+
+    return data?.id ?? null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

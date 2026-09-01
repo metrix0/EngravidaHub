@@ -1,9 +1,15 @@
+// lib/ai/assistantOperationalTools.ts
 import { supabase } from "@/lib";
 import { getInternalChatUsers } from "@/lib/internal-chat/internalChatServer";
 import {
     normalizeScheduleStatus,
     scheduleShowedUp,
 } from "@/lib/schedules/status";
+import {
+    applyAssistantUnitScope,
+    type AssistantToolContext,
+    unitRestrictedToolOutput,
+} from "@/lib/ai/assistantToolContext";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -76,17 +82,33 @@ export function isAssistantOperationalTool(name: string) {
 export async function executeAssistantOperationalTool(
     name: string,
     rawArguments: unknown,
+    context: AssistantToolContext,
 ): Promise<ToolExecution> {
-    const args = isRecord(rawArguments) ? rawArguments : {};
+    const args = applyAssistantUnitScope(
+        isRecord(rawArguments) ? rawArguments : {},
+        context,
+    );
 
     switch (name) {
         case "get_funnel_overview":
             return getFunnelOverview(args);
         case "get_active_message_overview":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A visão de Mensagem Ativa",
+                );
+            }
             return getActiveMessageOverview(args);
         case "get_tracking_events_overview":
             return getTrackingEventsOverview(args);
         case "get_internal_team_overview":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A visão da equipe interna",
+                );
+            }
             return getInternalTeamOverview(args);
         default:
             return {

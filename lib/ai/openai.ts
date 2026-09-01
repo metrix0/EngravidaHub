@@ -96,11 +96,14 @@ function sanitizeTechnicalLanguage(value: string) {
 
 export const openai = {
     responses: {
-        async create(parameters: Record<string, unknown>) {
+        async create(
+            parameters: Record<string, unknown>,
+            options?: Parameters<typeof client.responses.create>[1],
+        ) {
             const response = await client.responses.create({
                 ...parameters,
                 instructions: withPresentationInstructions(parameters.instructions),
-            } as never);
+            } as never, options);
 
             if (typeof response.output_text !== "string") return response;
 
