@@ -1,6 +1,12 @@
 // scripts/test-assistant-routing.ts
 import assert from "node:assert/strict";
 
+import { summarizeConversationAnalysisPipeline } from "../lib/ai/assistantAnalysisPipeline";
+import {
+    ASSISTANT_HUB_KNOWLEDGE_BASE,
+    findInternalTechnicalTerms,
+    replaceInternalTechnicalTerms,
+} from "../lib/ai/assistantHubKnowledge";
 import { summarizeFirstHumanResponseTimes } from "../lib/ai/assistantMetrics";
 import { toStatelessContinuationItems } from "../lib/ai/assistantResponseState";
 import { applyAssistantUnitScope } from "../lib/ai/assistantToolContext";
@@ -105,6 +111,22 @@ const routingCases: Array<{
         ],
         expected: ["analyze_unit_performance", "get_conversation_analysis_overview"],
     },
+    {
+        name: "continuidade sobre conversas sem análise",
+        messages: [
+            { role: "user", content: "Analise os últimos 3 dias de conversas." },
+            {
+                role: "assistant",
+                content:
+                    "Foram analisadas 65 de 851 conversas, com cobertura de 7,64%.",
+            },
+            {
+                role: "user",
+                content: "Por que as conversas não foram analisadas?",
+            },
+        ],
+        expected: ["get_conversation_analysis_overview"],
+    },
 ];
 
 for (const testCase of routingCases) {
@@ -137,6 +159,131 @@ assert.equal(firstResponse.first_human_response_included_in_average, 3);
 assert.equal(firstResponse.first_human_response_excluded_over_2h, 1);
 assert.equal(firstResponse.average_first_human_response_seconds, 2_460);
 assert.equal(firstResponse.raw_average_first_human_response_seconds, 3_645);
+
+const pipelineSummary = summarizeConversationAnalysisPipeline(
+    [
+        {
+            analysis_status: "pending",
+            analysis_claimed_at: null,
+            analysis_error: null,
+            started_at: "2026-09-01T10:00:00.000Z",
+            ended_at: null,
+        },
+        {
+            analysis_status: "pending",
+            analysis_claimed_at: null,
+            analysis_error: null,
+            started_at: "2026-09-01T09:00:00.000Z",
+            ended_at: "2026-09-01T10:00:00.000Z",
+        },
+        {
+            analysis_status: "processing",
+            analysis_claimed_at: "2026-09-01T13:30:00.000Z",
+            analysis_error: null,
+            started_at: "2026-09-01T08:00:00.000Z",
+            ended_at: "2026-09-01T09:00:00.000Z",
+        },
+        {
+            analysis_status: "processing",
+            analysis_claimed_at: "2026-09-01T11:00:00.000Z",
+            analysis_error: null,
+            started_at: "2026-09-01T08:00:00.000Z",
+            ended_at: "2026-09-01T09:00:00.000Z",
+        },
+        {
+            analysis_status: "processing",
+            analysis_claimed_at: "2026-09-01T00:00:00.000Z",
+            analysis_error: null,
+            started_at: "2026-08-31T20:00:00.000Z",
+            ended_at: "2026-08-31T21:00:00.000Z",
+        },
+        {
+            analysis_status: "processing",
+            analysis_claimed_at: "2026-08-30T10:00:00.000Z",
+            analysis_error: null,
+            started_at: "2026-08-30T08:00:00.000Z",
+            ended_at: "2026-08-30T09:00:00.000Z",
+        },
+        {
+            analysis_status: "processing",
+            analysis_claimed_at: null,
+            analysis_error: null,
+            started_at: "2026-08-30T08:00:00.000Z",
+            ended_at: "2026-08-30T09:00:00.000Z",
+        },
+        {
+            analysis_status: "failed",
+            analysis_claimed_at: null,
+            analysis_error:
+                "Conversation is not eligible for analysis: no client messages",
+            started_at: "2026-08-30T08:00:00.000Z",
+            ended_at: "2026-08-30T09:00:00.000Z",
+        },
+        {
+            analysis_status: "failed",
+            analysis_claimed_at: null,
+            analysis_error:
+                "Conversation is not eligible for analysis: no human attendant messages",
+            started_at: "2026-08-30T08:00:00.000Z",
+            ended_at: "2026-08-30T09:00:00.000Z",
+        },
+        {
+            analysis_status: "completed",
+            analysis_claimed_at: null,
+            analysis_error: null,
+            started_at: "2026-08-30T08:00:00.000Z",
+            ended_at: "2026-08-30T09:00:00.000Z",
+        },
+    ],
+    { now: new Date("2026-09-01T14:00:00.000Z") },
+);
+assert.deepEqual(pipelineSummary.statuses, {
+    awaiting_conversation_end: 1,
+    queued_for_analysis: 1,
+    processing: 5,
+    failed: 2,
+    inconsistent_or_unknown: 1,
+});
+assert.deepEqual(pipelineSummary.processing_age, {
+    up_to_1_hour: 1,
+    one_to_6_hours: 1,
+    six_to_24_hours: 1,
+    over_24_hours: 1,
+    without_claim_time: 1,
+});
+assert.equal(pipelineSummary.failure_reasons.no_client_messages, 1);
+assert.equal(
+    pipelineSummary.failure_reasons.no_human_attendant_messages,
+    1,
+);
+
+for (const topic of [
+    "Dashboard",
+    "Jornada",
+    "Agenda",
+    "Clientes",
+    "Funil",
+    "Financeiro",
+    "Mídia",
+    "Eventos",
+    "Mensagem Ativa",
+    "Assistente",
+    "Internos",
+    "Usuários",
+]) {
+    assert.ok(
+        ASSISTANT_HUB_KNOWLEDGE_BASE.includes(topic),
+        `A base de conhecimento deveria cobrir ${topic}.`,
+    );
+}
+const technicalExample =
+    "O Supabase mantém analysis_status e a API consulta get_conversation_analysis_overview.";
+assert.ok(findInternalTechnicalTerms(technicalExample).length >= 3);
+assert.deepEqual(
+    findInternalTechnicalTerms(replaceInternalTechnicalTerms(technicalExample)),
+    [],
+    "A proteção final deve remover nomes internos conhecidos.",
+);
 
 const responseOutput = [
     {
@@ -189,5 +336,5 @@ assert.deepEqual(
 );
 
 console.log(
-    `Assistant eval passed: ${routingCases.length} routing cases, metric normalization, complete continuation replay, and unit-scope enforcement.`,
+    `Assistant eval passed: ${routingCases.length} routing cases, pipeline reasons, Hub knowledge, plain-language enforcement, metric normalization, complete continuation replay, and unit-scope enforcement.`,
 );

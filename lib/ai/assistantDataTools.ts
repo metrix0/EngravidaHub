@@ -11,6 +11,10 @@ import {
 import { getPaidMediaOverview } from "@/lib/ai/assistantPaidMediaTool";
 import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
 import {
+    summarizeConversationAnalysisPipeline,
+    type ConversationAnalysisPipelineRow,
+} from "@/lib/ai/assistantAnalysisPipeline";
+import {
     applyAssistantUnitScope,
     type AssistantToolContext,
     unitRestrictedToolOutput,
@@ -909,7 +913,7 @@ async function getConversationAnalysisOverview(
         };
     }
 
-    const [rows, conversationCoverage] = await Promise.all([
+    const [rows, conversationCoverage, pipelineRows] = await Promise.all([
         loadAnalysisRows({
             dateFrom,
             dateTo,
@@ -917,6 +921,11 @@ async function getConversationAnalysisOverview(
             channel: "WhatsApp",
         }),
         countWhatsAppConversations({
+            dateFrom,
+            dateTo,
+            unitId: unit?.id,
+        }),
+        loadConversationAnalysisPipelineRows({
             dateFrom,
             dateTo,
             unitId: unit?.id,
@@ -992,6 +1001,9 @@ async function getConversationAnalysisOverview(
             coverage: {
                 total_conversations: conversationCoverage.count,
                 analyzed_conversations: rows.length,
+                unanalyzed_conversations: pipelineRows.error
+                    ? null
+                    : pipelineRows.rows.length,
                 analysis_coverage_rate:
                     conversationCoverage.count === null
                         ? null
@@ -999,6 +1011,18 @@ async function getConversationAnalysisOverview(
                 capped: rows.length >= MAX_ANALYTICS_ROWS,
                 note: coverageNote,
             },
+            analysis_pipeline: pipelineRows.error
+                ? {
+                      available: false,
+                      note: pipelineRows.error,
+                  }
+                : {
+                      available: true,
+                      ...summarizeConversationAnalysisPipeline(
+                          pipelineRows.rows,
+                          { capped: pipelineRows.capped },
+                      ),
+                  },
             outcomes: {
                 scheduled_or_confirmed_conversations: scheduledRows.length,
                 not_scheduled_conversations: notScheduledRows.length,
@@ -2665,6 +2689,81 @@ async function countWhatsAppConversations({
     }
 
     return { count: count ?? 0, error: null };
+}
+
+async function loadConversationAnalysisPipelineRows({
+    dateFrom,
+    dateTo,
+    unitId,
+}: {
+    dateFrom: string;
+    dateTo: string;
+    unitId?: string;
+}): Promise<{
+    rows: ConversationAnalysisPipelineRow[];
+    capped: boolean;
+    error: string | null;
+}> {
+    const rows: ConversationAnalysisPipelineRow[] = [];
+    const maximumRowsToRead = MAX_ANALYTICS_ROWS + 1;
+
+    for (
+        let offset = 0;
+        offset < maximumRowsToRead;
+        offset += ANALYTICS_PAGE_SIZE
+    ) {
+        const lastIndex = Math.min(
+            offset + ANALYTICS_PAGE_SIZE - 1,
+            maximumRowsToRead - 1,
+        );
+        let query = supabase
+            .from("conversations")
+            .select(
+                unitId
+                    ? "analysis_status, analysis_claimed_at, analysis_error, started_at, ended_at, clients!inner(unit_id)"
+                    : "analysis_status, analysis_claimed_at, analysis_error, started_at, ended_at",
+            )
+            .eq("channel", "WhatsApp")
+            .is("conversation_analysis_id", null)
+            .gte("started_at", brazilDayBoundary(dateFrom))
+            .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)))
+            .order("started_at", { ascending: false })
+            .range(offset, lastIndex);
+
+        if (unitId) query = query.eq("clients.unit_id", unitId);
+
+        const { data, error } = await query;
+        if (error) {
+            console.error("[assistente] analysis pipeline coverage failed", error);
+            return {
+                rows: [],
+                capped: false,
+                error:
+                    "A situação das conversas ainda não analisadas ficou indisponível.",
+            };
+        }
+
+        const page = (data ?? []) as unknown as Array<
+            ConversationAnalysisPipelineRow & { clients?: unknown }
+        >;
+        rows.push(
+            ...page.map((row) => ({
+                analysis_status: row.analysis_status ?? null,
+                analysis_claimed_at: row.analysis_claimed_at ?? null,
+                analysis_error: row.analysis_error ?? null,
+                started_at: row.started_at,
+                ended_at: row.ended_at ?? null,
+            })),
+        );
+
+        if (page.length < lastIndex - offset + 1) break;
+    }
+
+    return {
+        rows: rows.slice(0, MAX_ANALYTICS_ROWS),
+        capped: rows.length > MAX_ANALYTICS_ROWS,
+        error: null,
+    };
 }
 
 function summarizeConversationObjections(

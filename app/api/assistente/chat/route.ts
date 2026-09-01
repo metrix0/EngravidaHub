@@ -18,6 +18,12 @@ import {
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
+import {
+    ASSISTANT_HUB_KNOWLEDGE_BASE,
+    ASSISTANT_PLAIN_LANGUAGE_RULE,
+    findInternalTechnicalTerms,
+    replaceInternalTechnicalTerms,
+} from "@/lib/ai/assistantHubKnowledge";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import type {
     AssistantCard,
@@ -32,6 +38,7 @@ const MODEL = "gpt-5.6-luna";
 const MAX_MESSAGES = 24;
 const MAX_TOOL_ROUNDS = 8;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_PLAIN_LANGUAGE_RETRIES = 1;
 const MAX_OUTPUT_TOKENS = 6_000;
 const MAX_RESPONSE_CARDS = 3;
 const MAX_CONVERSATION_CARDS = 1;
@@ -212,7 +219,7 @@ const TOOLS = [
         type: "function",
         name: "get_conversation_analysis_overview",
         description:
-            "Analisa conversas agregadas do WhatsApp por período e unidade, com foco em agendamento, não agendamento, objeções, abandono, resolução, satisfação e qualidade. Use para explicar por que clientes não agendaram.",
+            "Analisa conversas agregadas do WhatsApp por período e unidade, incluindo cobertura e a situação das conversas ainda sem análise: aguardando encerramento, na fila, em processamento ou sem conteúdo suficiente/com falha. Também cobre agendamento, objeções, abandono, resolução, satisfação e qualidade. Use para explicar por que clientes não agendaram ou por que conversas não foram analisadas.",
         strict: true,
         parameters: {
             type: "object",
@@ -723,6 +730,7 @@ export async function POST(request: Request) {
         });
         const cards = new Map<string, AssistantCard>();
         let emptyResponseRetries = 0;
+        let plainLanguageRetries = 0;
         const selectedToolNames = new Set<string>(
             selectAssistantToolNames(messages),
         );
@@ -799,9 +807,39 @@ export async function POST(request: Request) {
                     continue;
                 }
 
+                const internalTechnicalTerms = content
+                    ? findInternalTechnicalTerms(content)
+                    : [];
+                if (
+                    content &&
+                    internalTechnicalTerms.length > 0 &&
+                    plainLanguageRetries < MAX_PLAIN_LANGUAGE_RETRIES
+                ) {
+                    plainLanguageRetries += 1;
+                    console.error("[assistente] technical language rewritten", {
+                        terms: internalTechnicalTerms,
+                    });
+                    await sendEvent({
+                        type: "status",
+                        status: "Simplificando a resposta...",
+                    });
+                    input = [
+                        ...input,
+                        ...toStatelessContinuationItems(output),
+                        {
+                            role: "user",
+                            content:
+                                "Reescreva a resposta inteira em linguagem comum. Preserve todos os fatos e números, mas remova nomes internos do código, infraestrutura, fornecedores, campos, funções e siglas de programação.",
+                        },
+                    ];
+                    continue;
+                }
+
                 const finalContent =
-                    content ||
-                    "## Não foi possível concluir a consulta\n\nO modelo não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o erro técnico.";
+                    (content
+                        ? replaceInternalTechnicalTerms(content)
+                        : "") ||
+                    "## Não foi possível concluir a consulta\n\nO assistente não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o problema.";
                 const runId = await recordAssistantRun({
                     authUserId: access.user.id,
                     sessionId: body.session_id,
@@ -986,13 +1024,17 @@ function buildInstructions(
     return `
 Você é o Assistente IA interno do Engravida Hub.
 
+${ASSISTANT_HUB_KNOWLEDGE_BASE}
+
+${ASSISTANT_PLAIN_LANGUAGE_RULE}
+
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook, funil, Mensagem Ativa, resgate, eventos de conversão, equipe interna ou operação. Nunca invente dados.
 3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
 4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
-5. Para uma análise geral de conversas do WhatsApp, objeções ou motivos de não agendamento, use get_conversation_analysis_overview. Em pedidos de “últimos N dias”, envie relative_days=N para que hoje conte como o primeiro dia; não calcule date_from manualmente. Para Instagram/Facebook, use somente as ferramentas sociais disponíveis e informe quando elas não oferecerem uma análise agregada. Em perguntas de baixa conversão de uma unidade, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
-6. Informe limites de cobertura quando existirem.
+5. Para uma análise geral de conversas do WhatsApp, objeções, motivos de não agendamento ou explicação de conversas sem análise, use get_conversation_analysis_overview. Em pedidos de “últimos N dias”, envie relative_days=N para que hoje conte como o primeiro dia; não calcule date_from manualmente. Para Instagram/Facebook, use somente as ferramentas sociais disponíveis e informe quando elas não oferecerem uma análise agregada. Em perguntas de baixa conversão de uma unidade, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
+6. Informe limites de cobertura quando existirem. Quando a cobertura de análise for menor que 100% ou o usuário perguntar por que faltam análises, explique os grupos retornados: conversas ainda abertas, na fila, em análise e sem conteúdo suficiente/com falha. Nunca suponha que todas são apenas conversas recentes. Uma conversa marcada como em análise, especialmente por muito tempo, não prova sozinha que o serviço responsável continua trabalhando nela.
 7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
 8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.
 9. Sempre que usar “1ª resposta humana” ou “1º contato humano”, siga exatamente o Dashboard: a média principal inclui somente tempos observados de até 2 horas (7.200 segundos). Valores maiores não entram na média principal; informe quantos foram excluídos quando esse dado estiver disponível. Mediana e P90 podem incluir todos os tempos observados. Nunca apresente a média bruta como a métrica principal, salvo se o usuário pedir explicitamente.
@@ -1014,7 +1056,7 @@ FORMATO DA RESPOSTA:
 16. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
 17. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
 18. Evite repetir o mesmo dado na tabela e no texto.
-19. Nunca mostre UUIDs, IDs internos, nomes de colunas, chaves técnicas ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano.
+19. Nunca mostre identificadores internos, nomes de colunas, tabelas, funções, ferramentas, rotas, arquivos, fornecedores de infraestrutura, modelos de IA, estados escritos como no código ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano. Explique o funcionamento do sistema somente pelo fluxo e pelo efeito no trabalho, sempre em linguagem comum.
 20. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
 
 CARDS:
