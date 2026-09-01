@@ -18,6 +18,7 @@ import {
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
+import { normalizeAssistantBoldWhitespace } from "@/lib/ai/assistantMarkdown";
 import {
     ASSISTANT_HUB_KNOWLEDGE_BASE,
     ASSISTANT_PLAIN_LANGUAGE_RULE,
@@ -1281,7 +1282,7 @@ function sanitizeAssistantMarkdown(value: string) {
                 return "";
             }
 
-            return next;
+            return normalizeAssistantBoldWhitespace(next);
         })
         .join("\n")
         .replace(/\n{3,}/g, "\n\n")
