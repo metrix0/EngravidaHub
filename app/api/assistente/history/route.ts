@@ -7,6 +7,7 @@ import type {
     AssistantCard,
     AssistantChatMessage,
     AssistantChatSession,
+    AssistantFeedbackReason,
 } from "@/types/assistant";
 
 export const runtime = "nodejs";
@@ -52,7 +53,7 @@ export async function GET() {
 
     const { data: messageRows, error: messagesError } = await supabase
         .from("assistant_chat_messages")
-        .select("id, session_id, role, content, cards, created_at")
+        .select("id, session_id, role, content, cards, run_id, created_at")
         .in("session_id", sessionIds)
         .order("created_at", { ascending: true });
 
@@ -66,12 +67,15 @@ export async function GET() {
     const assistantMessageIds = (messageRows ?? [])
         .filter((message) => message.role === "assistant")
         .map((message) => message.id);
-    const feedbackByMessage = new Map<string, "up" | "down">();
+    const feedbackByMessage = new Map<
+        string,
+        { rating: "up" | "down"; reason: AssistantFeedbackReason | null }
+    >();
 
     if (assistantMessageIds.length > 0) {
         const { data: feedbackRows, error: feedbackError } = await supabase
             .from("assistant_message_feedback")
-            .select("assistant_message_id, rating")
+            .select("assistant_message_id, rating, reason")
             .eq("auth_user_id", access.user.id)
             .in("assistant_message_id", assistantMessageIds);
 
@@ -84,7 +88,10 @@ export async function GET() {
 
         for (const row of feedbackRows ?? []) {
             if (row.rating === "up" || row.rating === "down") {
-                feedbackByMessage.set(row.assistant_message_id, row.rating);
+                feedbackByMessage.set(row.assistant_message_id, {
+                    rating: row.rating,
+                    reason: normalizeFeedbackReason(row.reason),
+                });
             }
         }
     }
@@ -96,12 +103,15 @@ export async function GET() {
 
         if (current.length >= MAX_MESSAGES_PER_SESSION) continue;
 
+        const feedback = feedbackByMessage.get(row.id);
         current.push({
             id: row.id,
             role: row.role === "assistant" ? "assistant" : "user",
             content: row.content,
             cards: normalizeCards(row.cards),
-            feedback: feedbackByMessage.get(row.id) ?? null,
+            feedback: feedback?.rating ?? null,
+            feedback_reason: feedback?.reason ?? null,
+            run_id: row.run_id ?? null,
             created_at: row.created_at,
         });
         messagesBySession.set(row.session_id, current);
@@ -224,6 +234,41 @@ export async function POST(request: Request) {
         }
     }
 
+    let runId: string | null = null;
+
+    if (message.role === "assistant" && message.run_id) {
+        if (!isUuid(message.run_id)) {
+            return NextResponse.json(
+                { ok: false, error: "Execução inválida." },
+                { status: 400 },
+            );
+        }
+
+        const { data: run, error: runError } = await supabase
+            .from("assistant_chat_runs")
+            .select("id")
+            .eq("id", message.run_id)
+            .eq("session_id", session.id)
+            .eq("auth_user_id", access.user.id)
+            .maybeSingle();
+
+        if (runError) {
+            return NextResponse.json(
+                { ok: false, error: runError.message },
+                { status: 500 },
+            );
+        }
+
+        if (!run) {
+            return NextResponse.json(
+                { ok: false, error: "Execução não encontrada." },
+                { status: 400 },
+            );
+        }
+
+        runId = run.id;
+    }
+
     const { error: messageError } = await supabase
         .from("assistant_chat_messages")
         .upsert(
@@ -233,6 +278,7 @@ export async function POST(request: Request) {
                 role: message.role,
                 content: message.content.slice(0, 100_000),
                 cards: normalizeCards(message.cards),
+                run_id: runId,
                 created_at: message.created_at,
             },
             { onConflict: "id" },
@@ -313,6 +359,20 @@ export async function DELETE(request: Request) {
 
 function normalizeCards(value: unknown): AssistantCard[] {
     return Array.isArray(value) ? (value as AssistantCard[]) : [];
+}
+
+function normalizeFeedbackReason(
+    value: unknown,
+): AssistantFeedbackReason | null {
+    return [
+        "wrong_data",
+        "wrong_interpretation",
+        "incomplete",
+        "slow",
+        "other",
+    ].includes(typeof value === "string" ? value : "")
+        ? (value as AssistantFeedbackReason)
+        : null;
 }
 
 function isUuid(value: string) {

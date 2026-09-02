@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
+import type { AssistantFeedbackReason } from "@/types/assistant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,11 @@ export async function POST(request: Request) {
         );
     }
 
-    let body: { message_id?: string; rating?: "up" | "down" | null };
+    let body: {
+        message_id?: string;
+        rating?: "up" | "down" | null;
+        reason?: AssistantFeedbackReason | null;
+    };
     try {
         body = await request.json();
     } catch {
@@ -35,6 +40,27 @@ export async function POST(request: Request) {
     if (body.rating !== null && !["up", "down"].includes(body.rating ?? "")) {
         return NextResponse.json(
             { ok: false, error: "Avaliação inválida." },
+            { status: 400 },
+        );
+    }
+    if (
+        body.reason != null &&
+        ![
+            "wrong_data",
+            "wrong_interpretation",
+            "incomplete",
+            "slow",
+            "other",
+        ].includes(body.reason)
+    ) {
+        return NextResponse.json(
+            { ok: false, error: "Motivo inválido." },
+            { status: 400 },
+        );
+    }
+    if (body.reason && body.rating !== "down") {
+        return NextResponse.json(
+            { ok: false, error: "Motivo exige avaliação negativa." },
             { status: 400 },
         );
     }
@@ -82,6 +108,7 @@ export async function POST(request: Request) {
                   assistant_message_id: message.id,
                   auth_user_id: access.user.id,
                   rating: body.rating,
+                  reason: body.rating === "down" ? (body.reason ?? null) : null,
                   updated_at: new Date().toISOString(),
               },
               { onConflict: "assistant_message_id" },
@@ -100,7 +127,11 @@ export async function POST(request: Request) {
         );
     }
 
-    return NextResponse.json({ ok: true, rating: body.rating ?? null });
+    return NextResponse.json({
+        ok: true,
+        rating: body.rating ?? null,
+        reason: body.rating === "down" ? (body.reason ?? null) : null,
+    });
 }
 
 function isUuid(value: string) {

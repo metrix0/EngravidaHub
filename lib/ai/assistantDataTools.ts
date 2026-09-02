@@ -11,6 +11,15 @@ import {
 import { getPaidMediaOverview } from "@/lib/ai/assistantPaidMediaTool";
 import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
 import {
+    summarizeConversationAnalysisPipeline,
+    type ConversationAnalysisPipelineRow,
+} from "@/lib/ai/assistantAnalysisPipeline";
+import {
+    applyAssistantUnitScope,
+    type AssistantToolContext,
+    unitRestrictedToolOutput,
+} from "@/lib/ai/assistantToolContext";
+import {
     getScheduleStatusFlags,
     getScheduleStatusLabel,
     normalizeScheduleStatus,
@@ -35,6 +44,7 @@ const MAX_ANALYTICS_ROWS = 25_000;
 const MAX_FINANCIAL_ROWS = 25_000;
 const ANALYTICS_PAGE_SIZE = 1_000;
 const TIME_ZONE = "America/Sao_Paulo";
+const MIN_ANALYSIS_CONFIDENCE = 0.7;
 const SCHEDULED_CONVERSATION_STATES = new Set([
     "scheduled",
     "rescheduled",
@@ -77,33 +87,55 @@ type FinancialInvoiceRow = {
 export async function executeAssistantDataTool(
     name: string,
     rawArguments: unknown,
+    context: AssistantToolContext,
 ): Promise<ToolExecution> {
-    const args = isRecord(rawArguments) ? rawArguments : {};
+    const args = applyAssistantUnitScope(
+        isRecord(rawArguments) ? rawArguments : {},
+        context,
+    );
 
     switch (name) {
         case "search_clients":
-            return searchClients(args);
+            return searchClients(args, context.unitLock?.id ?? null);
         case "get_client_context":
-            return getClientContext(args);
+            return getClientContext(args, context.unitLock?.id ?? null);
         case "search_appointments":
-            return searchAppointments(args);
+            return searchAppointments(args, context.unitLock?.id ?? null);
         case "get_schedule_overview":
             return getScheduleOverview(args);
         case "search_conversations":
             return searchConversations(args);
         case "get_conversation_context":
-            return getConversationContext(args);
+            return getConversationContext(args, context.unitLock?.id ?? null);
         case "get_conversation_analysis_overview":
             return getConversationAnalysisOverview(args);
         case "analyze_unit_performance":
-            return analyzeUnitPerformance(args);
+            return analyzeUnitPerformance(args, Boolean(context.unitLock));
         case "compare_unit_performance":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A comparação entre unidades",
+                );
+            }
             return compareUnitPerformance(args);
         case "get_business_overview":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A visão geral do negócio",
+                );
+            }
             return getBusinessOverview(args);
         case "get_financial_overview":
             return getFinancialOverview(args);
         case "get_paid_media_overview":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A visão de mídia paga",
+                );
+            }
             return getPaidMediaOverview(args);
         default:
             return {
@@ -113,7 +145,10 @@ export async function executeAssistantDataTool(
     }
 }
 
-async function searchClients(args: JsonRecord): Promise<ToolExecution> {
+async function searchClients(
+    args: JsonRecord,
+    unitId: string | null,
+): Promise<ToolExecution> {
     const query = stringArg(args, "query");
     const limit = integerArg(args, "limit", 8, 1, 25);
 
@@ -132,7 +167,7 @@ async function searchClients(args: JsonRecord): Promise<ToolExecution> {
         return { output: { ok: true, matches: [] }, cards: [] };
     }
 
-    const { data, error } = await supabase
+    let clientQuery = supabase
         .from("clients")
         .select(`
             id,
@@ -149,7 +184,11 @@ async function searchClients(args: JsonRecord): Promise<ToolExecution> {
                 funnels (id, name)
             )
         `)
-        .or(filters.join(","))
+        .or(filters.join(","));
+
+    if (unitId) clientQuery = clientQuery.eq("unit_id", unitId);
+
+    const { data, error } = await clientQuery
         .order("last_interaction_at", {
             ascending: false,
             nullsFirst: false,
@@ -190,7 +229,10 @@ async function searchClients(args: JsonRecord): Promise<ToolExecution> {
     };
 }
 
-async function getClientContext(args: JsonRecord): Promise<ToolExecution> {
+async function getClientContext(
+    args: JsonRecord,
+    unitId: string | null,
+): Promise<ToolExecution> {
     const clientId = stringArg(args, "client_id");
 
     if (!clientId) {
@@ -200,7 +242,7 @@ async function getClientContext(args: JsonRecord): Promise<ToolExecution> {
         };
     }
 
-    const context = await loadClientContext(clientId);
+    const context = await loadClientContext(clientId, unitId);
 
     if (!context) {
         return {
@@ -222,7 +264,10 @@ async function getClientContext(args: JsonRecord): Promise<ToolExecution> {
     };
 }
 
-async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
+async function searchAppointments(
+    args: JsonRecord,
+    unitId: string | null,
+): Promise<ToolExecution> {
     const query = stringArg(args, "query");
     const doctorName = stringArg(args, "doctor_name");
     const unitName = stringArg(args, "unit_name");
@@ -251,7 +296,9 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
     if (unitName) {
         databaseQuery = databaseQuery.ilike(
             "unit_name",
-            `%${sanitizePostgrestText(unitName)}%`,
+            unitId
+                ? sanitizePostgrestText(unitName)
+                : `%${sanitizePostgrestText(unitName)}%`,
         );
     }
 
@@ -316,7 +363,7 @@ async function searchAppointments(args: JsonRecord): Promise<ToolExecution> {
 
     const cards: AssistantCard[] = [];
     if (uniqueClientIds.length === 1) {
-        const card = await loadClientCard(uniqueClientIds[0]);
+        const card = await loadClientCard(uniqueClientIds[0], unitId);
         if (card) cards.push({ type: "client", data: card });
     }
 
@@ -802,6 +849,7 @@ async function searchConversations(args: JsonRecord): Promise<ToolExecution> {
 
 async function getConversationContext(
     args: JsonRecord,
+    unitId: string | null,
 ): Promise<ToolExecution> {
     const conversationId = stringArg(args, "conversation_id");
 
@@ -812,7 +860,7 @@ async function getConversationContext(
         };
     }
 
-    const context = await loadConversationContext(conversationId);
+    const context = await loadConversationContext(conversationId, unitId);
 
     if (!context) {
         return {
@@ -865,7 +913,7 @@ async function getConversationAnalysisOverview(
         };
     }
 
-    const [rows, conversationCoverage] = await Promise.all([
+    const [rows, conversationCoverage, pipelineRows] = await Promise.all([
         loadAnalysisRows({
             dateFrom,
             dateTo,
@@ -877,14 +925,28 @@ async function getConversationAnalysisOverview(
             dateTo,
             unitId: unit?.id,
         }),
+        loadConversationAnalysisPipelineRows({
+            dateFrom,
+            dateTo,
+            unitId: unit?.id,
+        }),
     ]);
     const scheduledRows = rows.filter(isScheduledConversationOutcome);
     const notScheduledRows = rows.filter(
         (row) => !isScheduledConversationOutcome(row),
     );
     const rowsWithObjections = notScheduledRows.filter(hasTypedObjection);
+    const highConfidenceObjectionRows = notScheduledRows.filter(
+        hasHighConfidenceTypedObjection,
+    );
+    const lowConfidenceObjectionRows = notScheduledRows.filter(
+        hasLowConfidenceTypedObjection,
+    );
     const dropoffRows = notScheduledRows.filter(
         (row) => row.dropoff_happened === true,
+    );
+    const highConfidenceDropoffRows = dropoffRows.filter((row) =>
+        hasHighAnalysisConfidence(row.dropoff_confidence),
     );
     const metrics = calculateAnalysisMetrics(rows);
     const cards: AssistantCard[] = [];
@@ -900,7 +962,10 @@ async function getConversationAnalysisOverview(
         )[0];
 
         if (conversationId) {
-            const context = await loadConversationContext(conversationId);
+            const context = await loadConversationContext(
+                conversationId,
+                unit?.id ?? null,
+            );
             if (context) cards.push({ type: "conversation", data: context.card });
         }
     }
@@ -921,9 +986,24 @@ async function getConversationAnalysisOverview(
             },
             channel: "WhatsApp",
             unit: unit ? { name: unit.name } : null,
+            classification: {
+                source: "Análise automática das conversas",
+                confidence_threshold: MIN_ANALYSIS_CONFIDENCE,
+                providers: topValues(
+                    rows.map((row) => row.analysis_provider),
+                    5,
+                ),
+                prompt_versions: topValues(
+                    rows.map((row) => row.analysis_prompt_version),
+                    5,
+                ),
+            },
             coverage: {
                 total_conversations: conversationCoverage.count,
                 analyzed_conversations: rows.length,
+                unanalyzed_conversations: pipelineRows.error
+                    ? null
+                    : pipelineRows.rows.length,
                 analysis_coverage_rate:
                     conversationCoverage.count === null
                         ? null
@@ -931,6 +1011,18 @@ async function getConversationAnalysisOverview(
                 capped: rows.length >= MAX_ANALYTICS_ROWS,
                 note: coverageNote,
             },
+            analysis_pipeline: pipelineRows.error
+                ? {
+                      available: false,
+                      note: pipelineRows.error,
+                  }
+                : {
+                      available: true,
+                      ...summarizeConversationAnalysisPipeline(
+                          pipelineRows.rows,
+                          { capped: pipelineRows.capped },
+                      ),
+                  },
             outcomes: {
                 scheduled_or_confirmed_conversations: scheduledRows.length,
                 not_scheduled_conversations: notScheduledRows.length,
@@ -943,6 +1035,10 @@ async function getConversationAnalysisOverview(
             non_scheduling: {
                 conversations: notScheduledRows.length,
                 conversations_with_objections: rowsWithObjections.length,
+                high_confidence_conversations_with_objections:
+                    highConfidenceObjectionRows.length,
+                low_confidence_conversations_with_objections:
+                    lowConfidenceObjectionRows.length,
                 objection_coverage_rate: percentage(
                     rowsWithObjections.length,
                     notScheduledRows.length,
@@ -951,6 +1047,10 @@ async function getConversationAnalysisOverview(
                     hasUnresolvedObjection,
                 ).length,
                 dropoffs: dropoffRows.length,
+                high_confidence_dropoffs:
+                    highConfidenceDropoffRows.length,
+                low_or_unrated_confidence_dropoffs:
+                    dropoffRows.length - highConfidenceDropoffRows.length,
                 dropoff_rate: percentage(
                     dropoffRows.length,
                     notScheduledRows.length,
@@ -958,6 +1058,16 @@ async function getConversationAnalysisOverview(
                 top_objections: summarizeConversationObjections(
                     notScheduledRows,
                 ),
+                top_high_confidence_objections:
+                    summarizeConversationObjections(
+                        notScheduledRows,
+                        "high",
+                    ),
+                top_low_confidence_objections:
+                    summarizeConversationObjections(
+                        notScheduledRows,
+                        "low",
+                    ),
                 top_dropoff_moments: labeledTopValues(
                     dropoffRows.map((row) => row.dropoff_moment),
                     dropoffMomentLabel,
@@ -994,6 +1104,7 @@ async function getConversationAnalysisOverview(
                     metrics.average_human_response_seconds,
             },
             data_notes: [
+                `Objeções, abandono e sentimento são classificações automáticas; alta confiança significa valor maior ou igual a ${MIN_ANALYSIS_CONFIDENCE}.`,
                 "Não agendamento exclui os estados agendado, reagendado e presença confirmada.",
                 "Percentuais de objeção usam como base as conversas analisadas sem agendamento; uma conversa pode conter mais de uma objeção.",
             ],
@@ -1004,6 +1115,7 @@ async function getConversationAnalysisOverview(
 
 async function analyzeUnitPerformance(
     args: JsonRecord,
+    restrictedToUnit = false,
 ): Promise<ToolExecution> {
     const unitName = stringArg(args, "unit_name");
     const dateFrom = stringArg(args, "date_from") ?? dateDaysAgo(30);
@@ -1029,19 +1141,21 @@ async function analyzeUnitPerformance(
         };
     }
 
-    const [unitRows, allRows, appointments] = await Promise.all([
+    const [unitRows, appointments] = await Promise.all([
         loadAnalysisRows({ dateFrom, dateTo, unitId: unit.id }),
-        loadAnalysisRows({ dateFrom, dateTo }),
         loadUnitAppointments(unit.id, dateFrom, dateTo),
     ]);
+    const allRows = restrictedToUnit
+        ? null
+        : await loadAnalysisRows({ dateFrom, dateTo });
 
     const unitMetrics = calculateAnalysisMetrics(unitRows);
-    const overallMetrics = calculateAnalysisMetrics(allRows);
+    const overallMetrics = allRows ? calculateAnalysisMetrics(allRows) : null;
     const representativeIds = selectRepresentativeConversations(unitRows, 1);
     const cards: AssistantCard[] = [];
 
     for (const conversationId of representativeIds.slice(0, 1)) {
-        const context = await loadConversationContext(conversationId);
+        const context = await loadConversationContext(conversationId, unit.id);
 
         if (context) {
             cards.push({
@@ -1062,11 +1176,20 @@ async function analyzeUnitPerformance(
             unit: { name: unit.name },
             metrics: unitMetrics,
             overall_benchmark: overallMetrics,
-            differences: compareMetrics(unitMetrics, overallMetrics),
+            differences: overallMetrics
+                ? compareMetrics(unitMetrics, overallMetrics)
+                : null,
             appointments: summarizeAppointments(appointments),
             data_notes: [
+                ...(restrictedToUnit
+                    ? [
+                          "O benchmark geral não foi consultado porque este acesso está restrito à unidade.",
+                      ]
+                    : []),
                 "A unidade das conversas é derivada de clients.unit_id, pois conversations.unit_id não está preenchido de forma confiável.",
-                `Foram consideradas ${unitRows.length} análises da unidade e ${allRows.length} análises no benchmark geral.`,
+                allRows
+                    ? `Foram consideradas ${unitRows.length} análises da unidade e ${allRows.length} análises no benchmark geral.`
+                    : `Foram consideradas ${unitRows.length} análises da unidade.`,
             ],
         },
         cards,
@@ -1885,8 +2008,9 @@ type ClientContext = {
 
 async function loadClientContext(
     clientId: string,
+    unitId: string | null = null,
 ): Promise<ClientContext | null> {
-    const { data: clientRow, error: clientError } = await supabase
+    let clientQuery = supabase
         .from("clients")
         .select(`
             id,
@@ -1922,8 +2046,12 @@ async function loadClientContext(
                 )
             )
         `)
-        .eq("id", clientId)
-        .maybeSingle();
+        .eq("id", clientId);
+
+    if (unitId) clientQuery = clientQuery.eq("unit_id", unitId);
+
+    const { data: clientRow, error: clientError } =
+        await clientQuery.maybeSingle();
 
     if (clientError) {
         throw new Error(`Falha ao carregar cliente: ${clientError.message}`);
@@ -2125,8 +2253,9 @@ async function loadClientContext(
 
 async function loadClientCard(
     clientId: string,
+    unitId: string | null = null,
 ): Promise<AssistantClientCardData | null> {
-    const context = await loadClientContext(clientId);
+    const context = await loadClientContext(clientId, unitId);
     return context?.card ?? null;
 }
 
@@ -2140,8 +2269,9 @@ type ConversationContext = {
 
 async function loadConversationContext(
     conversationId: string,
+    unitId: string | null = null,
 ): Promise<ConversationContext | null> {
-    const { data: conversation, error: conversationError } = await supabase
+    let conversationQuery = supabase
         .from("conversations")
         .select(`
             id,
@@ -2153,10 +2283,17 @@ async function loadConversationContext(
             tunnel,
             origin,
             last_message_text,
-            conversation_analysis_id
+            conversation_analysis_id,
+            clients!inner (unit_id)
         `)
-        .eq("id", conversationId)
-        .maybeSingle();
+        .eq("id", conversationId);
+
+    if (unitId) {
+        conversationQuery = conversationQuery.eq("clients.unit_id", unitId);
+    }
+
+    const { data: conversation, error: conversationError } =
+        await conversationQuery.maybeSingle();
 
     if (conversationError) {
         throw new Error(
@@ -2204,7 +2341,7 @@ async function loadConversationContext(
             .order("sent_at", { ascending: true })
             .order("sequence_index", { ascending: true })
             .limit(300),
-        loadClientCard(conversation.client_id),
+        loadClientCard(conversation.client_id, unitId),
     ]);
 
     const errors = [
@@ -2302,8 +2439,10 @@ type AnalysisRow = {
     dropoff_happened: boolean | null;
     dropoff_moment: string | null;
     dropoff_likely_reason: string | null;
+    dropoff_confidence: number | null;
     customer_sentiment: string | null;
     satisfaction_score: number | null;
+    sentiment_confidence: number | null;
     attendant_quality_score: number | null;
     first_human_response_time_seconds: number | null;
     average_human_response_time_seconds: number | null;
@@ -2312,6 +2451,8 @@ type AnalysisRow = {
     short_label: string | null;
     notable: boolean | null;
     notable_reason: string | null;
+    analysis_provider: string | null;
+    analysis_prompt_version: string | null;
     unit_id: string | null;
     unit_name: string | null;
 };
@@ -2350,8 +2491,10 @@ async function loadAnalysisRows({
                 dropoff_happened,
                 dropoff_moment,
                 dropoff_likely_reason,
+                dropoff_confidence,
                 customer_sentiment,
                 satisfaction_score,
+                sentiment_confidence,
                 attendant_quality_score,
                 first_human_response_time_seconds,
                 average_human_response_time_seconds,
@@ -2360,6 +2503,8 @@ async function loadAnalysisRows({
                 short_label,
                 notable,
                 notable_reason,
+                analysis_provider,
+                analysis_prompt_version,
                 clients!inner (
                     unit_id,
                     units (
@@ -2403,8 +2548,12 @@ async function loadAnalysisRows({
                 dropoff_happened: row.dropoff_happened ?? null,
                 dropoff_moment: row.dropoff_moment ?? null,
                 dropoff_likely_reason: row.dropoff_likely_reason ?? null,
+                dropoff_confidence: numberOrNull(row.dropoff_confidence),
                 customer_sentiment: row.customer_sentiment ?? null,
                 satisfaction_score: numberOrNull(row.satisfaction_score),
+                sentiment_confidence: numberOrNull(
+                    row.sentiment_confidence,
+                ),
                 attendant_quality_score: numberOrNull(
                     row.attendant_quality_score,
                 ),
@@ -2419,6 +2568,9 @@ async function loadAnalysisRows({
                 short_label: row.short_label ?? null,
                 notable: row.notable ?? null,
                 notable_reason: row.notable_reason ?? null,
+                analysis_provider: row.analysis_provider ?? null,
+                analysis_prompt_version:
+                    row.analysis_prompt_version ?? null,
                 unit_id: unit?.id ?? client?.unit_id ?? null,
                 unit_name: unit?.name ?? null,
             });
@@ -2435,6 +2587,11 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
     const scheduled = rows.filter(isScheduledConversationOutcome).length;
     const achieved = rows.filter((row) => row.goal_status === "achieved").length;
     const dropoffs = rows.filter((row) => row.dropoff_happened === true).length;
+    const highConfidenceDropoffs = rows.filter(
+        (row) =>
+            row.dropoff_happened === true &&
+            hasHighAnalysisConfidence(row.dropoff_confidence),
+    ).length;
     const resolved = rows.filter(
         (row) => row.resolution_result === "resolved",
     ).length;
@@ -2452,6 +2609,9 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
         resolution_rate: percentage(resolved, total),
         dropoffs,
         dropoff_rate: percentage(dropoffs, total),
+        high_confidence_dropoffs: highConfidenceDropoffs,
+        low_or_unrated_confidence_dropoffs:
+            dropoffs - highConfidenceDropoffs,
         average_satisfaction_score: average(
             rows.map((row) => row.satisfaction_score),
         ),
@@ -2478,9 +2638,22 @@ function calculateAnalysisMetrics(rows: AnalysisRow[]) {
             8,
         ),
         top_objections: topObjections(rows),
+        top_high_confidence_objections: topObjections(
+            rows,
+            "high",
+        ),
         sentiment_distribution: topValues(
             rows.map((row) => row.customer_sentiment),
         ),
+        confidence: {
+            threshold: MIN_ANALYSIS_CONFIDENCE,
+            high_confidence_sentiment_classifications: rows.filter((row) =>
+                hasHighAnalysisConfidence(row.sentiment_confidence),
+            ).length,
+            low_or_unrated_sentiment_classifications: rows.filter(
+                (row) => !hasHighAnalysisConfidence(row.sentiment_confidence),
+            ).length,
+        },
     };
 }
 
@@ -2518,7 +2691,85 @@ async function countWhatsAppConversations({
     return { count: count ?? 0, error: null };
 }
 
-function summarizeConversationObjections(rows: AnalysisRow[]) {
+async function loadConversationAnalysisPipelineRows({
+    dateFrom,
+    dateTo,
+    unitId,
+}: {
+    dateFrom: string;
+    dateTo: string;
+    unitId?: string;
+}): Promise<{
+    rows: ConversationAnalysisPipelineRow[];
+    capped: boolean;
+    error: string | null;
+}> {
+    const rows: ConversationAnalysisPipelineRow[] = [];
+    const maximumRowsToRead = MAX_ANALYTICS_ROWS + 1;
+
+    for (
+        let offset = 0;
+        offset < maximumRowsToRead;
+        offset += ANALYTICS_PAGE_SIZE
+    ) {
+        const lastIndex = Math.min(
+            offset + ANALYTICS_PAGE_SIZE - 1,
+            maximumRowsToRead - 1,
+        );
+        let query = supabase
+            .from("conversations")
+            .select(
+                unitId
+                    ? "analysis_status, analysis_claimed_at, analysis_error, started_at, ended_at, clients!inner(unit_id)"
+                    : "analysis_status, analysis_claimed_at, analysis_error, started_at, ended_at",
+            )
+            .eq("channel", "WhatsApp")
+            .is("conversation_analysis_id", null)
+            .gte("started_at", brazilDayBoundary(dateFrom))
+            .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)))
+            .order("started_at", { ascending: false })
+            .range(offset, lastIndex);
+
+        if (unitId) query = query.eq("clients.unit_id", unitId);
+
+        const { data, error } = await query;
+        if (error) {
+            console.error("[assistente] analysis pipeline coverage failed", error);
+            return {
+                rows: [],
+                capped: false,
+                error:
+                    "A situação das conversas ainda não analisadas ficou indisponível.",
+            };
+        }
+
+        const page = (data ?? []) as unknown as Array<
+            ConversationAnalysisPipelineRow & { clients?: unknown }
+        >;
+        rows.push(
+            ...page.map((row) => ({
+                analysis_status: row.analysis_status ?? null,
+                analysis_claimed_at: row.analysis_claimed_at ?? null,
+                analysis_error: row.analysis_error ?? null,
+                started_at: row.started_at,
+                ended_at: row.ended_at ?? null,
+            })),
+        );
+
+        if (page.length < lastIndex - offset + 1) break;
+    }
+
+    return {
+        rows: rows.slice(0, MAX_ANALYTICS_ROWS),
+        capped: rows.length > MAX_ANALYTICS_ROWS,
+        error: null,
+    };
+}
+
+function summarizeConversationObjections(
+    rows: AnalysisRow[],
+    confidenceBand: "all" | "high" | "low" = "all",
+) {
     const summaries = new Map<
         string,
         {
@@ -2537,6 +2788,12 @@ function summarizeConversationObjections(rows: AnalysisRow[]) {
 
         for (const objection of row.objections) {
             if (!isRecord(objection)) continue;
+
+            const highConfidence = hasHighAnalysisConfidence(
+                numberOrNull(objection.confidence),
+            );
+            if (confidenceBand === "high" && !highConfidence) continue;
+            if (confidenceBand === "low" && highConfidence) continue;
 
             const type = stringValue(objection.type);
             if (!type) continue;
@@ -2623,6 +2880,33 @@ function hasTypedObjection(row: AnalysisRow) {
                 isRecord(objection) && Boolean(stringValue(objection.type)),
         )
     );
+}
+
+function hasHighConfidenceTypedObjection(row: AnalysisRow) {
+    return hasTypedObjectionWithConfidence(row, "high");
+}
+
+function hasLowConfidenceTypedObjection(row: AnalysisRow) {
+    return hasTypedObjectionWithConfidence(row, "low");
+}
+
+function hasTypedObjectionWithConfidence(
+    row: AnalysisRow,
+    confidenceBand: "high" | "low",
+) {
+    if (!Array.isArray(row.objections)) return false;
+
+    return row.objections.some((objection) => {
+        if (!isRecord(objection) || !stringValue(objection.type)) return false;
+        const highConfidence = hasHighAnalysisConfidence(
+            numberOrNull(objection.confidence),
+        );
+        return confidenceBand === "high" ? highConfidence : !highConfidence;
+    });
+}
+
+function hasHighAnalysisConfidence(value: number | null) {
+    return value !== null && value >= MIN_ANALYSIS_CONFIDENCE;
 }
 
 function hasUnresolvedObjection(row: AnalysisRow) {
@@ -3019,7 +3303,10 @@ function topValues(
         .slice(0, limit);
 }
 
-function topObjections(rows: AnalysisRow[]) {
+function topObjections(
+    rows: AnalysisRow[],
+    confidenceBand: "all" | "high" = "all",
+) {
     const values: string[] = [];
 
     for (const row of rows) {
@@ -3027,6 +3314,14 @@ function topObjections(rows: AnalysisRow[]) {
 
         for (const objection of row.objections) {
             if (!isRecord(objection)) continue;
+            if (
+                confidenceBand === "high" &&
+                !hasHighAnalysisConfidence(
+                    numberOrNull(objection.confidence),
+                )
+            ) {
+                continue;
+            }
             const type =
                 typeof objection.type === "string"
                     ? objection.type

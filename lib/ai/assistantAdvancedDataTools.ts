@@ -9,6 +9,11 @@ import {
     normalizeScheduleStatus,
     resolveScheduleStatusFilters,
 } from "@/lib/schedules/status";
+import {
+    applyAssistantUnitScope,
+    type AssistantToolContext,
+    unitRestrictedToolOutput,
+} from "@/lib/ai/assistantToolContext";
 import type { AssistantCard } from "@/types/assistant";
 
 type JsonRecord = Record<string, unknown>;
@@ -16,11 +21,6 @@ type JsonRecord = Record<string, unknown>;
 type ToolExecution = {
     output: unknown;
     cards: AssistantCard[];
-};
-
-export type AssistantToolContext = {
-    authUserId: string;
-    sessionId: string;
 };
 
 type ConversationRow = {
@@ -106,18 +106,11 @@ const ADVANCED_TOOL_NAMES = new Set([
     "create_csv_export",
 ]);
 const PAGE_SIZE = 1_000;
-const MAX_WORD_ROWS_PER_TERM = 4_000;
 const MAX_CONVERSATION_CANDIDATES = 3_000;
 const MAX_CANCELLATION_ROWS = 10_000;
 const MAX_ATTRIBUTION_ROWS = 25_000;
 const MAX_EXPORT_ROWS = 5_000;
 const TIME_ZONE = "America/Sao_Paulo";
-const NON_SCHEDULED_STATES = new Set([
-    "not_scheduled",
-    "not_interested",
-    "abandoned",
-    "unresolved",
-]);
 const SEARCH_STOP_WORDS = new Set([
     "a",
     "as",
@@ -166,14 +159,23 @@ export async function executeAssistantAdvancedDataTool(
     rawArguments: unknown,
     context: AssistantToolContext,
 ): Promise<ToolExecution> {
-    const args = isRecord(rawArguments) ? rawArguments : {};
+    const args = applyAssistantUnitScope(
+        isRecord(rawArguments) ? rawArguments : {},
+        context,
+    );
 
     switch (name) {
         case "search_conversation_content":
-            return searchConversationContent(args);
+            return searchConversationContent(args, context);
         case "get_cancellation_analysis":
-            return getCancellationAnalysis(args);
+            return getCancellationAnalysis(args, context);
         case "get_meta_attribution_overview":
+            if (context.unitLock) {
+                return unitRestrictedToolOutput(
+                    context,
+                    "A atribuição Meta por campanha",
+                );
+            }
             return getMetaAttributionOverview(args);
         case "create_csv_export":
             return createCsvExport(args, context);
@@ -187,6 +189,7 @@ export async function executeAssistantAdvancedDataTool(
 
 async function searchConversationContent(
     args: JsonRecord,
+    context: AssistantToolContext,
 ): Promise<ToolExecution> {
     const queryText = stringArg(args, "query");
     const channel = stringArg(args, "channel") ?? "all";
@@ -227,38 +230,40 @@ async function searchConversationContent(
         };
     }
 
-    const rowsByTerm = await Promise.all(
-        terms.map((term) => loadWordRows(term)),
-    );
-    const matches = new Map<
-        string,
-        { terms: Set<string>; mentions: number }
-    >();
+    const requestedUnit = context.unitLock
+        ? context.unitLock
+        : unitName
+          ? await resolveSingleUnit(unitName)
+          : null;
 
-    for (let index = 0; index < terms.length; index += 1) {
-        for (const row of rowsByTerm[index]) {
-            const current = matches.get(row.conversation_id) ?? {
-                terms: new Set<string>(),
-                mentions: 0,
-            };
-            current.terms.add(terms[index]);
-            current.mentions += numberOrZero(row.mentions);
-            matches.set(row.conversation_id, current);
-        }
+    if (unitName && !requestedUnit) {
+        return {
+            output: {
+                ok: true,
+                matches: [],
+                note: `Unidade “${unitName}” não encontrada.`,
+            },
+            cards: [],
+        };
     }
 
-    const candidateIds = [...matches.entries()]
-        .filter(([, value]) =>
-            matchMode === "any" ? value.terms.size > 0 : value.terms.size === terms.length,
-        )
-        .sort((first, second) => second[1].mentions - first[1].mentions)
-        .slice(0, MAX_CONVERSATION_CANDIDATES)
-        .map(([conversationId]) => conversationId);
+    const candidates = await loadFilteredConversationCandidates({
+        terms,
+        matchMode,
+        channel,
+        dateFrom,
+        dateTo,
+        unitId: requestedUnit?.id ?? null,
+        exactPhrase: exactPhrase ? queryText : null,
+        limit: MAX_CONVERSATION_CANDIDATES,
+    });
+    const candidateIds = candidates.map((row) => row.conversation_id);
 
     const conversationRows = await loadConversationsByIds(candidateIds, {
         channel,
         dateFrom,
         dateTo,
+        unitId: requestedUnit?.id ?? null,
     });
     const clientIds = unique(
         conversationRows
@@ -271,7 +276,7 @@ async function searchConversationContent(
             .filter((value): value is string => Boolean(value)),
     );
     const [clients, analyses] = await Promise.all([
-        loadClients(clientIds),
+        loadClients(clientIds, requestedUnit?.id ?? null),
         loadAnalyses(analysisIds),
     ]);
 
@@ -285,7 +290,7 @@ async function searchConversationContent(
         })
         .sort((first, second) => second.started_at.localeCompare(first.started_at));
 
-    const inspectedRows = filteredRows.slice(0, Math.max(limit * 4, 40));
+    const inspectedRows = filteredRows.slice(0, limit);
     const messagesByConversation = await loadMessagesForConversations(
         inspectedRows.map((row) => row.id),
     );
@@ -325,9 +330,7 @@ async function searchConversationContent(
         if (results.length >= limit) break;
     }
 
-    const indexCapped = rowsByTerm.some(
-        (rows) => rows.length >= MAX_WORD_ROWS_PER_TERM,
-    );
+    const indexCapped = candidates.length >= MAX_CONVERSATION_CANDIDATES;
 
     return {
         output: {
@@ -344,15 +347,15 @@ async function searchConversationContent(
             },
             matches: results,
             matches_returned: results.length,
-            indexed_candidates_before_filters: matches.size,
+            indexed_candidates_after_filters: candidates.length,
             coverage: {
                 source: "Índice canônico de palavras das conversas e mensagens originais do Hub",
                 candidate_limit: MAX_CONVERSATION_CANDIDATES,
                 index_capped: indexCapped,
                 exact_phrase_verified_in_transcript: exactPhrase,
                 note: indexCapped
-                    ? "Ao menos uma palavra atingiu o limite de candidatos. Refine o período ou a frase para garantir cobertura total."
-                    : "Todos os candidatos indexados das palavras pesquisadas foram considerados.",
+                    ? "A pesquisa atingiu o limite depois de aplicar período, canal e unidade. Refine os filtros para garantir cobertura total."
+                    : "Período, canal, unidade e frase exata foram aplicados antes do limite de candidatos.",
             },
         },
         cards: [],
@@ -361,6 +364,7 @@ async function searchConversationContent(
 
 async function getCancellationAnalysis(
     args: JsonRecord,
+    context: AssistantToolContext,
 ): Promise<ToolExecution> {
     const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
     const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
@@ -370,7 +374,12 @@ async function getCancellationAnalysis(
     const procedureType = stringArg(args, "procedure_type") ?? "all";
     const includeEvidence = booleanArg(args, "include_evidence", true);
     const evidenceLimit = integerArg(args, "evidence_limit", 12, 1, 25);
-    const schedules = await loadCancellationSchedules(dateFrom, dateTo, unitName);
+    const schedules = await loadCancellationSchedules(
+        dateFrom,
+        dateTo,
+        unitName,
+        Boolean(context.unitLock),
+    );
     const filteredSchedules = schedules.rows.filter((schedule) =>
         procedureType === "first_evaluation"
             ? isFirstEvaluation(schedule.procedure_name)
@@ -402,10 +411,14 @@ async function getCancellationAnalysis(
             clientIds,
             addDays(dateFrom, -60),
             addDays(dateTo, 2),
+            context.unitLock?.id ?? null,
         );
         linkedConversationCount = conversations.length;
         const candidateConversationIds = await loadCancellationConversationIds(
             new Set(conversations.map((row) => row.id)),
+            addDays(dateFrom, -60),
+            addDays(dateTo, 2),
+            context.unitLock?.id ?? null,
         );
         const candidateRows = conversations.filter((row) =>
             candidateConversationIds.has(row.id),
@@ -645,14 +658,28 @@ async function createCsvExport(
     const channel = stringArg(args, "channel") ?? "all";
     const statuses = stringArrayArg(args, "statuses");
     const nonScheduledOnly = booleanArg(args, "non_scheduled_only", false);
+    const requestedUnit = context.unitLock
+        ? context.unitLock
+        : unitName
+          ? await resolveSingleUnit(unitName)
+          : null;
     let rows: Array<Record<string, unknown>>;
     let columns: string[];
 
-    if (dataset === "schedules") {
+    if (unitName && !requestedUnit) {
+        rows = [];
+        columns =
+            dataset === "schedules"
+                ? Object.keys(scheduleExportColumns())
+                : dataset === "clients"
+                  ? Object.keys(clientExportColumns())
+                  : Object.keys(conversationExportColumns());
+    } else if (dataset === "schedules") {
         const exported = await exportSchedules({
             dateFrom,
             dateTo,
-            unitName,
+            unitName: requestedUnit?.name ?? unitName,
+            exactUnitName: Boolean(requestedUnit),
             queryText,
             statuses,
             limit: requestedLimit,
@@ -661,7 +688,7 @@ async function createCsvExport(
         columns = exported.columns;
     } else if (dataset === "clients") {
         const exported = await exportClients({
-            unitName,
+            unitId: requestedUnit?.id ?? null,
             queryText,
             limit: requestedLimit,
         });
@@ -671,7 +698,7 @@ async function createCsvExport(
         const exported = await exportConversations({
             dateFrom,
             dateTo,
-            unitName,
+            unitId: requestedUnit?.id ?? null,
             queryText,
             channel,
             nonScheduledOnly,
@@ -738,6 +765,7 @@ async function exportSchedules({
     dateFrom,
     dateTo,
     unitName,
+    exactUnitName,
     queryText,
     statuses,
     limit,
@@ -745,6 +773,7 @@ async function exportSchedules({
     dateFrom: string | null;
     dateTo: string | null;
     unitName: string | null;
+    exactUnitName: boolean;
     queryText: string | null;
     statuses: string[];
     limit: number;
@@ -758,7 +787,14 @@ async function exportSchedules({
         .limit(limit);
     if (dateFrom) query = query.gte("scheduled_for", dateFrom);
     if (dateTo) query = query.lte("scheduled_for", dateTo);
-    if (unitName) query = query.ilike("unit_name", `%${sanitizeFilter(unitName)}%`);
+    if (unitName) {
+        query = query.ilike(
+            "unit_name",
+            exactUnitName
+                ? sanitizeFilter(unitName)
+                : `%${sanitizeFilter(unitName)}%`,
+        );
+    }
     const rawStatuses = resolveScheduleStatusFilters(statuses);
     if (rawStatuses.length > 0) query = query.in("status", rawStatuses);
     if (queryText) {
@@ -784,11 +820,11 @@ async function exportSchedules({
 }
 
 async function exportClients({
-    unitName,
+    unitId,
     queryText,
     limit,
 }: {
-    unitName: string | null;
+    unitId: string | null;
     queryText: string | null;
     limit: number;
 }) {
@@ -799,6 +835,7 @@ async function exportClients({
         )
         .order("last_interaction_at", { ascending: false, nullsFirst: false })
         .limit(limit);
+    if (unitId) query = query.eq("unit_id", unitId);
     if (queryText) {
         const safe = sanitizeFilter(queryText);
         query = query.or(
@@ -808,15 +845,7 @@ async function exportClients({
     const { data, error } = await query;
     if (error) throw new Error(`Falha ao exportar clientes: ${error.message}`);
 
-    const rows = ((data ?? []) as unknown as ClientRow[])
-        .filter((row) =>
-            unitName
-                ? normalizeSearchText(relationOne(row.units)?.name).includes(
-                      normalizeSearchText(unitName),
-                  )
-                : true,
-        )
-        .map((row) => ({
+    const rows = ((data ?? []) as unknown as ClientRow[]).map((row) => ({
             Nome: row.name,
             Telefone: row.phone,
             Email: row.email,
@@ -832,7 +861,7 @@ async function exportClients({
 async function exportConversations({
     dateFrom,
     dateTo,
-    unitName,
+    unitId,
     queryText,
     channel,
     nonScheduledOnly,
@@ -840,128 +869,100 @@ async function exportConversations({
 }: {
     dateFrom: string | null;
     dateTo: string | null;
-    unitName: string | null;
+    unitId: string | null;
     queryText: string | null;
     channel: string;
     nonScheduledOnly: boolean;
     limit: number;
 }) {
-    let query = supabase
-        .from("conversations")
-        .select(
-            "id, client_id, conversation_analysis_id, channel, started_at, ended_at, attendant_chat_name, last_message_text",
-        )
-        .order("started_at", { ascending: false })
-        .limit(Math.min(MAX_EXPORT_ROWS, nonScheduledOnly ? limit * 3 : limit));
-    if (channel !== "all") query = query.eq("channel", channel);
-    if (dateFrom) query = query.gte("started_at", brazilDayBoundary(dateFrom));
-    if (dateTo) query = query.lt("started_at", brazilDayBoundary(addDays(dateTo, 1)));
-
-    const { data, error } = await query;
+    const { data, error } = await supabase.rpc(
+        "assistant_export_conversations",
+        {
+            p_date_from: dateFrom,
+            p_date_to: dateTo,
+            p_unit_id: unitId,
+            p_query: queryText,
+            p_channel: channel === "all" ? null : channel,
+            p_non_scheduled_only: nonScheduledOnly,
+            p_limit: Math.min(MAX_EXPORT_ROWS, limit),
+        },
+    );
     if (error) throw new Error(`Falha ao exportar conversas: ${error.message}`);
-    const conversations = (data ?? []) as ConversationRow[];
-    const [clients, analyses] = await Promise.all([
-        loadClients(
-            unique(
-                conversations
-                    .map((row) => row.client_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ),
-        loadAnalyses(
-            unique(
-                conversations
-                    .map((row) => row.conversation_analysis_id)
-                    .filter((value): value is string => Boolean(value)),
-            ),
-        ),
-    ]);
-    const normalizedQuery = normalizeSearchText(queryText);
-    const rows = conversations
-        .filter((conversation) => {
-            const client = conversation.client_id
-                ? clients.get(conversation.client_id)
-                : null;
-            const analysis = conversation.conversation_analysis_id
-                ? analyses.get(conversation.conversation_analysis_id)
-                : null;
-            if (
-                unitName &&
-                !normalizeSearchText(relationOne(client?.units)?.name).includes(
-                    normalizeSearchText(unitName),
-                )
-            ) {
-                return false;
-            }
-            if (
-                normalizedQuery &&
-                !normalizeSearchText(
-                    [
-                        client?.name,
-                        client?.phone,
-                        conversation.last_message_text,
-                        analysis?.short_label,
-                    ].join(" "),
-                ).includes(normalizedQuery)
-            ) {
-                return false;
-            }
-            if (nonScheduledOnly && analysis) {
-                return (
-                    NON_SCHEDULED_STATES.has(
-                        analysis.customer_final_state ?? "",
-                    ) || analysis.goal_status === "not_achieved"
-                );
-            }
-            return !nonScheduledOnly || Boolean(analysis);
-        })
-        .slice(0, limit)
-        .map((conversation) => {
-            const client = conversation.client_id
-                ? clients.get(conversation.client_id)
-                : null;
-            const analysis = conversation.conversation_analysis_id
-                ? analyses.get(conversation.conversation_analysis_id)
-                : null;
+    const rows = ((data ?? []) as Array<{
+        client_name: string | null;
+        unit_name: string | null;
+        channel: string | null;
+        started_at: string;
+        ended_at: string | null;
+        attendant_name: string | null;
+        conversation_goal: string | null;
+        goal_status: string | null;
+        customer_final_state: string | null;
+        resolution_result: string | null;
+        dropoff_happened: boolean | null;
+        dropoff_likely_reason: string | null;
+        short_label: string | null;
+    }>).map((conversation) => {
             return {
-                Cliente: client?.name ?? "Cliente sem nome",
-                Unidade: relationOne(client?.units)?.name ?? null,
+                Cliente: conversation.client_name ?? "Cliente sem nome",
+                Unidade: conversation.unit_name,
                 Canal: conversation.channel,
                 Início: conversation.started_at,
                 Término: conversation.ended_at,
-                Atendente: conversation.attendant_chat_name,
-                Objetivo: analysis?.conversation_goal ?? null,
-                "Resultado do objetivo": analysis?.goal_status ?? null,
-                "Situação final": analysis?.customer_final_state ?? null,
-                Resolução: analysis?.resolution_result ?? null,
-                Abandono: analysis?.dropoff_happened ?? null,
-                "Motivo provável": analysis?.dropoff_likely_reason ?? null,
-                Resumo: analysis?.short_label ?? null,
+                Atendente: conversation.attendant_name,
+                Objetivo: conversation.conversation_goal,
+                "Resultado do objetivo": conversation.goal_status,
+                "Situação final": conversation.customer_final_state,
+                Resolução: conversation.resolution_result,
+                Abandono: conversation.dropoff_happened,
+                "Motivo provável": conversation.dropoff_likely_reason,
+                Resumo: conversation.short_label,
             };
         });
     return { rows, columns: Object.keys(rows[0] ?? conversationExportColumns()) };
 }
 
-async function loadWordRows(term: string) {
-    const rows: Array<{
-        conversation_id: string;
-        mentions: number | string | null;
-    }> = [];
+async function loadFilteredConversationCandidates({
+    terms,
+    matchMode,
+    channel,
+    dateFrom,
+    dateTo,
+    unitId,
+    exactPhrase,
+    limit,
+}: {
+    terms: string[];
+    matchMode: string;
+    channel: string;
+    dateFrom: string | null;
+    dateTo: string | null;
+    unitId: string | null;
+    exactPhrase: string | null;
+    limit: number;
+}) {
+    const { data, error } = await supabase.rpc(
+        "assistant_search_conversation_candidates",
+        {
+            p_terms: terms,
+            p_match_mode: matchMode === "any" ? "any" : "all",
+            p_channel: channel === "all" ? null : channel,
+            p_date_from: dateFrom,
+            p_date_to: dateTo,
+            p_unit_id: unitId,
+            p_exact_phrase: exactPhrase,
+            p_limit: limit,
+        },
+    );
 
-    for (let offset = 0; offset < MAX_WORD_ROWS_PER_TERM; offset += PAGE_SIZE) {
-        const { data, error } = await supabase
-            .from("dashboard_conversation_words")
-            .select("conversation_id, mentions")
-            .eq("word", term)
-            .order("mentions", { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1);
-        if (error) throw new Error(`Falha ao pesquisar conversas: ${error.message}`);
-        const page = data ?? [];
-        rows.push(...page);
-        if (page.length < PAGE_SIZE) break;
+    if (error) {
+        throw new Error(`Falha ao pesquisar conversas: ${error.message}`);
     }
 
-    return rows;
+    return (data ?? []) as Array<{
+        conversation_id: string;
+        mentions: number | string;
+    }>;
 }
 
 async function loadConversationsByIds(
@@ -970,6 +971,7 @@ async function loadConversationsByIds(
         channel: string;
         dateFrom: string | null;
         dateTo: string | null;
+        unitId: string | null;
     },
 ) {
     const rows: ConversationRow[] = [];
@@ -997,15 +999,17 @@ async function loadConversationsByIds(
     return rows;
 }
 
-async function loadClients(ids: string[]) {
+async function loadClients(ids: string[], unitId: string | null = null) {
     const result = new Map<string, ClientRow>();
     for (const idChunk of chunk(ids, 100)) {
-        const { data, error } = await supabase
+        let query = supabase
             .from("clients")
             .select(
                 "id, name, phone, email, city, state, first_seen_at, last_interaction_at, units(name)",
             )
             .in("id", idChunk);
+        if (unitId) query = query.eq("unit_id", unitId);
+        const { data, error } = await query;
         if (error) throw new Error(`Falha ao carregar clientes: ${error.message}`);
         for (const row of (data ?? []) as unknown as ClientRow[]) {
             result.set(row.id, row);
@@ -1057,6 +1061,7 @@ async function loadCancellationSchedules(
     dateFrom: string,
     dateTo: string,
     unitName: string | null,
+    exactUnitName: boolean,
 ) {
     const rows: ScheduleRow[] = [];
     for (let offset = 0; offset < MAX_CANCELLATION_ROWS; offset += PAGE_SIZE) {
@@ -1070,7 +1075,14 @@ async function loadCancellationSchedules(
             .in("status", ["Desmarcou", "Remarcou"])
             .order("scheduled_for", { ascending: false })
             .range(offset, offset + PAGE_SIZE - 1);
-        if (unitName) query = query.ilike("unit_name", `%${sanitizeFilter(unitName)}%`);
+        if (unitName) {
+            query = query.ilike(
+                "unit_name",
+                exactUnitName
+                    ? sanitizeFilter(unitName)
+                    : `%${sanitizeFilter(unitName)}%`,
+            );
+        }
         const { data, error } = await query;
         if (error) throw new Error(`Falha ao carregar cancelamentos: ${error.message}`);
         const page = (data ?? []) as ScheduleRow[];
@@ -1084,10 +1096,15 @@ async function loadClientConversations(
     clientIds: string[],
     dateFrom: string,
     dateTo: string,
+    unitId: string | null,
 ) {
     const rows: ConversationRow[] = [];
-    for (const idChunk of chunk(clientIds, 100)) {
-        const { data, error } = await supabase
+    const scopedClientIds = unitId
+        ? await filterClientIdsByUnit(clientIds, unitId)
+        : clientIds;
+
+    for (const idChunk of chunk(scopedClientIds, 100)) {
+        const query = supabase
             .from("conversations")
             .select(
                 "id, client_id, conversation_analysis_id, channel, started_at, ended_at, attendant_chat_name, last_message_text",
@@ -1097,21 +1114,52 @@ async function loadClientConversations(
             .gte("started_at", brazilDayBoundary(dateFrom))
             .lt("started_at", brazilDayBoundary(addDays(dateTo, 1)))
             .order("started_at", { ascending: false });
+        const { data, error } = await query;
         if (error) throw new Error(`Falha ao cruzar conversas: ${error.message}`);
         rows.push(...((data ?? []) as ConversationRow[]));
     }
     return rows;
 }
 
-async function loadCancellationConversationIds(allowedIds: Set<string>) {
-    const ids = new Set<string>();
-    const rows = await Promise.all(
-        CANCELLATION_WORDS.map((word) => loadWordRows(word)),
-    );
-    for (const termRows of rows) {
-        for (const row of termRows) {
-            if (allowedIds.has(row.conversation_id)) ids.add(row.conversation_id);
+async function filterClientIdsByUnit(clientIds: string[], unitId: string) {
+    const ids: string[] = [];
+
+    for (const idChunk of chunk(clientIds, 100)) {
+        const { data, error } = await supabase
+            .from("clients")
+            .select("id")
+            .in("id", idChunk)
+            .eq("unit_id", unitId);
+
+        if (error) {
+            throw new Error(`Falha ao validar unidade dos clientes: ${error.message}`);
         }
+
+        ids.push(...(data ?? []).map((row) => row.id));
+    }
+
+    return ids;
+}
+
+async function loadCancellationConversationIds(
+    allowedIds: Set<string>,
+    dateFrom: string,
+    dateTo: string,
+    unitId: string | null,
+) {
+    const ids = new Set<string>();
+    const rows = await loadFilteredConversationCandidates({
+        terms: CANCELLATION_WORDS,
+        matchMode: "any",
+        channel: "WhatsApp",
+        dateFrom,
+        dateTo,
+        unitId,
+        exactPhrase: null,
+        limit: MAX_CANCELLATION_ROWS,
+    });
+    for (const row of rows) {
+        if (allowedIds.has(row.conversation_id)) ids.add(row.conversation_id);
     }
     return ids;
 }
@@ -1405,13 +1453,32 @@ function validDateArg(args: JsonRecord, key: string) {
     return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
-function numberOrZero(value: number | string | null | undefined) {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-}
-
 function sanitizeFilter(value: string) {
     return value.replace(/[,%()]/g, " ").trim().slice(0, 120);
+}
+
+async function resolveSingleUnit(name: string) {
+    const safe = sanitizeFilter(name);
+    const { data, error } = await supabase
+        .from("units")
+        .select("id, name")
+        .ilike("name", `%${safe}%`)
+        .eq("active", true)
+        .order("name", { ascending: true })
+        .limit(10);
+
+    if (error) {
+        throw new Error(`Falha ao localizar unidade: ${error.message}`);
+    }
+
+    const rows = data ?? [];
+    const exact = rows.find(
+        (row) =>
+            row.name.toLocaleLowerCase("pt-BR") ===
+            name.toLocaleLowerCase("pt-BR"),
+    );
+
+    return exact ?? rows[0] ?? null;
 }
 
 function todayInBrazil() {
