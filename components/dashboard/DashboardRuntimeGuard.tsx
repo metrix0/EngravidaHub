@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 const DASHBOARD_PATH = "/";
 const EXECUTIVE_API_PATH = "/api/dashboard/executivo";
 const RESILIENT_API_PATH = "/api/dashboard/executivo-resilient";
-const CACHE_PREFIX = "engravida-hub:executive-dashboard:v1:";
+const CACHE_PREFIX = "engravida-hub:executive-dashboard:v2:";
 const STALE_CACHE_MS = 30 * 60 * 1000;
 
 type CachedDashboardResponse = {
@@ -43,7 +43,7 @@ export default function DashboardRuntimeGuard({
             try {
                 const response = await originalFetch(resilientUrl.toString(), {
                     ...init,
-                    cache: "default",
+                    cache: "no-store",
                 });
 
                 if (response.ok) {

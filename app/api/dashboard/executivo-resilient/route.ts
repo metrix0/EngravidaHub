@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const EDGE_MAX_AGE_SECONDS = 60;
-const EDGE_STALE_SECONDS = 15 * 60;
 const TRANSIENT_RETRY_DELAY_MS = 120;
 
 export async function GET(request: Request) {
@@ -22,9 +20,7 @@ export async function GET(request: Request) {
         status: result.status,
         headers: {
             "Content-Type": result.contentType,
-            "Cache-Control": result.ok
-                ? `public, s-maxage=${EDGE_MAX_AGE_SECONDS}, stale-while-revalidate=${EDGE_STALE_SECONDS}`
-                : "no-store",
+            "Cache-Control": "private, no-store",
             "X-Dashboard-Source": "resilient",
         },
     });
