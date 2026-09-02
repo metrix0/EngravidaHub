@@ -8,7 +8,6 @@ import {
     replaceInternalTechnicalTerms,
 } from "../lib/ai/assistantHubKnowledge";
 import { summarizeFirstHumanResponseTimes } from "../lib/ai/assistantMetrics";
-import { normalizeAssistantBoldWhitespace } from "../lib/ai/assistantMarkdown";
 import { toStatelessContinuationItems } from "../lib/ai/assistantResponseState";
 import { applyAssistantUnitScope } from "../lib/ai/assistantToolContext";
 import {
@@ -160,17 +159,6 @@ assert.equal(firstResponse.first_human_response_included_in_average, 3);
 assert.equal(firstResponse.first_human_response_excluded_over_2h, 1);
 assert.equal(firstResponse.average_first_human_response_seconds, 2_460);
 assert.equal(firstResponse.raw_average_first_human_response_seconds, 3_645);
-
-assert.equal(
-    normalizeAssistantBoldWhitespace(
-        "**93 na fila: ** já encerraram.\n\n**265 sem análise válida: ** faltava conteúdo.",
-    ),
-    "**93 na fila:** já encerraram.\n\n**265 sem análise válida:** faltava conteúdo.",
-);
-assert.equal(
-    normalizeAssistantBoldWhitespace("**459 em processamento:** aguardavam resultado."),
-    "**459 em processamento:** aguardavam resultado.",
-);
 
 const pipelineSummary = summarizeConversationAnalysisPipeline(
     [

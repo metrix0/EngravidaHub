@@ -18,7 +18,6 @@ import {
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
-import { normalizeAssistantBoldWhitespace } from "@/lib/ai/assistantMarkdown";
 import {
     ASSISTANT_HUB_KNOWLEDGE_BASE,
     ASSISTANT_PLAIN_LANGUAGE_RULE,
@@ -1282,7 +1281,7 @@ function sanitizeAssistantMarkdown(value: string) {
                 return "";
             }
 
-            return normalizeAssistantBoldWhitespace(next);
+            return next;
         })
         .join("\n")
         .replace(/\n{3,}/g, "\n\n")
@@ -1334,8 +1333,12 @@ function convertLongMetricLists(value: string) {
                 const separator = item.indexOf(":");
 
                 if (separator > 0 && separator < 80) {
-                    const label = item.slice(0, separator).trim();
-                    const result = item.slice(separator + 1).trim();
+                    const normalized = normalizeMetricMarkdown(
+                        item.slice(0, separator).trim(),
+                        item.slice(separator + 1).trim(),
+                    );
+                    const label = normalized.label;
+                    const result = normalized.result;
                     output.push(`**${label}:** ${result}`, "");
                 } else {
                     output.push(item, "");
@@ -1354,6 +1357,33 @@ function convertLongMetricLists(value: string) {
         .join("\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
+}
+
+function normalizeMetricMarkdown(label: string, result: string) {
+    const delimiter = label.startsWith("**")
+        ? "**"
+        : label.startsWith("__")
+          ? "__"
+          : null;
+
+    if (!delimiter) return { label, result };
+
+    let normalizedLabel = label.slice(delimiter.length);
+    let normalizedResult = result;
+
+    if (normalizedLabel.endsWith(delimiter)) {
+        normalizedLabel = normalizedLabel.slice(0, -delimiter.length);
+    } else if (normalizedResult.startsWith(delimiter)) {
+        normalizedResult = normalizedResult
+            .slice(delimiter.length)
+            .trimStart();
+    } else if (normalizedResult.endsWith(delimiter)) {
+        normalizedResult = normalizedResult
+            .slice(0, -delimiter.length)
+            .trimEnd();
+    }
+
+    return { label: normalizedLabel, result: normalizedResult };
 }
 
 

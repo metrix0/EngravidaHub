@@ -20,7 +20,9 @@ export default function AssistantMarkdown({
 }
 
 function parseBlocks(source: string) {
-    const lines = source.replace(/\r\n?/g, "\n").split("\n");
+    const lines = repairRepeatedBoldLabels(source)
+        .replace(/\r\n?/g, "\n")
+        .split("\n");
     const output: ReactNode[] = [];
     let index = 0;
 
@@ -236,6 +238,12 @@ function parseBlocks(source: string) {
     }
 
     return output;
+}
+
+function repairRepeatedBoldLabels(value: string) {
+    return value
+        .replace(/^\s*\*{4}([^*\n]+?):\*{2}\s+\*{2}\s*/gm, "**$1:** ")
+        .replace(/^\s*_{4}([^_\n]+?):_{2}\s+_{2}\s*/gm, "__$1:__ ");
 }
 
 function parseChartConfig(value: string): AssistantChartConfig | null {
