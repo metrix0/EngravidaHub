@@ -53,6 +53,7 @@ import ExecutiveScheduleTable from "@/components/dashboard/ExecutiveScheduleTabl
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
 import DashboardCallInsights from "@/components/dashboard/DashboardCallInsights";
+import DashboardWebPageViews from "@/components/dashboard/DashboardWebPageViews";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import {
     getNormalizedUrlOptionNames,
@@ -497,6 +498,13 @@ export default function ExecutiveDashboardPage() {
 
                         <section className="mt-6 min-w-0 max-w-full">
                             <DashboardCallInsights
+                                period={period}
+                                selectedRange={selectedRange}
+                            />
+                        </section>
+
+                        <section className="mt-6 min-w-0 max-w-full">
+                            <DashboardWebPageViews
                                 period={period}
                                 selectedRange={selectedRange}
                             />
