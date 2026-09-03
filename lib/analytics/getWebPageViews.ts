@@ -3,8 +3,8 @@ import { GoogleAuth } from "google-auth-library";
 const GOOGLE_ANALYTICS_PROPERTY_ID = "355552673";
 const GOOGLE_ANALYTICS_SCOPE =
     "https://www.googleapis.com/auth/analytics.readonly";
-const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
-const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+const GA4_GOOGLE_CLIENT_EMAIL = process.env.GA4_GOOGLE_CLIENT_EMAIL;
+const GA4_GOOGLE_PRIVATE_KEY = process.env.GA4_GOOGLE_PRIVATE_KEY;
 
 const MAIN_SITE_HOSTS = new Set([
     "engravida.com.br",
@@ -139,8 +139,8 @@ export async function getWebPageViews({
 async function getGoogleAccessToken() {
     const auth = new GoogleAuth({
         credentials: {
-            client_email: GOOGLE_CLIENT_EMAIL!,
-            private_key: GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
+            client_email: GA4_GOOGLE_CLIENT_EMAIL!,
+            private_key: GA4_GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
         },
         scopes: [GOOGLE_ANALYTICS_SCOPE],
     });
@@ -156,8 +156,8 @@ async function getGoogleAccessToken() {
 
 function validateEnvironment() {
     const missing = [
-        ["GOOGLE_CLIENT_EMAIL", GOOGLE_CLIENT_EMAIL],
-        ["GOOGLE_PRIVATE_KEY", GOOGLE_PRIVATE_KEY],
+        ["GA4_GOOGLE_CLIENT_EMAIL", GA4_GOOGLE_CLIENT_EMAIL],
+        ["GA4_GOOGLE_PRIVATE_KEY", GA4_GOOGLE_PRIVATE_KEY],
     ]
         .filter(([, value]) => !value)
         .map(([name]) => name);
