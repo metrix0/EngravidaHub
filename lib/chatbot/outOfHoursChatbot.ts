@@ -56,13 +56,12 @@ export type OutOfHoursChatbotReply = {
     };
     blip_menu_content: {
         text: string;
-        scope: "immediate";
         options: Array<{
             text: string;
             previewText: string;
-            value: null;
+            value: string;
             index: number;
-            type: null;
+            type: "text/plain";
         }>;
         limitMenu: false;
     } | null;
@@ -523,7 +522,7 @@ function queueHumanReply(stage: ChatbotStage) {
         route: "deterministic",
         stage,
         reply:
-            "Certo. Vou deixar sua conversa na fila para nosso time continuar o atendimento a partir das 7h.",
+            "Certo. Vou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível.",
         options: [],
     });
 }
@@ -537,7 +536,7 @@ function unsupportedQuestionReply(stage: ChatbotStage) {
         reply: [
             technicalFallback ??
                 "Essa dúvida precisa ser confirmada com um especialista.",
-            "Vou deixar sua conversa na fila para nosso time continuar o atendimento a partir das 7h.",
+            "Vou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível.",
         ].join("\n\n"),
         options: [],
     });
@@ -715,7 +714,7 @@ async function answerWithKnowledgeSelection(
             reply: [
                 selectedEntries.map((entry) => entry.text).join("\n\n"),
                 needsHuman
-                    ? "Nosso time continuará o atendimento a partir das 7h."
+                    ? "Nosso time continuará o atendimento assim que estiver disponível."
                     : "",
             ]
                 .filter(Boolean)
@@ -753,13 +752,12 @@ function buildReply({
             ? null
             : {
                   text: "Escolha uma opção ou escreva sua dúvida:",
-                  scope: "immediate",
                   options: safeOptions.map((option, index) => ({
                       text: option.label,
                       previewText: option.label,
-                      value: null,
+                      value: option.id,
                       index,
-                      type: null,
+                      type: "text/plain",
                   })),
                   limitMenu: false,
               };
