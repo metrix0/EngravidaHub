@@ -16,6 +16,7 @@ const requestSchema = z
     .object({
         message: z.string().trim().min(1).max(2_000),
         stage: z.string().trim().max(40).optional().nullable(),
+        phone: z.string().trim().max(40).optional().nullable(),
     })
     .strict();
 
@@ -56,6 +57,14 @@ export async function POST(request: Request) {
                 issues: parsed.error.issues,
             },
             { status: 400 },
+        );
+    }
+
+    const phone = (parsed.data.phone ?? "").replace(/[\s()+-]/g, "");
+    if (phone !== "19988760900" && phone !== "5519988760900") {
+        return NextResponse.json(
+            { ok: true, action: "continue_flow" },
+            { headers: { "Cache-Control": "no-store" } },
         );
     }
 
