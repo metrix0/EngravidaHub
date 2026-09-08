@@ -80,7 +80,7 @@ export function useDashboardDateFilter(
     }, [presets, syncUrl, urlReady]);
 
     useEffect(() => {
-        if (!urlReady) return;
+        if (!urlReady || filter.period === null) return;
         writeStoredDateFilter(pathname, filter);
     }, [filter, pathname, urlReady]);
 
@@ -202,7 +202,13 @@ export function DashboardHeader({
     ]);
 
     useEffect(() => {
-        if (storageManaged || !internalStorageReady) return;
+        if (
+            storageManaged ||
+            !internalStorageReady ||
+            period === null
+        ) {
+            return;
+        }
 
         writeStoredDateFilter(pathname, { period, selectedRange });
     }, [
@@ -358,7 +364,13 @@ function resolveStoredFilter(
 ) {
     const localFilter = readStoredDateFilter(pathname);
     const candidate = localFilter ?? serverFilter ?? null;
-    if (!candidate || !isAllowedFilter(candidate, presets)) return null;
+    if (
+        !candidate ||
+        candidate.period === null ||
+        !isAllowedFilter(candidate, presets)
+    ) {
+        return null;
+    }
     return candidate;
 }
 
