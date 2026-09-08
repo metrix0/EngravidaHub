@@ -87,6 +87,31 @@ export function useDashboardDateFilter(
     useEffect(() => {
         if (!syncUrl || !urlReady) return;
 
+        if (filter.period === null) {
+            replaceUrlFilterParams([
+                {
+                    key: "period",
+                    value: null,
+                    aliases: ["date_period"],
+                },
+                {
+                    key: "start_date",
+                    value: null,
+                    aliases: ["date_start", "from", "start"],
+                },
+                {
+                    key: "end_date",
+                    value: null,
+                    aliases: ["date_end", "to", "end"],
+                },
+                {
+                    key: "date",
+                    value: null,
+                },
+            ]);
+            return;
+        }
+
         replaceUrlFilterParams([
             {
                 key: "period",
