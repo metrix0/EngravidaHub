@@ -80,12 +80,37 @@ export function useDashboardDateFilter(
     }, [presets, syncUrl, urlReady]);
 
     useEffect(() => {
-        if (!urlReady) return;
+        if (!urlReady || filter.period === null) return;
         writeStoredDateFilter(pathname, filter);
     }, [filter, pathname, urlReady]);
 
     useEffect(() => {
         if (!syncUrl || !urlReady) return;
+
+        if (filter.period === null) {
+            replaceUrlFilterParams([
+                {
+                    key: "period",
+                    value: null,
+                    aliases: ["date_period"],
+                },
+                {
+                    key: "start_date",
+                    value: null,
+                    aliases: ["date_start", "from", "start"],
+                },
+                {
+                    key: "end_date",
+                    value: null,
+                    aliases: ["date_end", "to", "end"],
+                },
+                {
+                    key: "date",
+                    value: null,
+                },
+            ]);
+            return;
+        }
 
         replaceUrlFilterParams([
             {
@@ -202,7 +227,13 @@ export function DashboardHeader({
     ]);
 
     useEffect(() => {
-        if (storageManaged || !internalStorageReady) return;
+        if (
+            storageManaged ||
+            !internalStorageReady ||
+            period === null
+        ) {
+            return;
+        }
 
         writeStoredDateFilter(pathname, { period, selectedRange });
     }, [
@@ -358,7 +389,13 @@ function resolveStoredFilter(
 ) {
     const localFilter = readStoredDateFilter(pathname);
     const candidate = localFilter ?? serverFilter ?? null;
-    if (!candidate || !isAllowedFilter(candidate, presets)) return null;
+    if (
+        !candidate ||
+        candidate.period === null ||
+        !isAllowedFilter(candidate, presets)
+    ) {
+        return null;
+    }
     return candidate;
 }
 
