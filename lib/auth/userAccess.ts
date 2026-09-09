@@ -106,7 +106,7 @@ export function normalizeAllowedTabs(value: unknown): AppTabId[] {
 }
 
 export function getTabIdForPathname(pathname: string): AppTabId | null {
-    if (pathname === "/") return "dashboard";
+    if (pathname === "/" || pathname === "/unidades" || pathname.startsWith("/unidades/")) return "dashboard";
 
     for (const tabId of APP_TAB_ROUTE_ORDER) {
         if (tabId === "dashboard") continue;
