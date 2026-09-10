@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import {
   enqueueUnitAnalyses,
-  processUnitAnalysis,
+  processUnitAnalysisQueue,
 } from "@/lib/units/macroAnalysis";
 import { dueAnalysisTypes } from "@/lib/units/macroPeriods";
 import type { UnitAnalysisType } from "@/types/unit-macro-analysis";
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       queued.push(...(await enqueueUnitAnalyses(type)));
     after(async () => {
       try {
-        await processUnitAnalysis();
+        await processUnitAnalysisQueue();
       } catch (error) {
         console.error("[unit-analyses] cron processing failed", error);
       }

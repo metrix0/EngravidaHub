@@ -28,11 +28,10 @@ export async function GET(request: Request) {
     const { data: units, error: unitsError } = await unitsQuery;
     if (unitsError) throw unitsError;
     const id = params.get("analysis_id");
-    const includeDetails = id || params.get("include_details") === "true";
     let query = supabase
       .from("unit_macro_analyses")
       .select(
-        includeDetails
+        id
           ? "id, unit_id, analysis_type, period_start, period_end, status, report, cards, metrics, completed_at, created_at"
           : "id, unit_id, analysis_type, period_start, period_end, status, completed_at, created_at",
         { count: "exact" },

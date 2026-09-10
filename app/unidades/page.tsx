@@ -262,7 +262,9 @@ export default function UnidadesPage() {
                             <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">
                               {latest.status === "failed"
                                 ? "A última análise falhou"
-                                : "A última análise está em andamento"}
+                                : latest.status === "processing"
+                                  ? "A última análise está em andamento"
+                                  : "A última análise está na fila"}
                             </span>
                           )}
                         </div>

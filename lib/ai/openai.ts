@@ -1,5 +1,5 @@
 // lib/ai/openai.ts
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 
 if (!process.env.OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY");
@@ -115,6 +115,27 @@ export const openai = {
                     return Reflect.get(target, property, receiver);
                 },
             });
+        },
+    },
+    files: {
+        async uploadBatch(content: string, filename: string) {
+            return client.files.create({
+                file: await toFile(Buffer.from(content), filename, {
+                    type: "application/jsonl",
+                }),
+                purpose: "batch",
+            });
+        },
+        content(fileId: string) {
+            return client.files.content(fileId);
+        },
+    },
+    batches: {
+        create(parameters: Parameters<typeof client.batches.create>[0]) {
+            return client.batches.create(parameters);
+        },
+        retrieve(batchId: string) {
+            return client.batches.retrieve(batchId);
         },
     },
 };
