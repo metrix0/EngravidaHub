@@ -352,11 +352,43 @@ async function prepareBatch(row: UnitMacroAnalysis, unit: MacroUnit) {
         include_example: false,
       },
     ],
+    [
+      "get_funnel_overview",
+      {
+        date_from: row.period_start,
+        date_to: periodEnd,
+        unit_name: unit.name,
+      },
+    ],
+    [
+      "get_tracking_events_overview",
+      {
+        date_from: row.period_start,
+        date_to: periodEnd,
+        unit_name: unit.name,
+        platform: "all",
+        event_types: [],
+        statuses: [],
+        sources: [],
+        tunnels: [],
+        origins: [],
+      },
+    ],
   ];
   const toolResults = await Promise.all(
     toolRequests.map(async ([name, args]) => {
-      const result = await executeAssistantTool(name, args, toolContext);
-      return [name, result.output] as const;
+      try {
+        const result = await executeAssistantTool(name, args, toolContext);
+        return [name, result.output] as const;
+      } catch (error) {
+        return [
+          name,
+          {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        ] as const;
+      }
     }),
   );
   const metrics: Record<string, unknown> = Object.fromEntries(toolResults);
