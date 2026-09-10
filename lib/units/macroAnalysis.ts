@@ -152,9 +152,9 @@ export async function enqueueUnitAnalyses(
   return data ?? [];
 }
 
-export async function processUnitAnalysisQueue() {
+export async function processUnitAnalysisQueue(unitId?: string) {
   const stale = new Date(Date.now() - LEASE_MS).toISOString();
-  const { data, error } = await supabase
+  let query = supabase
     .from("unit_macro_analyses")
     .select("id")
     .or(
@@ -167,6 +167,8 @@ export async function processUnitAnalysisQueue() {
     )
     .order("updated_at")
     .limit(MAX_QUEUE_SIZE);
+  if (unitId) query = query.eq("unit_id", unitId);
+  const { data, error } = await query;
   if (error) throw error;
   const results = await Promise.all(
     (data ?? []).map((item) => processUnitAnalysis(item.id)),
