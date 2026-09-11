@@ -1,3 +1,19 @@
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "Análises de unidade temporariamente desativadas." },
+    { status: 503 },
+  );
+}
+
+/*
+TEMPORARILY DISABLED — keep the original implementation here until unit analyses are enabled again.
+
 import { after, NextResponse } from "next/server";
 import { supabase } from "@/lib";
 import {
@@ -77,3 +93,4 @@ export async function GET(request: Request) {
     );
   }
 }
+*/
