@@ -1,10 +1,6 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 import { getUnitMacroAccess } from "@/lib/units/macroAccess";
-import {
-  enqueueUnitAnalyses,
-  processUnitAnalysis,
-} from "@/lib/units/macroAnalysis";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -69,6 +65,22 @@ export async function GET(request: Request) {
     );
   }
 }
+
+export async function POST() {
+  return NextResponse.json(
+    { ok: false, error: "Análises de unidade temporariamente desativadas." },
+    { status: 503 },
+  );
+}
+
+/*
+TEMPORARILY DISABLED — keep the original POST implementation here until unit analyses are enabled again.
+
+import { after } from "next/server";
+import {
+  enqueueUnitAnalyses,
+  processUnitAnalysis,
+} from "@/lib/units/macroAnalysis";
 
 export async function POST(request: Request) {
   const access = await getUnitMacroAccess();
@@ -171,3 +183,4 @@ export async function POST(request: Request) {
     );
   }
 }
+*/
