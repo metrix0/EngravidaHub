@@ -162,6 +162,12 @@ type ScheduleCreationEvolutionPoint = {
     total: number;
 };
 
+type ScheduleCreationAnalytics = {
+    evolution: ScheduleCreationEvolutionPoint[];
+    markingsByUnit: Map<string, { unit_name: string; count: number }>;
+    total: number;
+};
+
 type ScheduleUnitDistribution = {
     unit_name: string;
     count: number;
@@ -173,6 +179,8 @@ type ScheduleUnitDistribution = {
 
 type ScheduleUnitTableRow = {
     unit_name: string;
+    markings: number;
+    markings_projection: number;
     appointments: number;
     reschedulings: number;
     rescheduling_rate: number | null;
@@ -252,7 +260,7 @@ export async function GET(request: Request) {
         currentResult,
         previousResult,
         scheduleAnalytics,
-        scheduleCreationEvolution,
+        scheduleCreationAnalytics,
         previousScheduleCount,
         previousConversationCount,
         rawConversationSummary,
@@ -263,7 +271,7 @@ export async function GET(request: Request) {
             loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         ),
         selectedUnitNamesPromise.then((selectedUnitNames) =>
-            loadScheduleCreationEvolution(
+            loadScheduleCreationAnalytics(
                 range,
                 selectedUnitNames,
                 request.signal,
@@ -317,7 +325,7 @@ export async function GET(request: Request) {
             ? null
             : normalizeClearSatisfactionMetric(
                   asObject(previousResult.data).clear_satisfaction_metric,
-        ),
+              ),
     );
     const unitSatisfaction = normalizeUnitSatisfaction(
         asObject(currentResult.data).unit_clear_satisfaction,
@@ -335,10 +343,19 @@ export async function GET(request: Request) {
         scheduleCount: previousScheduleCount,
         conversationCount: previousConversationCount,
     });
+    const scheduleUnitTable = applyScheduleCreationToUnitTable(
+        scheduleAnalytics.unitTable,
+        scheduleCreationAnalytics,
+        range.startDate ?? brazilDate(range.startAt),
+        range.endDate ??
+            brazilDate(
+                new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+            ),
+    );
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
         scheduleAnalytics.byUnit,
-        scheduleAnalytics.unitTable,
+        scheduleUnitTable,
         rawConversationCountsByUnit,
         unitSatisfaction,
     );
@@ -362,9 +379,9 @@ export async function GET(request: Request) {
         daily_evolution: current.daily_evolution,
         schedule_summary: scheduleAnalytics.summary,
         schedule_evolution: scheduleAnalytics.evolution,
-        schedule_creation_evolution: scheduleCreationEvolution,
+        schedule_creation_evolution: scheduleCreationAnalytics.evolution,
         schedules_by_unit: scheduleAnalytics.byUnit,
-        schedule_unit_table: scheduleAnalytics.unitTable,
+        schedule_unit_table: scheduleUnitTable,
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
@@ -691,11 +708,11 @@ async function loadScheduleAnalytics(
     }
 }
 
-async function loadScheduleCreationEvolution(
+async function loadScheduleCreationAnalytics(
     range: ReturnType<typeof resolveDashboardDateRange>,
     selectedUnitNames: string[] | null,
     signal: AbortSignal,
-): Promise<ScheduleCreationEvolutionPoint[]> {
+): Promise<ScheduleCreationAnalytics> {
     const startDate = range.startDate ?? brazilDate(range.startAt);
     const endDate = range.endDate ?? brazilDate(
         new Date(new Date(range.endAt).getTime() - 1).toISOString(),
@@ -706,9 +723,18 @@ async function loadScheduleCreationEvolution(
             emptyScheduleCreationEvolutionPoint(dateIso),
         ]),
     );
+    const markingsByUnit = new Map<
+        string,
+        { unit_name: string; count: number }
+    >();
+    let total = 0;
 
     if (selectedUnitNames?.length === 0) {
-        return [...evolutionByDate.values()];
+        return {
+            evolution: [...evolutionByDate.values()],
+            markingsByUnit,
+            total,
+        };
     }
 
     try {
@@ -735,8 +761,18 @@ async function loadScheduleCreationEvolution(
 
             const page = (data ?? []) as ScheduleCreationRow[];
             for (const row of page) {
+                total += 1;
                 const daily = evolutionByDate.get(row.created_in_source_at);
                 if (daily) daily.total += 1;
+
+                const unitName = row.unit_name?.trim() || "Sem unidade";
+                const key = normalizeUnitName(unitName);
+                const current = markingsByUnit.get(key) ?? {
+                    unit_name: unitName,
+                    count: 0,
+                };
+                current.count += 1;
+                markingsByUnit.set(key, current);
             }
 
             if (page.length < SCHEDULE_PAGE_SIZE) break;
@@ -748,7 +784,11 @@ async function loadScheduleCreationEvolution(
         );
     }
 
-    return [...evolutionByDate.values()];
+    return {
+        evolution: [...evolutionByDate.values()],
+        markingsByUnit,
+        total,
+    };
 }
 
 async function loadScheduleTotal(
@@ -1012,6 +1052,50 @@ function applyScheduleRateMetric(
     };
 }
 
+function applyScheduleCreationToUnitTable(
+    table: ScheduleUnitTable,
+    creation: ScheduleCreationAnalytics,
+    startDate: string,
+    endDate: string,
+): ScheduleUnitTable {
+    const projectionFactor = rangeProjectionFactor(startDate, endDate);
+    const rowsByUnit = new Map(
+        table.rows.map((row) => [normalizeUnitName(row.unit_name), row]),
+    );
+
+    for (const [key, marking] of creation.markingsByUnit) {
+        const current =
+            rowsByUnit.get(key) ??
+            summarizeScheduleUnit(
+                marking.unit_name,
+                [],
+                projectionFactor,
+            );
+        rowsByUnit.set(key, {
+            ...current,
+            markings: marking.count,
+            markings_projection: roundMetric(
+                marking.count * projectionFactor,
+            ),
+        });
+    }
+
+    return {
+        rows: [...rowsByUnit.values()].sort(
+            (first, second) =>
+                second.appointments - first.appointments ||
+                first.unit_name.localeCompare(second.unit_name, "pt-BR"),
+        ),
+        total: {
+            ...table.total,
+            markings: creation.total,
+            markings_projection: roundMetric(
+                creation.total * projectionFactor,
+            ),
+        },
+    };
+}
+
 function mergeUnitMetrics(
     units: ExecutiveMetricsPayload["by_unit"],
     scheduleCounts: ScheduleUnitDistribution[],
@@ -1220,6 +1304,8 @@ function summarizeScheduleUnit(
 
     return {
         unit_name: unitName,
+        markings: 0,
+        markings_projection: 0,
         appointments: rows.length,
         reschedulings: rescheduledRows.length,
         rescheduling_rate: percentage(rescheduledPatients, rows.length),
@@ -1227,7 +1313,7 @@ function summarizeScheduleUnit(
         pending: counts.pending,
         showed_up: counts.showedUp,
         showed_up_rate: percentage(counts.showedUp, uniqueRows.length),
-        projection: roundMetric(counts.showedUp * projectionFactor),
+        projection: roundMetric(rows.length * projectionFactor),
         rescheduled: counts.rescheduled,
         rescheduled_rate: percentage(counts.rescheduled, uniqueRows.length),
         cancelled: counts.cancelled,

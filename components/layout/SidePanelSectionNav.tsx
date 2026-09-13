@@ -41,10 +41,10 @@ const FINANCEIRO_SECTIONS: SectionDefinition[] = [
 ];
 
 function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
-    if (pathname === "/") {
+    if (pathname === "/atendimento") {
         return {
             key: "dashboard",
-            parentHref: "/",
+            parentHref: "/atendimento",
             sections: DASHBOARD_SECTIONS,
         };
     }

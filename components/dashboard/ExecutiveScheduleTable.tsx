@@ -16,12 +16,12 @@ export default function ExecutiveScheduleTable({
             <h2 className="mb-5 text-lg font-bold">Online e presencial</h2>
 
             <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl pb-2">
-                <table className="w-max min-w-[1480px] border-collapse text-xs">
+                <table className="w-max min-w-[1600px] border-collapse text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                         <tr>
                             {HEADERS.map((label, index) => (
                                 <th
-                                    key={label}
+                                    key={`${label}-${index}`}
                                     className={`whitespace-nowrap px-3 py-3 font-bold ${
                                         index === 0
                                             ? "sticky left-0 z-20 bg-slate-50 text-left"
@@ -47,14 +47,16 @@ export default function ExecutiveScheduleTable({
 
 const HEADERS = [
     "Unidade",
+    "Marcações",
+    "Projeção",
     "Agendamentos",
+    "Projeção",
     "Remarcações",
     "% remar.",
     "Únicos",
     "A realizar",
     "Compareceu",
     "% comp.",
-    "Projeção",
     "Remarcou",
     "% rem.",
     "Cancelou",
@@ -71,14 +73,16 @@ function ScheduleRow({
     total?: boolean;
 }) {
     const values: (number | null)[] = [
+        row.markings,
+        row.markings_projection,
         row.appointments,
+        row.projection,
         row.reschedulings,
         row.rescheduling_rate,
         row.unique_appointments,
         row.pending,
         row.showed_up,
         row.showed_up_rate,
-        row.projection,
         row.rescheduled,
         row.rescheduled_rate,
         row.cancelled,
@@ -86,7 +90,7 @@ function ScheduleRow({
         row.no_show,
         row.no_show_rate,
     ];
-    const percentageIndexes = new Set([2, 6, 9, 11, 13]);
+    const percentageIndexes = new Set([5, 9, 11, 13, 15]);
 
     return (
         <tr

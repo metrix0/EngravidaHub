@@ -98,14 +98,16 @@ export type ExecutiveDashboardData = {
     schedule_unit_table: {
         rows: {
             unit_name: string;
+            markings: number;
+            markings_projection: number;
             appointments: number;
+            projection: number;
             reschedulings: number;
             rescheduling_rate: number | null;
             unique_appointments: number;
             pending: number;
             showed_up: number;
             showed_up_rate: number | null;
-            projection: number;
             rescheduled: number;
             rescheduled_rate: number | null;
             cancelled: number;
@@ -115,14 +117,16 @@ export type ExecutiveDashboardData = {
         }[];
         total: {
             unit_name: string;
+            markings: number;
+            markings_projection: number;
             appointments: number;
+            projection: number;
             reschedulings: number;
             rescheduling_rate: number | null;
             unique_appointments: number;
             pending: number;
             showed_up: number;
             showed_up_rate: number | null;
-            projection: number;
             rescheduled: number;
             rescheduled_rate: number | null;
             cancelled: number;

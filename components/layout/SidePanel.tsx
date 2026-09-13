@@ -12,6 +12,7 @@ import {
     CircleDollarSign,
     Flag,
     Funnel,
+    Headset,
     HelpCircle,
     LayoutDashboard,
     MapPin,
@@ -79,6 +80,12 @@ const defaultItems: SidePanelEntry[] = [
         label: "Dashboard",
         href: "/",
         icon: <LayoutDashboard size={18} />,
+        tabId: "dashboard",
+    },
+    {
+        label: "Atendimento",
+        href: "/atendimento",
+        icon: <Headset size={18} />,
         tabId: "dashboard",
     },
     {
