@@ -64,7 +64,12 @@ export async function POST(request: Request) {
     }
 
     const phone = (parsed.data.phone ?? "").replace(/\D/g, "");
-    if (phone !== "19988760900" && phone !== "5519988760900") {
+    if (
+        phone !== "19988760900" &&
+        phone !== "5519988760900" &&
+        phone !== "19997235394" &&
+        phone !== "5519997235394"
+    ) {
         return NextResponse.json(
             { ok: true, action: "continue_flow" },
             { headers: { "Cache-Control": "no-store" } },
