@@ -13,7 +13,6 @@ import {
     Flag,
     Funnel,
     Headset,
-    HelpCircle,
     LayoutDashboard,
     MapPin,
     LogOut,
@@ -83,6 +82,12 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "dashboard",
     },
     {
+        label: "Financeiro",
+        href: "/financeiro",
+        icon: <CircleDollarSign size={18} />,
+        tabId: "financeiro",
+    },
+    {
         label: "Atendimento",
         href: "/atendimento",
         icon: <Headset size={18} />,
@@ -95,12 +100,6 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "dashboard",
     },
     {
-        label: "Financeiro",
-        href: "/financeiro",
-        icon: <CircleDollarSign size={18} />,
-        tabId: "financeiro",
-    },
-    {
         label: "Jornada",
         href: "/jornada",
         icon: <Flag size={18} />,
@@ -111,12 +110,6 @@ const defaultItems: SidePanelEntry[] = [
         href: "/eventos",
         icon: <Megaphone size={18} />,
         tabId: "eventos",
-    },
-    {
-        label: "Assistente IA",
-        href: "/assistente",
-        icon: <Sparkles size={18} />,
-        tabId: "assistente",
     },
     { type: "separator", id: "crm" },
     {
@@ -247,7 +240,6 @@ function PersistentSidePanel({
         );
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
-    const [helpModalOpen, setHelpModalOpen] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [mobileAppPromptOpen, setMobileAppPromptOpen] = useState(false);
     const mobileSwipeRef = useRef<{
@@ -700,29 +692,31 @@ function PersistentSidePanel({
                         </div>
                     </div>
 
-                    <div className="shrink-0 px-4 pt-4">
-                        <button
-                            type="button"
-                            onClick={() => setHelpModalOpen(true)}
-                            title="Precisa de ajuda?"
-                            className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded ? "border-border" : "border-transparent"
-                            }`}
-                        >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
-                                <HelpCircle size={22} />
-                            </span>
-                            <span
-                                className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
-                                    isExpanded
-                                        ? "md:ml-3 md:w-[150px] md:opacity-100"
-                                        : "md:ml-0 md:w-0 md:opacity-0"
+                    {allowedTabs.includes("assistente") ? (
+                        <div className="shrink-0 px-4 pt-4">
+                            <Link
+                                href="/assistente"
+                                onClick={() => setMobileOpen(false)}
+                                title="Assistente IA"
+                                className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                    isExpanded ? "border-border" : "border-transparent"
                                 }`}
                             >
-                                Precisa de ajuda?
-                            </span>
-                        </button>
-                    </div>
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
+                                    <Sparkles size={22} />
+                                </span>
+                                <span
+                                    className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
+                                        isExpanded
+                                            ? "md:ml-3 md:w-[150px] md:opacity-100"
+                                            : "md:ml-0 md:w-0 md:opacity-0"
+                                    }`}
+                                >
+                                    Assistente IA
+                                </span>
+                            </Link>
+                        </div>
+                    ) : null}
 
                     <div className="shrink-0 px-4 pt-4">
                         <button
@@ -776,37 +770,6 @@ function PersistentSidePanel({
                     </div>
                 </div>
             </aside>
-
-            <Modal
-                open={helpModalOpen}
-                onClose={() => setHelpModalOpen(false)}
-                width={480}
-                height="auto"
-                maxHeight="calc(100vh - 48px)"
-                zIndexClassName="z-[100]"
-                ariaLabelledBy="sidepanel-help-title"
-            >
-                <div className="p-7">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-                        <HelpCircle size={23} />
-                    </div>
-                    <h2
-                        id="sidepanel-help-title"
-                        className="mt-5 text-xl font-bold text-slate-950"
-                    >
-                        Precisa de ajuda?
-                    </h2>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                        Entre em contato com o suporte do Engravida Hub pelo e-mail abaixo.
-                    </p>
-                    <a
-                        href="mailto:joao.almeida@engravida.com.br"
-                        className="mt-5 block rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-soft"
-                    >
-                        joao.almeida@engravida.com.br
-                    </a>
-                </div>
-            </Modal>
 
             <Modal
                 open={mobileAppPromptOpen}
