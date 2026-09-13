@@ -1,96 +1,26 @@
 import { NextResponse } from "next/server";
-
+import { collectUnitAnalysis, submitUnitAnalysis } from "@/lib/units/macroAnalysis";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
-
-export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: "Análises de unidade temporariamente desativadas." },
-    { status: 503 },
-  );
-}
-
-/*
-TEMPORARILY DISABLED — keep the original implementation here until unit analyses are enabled again.
-
-import { after, NextResponse } from "next/server";
-import { supabase } from "@/lib";
-import {
-  enqueueUnitAnalyses,
-  processUnitAnalysisQueue,
-} from "@/lib/units/macroAnalysis";
-import { dueAnalysisTypes } from "@/lib/units/macroPeriods";
-import type { UnitAnalysisType } from "@/types/unit-macro-analysis";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 180;
 
 export async function GET(request: Request) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return NextResponse.json({ ok: false, error: "Configure CRON_SECRET para habilitar este endpoint." }, { status: 503 });
+  if (request.headers.get("authorization") !== "Bearer " + secret)
+    return NextResponse.json({ ok: false, error: "Não autorizado." }, { status: 401 });
+  const params = new URL(request.url).searchParams;
+  const action = params.get("action");
+  const unit = params.get("unit")?.trim();
+  const type = params.get("type");
+  if (!unit || !["submit", "collect"].includes(action ?? "") || (type !== "weekly" && type !== "monthly"))
+    return NextResponse.json({ ok: false, error: "Informe unit, type=weekly|monthly e action=submit|collect." }, { status: 400 });
   try {
-    const params = new URL(request.url).searchParams;
-    const requestedType = params.get("type");
-    const requestedUnit = params.get("unit")?.trim() ?? "";
-    if (
-      requestedType &&
-      requestedType !== "weekly" &&
-      requestedType !== "monthly"
-    )
-      return NextResponse.json(
-        { ok: false, error: "Tipo de análise inválido." },
-        { status: 400 },
-      );
-    let unitId: string | undefined;
-    if (requestedUnit) {
-      const pattern = "%" + requestedUnit.replace(/[%_]/g, "\\$&") + "%";
-      const { data: matches, error: unitError } = await supabase
-        .from("units")
-        .select("id, name, city")
-        .eq("active", true)
-        .or("name.ilike." + pattern + ",city.ilike." + pattern)
-        .limit(2);
-      if (unitError) throw unitError;
-      if (!matches?.length)
-        return NextResponse.json(
-          { ok: false, error: "Unidade não encontrada." },
-          { status: 404 },
-        );
-      if (matches.length > 1)
-        return NextResponse.json(
-          { ok: false, error: "Informe uma unidade mais específica." },
-          { status: 400 },
-        );
-      unitId = matches[0].id;
-    }
-    const types: UnitAnalysisType[] =
-      requestedType === "weekly" || requestedType === "monthly"
-        ? [requestedType]
-        : dueAnalysisTypes();
-    const queued = [];
-    for (const type of types)
-      queued.push(...(await enqueueUnitAnalyses(type, unitId)));
-    after(async () => {
-      try {
-        await processUnitAnalysisQueue(unitId);
-      } catch (error) {
-        console.error("[unit-analyses] cron processing failed", error);
-      }
-    });
-    return NextResponse.json(
-      {
-        ok: true,
-        unit: requestedUnit || null,
-        queued: queued.length,
-        analyses: queued,
-      },
-      { status: 202 },
-    );
+    const input = { unit, type, periodEnd: params.get("period_end") ?? undefined } as const;
+    const result = action === "submit" ? await submitUnitAnalysis(input) : await collectUnitAnalysis(input);
+    return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    console.error("[unit-analyses] cron failed", error);
-    return NextResponse.json(
-      { ok: false, error: "Analysis processing failed" },
-      { status: 500 },
-    );
+    console.error("[unit-analyses]", error);
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Falha na análise." }, { status: 500 });
   }
 }
-*/

@@ -67,121 +67,26 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST() {
-  return NextResponse.json(
-    { ok: false, error: "Análises de unidade temporariamente desativadas." },
-    { status: 503 },
-  );
-}
-
-/*
-TEMPORARILY DISABLED — keep the original POST implementation here until unit analyses are enabled again.
-
-import { after } from "next/server";
-import {
-  enqueueUnitAnalyses,
-  processUnitAnalysis,
-} from "@/lib/units/macroAnalysis";
-
 export async function POST(request: Request) {
   const access = await getUnitMacroAccess();
   if (access.ok === false)
-    return NextResponse.json(
-      { ok: false, error: access.error },
-      { status: access.status },
-    );
-  if (!access.permission.allowed_tabs.includes("assistente"))
-    return NextResponse.json(
-      { ok: false, error: "Acesso ao Assistente necessário." },
-      { status: 403 },
-    );
-  if (
-    request.headers.get("origin") &&
-    request.headers.get("origin") !== new URL(request.url).origin
-  )
-    return NextResponse.json(
-      { ok: false, error: "Origem inválida." },
-      { status: 403 },
-    );
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin)
+    return NextResponse.json({ ok: false, error: "Origem inválida." }, { status: 403 });
   let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "JSON inválido." },
-      { status: 400 },
-    );
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ ok: false, error: "JSON inválido." }, { status: 400 });
   }
-  const uuid =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (
-    !body ||
-    (body.type !== "weekly" && body.type !== "monthly") ||
-    (body.unit_id && !uuid.test(body.unit_id)) ||
-    (body.analysis_id && !uuid.test(body.analysis_id)) ||
-    (body.period_end && typeof body.period_end !== "string")
-  )
-    return NextResponse.json(
-      { ok: false, error: "Parâmetros inválidos." },
-      { status: 400 },
-    );
-  if (!process.env.OPENAI_API_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY)
-    return NextResponse.json(
-      { ok: false, error: "Configuração da análise indisponível." },
-      { status: 503 },
-    );
-  const unitId = access.permission.unit_lock?.id ?? body.unit_id;
+  if (body?.mode !== "test" || typeof body.unit !== "string" || !body.unit.trim() ||
+      (body.type !== "weekly" && body.type !== "monthly") ||
+      (body.period_end !== undefined && typeof body.period_end !== "string"))
+    return NextResponse.json({ ok: false, error: "Informe mode=test, unit, type=weekly|monthly e period_end opcional." }, { status: 400 });
   try {
-    if (body.analysis_id) {
-      let query = supabase
-        .from("unit_macro_analyses")
-        .select("id, status")
-        .eq("id", body.analysis_id);
-      if (unitId) query = query.eq("unit_id", unitId);
-      const { data: row, error } = await query.maybeSingle();
-      if (error) throw error;
-      if (!row)
-        return NextResponse.json(
-          { ok: false, error: "Análise não encontrada." },
-          { status: 404 },
-        );
-      if (row.status === "failed") {
-        const { error: retryError } = await supabase
-          .from("unit_macro_analyses")
-          .update({
-            status: "pending",
-            attempt_count: 0,
-            error_message: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", row.id)
-          .eq("status", "failed");
-        if (retryError) throw retryError;
-      }
-    }
-    const analyses = body.analysis_id
-      ? [{ id: body.analysis_id }]
-      : await enqueueUnitAnalyses(body.type, unitId, body.period_end);
-    after(async () => {
-      try {
-        await processUnitAnalysis(body.analysis_id, unitId);
-      } catch (error) {
-        console.error("[unit-analyses] manual processing failed", error);
-      }
-    });
-    return NextResponse.json({ ok: true, analyses }, { status: 202 });
+    const { testUnitAnalysis } = await import("@/lib/units/macroAnalysis");
+    return NextResponse.json(await testUnitAnalysis({ unit: body.unit, type: body.type, periodEnd: body.period_end }),
+      { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    console.error("[unit-analyses] trigger failed", error);
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Não foi possível iniciar a análise.",
-      },
-      { status: 500 },
-    );
+    console.error("[unit-analyses] test failed", error);
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Falha no teste." }, { status: 500 });
   }
 }
-*/
