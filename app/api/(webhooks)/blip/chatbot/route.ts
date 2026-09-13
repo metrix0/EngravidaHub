@@ -23,6 +23,8 @@ const requestSchema = z
 const INITIAL_CHATBOT_MESSAGE = "__initial__";
 const INITIAL_PROMPT_MESSAGE =
     "Olá sou a Assistente Virtual da Engravida! 😊 Nosso time técnico está fora do horário de atendimento, mas posso adiantar seu atendimento agora. Sobre qual assunto você quer falar?";
+const PRICE_DISCLAIMER =
+    "Consulte e confirme os valores mencionados com nosso time no horário de atendimento.";
 
 export async function POST(request: Request) {
     const expectedSecret = process.env.BLIP_CHATBOT_WEBHOOK_SECRET?.trim();
@@ -92,8 +94,9 @@ export async function POST(request: Request) {
     const finalResponse = normalizedResponse.ai_used
         ? addAiEmoji(normalizedResponse)
         : normalizedResponse;
+    const responseWithPriceDisclaimer = addPriceDisclaimer(finalResponse);
 
-    return NextResponse.json(finalResponse, {
+    return NextResponse.json(responseWithPriceDisclaimer, {
         headers: { "Cache-Control": "no-store" },
     });
 }
@@ -227,6 +230,25 @@ function addAiEmoji<T extends { reply: string; blip_message: { content: string }
     const reply = /[✨💙😊📌💬]/u.test(response.reply)
         ? response.reply
         : `✨ ${response.reply}`;
+
+    return {
+        ...response,
+        reply,
+        blip_message: {
+            ...response.blip_message,
+            content: reply,
+        },
+    };
+}
+
+function addPriceDisclaimer<
+    T extends { reply: string; blip_message: { content: string } },
+>(response: T) {
+    if (!/(?:R\$|\breais\b)/iu.test(response.reply)) {
+        return response;
+    }
+
+    const reply = `${response.reply}\n\n${PRICE_DISCLAIMER}`;
 
     return {
         ...response,
