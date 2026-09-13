@@ -3,12 +3,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+    Ban,
     Calendar,
+    CalendarCheck2,
+    CalendarPlus2,
+    CheckCircle2,
+    CircleAlert,
     Clock,
     HelpCircle,
     MessageCircle,
     ShieldCheck,
     Smile,
+    UsersRound,
 } from "lucide-react";
 import {
     Area,
@@ -607,52 +613,46 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
         {
             label: "Marcações",
             value: total.markings,
-            projectionText: `Projeção marcações ${formatProjection(total.markings_projection)}`,
+            projectionText: `Projeção ${formatProjection(total.markings_projection)}`,
             color: "blue" as const,
+            icon: <CalendarPlus2 size={26} />,
         },
         {
             label: "Agendamentos",
             value: total.appointments,
-            projectionText: `Projeção agendamentos ${formatProjection(total.projection)}`,
+            projectionText: `Projeção ${formatProjection(total.projection)}`,
             color: "purple" as const,
+            icon: <CalendarCheck2 size={26} />,
         },
         {
             label: "Agendamentos únicos",
             value: total.unique_appointments,
             color: "green" as const,
+            icon: <UsersRound size={26} />,
         },
-        { label: "A realizar", value: total.pending, color: "orange" as const },
-        { label: "Compareceu", value: total.showed_up, color: "green" as const },
         {
-            label: "Taxa de comparecimento",
-            value: total.showed_up_rate,
-            suffix: "%",
+            label: "A realizar",
+            value: total.pending,
+            color: "orange" as const,
+            icon: <Clock size={26} />,
+        },
+        {
+            label: "Compareceu",
+            value: total.showed_up,
             color: "green" as const,
+            icon: <CheckCircle2 size={26} />,
         },
         {
-            label: "Remarcações",
-            value: total.reschedulings,
-            color: "orange" as const,
-        },
-        {
-            label: "Taxa de remarcação",
-            value: total.rescheduling_rate,
-            suffix: "%",
-            color: "orange" as const,
-        },
-        { label: "Cancelou", value: total.cancelled, color: "pink" as const },
-        {
-            label: "Taxa de cancelamento",
-            value: total.cancelled_rate,
-            suffix: "%",
+            label: "Cancelou",
+            value: total.cancelled,
             color: "pink" as const,
+            icon: <Ban size={26} />,
         },
-        { label: "Faltou", value: total.no_show, color: "brand" as const },
         {
-            label: "Taxa de no-show",
-            value: total.no_show_rate,
-            suffix: "%",
+            label: "Faltou",
+            value: total.no_show,
             color: "brand" as const,
+            icon: <CircleAlert size={26} />,
         },
     ];
 
@@ -661,17 +661,10 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
             {cards.map((card) => (
                 <div key={card.label} className="min-w-[250px]">
                     <KpiCard
-                        icon={
-                            card.label === "A realizar" ? (
-                                <Clock size={26} />
-                            ) : (
-                                <Calendar size={26} />
-                            )
-                        }
+                        icon={card.icon}
                         label={card.label}
                         currentValue={card.value}
-                        suffix={card.suffix}
-                        formatter={card.suffix ? undefined : formatNumber}
+                        formatter={formatNumber}
                         projectionText={card.projectionText}
                         color={card.color}
                     />
