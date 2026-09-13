@@ -169,6 +169,7 @@ export default function SidePanelSectionNav() {
 
         let currentHost: HTMLDivElement | null = null;
         let resizeObserver: ResizeObserver | null = null;
+        let previousSidebarWidth: number | null = null;
 
         const install = () => {
             if (currentHost?.isConnected) return true;
@@ -192,7 +193,15 @@ export default function SidePanelSectionNav() {
 
             const updateExpanded = () => {
                 const mobile = window.matchMedia("(max-width: 767px)").matches;
-                setSidebarExpanded(mobile || aside.getBoundingClientRect().width >= 180);
+                const sidebarWidth = aside.getBoundingClientRect().width;
+                const isCollapsing =
+                    previousSidebarWidth !== null &&
+                    sidebarWidth < previousSidebarWidth;
+
+                setSidebarExpanded(
+                    mobile || (!isCollapsing && sidebarWidth >= 180),
+                );
+                previousSidebarWidth = sidebarWidth;
             };
 
             updateExpanded();
