@@ -7,7 +7,6 @@ import {
   LoaderCircle,
   MapPin,
   MessageSquarePlus,
-  Sparkles,
 } from "lucide-react";
 import { Card, Skeleton } from "@/components";
 import AssistantMarkdown from "@/components/assistant/AssistantMarkdown";
@@ -152,8 +151,7 @@ export default function UnidadesPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Unidades</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Conversas, agendamentos e resultados — todas as unidades na mesma
-              página.
+              Acompanhe as análises semanais e mensais de cada unidade em um só lugar.
             </p>
             <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1.5">
@@ -163,10 +161,6 @@ export default function UnidadesPage() {
               <span>Mensal no dia 30 · fevereiro no último dia</span>
             </div>
           </div>
-          <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-600">
-            <Sparkles size={16} className="text-brand" />
-            Análises automáticas
-          </span>
         </header>
         {error && (
           <div
@@ -239,7 +233,7 @@ export default function UnidadesPage() {
                           ) : (
                             <MessageSquarePlus size={16} />
                           )}
-                          Continuar conversa na IA
+                          Continuar no Assistente
                         </button>
                       )}
                     </aside>
