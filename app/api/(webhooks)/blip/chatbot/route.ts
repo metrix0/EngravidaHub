@@ -158,7 +158,7 @@ function isEndConversationRequest(message: string) {
         .replace(/\s+/g, " ")
         .trim();
 
-    return /\b(encerrar|encerra|encerrar conversa|finalizar|finaliza|finalizar atendimento|tchau|ate mais|pode encerrar|pode finalizar|quero sair|sair)\b/.test(
+    return /\b(encerrar|encerra|encerro|encerrar conversa|finalizar|finaliza|finalizar atendimento|tchau|ate mais|pode encerrar|pode finalizar|quero sair|sair)\b/.test(
         normalized,
     );
 }
