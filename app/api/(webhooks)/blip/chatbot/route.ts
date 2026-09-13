@@ -20,6 +20,9 @@ const requestSchema = z
     })
     .strict();
 
+const INITIAL_CHATBOT_MESSAGE = "__initial__";
+const INITIAL_PROMPT_MESSAGE =
+    "Olá sou a Assistente Virtual da Engravida! 😊 Nosso time técnico está fora do horário de atendimento, mas posso adiantar seu atendimento agora. Sobre qual assunto você quer falar?";
 const END_CONVERSATION_MESSAGE =
     "Estamos encerrando a conversa! Se desejar, pode entrar em contato conosco novamente quando quiser!";
 
@@ -64,14 +67,16 @@ export async function POST(request: Request) {
     }
 
     const stage = normalizeChatbotStage(parsed.data.stage);
-    if (isEndConversationRequest(parsed.data.message)) {
+    const isInitialPrompt = parsed.data.message === INITIAL_CHATBOT_MESSAGE;
+
+    if (!isInitialPrompt && isEndConversationRequest(parsed.data.message)) {
         return NextResponse.json(buildEndConversationResponse(stage), {
             headers: { "Cache-Control": "no-store" },
         });
     }
 
     const response = await routeOutOfHoursChatbot({
-        message: parsed.data.message,
+        message: isInitialPrompt ? "menu" : parsed.data.message,
         stage,
         signal: AbortSignal.any([
             request.signal,
@@ -79,16 +84,31 @@ export async function POST(request: Request) {
         ]),
     });
 
-    const normalizedResponse =
-        response.action === "queue_human" && response.route !== "deterministic"
-            ? buildEndConversationResponse(stage, response.reply)
-            : response.ai_used
-              ? addAiEmoji(response)
-              : response;
+    const normalizedResponse = isInitialPrompt
+        ? buildInitialPromptResponse(response)
+        : response.action === "queue_human" && response.route !== "deterministic"
+          ? buildEndConversationResponse(stage, response.reply)
+          : response.ai_used
+            ? addAiEmoji(response)
+            : response;
 
     return NextResponse.json(normalizedResponse, {
         headers: { "Cache-Control": "no-store" },
     });
+}
+
+function buildInitialPromptResponse<
+    T extends { blip_message: { content: string } },
+>(response: T) {
+    return {
+        ...response,
+        reply: INITIAL_PROMPT_MESSAGE,
+        initial_prompt: true,
+        blip_message: {
+            ...response.blip_message,
+            content: INITIAL_PROMPT_MESSAGE,
+        },
+    };
 }
 
 function buildEndConversationResponse(stage: string, previousReply?: string) {
