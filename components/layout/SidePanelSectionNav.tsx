@@ -278,7 +278,7 @@ export default function SidePanelSectionNav() {
             setActiveSectionId(pendingSectionId);
             scroller.scrollTo({
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
-                behavior: "auto",
+                behavior: "smooth",
             });
             releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId);
             return true;
@@ -364,7 +364,7 @@ export default function SidePanelSectionNav() {
             scrollSpyLockRef.current = section.id;
             scroller.scrollTo({
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
-                behavior: "auto",
+                behavior: "smooth",
             });
             releaseScrollSpyLock(scrollSpyLockRef, section.id);
         }
