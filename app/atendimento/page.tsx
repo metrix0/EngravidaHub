@@ -453,6 +453,24 @@ export default function ExecutiveDashboardPage() {
                             <DropoffCard data={data} />
                         </section>
 
+                        <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
+                            <WordMapCard
+                                data={data}
+                                loading={wordMapLoading}
+                            />
+                            <UnitWordCorrelationCard
+                                data={data}
+                                loading={wordMapLoading}
+                            />
+                        </section>
+
+                        <section className="mb-6 min-w-0 max-w-full">
+                            <div className="mb-4 px-1">
+                                <h2 className="text-xl font-bold text-slate-900">Consultas</h2>
+                            </div>
+                            <ConsultationKpis data={data} />
+                        </section>
+
                         <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <ScheduleEvolutionCard data={data} />
                             <ScheduleCreationEvolutionCard data={data} />
@@ -467,17 +485,6 @@ export default function ExecutiveDashboardPage() {
                         <section className="mb-6 grid min-w-0 max-w-full grid-cols-1 gap-5 2xl:grid-cols-[1.35fr_1fr]">
                             <UnitEfficiencyMapCard data={data} />
                             <UnitViewCard data={data} />
-                        </section>
-
-                        <section className="grid min-w-0 max-w-full grid-cols-1 gap-5 xl:grid-cols-2">
-                            <WordMapCard
-                                data={data}
-                                loading={wordMapLoading}
-                            />
-                            <UnitWordCorrelationCard
-                                data={data}
-                                loading={wordMapLoading}
-                            />
                         </section>
 
                         <section className="mt-6 min-w-0 max-w-full">
@@ -585,6 +592,89 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                 </ResponsiveContainer>
             </div>
         </Card>
+    );
+}
+
+function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
+    const total = data.schedule_unit_table.total;
+    const formatNumber = (value: number) =>
+        value.toLocaleString("pt-BR", {
+            maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
+        });
+    const cards = [
+        { label: "Marcações", value: total.markings, color: "blue" as const },
+        {
+            label: "Projeção de marcações",
+            value: total.markings_projection,
+            color: "blue" as const,
+        },
+        { label: "Agendamentos", value: total.appointments, color: "purple" as const },
+        {
+            label: "Projeção de agendamentos",
+            value: total.projection,
+            color: "purple" as const,
+        },
+        {
+            label: "Agendamentos únicos",
+            value: total.unique_appointments,
+            color: "green" as const,
+        },
+        { label: "A realizar", value: total.pending, color: "orange" as const },
+        { label: "Compareceu", value: total.showed_up, color: "green" as const },
+        {
+            label: "Taxa de comparecimento",
+            value: total.showed_up_rate,
+            suffix: "%",
+            color: "green" as const,
+        },
+        {
+            label: "Remarcações",
+            value: total.reschedulings,
+            color: "orange" as const,
+        },
+        {
+            label: "Taxa de remarcação",
+            value: total.rescheduling_rate,
+            suffix: "%",
+            color: "orange" as const,
+        },
+        { label: "Cancelou", value: total.cancelled, color: "pink" as const },
+        {
+            label: "Taxa de cancelamento",
+            value: total.cancelled_rate,
+            suffix: "%",
+            color: "pink" as const,
+        },
+        { label: "Faltou", value: total.no_show, color: "brand" as const },
+        {
+            label: "Taxa de no-show",
+            value: total.no_show_rate,
+            suffix: "%",
+            color: "brand" as const,
+        },
+    ];
+
+    return (
+        <HorizontalScroller scrollAmount={400}>
+            {cards.map((card, index) => (
+                <div key={card.label} className="min-w-[250px]">
+                    <KpiCard
+                        icon={
+                            index === 1 || index === 3 || index === 5 ? (
+                                <Clock size={26} />
+                            ) : (
+                                <Calendar size={26} />
+                            )
+                        }
+                        label={card.label}
+                        currentValue={card.value}
+                        suffix={card.suffix}
+                        formatter={card.suffix ? undefined : formatNumber}
+                        color={card.color}
+                    />
+                </div>
+            ))}
+        </HorizontalScroller>
     );
 }
 

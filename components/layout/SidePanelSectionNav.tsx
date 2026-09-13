@@ -19,6 +19,11 @@ type SectionNavigationConfig = {
 const DASHBOARD_SECTIONS: SectionDefinition[] = [
     { id: "dashboard-conversas", label: "Conversas" },
     {
+        id: "dashboard-consultas",
+        label: "Consultas",
+        heading: "Consultas",
+    },
+    {
         id: "dashboard-instagram",
         label: "Instagram",
         heading: "Análise das conversas do Instagram",
