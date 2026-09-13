@@ -50,7 +50,7 @@ Esta geração é deliberadamente um snapshot de **três agregados**, não um ag
 
 O histórico inclui até seis análises anteriores e a última mensal; relatórios históricos têm limite de 12 mil caracteres com indicação de truncamento. Os 20 exemplos marcados model=fake-ui-preview são excluídos do contexto histórico.
 
-Os exemplos gerados são validados por ID da análise, ID da conversa e trecho literal do resumo usando verifiedEvidence(). Isso verifica correspondência com a classificação anterior, **não prova causalidade nem verifica uma fala do cliente**. Evidência inválida ou resposta incompleta não é salva como relatório concluído. Cards usam os resumos existentes, e as conversas podem ser aprofundadas pelo Assistente.
+O modelo seleciona IDs de análises e conversas. O código valida a correspondência e usa verifiedEvidence() com o texto original armazenado para confirmar a origem; a saída não depende de o modelo copiar o texto literalmente. Isso verifica correspondência com a classificação anterior, **não prova causalidade nem verifica uma fala do cliente**. Evidência inválida ou resposta incompleta não é salva como relatório concluído. Cards usam os resumos existentes, e as conversas podem ser aprofundadas pelo Assistente.
 
 A UI, o mapa e a leitura do histórico permanecem como estavam. Coordenadas das dez unidades estavam nulas na verificação; nenhuma localização foi inventada.
 

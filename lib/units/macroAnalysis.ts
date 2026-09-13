@@ -164,10 +164,9 @@ function requestBody(input: string) {
           report: { type: "string" },
           evidence: { type: "array", items: {
             type: "object", additionalProperties: false,
-            required: ["conversation", "evidence", "quote"],
+            required: ["conversation", "evidence"],
             properties: {
               conversation: { type: "string" }, evidence: { type: "string" },
-              quote: { type: "string" },
             },
           } },
         },
@@ -194,16 +193,24 @@ function completeResponse(body: Json, examples: Example[], mode: "batch" | "dire
   if (typeof parsed.report !== "string" || !parsed.report.trim() || !Array.isArray(parsed.evidence))
     throw new Error("Relatório inválido.");
   const evidence = parsed.evidence;
-  if (evidence.length > 8 || evidence.some(item =>
-    typeof item?.conversation !== "string" || typeof item?.evidence !== "string" ||
-    typeof item?.quote !== "string" || !verifiedEvidence(examples, item)))
+  if (evidence.length > 8 || evidence.some(item => {
+    if (typeof item?.conversation !== "string" || typeof item?.evidence !== "string")
+      return true;
+    const source = examples.find(example => example.id === item.evidence);
+    return !source || source.conversation_id !== item.conversation ||
+      !verifiedEvidence(examples, {
+        conversation: item.conversation,
+        evidence: item.evidence,
+        quote: source.text,
+      });
+  }))
     throw new Error("A análise contém evidência que não corresponde ao resumo de origem.");
   const report = parsed.report.trim() + (evidence.length
     ? "\n\n### Exemplos das análises anteriores\n\nEstes motivos são classificações automáticas, não falas verificadas dos clientes.\n\n" +
       evidence.map(item => {
         const source = examples.find(example => example.id === item.evidence)!;
         const date = new Date(source.started_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-        return "- " + date + ": " + item.quote;
+        return "- " + date + ": " + source.text;
       }).join("\n")
     : "");
   const raw = record(body.usage);

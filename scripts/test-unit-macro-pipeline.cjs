@@ -46,7 +46,7 @@ function response() {
   return { status: partial ? "incomplete" : "completed", usage: {
     input_tokens: 1000, output_tokens: 100, input_tokens_details: { cached_tokens: 200 },
   }, output: [{ content: [{ type: "output_text", text: JSON.stringify({
-    report: "Resumo agregado.", evidence: [{ conversation: badEvidence ? "other" : "c1", evidence: "a1", quote: "Horário incompatível" }],
+    report: "Resumo agregado.", evidence: [{ conversation: badEvidence ? "other" : "c1", evidence: "a1", quote: "paráfrase permitida" }],
   }) }] }] };
 }
 const openai = {
