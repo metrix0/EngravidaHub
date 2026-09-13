@@ -23,8 +23,6 @@ const requestSchema = z
 const INITIAL_CHATBOT_MESSAGE = "__initial__";
 const INITIAL_PROMPT_MESSAGE =
     "Olá sou a Assistente Virtual da Engravida! 😊 Nosso time técnico está fora do horário de atendimento, mas posso adiantar seu atendimento agora. Sobre qual assunto você quer falar?";
-const END_CONVERSATION_MESSAGE =
-    "Estamos encerrando a conversa! Se desejar, pode entrar em contato conosco novamente quando quiser!";
 
 export async function POST(request: Request) {
     const expectedSecret = process.env.BLIP_CHATBOT_WEBHOOK_SECRET?.trim();
@@ -76,7 +74,9 @@ export async function POST(request: Request) {
     }
 
     const response = await routeOutOfHoursChatbot({
-        message: isInitialPrompt ? "menu" : parsed.data.message,
+        message: isInitialPrompt
+            ? "menu"
+            : normalizeMessageForRouting(parsed.data.message, stage),
         stage,
         signal: AbortSignal.any([
             request.signal,
@@ -87,12 +87,13 @@ export async function POST(request: Request) {
     const normalizedResponse = isInitialPrompt
         ? buildInitialPromptResponse(response)
         : response.action === "queue_human" && response.route !== "deterministic"
-          ? buildEndConversationResponse(stage, response.reply)
-          : response.ai_used
-            ? addAiEmoji(response)
-            : response;
+          ? buildContinueConversationResponse(response)
+          : response;
+    const finalResponse = normalizedResponse.ai_used
+        ? addAiEmoji(normalizedResponse)
+        : normalizedResponse;
 
-    return NextResponse.json(normalizedResponse, {
+    return NextResponse.json(finalResponse, {
         headers: { "Cache-Control": "no-store" },
     });
 }
@@ -111,20 +112,58 @@ function buildInitialPromptResponse<
     };
 }
 
-function buildEndConversationResponse(stage: string, previousReply?: string) {
-    const replyWithoutHandoff = (previousReply ?? "")
-        .replace(
-            /\n\nVou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível\.?$/i,
-            "",
-        )
-        .replace(
-            /\n\nNosso time continuará o atendimento assim que estiver disponível\.?$/i,
-            "",
-        )
-        .trim();
-    const reply = [replyWithoutHandoff, END_CONVERSATION_MESSAGE]
+function buildContinueConversationResponse(
+    response: Awaited<ReturnType<typeof routeOutOfHoursChatbot>>,
+) {
+    const baseReply = stripHandoffMessage(response.reply);
+    const isMenuStage = response.stage === "menu";
+    const reply = [
+        baseReply,
+        isMenuStage
+            ? "Você pode explicar de outra forma ou escolher uma das opções abaixo."
+            : "Posso te ajudar a agendar uma consulta com um especialista. Quer agendar?",
+    ]
         .filter(Boolean)
         .join("\n\n");
+    const options = isMenuStage
+        ? [
+              { id: "topic:lgbtqia", label: "Casais LGBTQIA+" },
+              { id: "topic:laqueadura", label: "Laqueadura" },
+              { id: "topic:infertilidade", label: "Não consigo engravidar" },
+              { id: "topic:congelamento", label: "Congelamento de óvulos" },
+              { id: "topic:other", label: "Outra dúvida" },
+          ]
+        : [
+              { id: "common:schedule", label: "Sim, quero agendar" },
+              { id: "common:other", label: "Outra dúvida" },
+          ];
+
+    return {
+        ...response,
+        action: "reply" as const,
+        reply,
+        options,
+        has_options: true,
+        blip_message: {
+            type: "text/plain" as const,
+            content: reply,
+        },
+        blip_menu_content: {
+            text: "Escolha uma opção ou escreva sua dúvida:",
+            options: options.map((option, index) => ({
+                text: option.label,
+                previewText: option.label,
+                value: option.id,
+                index,
+                type: "text/plain" as const,
+            })),
+            limitMenu: false as const,
+        },
+    };
+}
+
+function buildEndConversationResponse(stage: string) {
+    const reply = "Certo! 😊";
 
     return {
         ok: true as const,
@@ -142,6 +181,44 @@ function buildEndConversationResponse(stage: string, previousReply?: string) {
         },
         blip_menu_content: null,
     };
+}
+
+function stripHandoffMessage(reply: string) {
+    return reply
+        .replace(
+            /\n\nVou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível\.?$/i,
+            "",
+        )
+        .replace(
+            /\n\nNosso time continuará o atendimento assim que estiver disponível\.?$/i,
+            "",
+        )
+        .trim();
+}
+
+function normalizeMessageForRouting(message: string, stage: string) {
+    const normalized = normalizeMessage(message);
+
+    if (
+        stage === "infertilidade" &&
+        /^(nao sei|nao sei ainda|ainda nao sei|nao conheco|nao conheco a causa)$/.test(
+            normalized,
+        )
+    ) {
+        return "Ainda não sei";
+    }
+
+    return message;
+}
+
+function normalizeMessage(message: string) {
+    return message
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[!?.,;:]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function addAiEmoji<T extends { reply: string; blip_message: { content: string } }>(
@@ -162,13 +239,7 @@ function addAiEmoji<T extends { reply: string; blip_message: { content: string }
 }
 
 function isEndConversationRequest(message: string) {
-    const normalized = message
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[!?.,;:]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+    const normalized = normalizeMessage(message);
 
     return /\b(encerrar|encerra|encerro|encerrar conversa|finalizar|finaliza|finalizar atendimento|tchau|ate mais|pode encerrar|pode finalizar|quero sair|sair)\b/.test(
         normalized,
