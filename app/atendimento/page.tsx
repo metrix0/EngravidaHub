@@ -1268,7 +1268,7 @@ function UnitWordCorrelationCard({
                     Nenhuma correlação disponível neste período.
                 </div>
             ) : (
-                <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100">
+                <div className="mt-5 max-h-[240px] overflow-auto rounded-xl border border-slate-100">
                     <div className="min-w-[620px]">
                         <div
                             className="grid items-center gap-2 bg-slate-50 px-3 py-3 text-[10px] font-bold text-slate-500"
