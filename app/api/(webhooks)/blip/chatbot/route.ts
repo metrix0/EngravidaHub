@@ -201,7 +201,7 @@ function normalizeMessageForRouting(message: string, stage: string) {
 
     if (
         stage === "infertilidade" &&
-        /^(nao sei|nao sei ainda|ainda nao sei|nao conheco|nao conheco a causa)$/.test(
+        /^(nao sei|nao sei ainda|ainda nao sei|nao sabemos|nao sabemos ainda|ainda nao sabemos|nao conheco|nao conheco a causa|nao conhecemos|nao conhecemos a causa)$/.test(
             normalized,
         )
     ) {
