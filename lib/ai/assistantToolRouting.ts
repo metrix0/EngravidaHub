@@ -1,5 +1,6 @@
 // lib/ai/assistantToolRouting.ts
 export const ASSISTANT_TOOL_NAMES = [
+    "get_unit_macro_history",
     "search_clients",
     "get_client_context",
     "search_appointments",
@@ -70,7 +71,7 @@ const GROUPS: Array<{
     {
         pattern:
             /\b(unidade|unidades|convers[aã]o|desempenho|benchmark|comparar|compara[cç][aã]o|ranking)\w*/i,
-        tools: ["analyze_unit_performance", "compare_unit_performance"],
+        tools: ["analyze_unit_performance", "compare_unit_performance", "get_unit_macro_history"],
     },
     {
         pattern:

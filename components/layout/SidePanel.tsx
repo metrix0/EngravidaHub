@@ -14,6 +14,7 @@ import {
     Funnel,
     HelpCircle,
     LayoutDashboard,
+    MapPin,
     LogOut,
     Menu,
     Megaphone,
@@ -78,6 +79,12 @@ const defaultItems: SidePanelEntry[] = [
         label: "Dashboard",
         href: "/",
         icon: <LayoutDashboard size={18} />,
+        tabId: "dashboard",
+    },
+    {
+        label: "Unidades",
+        href: "/unidades",
+        icon: <MapPin size={18} />,
         tabId: "dashboard",
     },
     {
@@ -433,9 +440,9 @@ function PersistentSidePanel({
     const visibleItems = useMemo(
         () =>
             currentUser?.user
-                ? filterEntriesByPermission(items, allowedTabs)
+                ? filterEntriesByPermission(items, allowedTabs).filter(item => item.type === "separator" || item.href !== "/unidades" || (!permission?.unit_lock && allowedTabs.includes("assistente")))
                 : [],
-        [allowedTabs, currentUser?.user, items],
+        [allowedTabs, currentUser?.user, items, permission?.unit_lock],
     );
 
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;

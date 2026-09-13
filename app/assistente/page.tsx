@@ -178,7 +178,8 @@ export default function AssistentePage() {
                     : [];
 
                 setSessions(restored);
-                setActiveSessionId(restored[0]?.id ?? null);
+                const requestedSession = new URLSearchParams(window.location.search).get("session");
+                setActiveSessionId(restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
             } catch (historyError) {
                 console.error(
                     "[assistente] failed to load database history",
