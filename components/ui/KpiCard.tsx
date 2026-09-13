@@ -19,6 +19,7 @@ type KpiCardProps = {
     tooltipWidthClassName?: string;
     unavailableLabel?: string;
     freeWidth?: boolean;
+    projectionText?: string | null;
 };
 
 const colorClasses: Record<KpiCardColor, string> = {
@@ -43,6 +44,7 @@ export default function KpiCard({
     tooltipWidthClassName,
     unavailableLabel = "—",
     freeWidth = false,
+    projectionText = null,
 }: KpiCardProps) {
     const formattedValue =
         currentValue === null
@@ -96,6 +98,16 @@ export default function KpiCard({
                     <div className="mt-1 whitespace-nowrap text-3xl font-bold tracking-tight text-text">
                         {formattedValue}
                     </div>
+
+                    {projectionText ? (
+                        <div
+                            className="mt-2 truncate text-xs font-semibold leading-tight text-emerald-700"
+                            title={projectionText}
+                            aria-label={projectionText}
+                        >
+                            {projectionText}
+                        </div>
+                    ) : null}
 
                     {trend && (
                         <div

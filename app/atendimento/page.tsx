@@ -601,17 +601,19 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
         value.toLocaleString("pt-BR", {
             maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
         });
+    const formatProjection = (value: number) =>
+        Math.round(value).toLocaleString("pt-BR");
     const cards = [
-        { label: "Marcações", value: total.markings, color: "blue" as const },
         {
-            label: "Projeção de marcações",
-            value: total.markings_projection,
+            label: "Marcações",
+            value: total.markings,
+            projectionText: `Projeção marcações ${formatProjection(total.markings_projection)}`,
             color: "blue" as const,
         },
-        { label: "Agendamentos", value: total.appointments, color: "purple" as const },
         {
-            label: "Projeção de agendamentos",
-            value: total.projection,
+            label: "Agendamentos",
+            value: total.appointments,
+            projectionText: `Projeção agendamentos ${formatProjection(total.projection)}`,
             color: "purple" as const,
         },
         {
@@ -656,11 +658,11 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
 
     return (
         <HorizontalScroller scrollAmount={400}>
-            {cards.map((card, index) => (
+            {cards.map((card) => (
                 <div key={card.label} className="min-w-[250px]">
                     <KpiCard
                         icon={
-                            index === 1 || index === 3 || index === 5 ? (
+                            card.label === "A realizar" ? (
                                 <Clock size={26} />
                             ) : (
                                 <Calendar size={26} />
@@ -670,6 +672,7 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
                         currentValue={card.value}
                         suffix={card.suffix}
                         formatter={card.suffix ? undefined : formatNumber}
+                        projectionText={card.projectionText}
                         color={card.color}
                     />
                 </div>

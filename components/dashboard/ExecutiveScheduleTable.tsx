@@ -90,6 +90,7 @@ function ScheduleRow({
         row.no_show,
         row.no_show_rate,
     ];
+    const projectionIndexes = new Set([1, 3]);
     const percentageIndexes = new Set([5, 9, 11, 13, 15]);
 
     return (
@@ -114,7 +115,9 @@ function ScheduleRow({
                 >
                     {percentageIndexes.has(index)
                         ? formatPercentage(value)
-                        : formatNumber(value)}
+                        : projectionIndexes.has(index)
+                          ? formatProjection(value)
+                          : formatNumber(value)}
                 </td>
             ))}
         </tr>
@@ -126,6 +129,11 @@ function formatNumber(value: number | null) {
     return value.toLocaleString("pt-BR", {
         maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
     });
+}
+
+function formatProjection(value: number | null) {
+    if (value === null) return "—";
+    return Math.round(value).toLocaleString("pt-BR");
 }
 
 function formatPercentage(value: number | null) {
