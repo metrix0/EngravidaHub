@@ -67,7 +67,7 @@ type SidePanelProps = {
 };
 
 const COLLAPSED_WIDTH = 76;
-const EXPANDED_WIDTH = 250;
+const EXPANDED_WIDTH = 230;
 const MOBILE_SWIPE_EDGE_WIDTH = 28;
 const MOBILE_SWIPE_MIN_DISTANCE = 56;
 const MOBILE_SWIPE_AXIS_LOCK_DISTANCE = 8;
@@ -575,7 +575,7 @@ function PersistentSidePanel({
                 {isStatusMenuOpen && currentAttendant && (
                     <div
                         className={`fixed bottom-20 left-4 z-[90] w-52 rounded-xl border border-border bg-white p-2 shadow-lg transition-[left] duration-200 md:bottom-7 md:w-44 ${
-                            isExpanded ? "md:left-[258px]" : "md:left-[84px]"
+                            isExpanded ? "md:left-[238px]" : "md:left-[84px]"
                         }`}
                     >
                         <button
@@ -630,13 +630,7 @@ function PersistentSidePanel({
                     </div>
 
                     <div className="relative min-h-0 flex-1">
-                        <div
-                            className={`sidepanel-scrollbar h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2 ${
-                                isExpanded
-                                    ? "sidepanel-scrollbar-visible"
-                                    : "sidepanel-scrollbar-hidden"
-                            }`}
-                        >
+                        <div className="sidepanel-scrollbar sidepanel-scrollbar-hidden h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2">
                             <nav className="space-y-2">
                                 {visibleItems.map((item) => {
                                     if (isSeparator(item)) {
