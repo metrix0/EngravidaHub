@@ -344,7 +344,7 @@ export async function GET(request: Request) {
         conversationCount: previousConversationCount,
     });
     const scheduleUnitTable = applyScheduleCreationToUnitTable(
-        scheduleAnalytics.unitTable,
+        scheduleAnalytics.displayUnitTable,
         scheduleCreationAnalytics,
         range.startDate ?? brazilDate(range.startAt),
         range.endDate ??
@@ -355,7 +355,7 @@ export async function GET(request: Request) {
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
         scheduleAnalytics.byUnit,
-        scheduleUnitTable,
+        scheduleAnalytics.unitTable,
         rawConversationCountsByUnit,
         unitSatisfaction,
     );
@@ -527,6 +527,7 @@ type ScheduleAnalyticsResult = {
     evolution: ScheduleEvolutionPoint[];
     byUnit: ScheduleUnitDistribution[];
     unitTable: ScheduleUnitTable;
+    displayUnitTable: ScheduleUnitTable;
 };
 
 const SCHEDULE_PAGE_SIZE = 1_000;
@@ -567,6 +568,7 @@ async function loadScheduleAnalytics(
         const endDate = range.endDate ?? brazilDate(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
+        const tableEndDate = scheduleUnitTableEndDate(startDate, endDate);
         const empty = emptyScheduleAnalytics(startDate, endDate, true);
 
         if (selectedUnitNames?.length === 0) return empty;
@@ -582,7 +584,7 @@ async function loadScheduleAnalytics(
                 .from("schedules")
                 .select("id, source_hash, source_external_id, client_id, normalized_phone, patient_name, scheduled_for, created_in_source_at, unit_name, status, updated_at")
                 .gte("scheduled_for", startDate)
-                .lte("scheduled_for", endDate)
+                .lte("scheduled_for", tableEndDate)
                 .order("scheduled_for", { ascending: true })
                 .order("id", { ascending: true })
                 .range(from, from + SCHEDULE_PAGE_SIZE - 1);
@@ -599,6 +601,10 @@ async function loadScheduleAnalytics(
             if (page.length < SCHEDULE_PAGE_SIZE) break;
         }
 
+        const currentRows =
+            tableEndDate === endDate
+                ? rows
+                : rows.filter((row) => row.scheduled_for <= endDate);
         const summary = emptyScheduleSummary();
         const evolutionByDate = new Map(
             buildDateRange(startDate, endDate).map((dateIso) => [
@@ -616,7 +622,7 @@ async function loadScheduleAnalytics(
             }
         >();
 
-        for (const row of rows) {
+        for (const row of currentRows) {
             const group = normalizeScheduleStatus(row.status);
             summary.total += 1;
             incrementScheduleSummary(summary, group);
@@ -644,7 +650,7 @@ async function loadScheduleAnalytics(
             units.set(key, current);
         }
 
-        const uniqueRows = latestUniqueScheduleRows(rows);
+        const uniqueRows = latestUniqueScheduleRows(currentRows);
         summary.unique_total = uniqueRows.length;
         for (const row of uniqueRows) {
             const group = normalizeScheduleStatus(row.status);
@@ -689,7 +695,15 @@ async function loadScheduleAnalytics(
                     ),
             );
 
-        const unitTable = buildScheduleUnitTable(rows, startDate, endDate);
+        const unitTable = buildScheduleUnitTable(
+            currentRows,
+            startDate,
+            endDate,
+        );
+        const displayUnitTable =
+            tableEndDate === endDate
+                ? unitTable
+                : buildScheduleUnitTable(rows, startDate, endDate);
 
         return {
             available: true,
@@ -697,6 +711,7 @@ async function loadScheduleAnalytics(
             evolution: [...evolutionByDate.values()],
             byUnit,
             unitTable,
+            displayUnitTable,
         };
     } catch (error) {
         console.error("[dashboard/executivo] failed to load schedules", error);
@@ -1323,6 +1338,15 @@ function summarizeScheduleUnit(
     };
 }
 
+function scheduleUnitTableEndDate(startDate: string, endDate: string) {
+    const today = brazilDate(new Date().toISOString());
+    const currentMonthStart = `${today.slice(0, 7)}-01`;
+    if (startDate !== currentMonthStart || endDate !== today) return endDate;
+
+    const [year, monthNumber] = today.split("-").map(Number);
+    return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
 function rangeProjectionFactor(startDate: string, endDate: string) {
     const today = brazilDate(new Date().toISOString());
     const currentMonthStart = `${today.slice(0, 7)}-01`;
@@ -1403,6 +1427,15 @@ function emptyScheduleAnalytics(
     endDate: string,
     available: boolean,
 ): ScheduleAnalyticsResult {
+    const unitTable = {
+        rows: [],
+        total: summarizeScheduleUnit(
+            "Total geral",
+            [],
+            rangeProjectionFactor(startDate, endDate),
+        ),
+    };
+
     return {
         available,
         summary: emptyScheduleSummary(),
@@ -1410,14 +1443,8 @@ function emptyScheduleAnalytics(
             emptyScheduleEvolutionPoint,
         ),
         byUnit: [],
-        unitTable: {
-            rows: [],
-            total: summarizeScheduleUnit(
-                "Total geral",
-                [],
-                rangeProjectionFactor(startDate, endDate),
-            ),
-        },
+        unitTable,
+        displayUnitTable: unitTable,
     };
 }
 
