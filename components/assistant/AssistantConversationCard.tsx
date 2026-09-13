@@ -22,9 +22,11 @@ import type {
 export default function AssistantConversationCard({
     conversation,
     onOpenClient,
+    emptyStateText,
 }: {
     conversation: AssistantConversationCardData;
     onOpenClient: (clientId: string) => void;
+    emptyStateText?: string;
 }) {
     const messages = conversation.messages ?? [];
 
@@ -119,9 +121,15 @@ export default function AssistantConversationCard({
             <div className="border-t border-slate-100">
                 <div className="max-h-[380px] overflow-y-auto px-5 py-5">
                     {messages.length === 0 ? (
-                        <div className="py-8 text-center text-sm text-slate-400">
-                            Nenhuma mensagem disponível.
-                        </div>
+                        emptyStateText ? (
+                            <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
+                                {emptyStateText}
+                            </div>
+                        ) : (
+                            <div className="py-8 text-center text-sm text-slate-400">
+                                Nenhuma mensagem disponível.
+                            </div>
+                        )
                     ) : (
                         <div className="space-y-4">
                             {messages.map((message, index) => (
@@ -134,7 +142,8 @@ export default function AssistantConversationCard({
                     )}
                 </div>
 
-                {conversation.messages_truncated && (
+                {conversation.messages_truncated &&
+                    (!emptyStateText || messages.length > 0) && (
                     <div className="border-t border-slate-100 px-5 py-2.5 text-center text-[11px] text-slate-400">
                         Exibindo as mensagens mais recentes.
                     </div>

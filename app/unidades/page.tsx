@@ -6,7 +6,7 @@ import {
   History,
   LoaderCircle,
   MapPin,
-  MessageSquarePlus,
+  Sparkles,
 } from "lucide-react";
 import { Card, Skeleton } from "@/components";
 import AssistantMarkdown from "@/components/assistant/AssistantMarkdown";
@@ -28,6 +28,7 @@ const statusLabel = {
   completed: "Concluída",
   failed: "Falha na análise",
 };
+type SidebarStat = { label: string; value: string };
 function date(value: string) {
   return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR");
 }
@@ -39,19 +40,54 @@ function periodLabel(analysis: UnitMacroAnalysis) {
 function analysisTypeLabel(analysis: UnitMacroAnalysis) {
   return analysis.analysis_type === "weekly" ? "Semanal" : "Mensal";
 }
-function coverageLabel(analysis: UnitMacroAnalysis) {
-  const coverage = analysis.metrics?.coverage;
-  if (!coverage || typeof coverage !== "object") return null;
-  const values = coverage as {
-    conversations?: number;
-    messages?: number;
-  };
-  if (
-    typeof values.conversations !== "number" ||
-    typeof values.messages !== "number"
-  )
-    return null;
-  return `${values.conversations.toLocaleString("pt-BR")} conversas · ${values.messages.toLocaleString("pt-BR")} mensagens`;
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+function finiteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function countValue(value: unknown) {
+  const number = finiteNumber(value);
+  return number === null ? null : number.toLocaleString("pt-BR");
+}
+function currencyValue(value: unknown) {
+  const number = finiteNumber(value);
+  return number === null
+    ? null
+    : number.toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        maximumFractionDigits: 0,
+      });
+}
+function sidebarStats(analysis: UnitMacroAnalysis): SidebarStat[] {
+  const schedule = asRecord(analysis.metrics.get_schedule_overview);
+  const scheduleTotals = asRecord(schedule.totals);
+  const conversations = asRecord(
+    analysis.metrics.get_conversation_analysis_overview,
+  );
+  const conversationCoverage = asRecord(conversations.coverage);
+  const financial = asRecord(analysis.metrics.get_financial_overview);
+  const financialTotals = asRecord(financial.totals);
+  const deterministic = asRecord(analysis.metrics.deterministic_stats);
+  const values: Array<[string, string | null]> = [
+    ["Marcações", countValue(deterministic.markings)],
+    ["Agendamentos", countValue(scheduleTotals.total)],
+    ["Conversas", countValue(conversationCoverage.total_conversations)],
+    ["A realizar", countValue(scheduleTotals.pending)],
+    ["Compareceu", countValue(scheduleTotals.showed_up)],
+    ["Atendidos", countValue(scheduleTotals.attended)],
+    ["Remarcou", countValue(scheduleTotals.rescheduled)],
+    ["Cancelou", countValue(scheduleTotals.cancelled)],
+    ["Faltou", countValue(scheduleTotals.no_show)],
+    ["Faturamento", currencyValue(financialTotals.authorized_revenue)],
+    ["Notas", countValue(financialTotals.authorized_invoices)],
+  ];
+  return values.flatMap(([label, value]) =>
+    value === null ? [] : [{ label, value }],
+  );
 }
 
 export default function UnidadesPage() {
@@ -188,6 +224,7 @@ export default function UnidadesPage() {
               const latest = latestForUnit(item.id);
               const completed = completedForUnit(item.id);
               const focus = completed ?? latest;
+              const stats = focus ? sidebarStats(focus) : [];
               const unitAnalyses = analyses.filter(
                 (analysis) => analysis.unit_id === item.id,
               );
@@ -216,10 +253,27 @@ export default function UnidadesPage() {
                             {analysisTypeLabel(latest)} · {periodLabel(latest)}
                           </p>
                         )}
-                        {focus && coverageLabel(focus) && (
-                          <p className="mt-2 text-slate-500">
-                            {coverageLabel(focus)}
-                          </p>
+                        {stats.length > 0 && (
+                          <div className="mt-3 border-t border-slate-200 pt-3">
+                            <p className="mb-2 font-semibold text-slate-600">
+                              Dados do período
+                            </p>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                              {stats.map((stat) => (
+                                <div key={stat.label} className="min-w-0">
+                                  <div className="truncate text-[10px] text-slate-500">
+                                    {stat.label}
+                                  </div>
+                                  <div
+                                    title={stat.value}
+                                    className="mt-0.5 truncate text-sm font-bold text-slate-800"
+                                  >
+                                    {stat.value}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
                       {completed && canContinue && (
@@ -231,7 +285,7 @@ export default function UnidadesPage() {
                           {busy ? (
                             <LoaderCircle size={16} className="animate-spin" />
                           ) : (
-                            <MessageSquarePlus size={16} />
+                            <Sparkles size={16} />
                           )}
                           Continuar no Assistente
                         </button>
@@ -239,20 +293,8 @@ export default function UnidadesPage() {
                     </aside>
                     <div className="min-w-0 space-y-6">
                       <section>
-                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <h3 className="text-lg font-bold">
-                              {focus
-                                ? `Análise ${analysisTypeLabel(focus).toLowerCase()}`
-                                : "Análise"}
-                            </h3>
-                            {focus && (
-                              <p className="mt-1 text-sm text-slate-500">
-                                {periodLabel(focus)}
-                              </p>
-                            )}
-                          </div>
-                          {latest && latest.status !== "completed" && (
+                        {latest && latest.status !== "completed" && (
+                          <div className="mb-4 flex justify-end">
                             <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">
                               {latest.status === "failed"
                                 ? "A última análise falhou"
@@ -260,8 +302,8 @@ export default function UnidadesPage() {
                                   ? "A última análise está em andamento"
                                   : "A última análise está na fila"}
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                         {focus?.status === "completed" ? (
                           <AssistantMarkdown content={focus.report} />
                         ) : (
@@ -279,6 +321,7 @@ export default function UnidadesPage() {
                             <AssistantConversationCard
                               key={card.data.id}
                               conversation={card.data}
+                              emptyStateText={card.data.preview ?? undefined}
                               onOpenClient={(clientId) =>
                                 clientId
                                   ? openClientProfile(clientId)
