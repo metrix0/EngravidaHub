@@ -20,6 +20,9 @@ const requestSchema = z
     })
     .strict();
 
+const END_CONVERSATION_MESSAGE =
+    "Estamos encerrando a conversa! Se desejar, pode entrar em contato conosco novamente quando quiser!";
+
 export async function POST(request: Request) {
     const expectedSecret = process.env.BLIP_CHATBOT_WEBHOOK_SECRET?.trim();
     const receivedSecret = request.headers.get("x-chatbot-secret")?.trim();
@@ -68,18 +71,96 @@ export async function POST(request: Request) {
         );
     }
 
+    const stage = normalizeChatbotStage(parsed.data.stage);
+    if (isEndConversationRequest(parsed.data.message)) {
+        return NextResponse.json(buildEndConversationResponse(stage), {
+            headers: { "Cache-Control": "no-store" },
+        });
+    }
+
     const response = await routeOutOfHoursChatbot({
         message: parsed.data.message,
-        stage: normalizeChatbotStage(parsed.data.stage),
+        stage,
         signal: AbortSignal.any([
             request.signal,
             AbortSignal.timeout(25_000),
         ]),
     });
 
-    return NextResponse.json(response, {
+    const normalizedResponse =
+        response.action === "queue_human" && response.route !== "deterministic"
+            ? buildEndConversationResponse(stage, response.reply)
+            : response.ai_used
+              ? addAiEmoji(response)
+              : response;
+
+    return NextResponse.json(normalizedResponse, {
         headers: { "Cache-Control": "no-store" },
     });
+}
+
+function buildEndConversationResponse(stage: string, previousReply?: string) {
+    const replyWithoutHandoff = (previousReply ?? "")
+        .replace(
+            /\n\nVou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível\.?$/i,
+            "",
+        )
+        .replace(
+            /\n\nNosso time continuará o atendimento assim que estiver disponível\.?$/i,
+            "",
+        )
+        .trim();
+    const reply = [replyWithoutHandoff, END_CONVERSATION_MESSAGE]
+        .filter(Boolean)
+        .join("\n\n");
+
+    return {
+        ok: true as const,
+        action: "end_conversation" as const,
+        route: "deterministic" as const,
+        stage,
+        reply,
+        options: [],
+        has_options: false,
+        ai_used: false,
+        knowledge_ids: [],
+        blip_message: {
+            type: "text/plain" as const,
+            content: reply,
+        },
+        blip_menu_content: null,
+    };
+}
+
+function addAiEmoji<T extends { reply: string; blip_message: { content: string } }>(
+    response: T,
+) {
+    const reply = /[✨💙😊📌💬]/u.test(response.reply)
+        ? response.reply
+        : `✨ ${response.reply}`;
+
+    return {
+        ...response,
+        reply,
+        blip_message: {
+            ...response.blip_message,
+            content: reply,
+        },
+    };
+}
+
+function isEndConversationRequest(message: string) {
+    const normalized = message
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[!?.,;:]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    return /\b(encerrar|encerra|encerrar conversa|finalizar|finaliza|finalizar atendimento|tchau|ate mais|pode encerrar|pode finalizar|quero sair|sair)\b/.test(
+        normalized,
+    );
 }
 
 function secretsMatch(received: string, expected: string) {
