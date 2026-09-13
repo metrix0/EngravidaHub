@@ -290,16 +290,44 @@ function completeResponse(body: Json, examples: Example[], mode: "batch" | "dire
   return { report, usage, evidence: normalizedEvidence };
 }
 
-// Immediate test: no batch/files and no writes to the shared report history.
+// Immediate test: no Batch/files; successful results are saved for /unidades.
 export async function testUnitAnalysis(input: Input) {
   const started = performance.now();
   const { unit, period } = await resolveInput(input);
-  const row = { id: randomUUID(), unit_id: unit.id, analysis_type: input.type, ...period } as UnitMacroAnalysis;
+  const { data: existing, error: existingError } = await supabase.from("unit_macro_analyses")
+    .select("id, status, context").eq("unit_id", unit.id).eq("analysis_type", input.type)
+    .eq("period_start", period.period_start).eq("period_end", period.period_end).maybeSingle();
+  if (existingError) throw existingError;
+  if (existing && ["pending", "processing"].includes(existing.status) &&
+      record(existing.context).mode === "batch")
+    throw new Error("Já existe uma análise Batch em processamento para esta unidade e período.");
+  const id = existing?.id ?? randomUUID();
+  const row = { id, unit_id: unit.id, analysis_type: input.type, ...period } as UnitMacroAnalysis;
   const prepared = await prepare(row, unit);
   const response = await openai.responses.create(requestBody(prepared.input), { maxRetries: 0, timeout: 120000 });
   try {
     const result = completeResponse(response as unknown as Json, prepared.examples, "direct");
-    return { ok: true, mode: "direct", persisted: false, unit: unit.name, ...period,
+    const completedAt = new Date().toISOString();
+    const values = {
+      status: "completed", report: result.report, cards: prepared.cards,
+      metrics: prepared.metrics, context: { mode: "direct", evidence: result.evidence },
+      previous_analysis_ids: prepared.previousAnalysisIds, model: MODEL,
+      prompt_version: PROMPT_VERSION, usage: result.usage,
+      tool_names: ["get_schedule_overview", "get_conversation_analysis_overview", "get_financial_overview"],
+      error_message: null, claimed_at: null, completed_at: completedAt, updated_at: completedAt,
+    };
+    let saveError;
+    if (existing) {
+      const { error } = await supabase.from("unit_macro_analyses").update(values).eq("id", id);
+      saveError = error;
+    } else {
+      const { error } = await supabase.from("unit_macro_analyses").insert({
+        id, unit_id: unit.id, analysis_type: input.type, ...period, ...values,
+      });
+      saveError = error;
+    }
+    if (saveError) throw saveError;
+    return { ok: true, mode: "direct", persisted: true, id, unit: unit.name, ...period,
       ...result, cards: prepared.cards, model: MODEL, metrics: prepared.metrics,
       elapsed_ms: Math.round(performance.now() - started),
       cost_note: "Estimativa em USD para tokens da OpenAI; não inclui infraestrutura.",
