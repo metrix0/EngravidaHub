@@ -109,6 +109,7 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
     schedule_creation_evolution: ScheduleCreationEvolutionPoint[];
     schedules_by_unit: ScheduleUnitDistribution[];
     schedule_unit_table: ScheduleUnitTable;
+    previous_schedule_unit_table: ScheduleUnitTable;
     word_map: ExecutiveWordMap;
 };
 
@@ -261,7 +262,8 @@ export async function GET(request: Request) {
         previousResult,
         scheduleAnalytics,
         scheduleCreationAnalytics,
-        previousScheduleCount,
+        previousScheduleAnalytics,
+        previousScheduleCreationAnalytics,
         previousConversationCount,
         rawConversationSummary,
     ] = await Promise.all([
@@ -278,11 +280,19 @@ export async function GET(request: Request) {
             ),
         ),
         selectedUnitNamesPromise.then((selectedUnitNames) =>
-            loadScheduleTotal(
+            loadScheduleAnalytics(
                 range,
                 selectedUnitNames,
-                "previous",
                 request.signal,
+                "previous",
+            ),
+        ),
+        selectedUnitNamesPromise.then((selectedUnitNames) =>
+            loadScheduleCreationAnalytics(
+                range,
+                selectedUnitNames,
+                request.signal,
+                "previous",
             ),
         ),
         loadRawConversationCount(range, filters, "previous", request.signal),
@@ -335,6 +345,9 @@ export async function GET(request: Request) {
     const currentScheduleCount = scheduleAnalytics.available
         ? scheduleAnalytics.summary.total
         : null;
+    const previousScheduleCount = previousScheduleAnalytics.available
+        ? previousScheduleAnalytics.summary.total
+        : null;
     const currentWithScheduleRate = applyScheduleRateMetric(current, {
         scheduleCount: currentScheduleCount,
         conversationCount: currentConversationCount,
@@ -343,14 +356,27 @@ export async function GET(request: Request) {
         scheduleCount: previousScheduleCount,
         conversationCount: previousConversationCount,
     });
+    const currentStartDate = range.startDate ?? brazilDate(range.startAt);
+    const currentEndDate =
+        range.endDate ??
+        brazilDate(
+            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        );
+    const previousStartDate = brazilDate(range.previousStartAt);
+    const previousEndDate = brazilDate(
+        new Date(new Date(range.previousEndAt).getTime() - 1).toISOString(),
+    );
     const scheduleUnitTable = applyScheduleCreationToUnitTable(
         scheduleAnalytics.displayUnitTable,
         scheduleCreationAnalytics,
-        range.startDate ?? brazilDate(range.startAt),
-        range.endDate ??
-            brazilDate(
-                new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-            ),
+        currentStartDate,
+        currentEndDate,
+    );
+    const previousScheduleUnitTable = applyScheduleCreationToUnitTable(
+        previousScheduleAnalytics.displayUnitTable,
+        previousScheduleCreationAnalytics,
+        previousStartDate,
+        previousEndDate,
     );
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
@@ -382,6 +408,7 @@ export async function GET(request: Request) {
         schedule_creation_evolution: scheduleCreationAnalytics.evolution,
         schedules_by_unit: scheduleAnalytics.byUnit,
         schedule_unit_table: scheduleUnitTable,
+        previous_schedule_unit_table: previousScheduleUnitTable,
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
@@ -562,13 +589,24 @@ async function loadScheduleAnalytics(
     range: ReturnType<typeof resolveDashboardDateRange>,
     selectedUnitNames: string[] | null,
     signal: AbortSignal,
+    period: "current" | "previous" = "current",
 ): Promise<ScheduleAnalyticsResult> {
+    const startAt =
+        period === "current" ? range.startAt : range.previousStartAt;
+    const endAt = period === "current" ? range.endAt : range.previousEndAt;
+    const startDate =
+        period === "current" && range.startDate
+            ? range.startDate
+            : brazilDate(startAt);
+    const endDate =
+        period === "current" && range.endDate
+            ? range.endDate
+            : brazilDate(
+                  new Date(new Date(endAt).getTime() - 1).toISOString(),
+              );
+    const tableEndDate = scheduleUnitTableEndDate(startDate, endDate);
+
     try {
-        const startDate = range.startDate ?? brazilDate(range.startAt);
-        const endDate = range.endDate ?? brazilDate(
-            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-        );
-        const tableEndDate = scheduleUnitTableEndDate(startDate, endDate);
         const empty = emptyScheduleAnalytics(startDate, endDate, true);
 
         if (selectedUnitNames?.length === 0) return empty;
@@ -714,10 +752,9 @@ async function loadScheduleAnalytics(
             displayUnitTable,
         };
     } catch (error) {
-        console.error("[dashboard/executivo] failed to load schedules", error);
-        const startDate = range.startDate ?? brazilDate(range.startAt);
-        const endDate = range.endDate ?? brazilDate(
-            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        console.error(
+            `[dashboard/executivo] failed to load ${period} schedules`,
+            error,
         );
         return emptyScheduleAnalytics(startDate, endDate, false);
     }
@@ -727,11 +764,21 @@ async function loadScheduleCreationAnalytics(
     range: ReturnType<typeof resolveDashboardDateRange>,
     selectedUnitNames: string[] | null,
     signal: AbortSignal,
+    period: "current" | "previous" = "current",
 ): Promise<ScheduleCreationAnalytics> {
-    const startDate = range.startDate ?? brazilDate(range.startAt);
-    const endDate = range.endDate ?? brazilDate(
-        new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-    );
+    const startAt =
+        period === "current" ? range.startAt : range.previousStartAt;
+    const endAt = period === "current" ? range.endAt : range.previousEndAt;
+    const startDate =
+        period === "current" && range.startDate
+            ? range.startDate
+            : brazilDate(startAt);
+    const endDate =
+        period === "current" && range.endDate
+            ? range.endDate
+            : brazilDate(
+                  new Date(new Date(endAt).getTime() - 1).toISOString(),
+              );
     const evolutionByDate = new Map(
         buildDateRange(startDate, endDate).map((dateIso) => [
             dateIso,
@@ -794,7 +841,7 @@ async function loadScheduleCreationAnalytics(
         }
     } catch (error) {
         console.error(
-            "[dashboard/executivo] failed to load schedule creation evolution",
+            `[dashboard/executivo] failed to load ${period} schedule creation evolution`,
             error,
         );
     }

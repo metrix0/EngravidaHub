@@ -603,56 +603,75 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
 
 function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
     const total = data.schedule_unit_table.total;
+    const previousTotal = data.previous_schedule_unit_table.total;
     const formatNumber = (value: number) =>
         value.toLocaleString("pt-BR", {
             maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
         });
     const formatProjection = (value: number) =>
         Math.round(value).toLocaleString("pt-BR");
+    const projectionFactor =
+        total.appointments > 0
+            ? total.projection / total.appointments
+            : total.markings > 0
+              ? total.markings_projection / total.markings
+              : 1;
+    const projected = (value: number) =>
+        formatProjection(value * projectionFactor);
     const cards = [
         {
             label: "Marcações",
             value: total.markings,
+            previousValue: previousTotal.markings,
             projectionText: `Projeção ${formatProjection(total.markings_projection)}`,
             color: "blue" as const,
             icon: <CalendarPlus2 size={26} />,
+            positiveDirection: "up" as const,
         },
         {
             label: "Agendamentos",
             value: total.appointments,
+            previousValue: previousTotal.appointments,
             projectionText: `Projeção ${formatProjection(total.projection)}`,
             color: "purple" as const,
             icon: <CalendarCheck2 size={26} />,
+            positiveDirection: "up" as const,
         },
         {
             label: "Agendamentos únicos",
             value: total.unique_appointments,
+            previousValue: previousTotal.unique_appointments,
+            projectionText: `Projeção ${projected(total.unique_appointments)}`,
             color: "green" as const,
             icon: <UsersRound size={26} />,
-        },
-        {
-            label: "A realizar",
-            value: total.pending,
-            color: "orange" as const,
-            icon: <Clock size={26} />,
-        },
-        {
-            label: "Compareceu",
-            value: total.showed_up,
-            color: "green" as const,
-            icon: <CheckCircle2 size={26} />,
+            positiveDirection: "up" as const,
         },
         {
             label: "Cancelou",
             value: total.cancelled,
+            previousValue: previousTotal.cancelled,
+            projectionText: `Projeção ${projected(total.cancelled)}`,
             color: "pink" as const,
             icon: <Ban size={26} />,
+            positiveDirection: "down" as const,
         },
         {
             label: "Faltou",
             value: total.no_show,
+            previousValue: previousTotal.no_show,
+            projectionText: `Projeção ${projected(total.no_show)}`,
             color: "brand" as const,
             icon: <CircleAlert size={26} />,
+            positiveDirection: "down" as const,
+        },
+        {
+            label: "Compareceu",
+            value: total.showed_up,
+            previousValue: previousTotal.showed_up,
+            projectionText: `Projeção ${projected(total.showed_up)}`,
+            color: "green" as const,
+            icon: <CheckCircle2 size={26} />,
+            positiveDirection: "up" as const,
         },
     ];
 
@@ -664,9 +683,11 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
                         icon={card.icon}
                         label={card.label}
                         currentValue={card.value}
+                        previousValue={card.previousValue}
                         formatter={formatNumber}
                         projectionText={card.projectionText}
                         color={card.color}
+                        positiveDirection={card.positiveDirection}
                     />
                 </div>
             ))}
