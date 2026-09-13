@@ -143,6 +143,7 @@ export default function SidePanelSectionNav() {
     const config = useMemo(() => getNavigationConfig(pathname), [pathname]);
     const [host, setHost] = useState<HTMLDivElement | null>(null);
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
+    const [sectionsVisible, setSectionsVisible] = useState(false);
     const [activeSectionId, setActiveSectionId] = useState<string | null>(
         config?.sections[0]?.id ?? null,
     );
@@ -215,6 +216,20 @@ export default function SidePanelSectionNav() {
             setHost(null);
         };
     }, [config]);
+
+    useEffect(() => {
+        if (!host || !sidebarExpanded) {
+            setSectionsVisible(false);
+            return;
+        }
+
+        setSectionsVisible(false);
+        const frame = window.requestAnimationFrame(() => {
+            setSectionsVisible(true);
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [host, sidebarExpanded, config?.key]);
 
     useEffect(() => {
         if (!config) return;
@@ -353,34 +368,43 @@ export default function SidePanelSectionNav() {
 
     return createPortal(
         <div
-            className={`${sidebarExpanded ? "block" : "hidden"} mb-1 ml-8 border-l border-slate-200 py-1 pl-3`}
+            className={`grid transition-[grid-template-rows,opacity,transform] duration-200 ease-out ${
+                sectionsVisible
+                    ? "grid-rows-[1fr] translate-y-0 opacity-100"
+                    : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
+            }`}
             aria-label={`Seções de ${config.key}`}
+            aria-hidden={!sectionsVisible}
         >
-            <div className="space-y-0.5">
-                {config.sections.map((section) => {
-                    const active = activeSectionId === section.id;
+            <div className="min-h-0 overflow-hidden">
+                <div className="mb-1 ml-8 border-l border-slate-200 py-1 pl-3">
+                    <div className="space-y-0.5">
+                        {config.sections.map((section) => {
+                            const active = activeSectionId === section.id;
 
-                    return (
-                        <button
-                            key={section.id}
-                            type="button"
-                            onClick={() => scrollToSection(section)}
-                            className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                                active
-                                    ? "font-semibold text-brand"
-                                    : "font-medium text-slate-500 hover:bg-selection hover:text-slate-700"
-                            }`}
-                            aria-current={active ? "location" : undefined}
-                        >
-                            <span
-                                className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                    active ? "bg-brand" : "bg-slate-300"
-                                }`}
-                            />
-                            <span className="truncate">{section.label}</span>
-                        </button>
-                    );
-                })}
+                            return (
+                                <button
+                                    key={section.id}
+                                    type="button"
+                                    onClick={() => scrollToSection(section)}
+                                    className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                                        active
+                                            ? "font-semibold text-brand"
+                                            : "font-medium text-slate-500 hover:bg-selection hover:text-slate-700"
+                                    }`}
+                                    aria-current={active ? "location" : undefined}
+                                >
+                                    <span
+                                        className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                            active ? "bg-brand" : "bg-slate-300"
+                                        }`}
+                                    />
+                                    <span className="truncate">{section.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         </div>,
         host,
