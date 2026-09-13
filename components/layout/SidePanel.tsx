@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
     BriefcaseBusiness,
     CalendarDays,
+    ChartNoAxesCombined,
     ChevronRight,
     CircleDollarSign,
     Flag,
@@ -19,7 +20,6 @@ import {
     Menu,
     Megaphone,
     MessageCircle,
-    MessagesSquare,
     Send,
     Sparkles,
     UserCog,
@@ -90,7 +90,7 @@ const defaultItems: SidePanelEntry[] = [
     {
         label: "Atendimento",
         href: "/atendimento",
-        icon: <Headset size={18} />,
+        icon: <ChartNoAxesCombined size={18} />,
         tabId: "dashboard",
     },
     {
@@ -115,7 +115,7 @@ const defaultItems: SidePanelEntry[] = [
     {
         label: "Inbox",
         href: "/inbox",
-        icon: <MessagesSquare size={18} />,
+        icon: <Headset size={18} />,
         tabId: "inbox",
     },
     {
