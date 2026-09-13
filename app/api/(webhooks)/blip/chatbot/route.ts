@@ -92,8 +92,9 @@ export async function POST(request: Request) {
     const finalResponse = normalizedResponse.ai_used
         ? addAiEmoji(normalizedResponse)
         : normalizedResponse;
+    const responseWithEndOption = addEndConversationOption(finalResponse);
 
-    return NextResponse.json(finalResponse, {
+    return NextResponse.json(responseWithEndOption, {
         headers: { "Cache-Control": "no-store" },
     });
 }
@@ -234,6 +235,53 @@ function addAiEmoji<T extends { reply: string; blip_message: { content: string }
         blip_message: {
             ...response.blip_message,
             content: reply,
+        },
+    };
+}
+
+function addEndConversationOption<
+    T extends {
+        options: Array<{ id: string; label: string }>;
+        blip_menu_content: {
+            text: string;
+            options: Array<{
+                text: string;
+                previewText: string;
+                value: string;
+                index: number;
+                type: "text/plain";
+            }>;
+            limitMenu: false;
+        } | null;
+    },
+>(response: T) {
+    if (!response.blip_menu_content) return response;
+    if (
+        response.blip_menu_content.options.some(
+            (option) => option.value === "sair",
+        )
+    ) {
+        return response;
+    }
+
+    const menuOptions = response.blip_menu_content.options.slice(0, 9);
+    const closeOption = { id: "sair", label: "Encerrar conversa" };
+
+    return {
+        ...response,
+        options: [...response.options.slice(0, 9), closeOption],
+        blip_menu_content: {
+            ...response.blip_menu_content,
+            options: [
+                ...menuOptions,
+                {
+                    text: closeOption.label,
+                    previewText: closeOption.label,
+                    value: closeOption.id,
+                    index: menuOptions.length,
+                    type: "text/plain" as const,
+                },
+            ],
         },
     };
 }
