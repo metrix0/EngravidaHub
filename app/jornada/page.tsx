@@ -1563,6 +1563,7 @@ function PipelineTreeConnector({
                     left: trunkLeft,
                     top: firstCenter,
                     height: Math.max(1, lastCenter - firstCenter),
+                    transform: "translateY(-13px)",
                 }}
             />
             {Array.from({ length: rowCount }).map((_, index) => {
@@ -1585,6 +1586,7 @@ function PipelineTreeConnector({
                                 direction === "merge"
                                     ? trunkLeft + 4
                                     : 72 - trunkLeft,
+                            transform: "translateY(-13px)",
                         }}
                     >
                         {direction === "split" ? (
