@@ -143,13 +143,11 @@ function releaseScrollSpyLock(
     scrollSpyLockRef: { current: string | null },
     sectionId: string,
 ) {
-    window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-            if (scrollSpyLockRef.current === sectionId) {
-                scrollSpyLockRef.current = null;
-            }
-        });
-    });
+    window.setTimeout(() => {
+        if (scrollSpyLockRef.current === sectionId) {
+            scrollSpyLockRef.current = null;
+        }
+    }, 1200);
 }
 
 export default function SidePanelSectionNav() {
