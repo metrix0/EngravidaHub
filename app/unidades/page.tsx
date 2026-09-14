@@ -188,14 +188,13 @@ export default function UnidadesPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Unidades</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Acompanhe as análises semanais e mensais de cada unidade em um só lugar.
+              Acompanhe as análises mensais de cada unidade em um só lugar.
             </p>
             <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays size={14} />
                 Semanal aos domingos
               </span>
-              <span>Mensal no dia 30 · fevereiro no último dia</span>
             </div>
           </div>
         </header>
