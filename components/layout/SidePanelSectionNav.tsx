@@ -158,6 +158,7 @@ export default function SidePanelSectionNav() {
     const [host, setHost] = useState<HTMLDivElement | null>(null);
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
     const [sectionsVisible, setSectionsVisible] = useState(false);
+    const [scrollContainerVersion, setScrollContainerVersion] = useState(0);
     const [activeSectionId, setActiveSectionId] = useState<string | null>(
         config?.sections[0]?.id ?? null,
     );
@@ -261,6 +262,23 @@ export default function SidePanelSectionNav() {
     }, [host, sidebarExpanded, config?.key]);
 
     useEffect(() => {
+        if (!config || getPageScroller()) return;
+
+        const appContent = document.querySelector<HTMLElement>(".app-content");
+        if (!appContent) return;
+
+        const observer = new MutationObserver(() => {
+            if (!getPageScroller()) return;
+
+            observer.disconnect();
+            setScrollContainerVersion((version) => version + 1);
+        });
+        observer.observe(appContent, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
+    }, [config]);
+
+    useEffect(() => {
         if (!config) return;
 
         const scroller = getPageScroller();
@@ -358,7 +376,7 @@ export default function SidePanelSectionNav() {
             resizeObserver.disconnect();
             scroller.removeEventListener("scroll", updateActiveSection);
         };
-    }, [config]);
+    }, [config, scrollContainerVersion]);
 
     if (!config || !host) return null;
 
