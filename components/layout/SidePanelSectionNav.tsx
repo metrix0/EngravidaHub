@@ -142,12 +142,14 @@ function findParentLink(nav: HTMLElement, href: string) {
 function releaseScrollSpyLock(
     scrollSpyLockRef: { current: string | null },
     sectionId: string,
+    scroller: HTMLElement,
 ) {
     window.setTimeout(() => {
         if (scrollSpyLockRef.current === sectionId) {
             scrollSpyLockRef.current = null;
+            scroller.dispatchEvent(new Event("scroll"));
         }
-    }, 1200);
+    }, 800);
 }
 
 export default function SidePanelSectionNav() {
@@ -296,7 +298,7 @@ export default function SidePanelSectionNav() {
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
                 behavior: "smooth",
             });
-            releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId);
+            releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId, scroller);
             return true;
         };
 
@@ -382,7 +384,7 @@ export default function SidePanelSectionNav() {
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
                 behavior: "smooth",
             });
-            releaseScrollSpyLock(scrollSpyLockRef, section.id);
+            releaseScrollSpyLock(scrollSpyLockRef, section.id, scroller);
         }
 
         if (window.matchMedia("(max-width: 767px)").matches) {
