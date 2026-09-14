@@ -22,19 +22,30 @@ Mantém a permissão de acesso geral a Dashboard + Assistente.
 
 ## Batch e cron externo
 
-Nenhum cron é instalado por esta alteração. Configure suas chamadas por unidade **sem sobreposição**. Executar em sequência evita multiplicar o custo dos agregados internos; cada ferramenta ainda pode fazer suas próprias consultas.
+Nenhum cron é instalado por esta alteração. O endpoint não usa segredo de cron nem header de autorização.
 
-1. Envie action=submit, unit, type e period_end para /api/cron/unit-analyses.
-2. Guarde o período usado. Em uma chamada posterior, use action=collect com os **mesmos parâmetros**.
-3. Se ainda estiver processando, collect só devolve o status; não refaz agregados nem submete outro lote. Agende outra coleta externamente.
+Para todas as unidades ativas, omita `unit`. No `submit`, omitir `period_end` usa a data atual no Brasil, resolvida uma vez e aplicada a todas as unidades da execução. As unidades são processadas em sequência.
 
-Exemplo de caminho:
+```text
+/api/cron/unit-analyses?action=submit&type=weekly
+/api/cron/unit-analyses?action=submit&type=monthly
+```
+
+Para coletar, também é possível omitir `unit`. Sem `period_end`, o endpoint busca todas as análises Batch ainda em `processing` daquele tipo e usa o período já salvo em cada análise; assim a coleta continua correta mesmo se o lote atravessar a meia-noite.
+
+```text
+/api/cron/unit-analyses?action=collect&type=weekly
+/api/cron/unit-analyses?action=collect&type=monthly
+```
+
+Para executar uma única unidade, informe `unit`; `period_end` continua opcional:
+
 ```text
 /api/cron/unit-analyses?action=submit&unit=Bauru&type=weekly&period_end=2026-09-13
 /api/cron/unit-analyses?action=collect&unit=Bauru&type=weekly&period_end=2026-09-13
 ```
 
-Configure CRON_SECRET no servidor e o header Authorization: Bearer <CRON_SECRET> no agendador. Sem a variável, a rota mantém 503. Não coloque o segredo na URL.
+Se ainda estiver processando, `collect` só devolve o status; não refaz agregados nem submete outro lote. Agende outra coleta externamente.
 
 Alternativa para agendador que executa comandos:
 ```powershell
