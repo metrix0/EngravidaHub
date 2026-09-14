@@ -373,7 +373,7 @@ export default function ExecutiveDashboardPage() {
                     <DashboardBodySkeleton />
                 ) : (
                     <div className="min-w-0 max-w-full overflow-x-hidden pb-12">
-                        <section className="mb-6 grid grid-cols-1 gap-5">
+                        <section id="dashboard-conversas" className="mb-6 grid grid-cols-1 gap-5">
                             <HorizontalScroller scrollAmount={400}>
                                 <div className="min-w-[260px]">
                                     <KpiCard
@@ -470,9 +470,17 @@ export default function ExecutiveDashboardPage() {
                             />
                         </section>
 
-                        <section className="mb-6 min-w-0 max-w-full">
-                            <div className="mb-4 px-1">
-                                <h2 className="text-xl font-bold text-slate-900">Consultas</h2>
+                        <section id="dashboard-consultas" className="mb-6 min-w-0 max-w-full">
+                            <div className="mb-5 px-1">
+                                <div className="flex items-center gap-2.5">
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                                        <CalendarCheck2 size={19} aria-hidden="true" />
+                                    </span>
+                                    <h2 className="text-lg font-bold text-slate-900">Consultas</h2>
+                                </div>
+                                <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+                                    Acompanhe marcações, agendamentos e resultados das consultas no período.
+                                </p>
                             </div>
                             <ConsultationKpis data={data} />
                         </section>
@@ -493,7 +501,7 @@ export default function ExecutiveDashboardPage() {
                             <UnitViewCard data={data} />
                         </section>
 
-                        <section className="mt-6 min-w-0 max-w-full">
+                        <section id="dashboard-instagram" className="mt-6 min-w-0 max-w-full">
                             <InstagramConversationInsights
                                 mode="analysis"
                                 period={period}
@@ -501,7 +509,7 @@ export default function ExecutiveDashboardPage() {
                             />
                         </section>
 
-                        <section className="mt-6 min-w-0 max-w-full">
+                        <section id="dashboard-messenger" className="mt-6 min-w-0 max-w-full">
                             <MessengerConversationInsights
                                 mode="analysis"
                                 period={period}
@@ -509,7 +517,7 @@ export default function ExecutiveDashboardPage() {
                             />
                         </section>
 
-                        <section className="mt-6 min-w-0 max-w-full">
+                        <section id="dashboard-ligacoes" className="mt-6 min-w-0 max-w-full">
                             <DashboardCallInsights
                                 period={period}
                                 selectedRange={selectedRange}

@@ -98,7 +98,16 @@ function resolveSectionTarget(
     section: SectionDefinition,
     firstSectionId: string,
 ) {
-    if (section.id === firstSectionId || !section.heading) {
+    if (section.id === firstSectionId) {
+        return scroller;
+    }
+
+    const explicitTarget = scroller.querySelector<HTMLElement>(`#${section.id}`);
+    if (explicitTarget) {
+        return explicitTarget;
+    }
+
+    if (!section.heading) {
         return scroller;
     }
 
@@ -409,7 +418,7 @@ export default function SidePanelSectionNav() {
                                 key={section.id}
                                 type="button"
                                 onClick={() => scrollToSection(section)}
-                                className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                                className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors duration-200 ${
                                     active
                                         ? "font-semibold text-brand"
                                         : "font-medium text-slate-500 hover:bg-selection hover:text-slate-700"
@@ -417,7 +426,7 @@ export default function SidePanelSectionNav() {
                                 aria-current={active ? "location" : undefined}
                             >
                                 <span
-                                    className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                    className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-200 ${
                                         active ? "bg-brand" : "bg-slate-300"
                                     }`}
                                 />
