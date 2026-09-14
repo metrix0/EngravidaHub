@@ -229,6 +229,7 @@ function PersistentSidePanel({
         pathname.startsWith("/inbox") ||
         pathname.startsWith("/agendamentos") ||
         pathname.startsWith("/assistente") ||
+        pathname.startsWith("/jornada") ||
         pathname.startsWith("/funil");
     const resolvedAffectLayout = affectLayout ?? !isCompactPage;
     const [isExpanded, setIsExpanded] = useState(

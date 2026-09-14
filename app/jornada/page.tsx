@@ -1579,11 +1579,11 @@ function PipelineTreeConnector({
                             top,
                             left:
                                 direction === "merge"
-                                    ? 0
+                                    ? -4
                                     : trunkLeft,
                             width:
                                 direction === "merge"
-                                    ? trunkLeft
+                                    ? trunkLeft + 4
                                     : 72 - trunkLeft,
                         }}
                     >
