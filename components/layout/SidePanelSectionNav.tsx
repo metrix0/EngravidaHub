@@ -14,6 +14,8 @@ type SectionNavigationConfig = {
     key: string;
     parentHref: string;
     sections: SectionDefinition[];
+    dynamicSections?: "unit-headings";
+    firstSectionUsesScroller?: boolean;
 };
 
 const DASHBOARD_SECTIONS: SectionDefinition[] = [
@@ -62,6 +64,16 @@ function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
         };
     }
 
+    if (pathname === "/unidades") {
+        return {
+            key: "unidades",
+            parentHref: "/unidades",
+            sections: [],
+            dynamicSections: "unit-headings",
+            firstSectionUsesScroller: false,
+        };
+    }
+
     return null;
 }
 
@@ -73,6 +85,39 @@ function findHeading(root: HTMLElement, text: string) {
     return [...root.querySelectorAll<HTMLElement>("h1, h2, h3")].find(
         (element) => element.textContent?.trim() === text,
     ) ?? null;
+}
+
+function getResolvedSections(
+    config: SectionNavigationConfig,
+    scroller: HTMLElement,
+) {
+    if (config.dynamicSections !== "unit-headings") {
+        return config.sections;
+    }
+
+    return [...scroller.querySelectorAll<HTMLElement>("aside h2")].flatMap(
+        (heading, index) => {
+            const label = heading.textContent?.trim();
+            return label
+                ? [{ id: `unidades-${index}`, label, heading: label }]
+                : [];
+        },
+    );
+}
+
+function sameSections(
+    current: SectionDefinition[],
+    next: SectionDefinition[],
+) {
+    return (
+        current.length === next.length &&
+        current.every(
+            (section, index) =>
+                section.id === next[index]?.id &&
+                section.label === next[index]?.label &&
+                section.heading === next[index]?.heading,
+        )
+    );
 }
 
 function findDashboardChannelTarget(
@@ -97,8 +142,9 @@ function resolveSectionTarget(
     scroller: HTMLElement,
     section: SectionDefinition,
     firstSectionId: string,
+    firstSectionUsesScroller = true,
 ) {
-    if (section.id === firstSectionId) {
+    if (section.id === firstSectionId && firstSectionUsesScroller) {
         return scroller;
     }
 
@@ -159,6 +205,9 @@ export default function SidePanelSectionNav() {
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
     const [sectionsVisible, setSectionsVisible] = useState(false);
     const [scrollContainerVersion, setScrollContainerVersion] = useState(0);
+    const [sections, setSections] = useState<SectionDefinition[]>(
+        config?.sections ?? [],
+    );
     const [activeSectionId, setActiveSectionId] = useState<string | null>(
         config?.sections[0]?.id ?? null,
     );
@@ -166,10 +215,14 @@ export default function SidePanelSectionNav() {
     const pendingSectionRef = useRef<string | null>(null);
 
     useEffect(() => {
+        setSections(config?.sections ?? []);
+    }, [config]);
+
+    useEffect(() => {
         scrollSpyLockRef.current = null;
         pendingSectionRef.current = null;
-        setActiveSectionId(config?.sections[0]?.id ?? null);
-    }, [config]);
+        setActiveSectionId(sections[0]?.id ?? null);
+    }, [config?.key, sections]);
 
     useEffect(() => {
         if (!config) {
@@ -279,7 +332,27 @@ export default function SidePanelSectionNav() {
     }, [config]);
 
     useEffect(() => {
-        if (!config) return;
+        if (!config?.dynamicSections) return;
+
+        const scroller = getPageScroller();
+        if (!scroller) return;
+
+        const refreshSections = () => {
+            const nextSections = getResolvedSections(config, scroller);
+            setSections((current) =>
+                sameSections(current, nextSections) ? current : nextSections,
+            );
+        };
+
+        refreshSections();
+        const observer = new MutationObserver(refreshSections);
+        observer.observe(scroller, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
+    }, [config, scrollContainerVersion]);
+
+    useEffect(() => {
+        if (!config || sections.length === 0) return;
 
         const scroller = getPageScroller();
         if (!scroller) return;
@@ -288,13 +361,14 @@ export default function SidePanelSectionNav() {
 
         const resolveTargets = () => {
             const nextTargets = new Map<string, HTMLElement>();
-            const firstSectionId = config.sections[0]?.id ?? "";
+            const firstSectionId = sections[0]?.id ?? "";
 
-            for (const section of config.sections) {
+            for (const section of sections) {
                 const target = resolveSectionTarget(
                     scroller,
                     section,
                     firstSectionId,
+                    config.firstSectionUsesScroller !== false,
                 );
                 if (target) nextTargets.set(section.id, target);
             }
@@ -334,9 +408,9 @@ export default function SidePanelSectionNav() {
             if (targets.size === 0) resolveTargets();
 
             const marker = scroller.scrollTop + Math.min(220, scroller.clientHeight * 0.28);
-            let active = config.sections[0]?.id ?? null;
+            let active = sections[0]?.id ?? null;
 
-            for (const section of config.sections) {
+            for (const section of sections) {
                 const target = targets.get(section.id);
                 if (!target) continue;
 
@@ -376,7 +450,7 @@ export default function SidePanelSectionNav() {
             resizeObserver.disconnect();
             scroller.removeEventListener("scroll", updateActiveSection);
         };
-    }, [config, scrollContainerVersion]);
+    }, [config, scrollContainerVersion, sections]);
 
     if (!config || !host) return null;
 
@@ -387,7 +461,8 @@ export default function SidePanelSectionNav() {
         const target = resolveSectionTarget(
             scroller,
             section,
-            config.sections[0]?.id ?? "",
+            sections[0]?.id ?? "",
+            config.firstSectionUsesScroller !== false,
         );
 
         setActiveSectionId(section.id);
@@ -413,7 +488,7 @@ export default function SidePanelSectionNav() {
         }
     };
 
-    const expandedHeight = config.sections.length * 37 + 12;
+    const expandedHeight = sections.length * 37 + 12;
 
     return createPortal(
         <div
@@ -428,7 +503,7 @@ export default function SidePanelSectionNav() {
         >
             <div className="mb-1 ml-8 border-l border-slate-200 py-1 pl-3">
                 <div className="space-y-0.5">
-                    {config.sections.map((section) => {
+                    {sections.map((section) => {
                         const active = activeSectionId === section.id;
 
                         return (
