@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
+import { useInsideDashboardWidgetBoundary } from "@/components/personal-dashboard/DashboardWidget";
 import { findDashboardWidgetBySource } from "@/lib/personal-dashboard/registry";
 
 type CardProps = {
@@ -18,7 +19,10 @@ type CardProps = {
 
 export default function Card({ children, className = "" }: CardProps) {
     const pathname = usePathname();
-    const widgetId = findCardWidgetId(pathname, children);
+    const insideDashboardWidget = useInsideDashboardWidgetBoundary();
+    const widgetId = insideDashboardWidget
+        ? null
+        : findCardWidgetId(pathname, children);
 
     return (
         <div
