@@ -22,7 +22,7 @@ type UpdateBody = {
 
 export async function GET() {
     const access = await getServerTabAccess("dashboard");
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { error: access.error },
             { status: access.status },
@@ -88,7 +88,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
     const access = await getServerTabAccess("dashboard");
-    if (!access.ok) {
+    if (access.ok === false) {
         return NextResponse.json(
             { error: access.error },
             { status: access.status },
