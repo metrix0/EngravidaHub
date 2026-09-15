@@ -69,7 +69,7 @@ export default function DashboardAddControl({
                         setAdding(false);
                     }
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-brand/40 hover:bg-brand-soft hover:text-brand disabled:cursor-default disabled:opacity-70"
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-brand/40 hover:bg-brand-soft hover:text-brand disabled:cursor-default disabled:opacity-70"
             >
                 {added ? <Check size={15} /> : <Plus size={16} />}
             </button>
