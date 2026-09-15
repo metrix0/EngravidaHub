@@ -139,6 +139,7 @@ export function usePersonalDashboardSources({
         }
         return next;
     }, [loadingSources, requestPending, sourceKey]);
+    const loading = requestPending || loadingSources.size > 0;
 
     useEffect(() => {
         if (!ready || sources.length === 0) {
@@ -308,7 +309,12 @@ export function usePersonalDashboardSources({
         unitIds,
     ]);
 
-    return { data, loadingSources: effectiveLoadingSources, errors };
+    return {
+        data,
+        loadingSources: effectiveLoadingSources,
+        errors,
+        loading,
+    };
 }
 
 async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
