@@ -35,6 +35,10 @@ type Props = {
     period: CalendarPresetValue | null;
     selectedRange: DateRange;
     unitIds: string[];
+    attendantIds: string[];
+    tunnelValues: string[];
+    originValues: string[];
+    categories: string[];
 };
 
 const EMPTY_DATA: SourceData = {
@@ -60,6 +64,10 @@ export function usePersonalDashboardSources({
     period,
     selectedRange,
     unitIds,
+    attendantIds,
+    tunnelValues,
+    originValues,
+    categories,
 }: Props) {
     const [data, setData] = useState<SourceData>(EMPTY_DATA);
     const [loadingSources, setLoadingSources] = useState<Set<string>>(
@@ -91,13 +99,12 @@ export function usePersonalDashboardSources({
         }
 
         const controller = new AbortController();
-        const commonParams = new URLSearchParams();
+        const dateParams = new URLSearchParams();
         applyCalendarDateParams({
-            params: commonParams,
+            params: dateParams,
             selectedRange,
             selectedPreset: period,
         });
-        applyArrayParams(commonParams, { unit_ids: unitIds });
 
         setLoadingSources(new Set(sources));
         setErrors({});
@@ -106,7 +113,7 @@ export function usePersonalDashboardSources({
             for (const source of sources) {
                 if (controller.signal.aborted) return;
                 try {
-                    await loadSource(source, commonParams, controller.signal);
+                    await loadSource(source, controller.signal);
                 } catch (error) {
                     if (controller.signal.aborted) return;
                     const message =
@@ -132,10 +139,16 @@ export function usePersonalDashboardSources({
 
         async function loadSource(
             source: DashboardWidgetSource,
-            params: URLSearchParams,
             signal: AbortSignal,
         ) {
             if (source === "atendimento") {
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, {
+                    unit_ids: unitIds,
+                    attendant_ids: attendantIds,
+                    tunnels: tunnelValues,
+                    origins: originValues,
+                });
                 const json = await fetchJson<ExecutiveDashboardData>(
                     `/api/dashboard/executivo?${params.toString()}`,
                     signal,
@@ -145,6 +158,8 @@ export function usePersonalDashboardSources({
             }
 
             if (source === "financeiro") {
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, { unit_ids: unitIds, categories });
                 const json = await fetchJson<FinancialDashboardData>(
                     `/api/dashboard/financeiro?${params.toString()}`,
                     signal,
@@ -165,6 +180,13 @@ export function usePersonalDashboardSources({
             }
 
             if (source === "jornada") {
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, {
+                    unit_ids: unitIds,
+                    attendant_ids: attendantIds,
+                    tunnels: tunnelValues,
+                    origins: originValues,
+                });
                 const json = await fetchJson<unknown>(
                     `/api/dashboard/jornada?${params.toString()}`,
                     signal,
@@ -174,11 +196,15 @@ export function usePersonalDashboardSources({
             }
 
             if (source === "eventos") {
-                const eventParams = new URLSearchParams(params);
-                eventParams.set("page", "1");
-                eventParams.set("page_size", "20");
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, {
+                    tunnels: tunnelValues,
+                    origins: originValues,
+                });
+                params.set("page", "1");
+                params.set("page_size", "20");
                 const json = await fetchJson<unknown>(
-                    `/api/dashboard/eventos?${eventParams.toString()}`,
+                    `/api/dashboard/eventos?${params.toString()}`,
                     signal,
                 );
                 setData((current) => ({ ...current, eventos: json }));
@@ -192,6 +218,8 @@ export function usePersonalDashboardSources({
             }
 
             if (source === "funil") {
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, { unit_ids: unitIds });
                 const json = await fetchJson<unknown>(
                     `/api/funnel?${params.toString()}`,
                     signal,
@@ -201,14 +229,8 @@ export function usePersonalDashboardSources({
             }
 
             if (source === "mensagem_ativa") {
-                const analyticsParams = new URLSearchParams();
-                applyCalendarDateParams({
-                    params: analyticsParams,
-                    selectedRange,
-                    selectedPreset: period,
-                });
                 const json = await fetchJson<unknown>(
-                    `/api/mensagem-ativa/analytics?${analyticsParams.toString()}`,
+                    `/api/mensagem-ativa/analytics?${dateParams.toString()}`,
                     signal,
                 );
                 setData((current) => ({
@@ -221,11 +243,15 @@ export function usePersonalDashboardSources({
         void loadAll();
         return () => controller.abort();
     }, [
+        attendantIds,
+        categories,
         needsFinancialSummary,
+        originValues,
         period,
         ready,
         selectedRange,
         sourceKey,
+        tunnelValues,
         unitIds,
     ]);
 
