@@ -86,11 +86,11 @@ export function usePersonalDashboardSources({
 
     const sources = useMemo(
         () =>
-            [...new Set(
+            ([...new Set(
                 definitions
                     .map((widget) => widget.source)
                     .filter((source) => source !== "canais"),
-            )] as DashboardWidgetSource[],
+            )] as DashboardWidgetSource[]).sort(),
         [definitions],
     );
     const sourceKey = sources.join("|");
