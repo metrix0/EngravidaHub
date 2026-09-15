@@ -60,8 +60,25 @@ const exceptionSchema = z
         date: isoDateSchema,
         available: z.boolean(),
         periods: z.array(exceptionPeriodSchema),
+        recurrence: z.string().trim().min(1).max(80).nullable().optional(),
+        daysOfWeek: daysOfWeekSchema.nullable().optional(),
+        validFrom: isoDateSchema.nullable().optional(),
+        validUntil: isoDateSchema.nullable().optional(),
     })
-    .strict();
+    .strict()
+    .superRefine((exception, context) => {
+        if (
+            exception.validFrom &&
+            exception.validUntil &&
+            exception.validUntil < exception.validFrom
+        ) {
+            context.addIssue({
+                code: "custom",
+                path: ["validUntil"],
+                message: "validUntil must be on or after validFrom",
+            });
+        }
+    });
 
 const oneTimeBlockSchema = z
     .object({

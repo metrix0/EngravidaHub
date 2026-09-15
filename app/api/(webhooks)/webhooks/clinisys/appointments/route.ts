@@ -46,7 +46,7 @@ const appointmentSchema = z
                 "no_show",
             ])
             .default("scheduled"),
-        format: z.enum(["congelamento", "casal"]).default("congelamento"),
+        format: z.enum(["congelamento", "casal"]).nullable(),
         procedureName: z.string().trim().min(1).max(180),
         unitName: z.string().trim().min(1).max(180),
         doctorName: z.string().trim().min(1).max(180),
