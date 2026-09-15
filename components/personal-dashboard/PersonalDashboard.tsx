@@ -111,7 +111,12 @@ export default function PersonalDashboard() {
         (widget) => widget.source === "eventos",
     );
 
-    const { data, loadingSources, errors } = usePersonalDashboardSources({
+    const {
+        data,
+        loadingSources,
+        errors,
+        loading: sourcesLoading,
+    } = usePersonalDashboardSources({
         definitions,
         ready: status === "ready" && dateFilterReady,
         period,
@@ -301,10 +306,13 @@ export default function PersonalDashboard() {
                     />
                 )}
 
-                {status === "loading" || status === "idle" ? (
-                    <DashboardLoading />
-                ) : status === "error" ? (
+                {status === "error" ? (
                     <DashboardError onRetry={() => void ensureLoaded()} />
+                ) : status === "loading" ||
+                  status === "idle" ||
+                  !dateFilterReady ||
+                  (definitions.length > 0 && sourcesLoading) ? (
+                    <DashboardLoading />
                 ) : definitions.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-16 text-center">
                         <h2 className="text-lg font-bold text-slate-800">
@@ -484,7 +492,7 @@ function DashboardItem({
                 if (draggedId) onDrop(draggedId);
             }}
         >
-            <div className="absolute right-3 top-3 z-40 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/personal-widget:opacity-100 group-focus-within/personal-widget:opacity-100">
+            <div className="absolute bottom-3 right-3 z-40 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/personal-widget:opacity-100 group-focus-within/personal-widget:opacity-100">
                 <ControlButton
                     label={horizontal ? "Mover para esquerda" : "Mover para cima"}
                     disabled={!canMoveBefore || saving}

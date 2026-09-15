@@ -82,6 +82,7 @@ export function usePersonalDashboardSources({
         () => new Set(),
     );
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [settledRequestKey, setSettledRequestKey] = useState<string | null>(null);
 
     const sources = useMemo(
         () =>
@@ -96,6 +97,49 @@ export function usePersonalDashboardSources({
     const needsFinancialSummary = definitions.some((widget) =>
         FINANCIAL_SUMMARY_WIDGETS.has(widget.id),
     );
+    const requestKey = useMemo(
+        () =>
+            JSON.stringify({
+                sourceKey,
+                needsFinancialSummary,
+                period,
+                selectedRange,
+                unitIds,
+                attendantIds,
+                tunnelValues,
+                originValues,
+                categories,
+                eventValues,
+                platformValues,
+                statusValues,
+                eventSourceValues,
+            }),
+        [
+            attendantIds,
+            categories,
+            eventSourceValues,
+            eventValues,
+            needsFinancialSummary,
+            originValues,
+            period,
+            platformValues,
+            selectedRange,
+            sourceKey,
+            statusValues,
+            tunnelValues,
+            unitIds,
+        ],
+    );
+    const requestPending =
+        ready && sources.length > 0 && settledRequestKey !== requestKey;
+    const effectiveLoadingSources = useMemo(() => {
+        const next = new Set(loadingSources);
+        if (requestPending) {
+            for (const source of sources) next.add(source);
+        }
+        return next;
+    }, [loadingSources, requestPending, sourceKey]);
+    const loading = requestPending || loadingSources.size > 0;
 
     useEffect(() => {
         if (!ready || sources.length === 0) {
@@ -115,13 +159,15 @@ export function usePersonalDashboardSources({
         });
 
         setLoadingSources(new Set(sources));
-        setErrors({});
 
         async function loadAll() {
+            const nextData: SourceData = { ...EMPTY_DATA };
+            const nextErrors: Record<string, string> = {};
+
             for (const source of sources) {
                 if (controller.signal.aborted) return;
                 try {
-                    await loadSource(source, controller.signal);
+                    await loadSource(source, controller.signal, nextData);
                 } catch (error) {
                     if (controller.signal.aborted) return;
                     const message =
@@ -129,25 +175,21 @@ export function usePersonalDashboardSources({
                             ? error.message
                             : "Falha ao carregar widget.";
                     console.error(`[personal-dashboard] ${source} failed`, error);
-                    setErrors((current) => ({
-                        ...current,
-                        [source]: message,
-                    }));
-                } finally {
-                    if (!controller.signal.aborted) {
-                        setLoadingSources((current) => {
-                            const next = new Set(current);
-                            next.delete(source);
-                            return next;
-                        });
-                    }
+                    nextErrors[source] = message;
                 }
             }
+
+            if (controller.signal.aborted) return;
+            setData(nextData);
+            setErrors(nextErrors);
+            setLoadingSources(new Set());
+            setSettledRequestKey(requestKey);
         }
 
         async function loadSource(
             source: DashboardWidgetSource,
             signal: AbortSignal,
+            nextData: SourceData,
         ) {
             if (source === "atendimento") {
                 const params = new URLSearchParams(dateParams);
@@ -157,32 +199,27 @@ export function usePersonalDashboardSources({
                     tunnels: tunnelValues,
                     origins: originValues,
                 });
-                const json = await fetchJson<ExecutiveDashboardData>(
+                nextData.atendimento = await fetchJson<ExecutiveDashboardData>(
                     `/api/dashboard/executivo?${params.toString()}`,
                     signal,
                 );
-                setData((current) => ({ ...current, atendimento: json }));
                 return;
             }
 
             if (source === "financeiro") {
                 const params = new URLSearchParams(dateParams);
                 applyArrayParams(params, { unit_ids: unitIds, categories });
-                const json = await fetchJson<FinancialDashboardData>(
+                nextData.financeiro = await fetchJson<FinancialDashboardData>(
                     `/api/dashboard/financeiro?${params.toString()}`,
                     signal,
                 );
-                setData((current) => ({ ...current, financeiro: json }));
 
                 if (needsFinancialSummary) {
-                    const summary = await fetchJson<FinancialUnitSummaryData>(
-                        `/api/dashboard/financeiro/unit-summary?${params.toString()}`,
-                        signal,
-                    );
-                    setData((current) => ({
-                        ...current,
-                        financeiroSummary: summary,
-                    }));
+                    nextData.financeiroSummary =
+                        await fetchJson<FinancialUnitSummaryData>(
+                            `/api/dashboard/financeiro/unit-summary?${params.toString()}`,
+                            signal,
+                        );
                 }
                 return;
             }
@@ -195,11 +232,10 @@ export function usePersonalDashboardSources({
                     tunnels: tunnelValues,
                     origins: originValues,
                 });
-                const json = await fetchJson<unknown>(
+                nextData.jornada = await fetchJson<unknown>(
                     `/api/dashboard/jornada?${params.toString()}`,
                     signal,
                 );
-                setData((current) => ({ ...current, jornada: json }));
                 return;
             }
 
@@ -223,40 +259,33 @@ export function usePersonalDashboardSources({
                 }
                 params.set("page", "1");
                 params.set("page_size", "20");
-                const json = await fetchJson<unknown>(
+                nextData.eventos = await fetchJson<unknown>(
                     `/api/dashboard/eventos?${params.toString()}`,
                     signal,
                 );
-                setData((current) => ({ ...current, eventos: json }));
                 return;
             }
 
             if (source === "clientes") {
-                const json = await fetchJson<unknown>("/api/clientes", signal);
-                setData((current) => ({ ...current, clientes: json }));
+                nextData.clientes = await fetchJson<unknown>("/api/clientes", signal);
                 return;
             }
 
             if (source === "funil") {
                 const params = new URLSearchParams(dateParams);
                 applyArrayParams(params, { unit_ids: unitIds });
-                const json = await fetchJson<unknown>(
+                nextData.funil = await fetchJson<unknown>(
                     `/api/funnel?${params.toString()}`,
                     signal,
                 );
-                setData((current) => ({ ...current, funil: json }));
                 return;
             }
 
             if (source === "mensagem_ativa") {
-                const json = await fetchJson<unknown>(
+                nextData.mensagem_ativa = await fetchJson<unknown>(
                     `/api/mensagem-ativa/analytics?${dateParams.toString()}`,
                     signal,
                 );
-                setData((current) => ({
-                    ...current,
-                    mensagem_ativa: json,
-                }));
             }
         }
 
@@ -272,6 +301,7 @@ export function usePersonalDashboardSources({
         period,
         platformValues,
         ready,
+        requestKey,
         selectedRange,
         sourceKey,
         statusValues,
@@ -279,7 +309,12 @@ export function usePersonalDashboardSources({
         unitIds,
     ]);
 
-    return { data, loadingSources, errors };
+    return {
+        data,
+        loadingSources: effectiveLoadingSources,
+        errors,
+        loading,
+    };
 }
 
 async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
