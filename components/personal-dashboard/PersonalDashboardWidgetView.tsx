@@ -1,6 +1,7 @@
 "use client";
 
 import ChannelDashboardWidgetRenderer from "@/components/personal-dashboard/ChannelDashboardWidgetRenderer";
+import ExactDashboardGraphRenderer from "@/components/personal-dashboard/ExactDashboardGraphRenderer";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetRenderer";
 import SourceFaithfulDashboardWidgetRenderer from "@/components/personal-dashboard/SourceFaithfulDashboardWidgetRenderer";
 import { isChannelDashboardWidgetId } from "@/lib/personal-dashboard/registryExtended";
@@ -28,7 +29,13 @@ type Props = {
 };
 
 export default function PersonalDashboardWidgetView(props: Props) {
-    if (isChannelDashboardWidgetId(props.widget.id)) {
+    const isChannelWidget = isChannelDashboardWidgetId(props.widget.id);
+
+    if (props.widget.kind === "chart" && isChannelWidget) {
+        return <ExactDashboardGraphRenderer {...props} />;
+    }
+
+    if (isChannelWidget) {
         return (
             <ChannelDashboardWidgetRenderer
                 widgetId={props.widget.id}
@@ -44,6 +51,10 @@ export default function PersonalDashboardWidgetView(props: Props) {
         props.errors[props.widget.source]
     ) {
         return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
+    }
+
+    if (props.widget.kind === "chart") {
+        return <ExactDashboardGraphRenderer {...props} />;
     }
 
     if (isSourceFaithfulDashboardWidgetId(props.widget.id)) {
