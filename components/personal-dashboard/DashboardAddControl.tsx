@@ -1,11 +1,20 @@
 "use client";
 
 import { Check, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
 
-export default function DashboardAddControl({ widgetId }: { widgetId: string }) {
+const GROUPED_SECTION_SELECTOR =
+    "#dashboard-instagram, #dashboard-messenger, #dashboard-ligacoes";
+
+export default function DashboardAddControl({
+    widgetId,
+    groupControl = false,
+}: {
+    widgetId: string;
+    groupControl?: boolean;
+}) {
     const {
         status,
         saving,
@@ -13,18 +22,38 @@ export default function DashboardAddControl({ widgetId }: { widgetId: string }) 
         addWidget,
         hasWidget,
     } = usePersonalDashboard();
+    const rootRef = useRef<HTMLDivElement | null>(null);
     const [adding, setAdding] = useState(false);
+    const [suppressed, setSuppressed] = useState(false);
+
+    useLayoutEffect(() => {
+        if (groupControl) {
+            setSuppressed(false);
+            return;
+        }
+        setSuppressed(
+            Boolean(rootRef.current?.closest(GROUPED_SECTION_SELECTOR)),
+        );
+    }, [groupControl]);
 
     useEffect(() => {
-        void ensureLoaded().catch(() => undefined);
-    }, [ensureLoaded]);
+        if (!suppressed) {
+            void ensureLoaded().catch(() => undefined);
+        }
+    }, [ensureLoaded, suppressed]);
+
+    if (suppressed) return null;
 
     const added = hasWidget(widgetId);
     const disabled = status === "loading" || saving || adding || added;
     const label = added ? "Adicionado ao dashboard" : "Adicionar ao dashboard";
 
     return (
-        <div className="group/dashboard-add absolute right-3 top-3 z-30 opacity-0 transition-opacity group-hover/dashboard-widget:opacity-100 group-focus-within/dashboard-widget:opacity-100">
+        <div
+            ref={rootRef}
+            data-dashboard-add-control="true"
+            className="group/dashboard-add absolute right-3 top-3 z-30 opacity-0 transition-opacity group-hover/dashboard-widget:opacity-100 group-focus-within/dashboard-widget:opacity-100"
+        >
             <button
                 type="button"
                 aria-label={label}
