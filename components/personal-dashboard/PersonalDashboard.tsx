@@ -5,7 +5,6 @@ import {
     ArrowLeft,
     ArrowRight,
     ArrowUp,
-    GripVertical,
     Layers3,
     Trash2,
 } from "lucide-react";
@@ -204,6 +203,7 @@ export default function PersonalDashboard() {
                             setTunnelValues={setTunnelValues}
                             originValues={originValues}
                             setOriginValues={setOriginValues}
+                            show={{ tunnels: false, origins: false }}
                         />
                         {hasFinancialWidgets && data.financeiro ? (
                             <FilterButton
@@ -215,52 +215,80 @@ export default function PersonalDashboard() {
                                 widthClassName="w-[250px]"
                             />
                         ) : null}
-                        {hasEventWidgets ? (
-                            <AdvancedFilterButton
-                                sections={[
-                                    {
-                                        id: "event",
-                                        title: "Evento",
-                                        values: eventValues,
-                                        onChange: setEventValues,
-                                        options: AD_EVENT_TYPES.map((eventType) => ({
-                                            label: AD_EVENT_TYPE_LABELS[eventType],
-                                            value: eventType,
-                                        })),
-                                    },
-                                    {
-                                        id: "platform",
-                                        title: "Plataforma",
-                                        values: platformValues,
-                                        onChange: setPlatformValues,
-                                        options: AD_PLATFORMS.map((platform) => ({
-                                            label: AD_PLATFORM_LABELS[platform],
-                                            value: platform,
-                                        })),
-                                    },
-                                    {
-                                        id: "status",
-                                        title: "Status",
-                                        values: statusValues,
-                                        onChange: setStatusValues,
-                                        options: AD_EVENT_STATUSES.map((eventStatus) => ({
-                                            label: AD_EVENT_STATUS_LABELS[eventStatus],
-                                            value: eventStatus,
-                                        })),
-                                    },
-                                    {
-                                        id: "source",
-                                        title: "Origem do evento",
-                                        values: eventSourceValues,
-                                        onChange: setEventSourceValues,
-                                        options: [
-                                            { label: "Clinisys", value: "clinisys" },
-                                            { label: "IA", value: "ai" },
-                                        ],
-                                    },
-                                ]}
-                            />
-                        ) : null}
+                        <AdvancedFilterButton
+                            sections={[
+                                {
+                                    id: "tunnels",
+                                    title: "Túnel",
+                                    values: tunnelValues,
+                                    onChange: setTunnelValues,
+                                    options: filters?.tunnels ?? [],
+                                },
+                                {
+                                    id: "origins",
+                                    title: "Origem",
+                                    values: originValues,
+                                    onChange: setOriginValues,
+                                    options: filters?.origins ?? [],
+                                },
+                                ...(hasEventWidgets
+                                    ? [
+                                          {
+                                              id: "event",
+                                              title: "Evento",
+                                              values: eventValues,
+                                              onChange: setEventValues,
+                                              options: AD_EVENT_TYPES.map(
+                                                  (eventType) => ({
+                                                      label: AD_EVENT_TYPE_LABELS[eventType],
+                                                      value: eventType,
+                                                  }),
+                                              ),
+                                          },
+                                          {
+                                              id: "platform",
+                                              title: "Plataforma",
+                                              values: platformValues,
+                                              onChange: setPlatformValues,
+                                              options: AD_PLATFORMS.map(
+                                                  (platform) => ({
+                                                      label: AD_PLATFORM_LABELS[platform],
+                                                      value: platform,
+                                                  }),
+                                              ),
+                                          },
+                                          {
+                                              id: "status",
+                                              title: "Status",
+                                              values: statusValues,
+                                              onChange: setStatusValues,
+                                              options: AD_EVENT_STATUSES.map(
+                                                  (eventStatus) => ({
+                                                      label: AD_EVENT_STATUS_LABELS[eventStatus],
+                                                      value: eventStatus,
+                                                  }),
+                                              ),
+                                          },
+                                          {
+                                              id: "source",
+                                              title: "Origem do evento",
+                                              values: eventSourceValues,
+                                              onChange: setEventSourceValues,
+                                              options: [
+                                                  {
+                                                      label: "Clinisys",
+                                                      value: "clinisys",
+                                                  },
+                                                  {
+                                                      label: "IA",
+                                                      value: "ai",
+                                                  },
+                                              ],
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
                     </DashboardFilterBar>
                 ) : (
                     <DashboardFilterBarSkeleton
@@ -457,12 +485,6 @@ function DashboardItem({
             }}
         >
             <div className="absolute right-3 top-3 z-40 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/personal-widget:opacity-100 group-focus-within/personal-widget:opacity-100">
-                <span
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center text-slate-400"
-                    title="Arrastar para reorganizar"
-                >
-                    <GripVertical size={15} />
-                </span>
                 <ControlButton
                     label={horizontal ? "Mover para esquerda" : "Mover para cima"}
                     disabled={!canMoveBefore || saving}
