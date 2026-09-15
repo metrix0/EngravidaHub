@@ -5,9 +5,9 @@ import ExactChannelDashboardGraphRenderer from "@/components/personal-dashboard/
 import ExactEventosDashboardGraphs from "@/components/personal-dashboard/ExactEventosDashboardGraphs";
 import ExactFinanceiroDashboardGraphs from "@/components/personal-dashboard/ExactFinanceiroDashboardGraphs";
 import ExactJornadaDashboardGraphs from "@/components/personal-dashboard/ExactJornadaDashboardGraphs";
+import ExactJornadaSimpleDashboardGraphs from "@/components/personal-dashboard/ExactJornadaSimpleDashboardGraphs";
 import ExactMensagemAtivaDashboardGraphs from "@/components/personal-dashboard/ExactMensagemAtivaDashboardGraphs";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetRenderer";
-import SourceFaithfulDashboardWidgetRenderer from "@/components/personal-dashboard/SourceFaithfulDashboardWidgetRenderer";
 import { isChannelDashboardWidgetId } from "@/lib/personal-dashboard/registryExtended";
 import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import type { CalendarPresetValue, DateRange } from "@/components/ui/CalendarButton";
@@ -30,7 +30,7 @@ type Props = {
     categories: string[];
 };
 
-const SOURCE_FAITHFUL_JOURNEY_GRAPH_IDS = new Set([
+const SIMPLE_JOURNEY_GRAPH_IDS = new Set([
     "jornada.funil_conversa",
     "jornada.pontos_abandono",
     "jornada.objecoes",
@@ -76,13 +76,11 @@ export default function ExactDashboardGraphRenderer(props: Props) {
     }
 
     if (widget.source === "jornada" && sources.jornada) {
-        if (SOURCE_FAITHFUL_JOURNEY_GRAPH_IDS.has(widget.id)) {
+        if (SIMPLE_JOURNEY_GRAPH_IDS.has(widget.id)) {
             return (
-                <SourceFaithfulDashboardWidgetRenderer
-                    widget={widget}
-                    sources={sources}
-                    unitIds={props.unitIds}
-                    categories={props.categories}
+                <ExactJornadaSimpleDashboardGraphs
+                    widgetId={widget.id}
+                    data={sources.jornada as Parameters<typeof ExactJornadaSimpleDashboardGraphs>[0]["data"]}
                 />
             );
         }
