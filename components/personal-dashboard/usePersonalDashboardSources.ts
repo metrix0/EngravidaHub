@@ -39,6 +39,10 @@ type Props = {
     tunnelValues: string[];
     originValues: string[];
     categories: string[];
+    eventValues: string[];
+    platformValues: string[];
+    statusValues: string[];
+    eventSourceValues: string[];
 };
 
 const EMPTY_DATA: SourceData = {
@@ -68,6 +72,10 @@ export function usePersonalDashboardSources({
     tunnelValues,
     originValues,
     categories,
+    eventValues,
+    platformValues,
+    statusValues,
+    eventSourceValues,
 }: Props) {
     const [data, setData] = useState<SourceData>(EMPTY_DATA);
     const [loadingSources, setLoadingSources] = useState<Set<string>>(
@@ -201,6 +209,18 @@ export function usePersonalDashboardSources({
                     tunnels: tunnelValues,
                     origins: originValues,
                 });
+                if (platformValues.length > 0) {
+                    params.set("platforms", platformValues.join(","));
+                }
+                if (eventValues.length > 0) {
+                    params.set("event_types", eventValues.join(","));
+                }
+                if (statusValues.length > 0) {
+                    params.set("statuses", statusValues.join(","));
+                }
+                if (eventSourceValues.length > 0) {
+                    params.set("sources", eventSourceValues.join(","));
+                }
                 params.set("page", "1");
                 params.set("page_size", "20");
                 const json = await fetchJson<unknown>(
@@ -245,12 +265,16 @@ export function usePersonalDashboardSources({
     }, [
         attendantIds,
         categories,
+        eventSourceValues,
+        eventValues,
         needsFinancialSummary,
         originValues,
         period,
+        platformValues,
         ready,
         selectedRange,
         sourceKey,
+        statusValues,
         tunnelValues,
         unitIds,
     ]);
