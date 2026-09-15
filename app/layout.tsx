@@ -13,6 +13,7 @@ import DashboardInstagramAttributionPortal from "@/components/dashboard/Dashboar
 import DashboardRuntimeGuard from "@/components/dashboard/DashboardRuntimeGuard";
 import SidePanel from "@/components/layout/SidePanel";
 import SidePanelSectionNav from "@/components/layout/SidePanelSectionNav";
+import { PersonalDashboardProvider } from "@/components/personal-dashboard/PersonalDashboardProvider";
 import {
     dashboardDateFilterBootstrapScript,
     DATE_FILTER_COOKIE_NAME,
@@ -62,22 +63,24 @@ export default async function RootLayout({
                     <InviteRedirect />
 
                     <CurrentUserProvider>
-                        <PermissionGuard>
-                            <div className="flex min-h-dvh w-full flex-col overflow-hidden md:h-screen md:min-h-0 md:w-screen md:flex-row">
-                                <SidePanel persistent />
-                                <SidePanelSectionNav />
-                                <DashboardInstagramAttributionPortal />
+                        <PersonalDashboardProvider>
+                            <PermissionGuard>
+                                <div className="flex min-h-dvh w-full flex-col overflow-hidden md:h-screen md:min-h-0 md:w-screen md:flex-row">
+                                    <SidePanel persistent />
+                                    <SidePanelSectionNav />
+                                    <DashboardInstagramAttributionPortal />
 
-                                <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
-                                    <DashboardRuntimeGuard>
-                                        {children}
-                                    </DashboardRuntimeGuard>
+                                    <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
+                                        <DashboardRuntimeGuard>
+                                            {children}
+                                        </DashboardRuntimeGuard>
+                                    </div>
+
+                                    <FloatingConversationPanel />
+                                    <PermanentClientProfilePanel />
                                 </div>
-
-                                <FloatingConversationPanel />
-                                <PermanentClientProfilePanel />
-                            </div>
-                        </PermissionGuard>
+                            </PermissionGuard>
+                        </PersonalDashboardProvider>
                     </CurrentUserProvider>
                 </DashboardDateFilterProvider>
             </body>
