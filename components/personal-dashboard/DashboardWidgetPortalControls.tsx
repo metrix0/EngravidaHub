@@ -37,6 +37,7 @@ export default function DashboardWidgetPortalControls() {
 
     useEffect(() => {
         const supportedPath =
+            pathname === "/" ||
             DASHBOARD_WIDGETS.some((widget) => widget.sourcePath === pathname) ||
             pathname === "/atendimento" ||
             pathname === "/mensagem-ativa";
@@ -50,6 +51,12 @@ export default function DashboardWidgetPortalControls() {
         const scan = () => {
             cancelAnimationFrame(frame);
             frame = requestAnimationFrame(() => {
+                if (pathname === "/") {
+                    movePersonalDashboardControlsToBottom();
+                    setTargets([]);
+                    return;
+                }
+
                 const next = new Map<string, PortalTarget>();
 
                 if (pathname === "/atendimento") {
@@ -106,6 +113,25 @@ export default function DashboardWidgetPortalControls() {
             )}
         </>
     );
+}
+
+function movePersonalDashboardControlsToBottom() {
+    const widgets = document.querySelectorAll<HTMLElement>(
+        '[class~="group/personal-widget"]',
+    );
+
+    for (const widget of widgets) {
+        const controls = [...widget.children].find(
+            (child): child is HTMLElement =>
+                child instanceof HTMLElement &&
+                child.classList.contains("absolute") &&
+                child.classList.contains("right-3") &&
+                child.classList.contains("top-3"),
+        );
+        if (!controls) continue;
+        controls.classList.remove("top-3");
+        controls.classList.add("bottom-3");
+    }
 }
 
 function findGenericTargets(pathname: string): PortalTarget[] {
