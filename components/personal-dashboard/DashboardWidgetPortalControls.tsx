@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
 import { CHANNEL_DASHBOARD_WIDGETS } from "@/lib/personal-dashboard/channelWidgets";
+import { DASHBOARD_WIDGETS } from "@/lib/personal-dashboard/registry";
 
 type PortalTarget = {
     key: string;
@@ -35,7 +36,12 @@ export default function DashboardWidgetPortalControls() {
     const [targets, setTargets] = useState<PortalTarget[]>([]);
 
     useEffect(() => {
-        if (pathname !== "/atendimento" && pathname !== "/mensagem-ativa") {
+        const supportedPath =
+            DASHBOARD_WIDGETS.some((widget) => widget.sourcePath === pathname) ||
+            pathname === "/atendimento" ||
+            pathname === "/mensagem-ativa";
+
+        if (!supportedPath) {
             setTargets([]);
             return;
         }
@@ -44,17 +50,34 @@ export default function DashboardWidgetPortalControls() {
         const scan = () => {
             cancelAnimationFrame(frame);
             frame = requestAnimationFrame(() => {
-                const next =
-                    pathname === "/atendimento"
-                        ? findAtendimentoTargets()
-                        : findMensagemAtivaTargets();
-                for (const target of next) {
+                const next = new Map<string, PortalTarget>();
+
+                if (pathname === "/atendimento") {
+                    for (const target of findAtendimentoTargets()) {
+                        next.set(target.widgetId, target);
+                    }
+                }
+
+                if (pathname === "/mensagem-ativa") {
+                    for (const target of findMensagemAtivaTargets()) {
+                        next.set(target.widgetId, target);
+                    }
+                }
+
+                for (const target of findGenericTargets(pathname)) {
+                    if (!next.has(target.widgetId)) {
+                        next.set(target.widgetId, target);
+                    }
+                }
+
+                const resolved = [...next.values()];
+                for (const target of resolved) {
                     target.element.classList.add(
                         "relative",
                         "group/dashboard-widget",
                     );
                 }
-                setTargets(next);
+                setTargets(resolved);
             });
         };
 
@@ -85,6 +108,31 @@ export default function DashboardWidgetPortalControls() {
     );
 }
 
+function findGenericTargets(pathname: string): PortalTarget[] {
+    const appRoot = document.querySelector<HTMLElement>(".app-content");
+    if (!appRoot) return [];
+
+    const targets: PortalTarget[] = [];
+    for (const widget of DASHBOARD_WIDGETS) {
+        if (widget.sourcePath !== pathname || widget.id.startsWith("canais.")) {
+            continue;
+        }
+
+        const element = findDashboardCard(appRoot, widget.title, true);
+        if (!element || element.querySelector("[data-dashboard-add-control='true']")) {
+            continue;
+        }
+
+        targets.push({
+            key: `generic-${widget.id}`,
+            widgetId: widget.id,
+            element,
+        });
+    }
+
+    return targets;
+}
+
 function findAtendimentoTargets(): PortalTarget[] {
     const targets = new Map<string, PortalTarget>();
 
@@ -97,7 +145,7 @@ function findAtendimentoTargets(): PortalTarget[] {
         );
         for (const widget of definitions) {
             if (ATTRIBUTION_IDS.has(widget.id)) continue;
-            const element = findDashboardCard(section, widget.title);
+            const element = findDashboardCard(section, widget.title, true);
             if (!element) continue;
             targets.set(widget.id, {
                 key: `channel-${widget.id}`,
@@ -111,7 +159,7 @@ function findAtendimentoTargets(): PortalTarget[] {
     if (appRoot) {
         for (const widget of CHANNEL_DASHBOARD_WIDGETS) {
             if (!ATTRIBUTION_IDS.has(widget.id)) continue;
-            const element = findDashboardCard(appRoot, widget.title);
+            const element = findDashboardCard(appRoot, widget.title, true);
             if (!element) continue;
             targets.set(widget.id, {
                 key: `channel-${widget.id}`,
@@ -141,7 +189,11 @@ function findMensagemAtivaTargets(): PortalTarget[] {
     return targets;
 }
 
-function findDashboardCard(root: ParentNode, title: string) {
+function findDashboardCard(
+    root: ParentNode,
+    title: string,
+    allowTextFallback = false,
+) {
     const titled = [...root.querySelectorAll<HTMLElement>("[title]")].find(
         (element) => element.getAttribute("title")?.trim() === title,
     );
@@ -149,7 +201,14 @@ function findDashboardCard(root: ParentNode, title: string) {
     if (titledCard) return titledCard;
 
     const heading = findHeading(root, title);
-    return heading ? closestDashboardCard(heading) : null;
+    const headingCard = heading ? closestDashboardCard(heading) : null;
+    if (headingCard) return headingCard;
+
+    if (!allowTextFallback) return null;
+
+    return [...root.querySelectorAll<HTMLElement>("[data-dashboard-card='true']")].find(
+        (card) => card.textContent?.includes(title),
+    ) ?? null;
 }
 
 function closestDashboardCard(element: HTMLElement) {
