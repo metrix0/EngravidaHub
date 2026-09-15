@@ -14,6 +14,7 @@ import DashboardRuntimeGuard from "@/components/dashboard/DashboardRuntimeGuard"
 import SidePanel from "@/components/layout/SidePanel";
 import SidePanelSectionNav from "@/components/layout/SidePanelSectionNav";
 import { PersonalDashboardProvider } from "@/components/personal-dashboard/PersonalDashboardProvider";
+import DashboardWidgetPortalControls from "@/components/personal-dashboard/DashboardWidgetPortalControls";
 import {
     dashboardDateFilterBootstrapScript,
     DATE_FILTER_COOKIE_NAME,
@@ -69,6 +70,7 @@ export default async function RootLayout({
                                     <SidePanel persistent />
                                     <SidePanelSectionNav />
                                     <DashboardInstagramAttributionPortal />
+                                    <DashboardWidgetPortalControls />
 
                                     <div className="app-content min-h-0 min-w-0 flex-1 overflow-hidden [&>main]:!w-full [&>main]:!max-w-full">
                                         <DashboardRuntimeGuard>
