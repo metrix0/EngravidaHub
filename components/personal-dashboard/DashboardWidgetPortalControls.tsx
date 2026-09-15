@@ -29,7 +29,11 @@ export default function DashboardWidgetPortalControls() {
     const [targets, setTargets] = useState<PortalTarget[]>([]);
 
     useEffect(() => {
-        if (pathname !== "/atendimento" && pathname !== "/mensagem-ativa") {
+        if (
+            pathname !== "/atendimento" &&
+            pathname !== "/financeiro" &&
+            pathname !== "/mensagem-ativa"
+        ) {
             setTargets([]);
             return;
         }
@@ -41,7 +45,9 @@ export default function DashboardWidgetPortalControls() {
                 const next =
                     pathname === "/atendimento"
                         ? findAtendimentoTargets()
-                        : findMensagemAtivaTargets();
+                        : pathname === "/financeiro"
+                          ? findFinanceiroTargets()
+                          : findMensagemAtivaTargets();
                 for (const target of next) {
                     target.element.classList.add(
                         "relative",
@@ -103,6 +109,23 @@ function findAtendimentoTargets(): PortalTarget[] {
     return targets;
 }
 
+function findFinanceiroTargets(): PortalTarget[] {
+    const label = findExactElement("span", "Faturamento autorizado");
+    const card = label?.closest('[data-dashboard-card="true"]') as
+        | HTMLElement
+        | null;
+
+    return card
+        ? [
+              {
+                  key: "financeiro-faturamento-autorizado",
+                  widgetId: "financeiro.faturamento_autorizado",
+                  element: card,
+              },
+          ]
+        : [];
+}
+
 function findMensagemAtivaTargets(): PortalTarget[] {
     const targets: PortalTarget[] = [];
 
@@ -121,7 +144,11 @@ function findMensagemAtivaTargets(): PortalTarget[] {
 }
 
 function findHeading(text: string) {
-    return [...document.querySelectorAll<HTMLElement>("h2, h3")].find(
+    return findExactElement("h2, h3", text);
+}
+
+function findExactElement(selector: string, text: string) {
+    return [...document.querySelectorAll<HTMLElement>(selector)].find(
         (element) => element.textContent?.trim() === text,
     );
 }
