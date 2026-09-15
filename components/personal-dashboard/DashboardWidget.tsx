@@ -1,9 +1,15 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import {
+    createContext,
+    useContext,
+    type ReactNode,
+} from "react";
 
 import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
+
+const DashboardWidgetBoundaryContext = createContext(false);
 
 export default function DashboardWidget({
     widgetId,
@@ -18,9 +24,19 @@ export default function DashboardWidget({
     const showControl = pathname !== "/";
 
     return (
-        <div className={`group/dashboard-widget relative min-w-0 ${className}`}>
-            {children}
-            {showControl ? <DashboardAddControl widgetId={widgetId} /> : null}
-        </div>
+        <DashboardWidgetBoundaryContext.Provider value>
+            <div
+                className={`group/dashboard-widget relative min-w-0 ${className}`}
+            >
+                {children}
+                {showControl ? (
+                    <DashboardAddControl widgetId={widgetId} />
+                ) : null}
+            </div>
+        </DashboardWidgetBoundaryContext.Provider>
     );
+}
+
+export function useInsideDashboardWidgetBoundary() {
+    return useContext(DashboardWidgetBoundaryContext);
 }
