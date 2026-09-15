@@ -41,19 +41,28 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
     const [status, setStatus] = useState<DashboardStatus>("idle");
     const [saving, setSaving] = useState(false);
     const loadPromiseRef = useRef<Promise<void> | null>(null);
+    const widgetIdsRef = useRef<string[]>([]);
+    const versionRef = useRef(0);
+    const statusRef = useRef<DashboardStatus>("idle");
 
     const applyPayload = useCallback((payload: DashboardPayload) => {
-        setWidgetIds(payload.widget_ids ?? []);
+        const nextIds = payload.widget_ids ?? [];
+        const nextVersion = payload.version ?? 0;
+        widgetIdsRef.current = nextIds;
+        versionRef.current = nextVersion;
+        statusRef.current = "ready";
+        setWidgetIds(nextIds);
         setPreset(payload.preset ?? null);
-        setVersion(payload.version ?? 0);
+        setVersion(nextVersion);
         setStatus("ready");
     }, []);
 
     const ensureLoaded = useCallback(async () => {
-        if (status === "ready") return;
+        if (statusRef.current === "ready") return;
         if (loadPromiseRef.current) return loadPromiseRef.current;
 
         const promise = (async () => {
+            statusRef.current = "loading";
             setStatus("loading");
             try {
                 const response = await fetch("/api/personal-dashboard", {
@@ -67,7 +76,9 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
                 applyPayload(payload);
             } catch (error) {
                 console.error("[personal-dashboard] load failed", error);
+                statusRef.current = "error";
                 setStatus("error");
+                throw error;
             } finally {
                 loadPromiseRef.current = null;
             }
@@ -75,7 +86,7 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
 
         loadPromiseRef.current = promise;
         return promise;
-    }, [applyPayload, status]);
+    }, [applyPayload]);
 
     const save = useCallback(
         async (nextIds: string[], retry = true) => {
@@ -85,7 +96,10 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
                     method: "PUT",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ widget_ids: nextIds, version }),
+                    body: JSON.stringify({
+                        widget_ids: nextIds,
+                        version: versionRef.current,
+                    }),
                 });
                 const payload = (await response.json()) as DashboardPayload;
 
@@ -97,7 +111,7 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             widget_ids: nextIds,
-                            version: payload.version,
+                            version: versionRef.current,
                         }),
                     });
                     const retryPayload = (await retryResponse.json()) as DashboardPayload;
@@ -114,31 +128,29 @@ export function PersonalDashboardProvider({ children }: { children: ReactNode })
                     throw new Error(payload.error ?? "Não foi possível salvar o dashboard.");
                 }
                 applyPayload(payload);
-            } catch (error) {
-                console.error("[personal-dashboard] save failed", error);
-                throw error;
             } finally {
                 setSaving(false);
             }
         },
-        [applyPayload, version],
+        [applyPayload],
     );
 
     const addWidget = useCallback(
         async (widgetId: string) => {
             await ensureLoaded();
-            if (widgetIds.includes(widgetId)) return;
-            await save([...widgetIds, widgetId]);
+            const current = widgetIdsRef.current;
+            if (current.includes(widgetId)) return;
+            await save([...current, widgetId]);
         },
-        [ensureLoaded, save, widgetIds],
+        [ensureLoaded, save],
     );
 
     const removeWidget = useCallback(
         async (widgetId: string) => {
             await ensureLoaded();
-            await save(widgetIds.filter((id) => id !== widgetId));
+            await save(widgetIdsRef.current.filter((id) => id !== widgetId));
         },
-        [ensureLoaded, save, widgetIds],
+        [ensureLoaded, save],
     );
 
     const reorderWidgets = useCallback(
