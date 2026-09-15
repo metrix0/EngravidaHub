@@ -1,3 +1,5 @@
+import PersonalDashboard from "@/components/personal-dashboard/PersonalDashboard";
+
 export default function DashboardPage() {
-    return <main className="min-h-full flex-1 bg-white" />;
+    return <PersonalDashboard />;
 }

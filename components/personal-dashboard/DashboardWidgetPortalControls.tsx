@@ -1,0 +1,168 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
+
+import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
+import { CHANNEL_DASHBOARD_WIDGETS } from "@/lib/personal-dashboard/channelWidgets";
+
+type PortalTarget = {
+    key: string;
+    widgetId: string;
+    element: HTMLElement;
+};
+
+const ATENDIMENTO_SECTIONS = [
+    ["dashboard-instagram", ["instagram."]],
+    ["dashboard-messenger", ["messenger."]],
+    ["dashboard-ligacoes", ["ligacoes."]],
+] as const;
+
+const MESSAGE_HEADINGS = [
+    ["Templates utilizados", "mensagem_ativa.templates_utilizados"],
+    ["Volume e resultados", "mensagem_ativa.volume_resultados"],
+    ["Histórico de envios", "mensagem_ativa.historico_envios"],
+] as const;
+
+const ATTRIBUTION_IDS = new Set([
+    "instagram.origem_paga",
+    "instagram.clientes_campanha",
+]);
+
+export default function DashboardWidgetPortalControls() {
+    const pathname = usePathname();
+    const [targets, setTargets] = useState<PortalTarget[]>([]);
+
+    useEffect(() => {
+        if (pathname !== "/atendimento" && pathname !== "/mensagem-ativa") {
+            setTargets([]);
+            return;
+        }
+
+        let frame = 0;
+        const scan = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                const next =
+                    pathname === "/atendimento"
+                        ? findAtendimentoTargets()
+                        : findMensagemAtivaTargets();
+                for (const target of next) {
+                    target.element.classList.add(
+                        "relative",
+                        "group/dashboard-widget",
+                    );
+                }
+                setTargets(next);
+            });
+        };
+
+        scan();
+        const observer = new MutationObserver(scan);
+        const root = document.querySelector(".app-content") ?? document.body;
+        observer.observe(root, { childList: true, subtree: true });
+
+        return () => {
+            cancelAnimationFrame(frame);
+            observer.disconnect();
+        };
+    }, [pathname]);
+
+    return (
+        <>
+            {targets.map((target) =>
+                createPortal(
+                    <DashboardAddControl
+                        widgetId={target.widgetId}
+                        groupControl
+                    />,
+                    target.element,
+                    target.key,
+                ),
+            )}
+        </>
+    );
+}
+
+function findAtendimentoTargets(): PortalTarget[] {
+    const targets = new Map<string, PortalTarget>();
+
+    for (const [sectionId, prefixes] of ATENDIMENTO_SECTIONS) {
+        const section = document.getElementById(sectionId);
+        if (!section) continue;
+
+        const definitions = CHANNEL_DASHBOARD_WIDGETS.filter((widget) =>
+            prefixes.some((prefix) => widget.id.startsWith(prefix)),
+        );
+        for (const widget of definitions) {
+            if (ATTRIBUTION_IDS.has(widget.id)) continue;
+            const element = findDashboardCard(section, widget.title);
+            if (!element) continue;
+            targets.set(widget.id, {
+                key: `channel-${widget.id}`,
+                widgetId: widget.id,
+                element,
+            });
+        }
+    }
+
+    const appRoot = document.querySelector<HTMLElement>(".app-content");
+    if (appRoot) {
+        for (const widget of CHANNEL_DASHBOARD_WIDGETS) {
+            if (!ATTRIBUTION_IDS.has(widget.id)) continue;
+            const element = findDashboardCard(appRoot, widget.title);
+            if (!element) continue;
+            targets.set(widget.id, {
+                key: `channel-${widget.id}`,
+                widgetId: widget.id,
+                element,
+            });
+        }
+    }
+
+    return [...targets.values()];
+}
+
+function findMensagemAtivaTargets(): PortalTarget[] {
+    const targets: PortalTarget[] = [];
+
+    for (const [headingText, widgetId] of MESSAGE_HEADINGS) {
+        const heading = findHeading(document, headingText);
+        const section = heading?.closest("section") as HTMLElement | null;
+        if (!section) continue;
+        targets.push({
+            key: `mensagem-${widgetId}`,
+            widgetId,
+            element: section,
+        });
+    }
+
+    return targets;
+}
+
+function findDashboardCard(root: ParentNode, title: string) {
+    const titled = [...root.querySelectorAll<HTMLElement>("[title]")].find(
+        (element) => element.getAttribute("title")?.trim() === title,
+    );
+    const titledCard = titled ? closestDashboardCard(titled) : null;
+    if (titledCard) return titledCard;
+
+    const heading = findHeading(root, title);
+    return heading ? closestDashboardCard(heading) : null;
+}
+
+function closestDashboardCard(element: HTMLElement) {
+    let current: HTMLElement | null = element;
+    while (current) {
+        if (current.dataset.dashboardCard === "true") return current;
+        current = current.parentElement;
+    }
+    return null;
+}
+
+function findHeading(root: ParentNode, text: string) {
+    return [...root.querySelectorAll<HTMLElement>("h2, h3")].find(
+        (element) => element.textContent?.trim() === text,
+    );
+}
