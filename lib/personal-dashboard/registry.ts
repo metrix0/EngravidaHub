@@ -102,7 +102,9 @@ export const DASHBOARD_WIDGETS = [
     { id: "mensagem_ativa.historico_envios", title: "Histórico de envios", kind: "table", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
 ] satisfies DashboardWidgetDefinition[];
 
-const widgetById = new Map(DASHBOARD_WIDGETS.map((widget) => [widget.id, widget]));
+const widgetById = new Map<string, DashboardWidgetDefinition>(
+    DASHBOARD_WIDGETS.map((widget) => [widget.id, widget]),
+);
 
 export const DASHBOARD_PRESETS: Record<string, string[]> = {
     admin: [
@@ -141,7 +143,9 @@ export const DASHBOARD_PRESETS: Record<string, string[]> = {
     ],
 };
 
-export function getDashboardWidget(id: string) {
+export function getDashboardWidget(
+    id: string,
+): DashboardWidgetDefinition | null {
     return widgetById.get(id) ?? null;
 }
 
@@ -171,7 +175,7 @@ export function findDashboardWidgetBySource(
     sourcePath: string,
     title: string,
     kind?: DashboardWidgetKind,
-) {
+): DashboardWidgetDefinition | null {
     const normalized = normalizeTitle(title);
     return (
         DASHBOARD_WIDGETS.find(
