@@ -2,8 +2,11 @@
 
 import {
     ArrowDown,
+    ArrowLeft,
+    ArrowRight,
     ArrowUp,
     GripVertical,
+    Layers3,
     Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -12,6 +15,8 @@ import {
     DashboardFilterBar,
     DashboardFilterBarSkeleton,
     DashboardHeader,
+    FilterButton,
+    HorizontalScroller,
     MainFilters,
     Skeleton,
 } from "@/components";
@@ -34,6 +39,10 @@ export default function PersonalDashboard() {
     } = usePersonalDashboard();
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [unitIds, setUnitIds] = useState<string[]>([]);
+    const [attendantIds, setAttendantIds] = useState<string[]>([]);
+    const [tunnelValues, setTunnelValues] = useState<string[]>([]);
+    const [originValues, setOriginValues] = useState<string[]>([]);
+    const [categories, setCategories] = useState<string[]>([]);
     const {
         period,
         setPeriod,
@@ -50,11 +59,14 @@ export default function PersonalDashboard() {
         if (!dateFilterReady) return;
         const controller = new AbortController();
 
-        void fetch("/api/dashboard/filters?entities=units", {
-            cache: "no-store",
-            credentials: "include",
-            signal: controller.signal,
-        })
+        void fetch(
+            "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
+            {
+                cache: "no-store",
+                credentials: "include",
+                signal: controller.signal,
+            },
+        )
             .then(async (response) => {
                 if (!response.ok) return;
                 setFilters((await response.json()) as FiltersResponse);
@@ -80,6 +92,9 @@ export default function PersonalDashboard() {
     );
     const kpis = definitions.filter((widget) => widget.kind === "kpi");
     const content = definitions.filter((widget) => widget.kind !== "kpi");
+    const hasFinancialWidgets = definitions.some(
+        (widget) => widget.source === "financeiro",
+    );
 
     const { data, loadingSources, errors } = usePersonalDashboardSources({
         definitions,
@@ -87,7 +102,21 @@ export default function PersonalDashboard() {
         period,
         selectedRange,
         unitIds,
+        attendantIds,
+        tunnelValues,
+        originValues,
+        categories,
     });
+
+    const unitNames = useMemo(
+        () =>
+            unitIds.map(
+                (unitId) =>
+                    filters?.units?.find((option) => option.value === unitId)
+                        ?.label ?? unitId,
+            ),
+        [filters?.units, unitIds],
+    );
 
     async function reorderSection(
         section: DashboardWidgetDefinition[],
@@ -144,18 +173,38 @@ export default function PersonalDashboard() {
                     <DashboardFilterBar>
                         <MainFilters
                             units={filters?.units}
+                            attendants={filters?.attendants}
+                            tunnels={filters?.tunnels}
+                            origins={filters?.origins}
                             unitValues={unitIds}
                             setUnitValues={setUnitIds}
-                            show={{
-                                units: true,
-                                attendants: false,
-                                tunnels: false,
-                                origins: false,
-                            }}
+                            attendantValues={attendantIds}
+                            setAttendantValues={setAttendantIds}
+                            tunnelValues={tunnelValues}
+                            setTunnelValues={setTunnelValues}
+                            originValues={originValues}
+                            setOriginValues={setOriginValues}
                         />
+                        {hasFinancialWidgets && data.financeiro ? (
+                            <FilterButton
+                                icon={<Layers3 size={16} />}
+                                label="Todas as categorias"
+                                values={categories}
+                                onChange={setCategories}
+                                options={data.financeiro.available_filters.categories}
+                                widthClassName="w-[250px]"
+                            />
+                        ) : null}
                     </DashboardFilterBar>
                 ) : (
-                    <DashboardFilterBarSkeleton widths={["w-[230px]"]} />
+                    <DashboardFilterBarSkeleton
+                        widths={[
+                            "w-[230px]",
+                            "w-[230px]",
+                            "w-[150px]",
+                            "w-[250px]",
+                        ]}
+                    />
                 )}
 
                 {status === "loading" || status === "idle" ? (
@@ -174,23 +223,24 @@ export default function PersonalDashboard() {
                 ) : (
                     <div className="pb-12">
                         {kpis.length > 0 ? (
-                            <DashboardSection title="KPIs">
-                                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-4">
+                            <section className="mb-6 grid grid-cols-1 gap-5">
+                                <HorizontalScroller scrollAmount={420}>
                                     {kpis.map((widget, index) => (
                                         <DashboardItem
                                             key={widget.id}
                                             widget={widget}
                                             saving={saving}
-                                            canMoveUp={index > 0}
-                                            canMoveDown={index < kpis.length - 1}
-                                            onMoveUp={() =>
+                                            canMoveBefore={index > 0}
+                                            canMoveAfter={index < kpis.length - 1}
+                                            horizontal
+                                            onMoveBefore={() =>
                                                 void moveInSection(
                                                     kpis,
                                                     widget.id,
                                                     -1,
                                                 )
                                             }
-                                            onMoveDown={() =>
+                                            onMoveAfter={() =>
                                                 void moveInSection(
                                                     kpis,
                                                     widget.id,
@@ -207,6 +257,7 @@ export default function PersonalDashboard() {
                                                     widget.id,
                                                 )
                                             }
+                                            className={`${kpiWidthClass(widget)} shrink-0`}
                                         >
                                             <PersonalDashboardWidgetRenderer
                                                 widget={widget}
@@ -216,33 +267,38 @@ export default function PersonalDashboard() {
                                                 period={period}
                                                 selectedRange={selectedRange}
                                                 unitIds={unitIds}
+                                                unitNames={unitNames}
+                                                attendantIds={attendantIds}
+                                                tunnelValues={tunnelValues}
+                                                originValues={originValues}
+                                                categories={categories}
                                             />
                                         </DashboardItem>
                                     ))}
-                                </div>
-                            </DashboardSection>
+                                </HorizontalScroller>
+                            </section>
                         ) : null}
 
                         {content.length > 0 ? (
-                            <DashboardSection title="Gráficos e tabelas">
+                            <section className="mb-8">
                                 <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
                                     {content.map((widget, index) => (
                                         <DashboardItem
                                             key={widget.id}
                                             widget={widget}
                                             saving={saving}
-                                            canMoveUp={index > 0}
-                                            canMoveDown={
+                                            canMoveBefore={index > 0}
+                                            canMoveAfter={
                                                 index < content.length - 1
                                             }
-                                            onMoveUp={() =>
+                                            onMoveBefore={() =>
                                                 void moveInSection(
                                                     content,
                                                     widget.id,
                                                     -1,
                                                 )
                                             }
-                                            onMoveDown={() =>
+                                            onMoveAfter={() =>
                                                 void moveInSection(
                                                     content,
                                                     widget.id,
@@ -273,11 +329,16 @@ export default function PersonalDashboard() {
                                                 period={period}
                                                 selectedRange={selectedRange}
                                                 unitIds={unitIds}
+                                                unitNames={unitNames}
+                                                attendantIds={attendantIds}
+                                                tunnelValues={tunnelValues}
+                                                originValues={originValues}
+                                                categories={categories}
                                             />
                                         </DashboardItem>
                                     ))}
                                 </div>
-                            </DashboardSection>
+                            </section>
                         ) : null}
                     </div>
                 )}
@@ -286,29 +347,15 @@ export default function PersonalDashboard() {
     );
 }
 
-function DashboardSection({
-    title,
-    children,
-}: {
-    title: string;
-    children: ReactNode;
-}) {
-    return (
-        <section className="mb-8">
-            <h2 className="mb-4 text-xl font-bold text-slate-900">{title}</h2>
-            {children}
-        </section>
-    );
-}
-
 function DashboardItem({
     widget,
     children,
     saving,
-    canMoveUp,
-    canMoveDown,
-    onMoveUp,
-    onMoveDown,
+    canMoveBefore,
+    canMoveAfter,
+    horizontal = false,
+    onMoveBefore,
+    onMoveAfter,
     onRemove,
     onDrop,
     className = "",
@@ -316,10 +363,11 @@ function DashboardItem({
     widget: DashboardWidgetDefinition;
     children: ReactNode;
     saving: boolean;
-    canMoveUp: boolean;
-    canMoveDown: boolean;
-    onMoveUp: () => void;
-    onMoveDown: () => void;
+    canMoveBefore: boolean;
+    canMoveAfter: boolean;
+    horizontal?: boolean;
+    onMoveBefore: () => void;
+    onMoveAfter: () => void;
     onRemove: () => void;
     onDrop: (draggedId: string) => void;
     className?: string;
@@ -344,24 +392,32 @@ function DashboardItem({
         >
             <div className="absolute right-3 top-3 z-40 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/personal-widget:opacity-100 group-focus-within/personal-widget:opacity-100">
                 <span
-                    className="flex h-7 w-7 items-center justify-center text-slate-400"
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center text-slate-400"
                     title="Arrastar para reorganizar"
                 >
                     <GripVertical size={15} />
                 </span>
                 <ControlButton
-                    label="Mover para cima"
-                    disabled={!canMoveUp || saving}
-                    onClick={onMoveUp}
+                    label={horizontal ? "Mover para esquerda" : "Mover para cima"}
+                    disabled={!canMoveBefore || saving}
+                    onClick={onMoveBefore}
                 >
-                    <ArrowUp size={14} />
+                    {horizontal ? (
+                        <ArrowLeft size={14} />
+                    ) : (
+                        <ArrowUp size={14} />
+                    )}
                 </ControlButton>
                 <ControlButton
-                    label="Mover para baixo"
-                    disabled={!canMoveDown || saving}
-                    onClick={onMoveDown}
+                    label={horizontal ? "Mover para direita" : "Mover para baixo"}
+                    disabled={!canMoveAfter || saving}
+                    onClick={onMoveAfter}
                 >
-                    <ArrowDown size={14} />
+                    {horizontal ? (
+                        <ArrowRight size={14} />
+                    ) : (
+                        <ArrowDown size={14} />
+                    )}
                 </ControlButton>
                 <ControlButton
                     label="Remover do dashboard"
@@ -397,7 +453,7 @@ function ControlButton({
             title={label}
             disabled={disabled}
             onClick={onClick}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg transition disabled:pointer-events-none disabled:opacity-30 ${
+            className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition disabled:pointer-events-none disabled:opacity-30 ${
                 danger
                     ? "text-slate-400 hover:bg-red-50 hover:text-red"
                     : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -408,27 +464,30 @@ function ControlButton({
     );
 }
 
+function kpiWidthClass(widget: DashboardWidgetDefinition) {
+    if (widget.source === "financeiro") return "min-w-[285px]";
+    if (widget.id.startsWith("instagram.") || widget.id.startsWith("messenger.")) {
+        return "min-w-[270px]";
+    }
+    if (widget.source === "atendimento") return "min-w-[260px]";
+    return "min-w-[270px]";
+}
+
 function DashboardLoading() {
     return (
-        <div className="space-y-8">
-            <section>
-                <Skeleton className="mb-4 h-7 w-20" />
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-4">
-                    {Array.from({ length: 4 }).map((_, index) => (
-                        <Skeleton
-                            key={index}
-                            className="h-[118px] rounded-2xl"
-                        />
-                    ))}
-                </div>
-            </section>
-            <section>
-                <Skeleton className="mb-4 h-7 w-44" />
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                    <Skeleton className="h-[360px] rounded-2xl" />
-                    <Skeleton className="h-[360px] rounded-2xl" />
-                </div>
-            </section>
+        <div className="space-y-6">
+            <div className="flex gap-5 overflow-hidden">
+                {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton
+                        key={index}
+                        className="h-[118px] min-w-[260px] rounded-2xl"
+                    />
+                ))}
+            </div>
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Skeleton className="h-[360px] rounded-2xl" />
+                <Skeleton className="h-[360px] rounded-2xl" />
+            </div>
         </div>
     );
 }
@@ -442,7 +501,7 @@ function DashboardError({ onRetry }: { onRetry: () => void }) {
             <button
                 type="button"
                 onClick={onRetry}
-                className="mt-4 rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
+                className="mt-4 cursor-pointer rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
             >
                 Tentar novamente
             </button>
