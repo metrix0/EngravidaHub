@@ -18,6 +18,11 @@ type Props = {
     period: CalendarPresetValue | null;
     selectedRange: DateRange;
     unitIds: string[];
+    unitNames: string[];
+    attendantIds: string[];
+    tunnelValues: string[];
+    originValues: string[];
+    categories: string[];
 };
 
 export default function PersonalDashboardWidgetView(props: Props) {
@@ -27,9 +32,20 @@ export default function PersonalDashboardWidgetView(props: Props) {
                 widgetId={props.widget.id}
                 period={props.period}
                 selectedRange={props.selectedRange}
+                unitNames={props.unitNames}
             />
         );
     }
 
-    return <PersonalDashboardWidgetRenderer {...props} />;
+    return (
+        <PersonalDashboardWidgetRenderer
+            widget={props.widget}
+            sources={props.sources}
+            loadingSources={props.loadingSources}
+            errors={props.errors}
+            period={props.period}
+            selectedRange={props.selectedRange}
+            unitIds={props.unitIds}
+        />
+    );
 }
