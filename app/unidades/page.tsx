@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   HelpCircle,
@@ -15,6 +15,7 @@ import AssistantConversationCard from "@/components/assistant/AssistantConversat
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import UnitMap from "@/components/units/UnitMap";
 import type {
@@ -190,6 +191,7 @@ export default function UnidadesPage() {
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null);
+  const [selectedWeekEnd, setSelectedWeekEnd] = useState("");
 
   const load = useCallback(async (signal?: AbortSignal, offset = 0) => {
     const params = new URLSearchParams({
@@ -236,6 +238,22 @@ export default function UnidadesPage() {
       controller.abort();
     };
   }, [hasPending, load]);
+
+  const weekOptions = useMemo(() => {
+    const periods = new Map<string, string>();
+    analyses
+      .filter(
+        (analysis) =>
+          analysis.analysis_type === "weekly" && analysis.status === "completed",
+      )
+      .sort((a, b) => b.period_end.localeCompare(a.period_end))
+      .forEach((analysis) => {
+        if (!periods.has(analysis.period_end))
+          periods.set(analysis.period_end, periodLabel(analysis));
+      });
+    return Array.from(periods, ([value, label]) => ({ value, label }));
+  }, [analyses]);
+  const selectedWeek = selectedWeekEnd || weekOptions[0]?.value || "";
 
   async function continueChat(analysis: UnitMacroAnalysis) {
     setBusy(true);
@@ -286,6 +304,18 @@ export default function UnidadesPage() {
               </span>
             </div>
           </div>
+          <DropdownSelect
+            value={selectedWeek}
+            onChange={(value) => {
+              setSelectedWeekEnd(value);
+              setSelectedAnalysisId(null);
+            }}
+            options={weekOptions}
+            placeholder="Semana"
+            icon={<CalendarDays size={16} />}
+            disabled={loading || weekOptions.length === 0}
+            widthClassName="w-full sm:w-[240px]"
+          />
         </header>
         {error && (
           <div
@@ -319,7 +349,19 @@ export default function UnidadesPage() {
                       analysis.unit_id === item.id,
                   ) ?? null
                 : null;
-              const focus = selected ?? completed ?? latest;
+              const weekAnalysis = selectedWeek
+                ? analyses.find(
+                    (analysis) =>
+                      analysis.unit_id === item.id &&
+                      analysis.analysis_type === "weekly" &&
+                      analysis.status === "completed" &&
+                      analysis.period_end === selectedWeek,
+                  ) ?? null
+                : null;
+              const focus =
+                selected ??
+                weekAnalysis ??
+                (selectedWeek ? null : completed ?? latest);
               const unitAnalyses = analyses.filter(
                 (analysis) => analysis.unit_id === item.id,
               );
