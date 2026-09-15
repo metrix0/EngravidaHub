@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   CalendarDays,
+  HelpCircle,
   History,
   LoaderCircle,
   MapPin,
@@ -14,6 +15,7 @@ import AssistantConversationCard from "@/components/assistant/AssistantConversat
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import UnitMap from "@/components/units/UnitMap";
 import type {
   MacroUnit,
@@ -28,7 +30,29 @@ const statusLabel = {
   completed: "Concluída",
   failed: "Falha na análise",
 };
-type SidebarStat = { label: string; value: string };
+type SidebarMetricKey =
+  | "markings"
+  | "schedules"
+  | "conversations"
+  | "attended"
+  | "revenue";
+type SidebarStat = {
+  key: SidebarMetricKey;
+  label: string;
+  value: string;
+  change: number | null;
+};
+const SIDEBAR_METRICS: Array<{
+  key: SidebarMetricKey;
+  label: string;
+  currency?: boolean;
+}> = [
+  { key: "markings", label: "Marcações" },
+  { key: "schedules", label: "Agendamentos" },
+  { key: "conversations", label: "Conversas" },
+  { key: "attended", label: "Atendidos" },
+  { key: "revenue", label: "Faturamento", currency: true },
+];
 function date(value: string) {
   return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR");
 }
@@ -48,21 +72,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-function countValue(value: unknown) {
-  const number = finiteNumber(value);
-  return number === null ? null : number.toLocaleString("pt-BR");
-}
-function currencyValue(value: unknown) {
-  const number = finiteNumber(value);
-  return number === null
-    ? null
-    : number.toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-        maximumFractionDigits: 0,
-      });
-}
-function sidebarStats(analysis: UnitMacroAnalysis): SidebarStat[] {
+function metricValue(analysis: UnitMacroAnalysis, key: SidebarMetricKey) {
   const schedule = asRecord(analysis.metrics.get_schedule_overview);
   const scheduleTotals = asRecord(schedule.totals);
   const conversations = asRecord(
@@ -72,22 +82,101 @@ function sidebarStats(analysis: UnitMacroAnalysis): SidebarStat[] {
   const financial = asRecord(analysis.metrics.get_financial_overview);
   const financialTotals = asRecord(financial.totals);
   const deterministic = asRecord(analysis.metrics.deterministic_stats);
-  const values: Array<[string, string | null]> = [
-    ["Marcações", countValue(deterministic.markings)],
-    ["Agendamentos", countValue(scheduleTotals.total)],
-    ["Conversas", countValue(conversationCoverage.total_conversations)],
-    ["A realizar", countValue(scheduleTotals.pending)],
-    ["Compareceu", countValue(scheduleTotals.showed_up)],
-    ["Atendidos", countValue(scheduleTotals.attended)],
-    ["Remarcou", countValue(scheduleTotals.rescheduled)],
-    ["Cancelou", countValue(scheduleTotals.cancelled)],
-    ["Faltou", countValue(scheduleTotals.no_show)],
-    ["Faturamento", currencyValue(financialTotals.authorized_revenue)],
-    ["Notas", countValue(financialTotals.authorized_invoices)],
-  ];
-  return values.flatMap(([label, value]) =>
-    value === null ? [] : [{ label, value }],
-  );
+  if (key === "markings") return finiteNumber(deterministic.markings);
+  if (key === "schedules") return finiteNumber(scheduleTotals.total);
+  if (key === "conversations")
+    return finiteNumber(conversationCoverage.total_conversations);
+  if (key === "attended") return finiteNumber(scheduleTotals.attended);
+  return finiteNumber(financialTotals.authorized_revenue);
+}
+function metricDisplay(value: number, currency = false) {
+  return currency
+    ? value.toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        maximumFractionDigits: 0,
+      })
+    : value.toLocaleString("pt-BR");
+}
+function weeklyAverage(
+  analysis: UnitMacroAnalysis,
+  unitAnalyses: UnitMacroAnalysis[],
+  key: SidebarMetricKey,
+) {
+  if (analysis.analysis_type !== "weekly") return null;
+  const values = unitAnalyses
+    .filter(
+      (candidate) =>
+        candidate.id !== analysis.id &&
+        candidate.analysis_type === "weekly" &&
+        candidate.status === "completed" &&
+        candidate.period_end <= analysis.period_start,
+    )
+    .sort((a, b) => b.period_end.localeCompare(a.period_end))
+    .slice(0, 4)
+    .map((candidate) => metricValue(candidate, key))
+    .filter((value): value is number => value !== null);
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+function percentageChange(current: number, average: number | null) {
+  if (average === null) return null;
+  if (average === 0) return current === 0 ? 0 : null;
+  return ((current - average) / average) * 100;
+}
+function sidebarStats(
+  analysis: UnitMacroAnalysis,
+  unitAnalyses: UnitMacroAnalysis[],
+): SidebarStat[] {
+  return SIDEBAR_METRICS.flatMap((metric) => {
+    const current = metricValue(analysis, metric.key);
+    if (current === null) return [];
+    return [
+      {
+        key: metric.key,
+        label: metric.label,
+        value: metricDisplay(current, metric.currency),
+        change: percentageChange(
+          current,
+          weeklyAverage(analysis, unitAnalyses, metric.key),
+        ),
+      },
+    ];
+  });
+}
+function changeText(change: number | null) {
+  if (change === null) return null;
+  const percentage = Math.abs(change).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  if (change > 0) return `↑ ${percentage}%`;
+  if (change < 0) return `↓ ${percentage}%`;
+  return `${percentage}%`;
+}
+function changeTone(change: number | null) {
+  if (change === null) return "slate" as const;
+  if (change >= 5) return "green" as const;
+  if (change <= -5) return "red" as const;
+  return "orange" as const;
+}
+function changeTextClass(change: number | null) {
+  const tone = changeTone(change);
+  if (tone === "green") return "text-green";
+  if (tone === "red") return "text-red";
+  if (tone === "orange") return "text-orange";
+  return "text-slate-400";
+}
+function changeBarClass(change: number | null) {
+  const tone = changeTone(change);
+  if (tone === "green") return "bg-green";
+  if (tone === "red") return "bg-red";
+  if (tone === "orange") return "bg-orange";
+  return "bg-slate-300";
+}
+function changeBarWidth(change: number | null) {
+  if (change === null) return 0;
+  return Math.min(100, Math.max(4, 50 + Math.max(-50, Math.min(50, change))));
 }
 
 export default function UnidadesPage() {
@@ -231,10 +320,10 @@ export default function UnidadesPage() {
                   ) ?? null
                 : null;
               const focus = selected ?? completed ?? latest;
-              const stats = focus ? sidebarStats(focus) : [];
               const unitAnalyses = analyses.filter(
                 (analysis) => analysis.unit_id === item.id,
               );
+              const stats = focus ? sidebarStats(focus, unitAnalyses) : [];
               const cards =
                 focus?.cards?.filter((card) => card.type === "conversation") ??
                 [];
@@ -262,23 +351,44 @@ export default function UnidadesPage() {
                         )}
                         {stats.length > 0 && (
                           <div className="mt-3 border-t border-slate-200 pt-3">
-                            <p className="mb-2 font-semibold text-slate-600">
-                              Dados do período
-                            </p>
-                            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-                              {stats.map((stat) => (
-                                <div key={stat.label} className="min-w-0">
-                                  <div className="truncate text-[10px] text-slate-500">
-                                    {stat.label}
+                            <div className="mb-3 flex items-center gap-1.5 font-semibold text-slate-600">
+                              <span>Dados do período</span>
+                              <InfoTooltip text="Comparação com a média semanal do último mês (até 4 semanas anteriores).">
+                                <HelpCircle size={13} className="text-slate-400" />
+                              </InfoTooltip>
+                            </div>
+                            <div className="space-y-3">
+                              {stats.map((stat) => {
+                                const trend = changeText(stat.change);
+                                return (
+                                  <div key={stat.key} className="min-w-0">
+                                    <div className="truncate text-[10px] text-slate-500">
+                                      {stat.label}
+                                    </div>
+                                    <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+                                      <span
+                                        title={stat.value}
+                                        className="truncate text-sm font-bold text-slate-800"
+                                      >
+                                        {stat.value}
+                                      </span>
+                                      {trend && (
+                                        <span
+                                          className={`shrink-0 text-[10px] font-semibold ${changeTextClass(stat.change)}`}
+                                        >
+                                          ({trend})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                      <div
+                                        className={`h-full rounded-full transition-all ${changeBarClass(stat.change)}`}
+                                        style={{ width: `${changeBarWidth(stat.change)}%` }}
+                                      />
+                                    </div>
                                   </div>
-                                  <div
-                                    title={stat.value}
-                                    className="mt-0.5 truncate text-sm font-bold text-slate-800"
-                                  >
-                                    {stat.value}
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}
