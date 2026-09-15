@@ -10,7 +10,7 @@ import {
 
 import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
 import { useInsideDashboardWidgetBoundary } from "@/components/personal-dashboard/DashboardWidget";
-import { findDashboardWidgetBySource } from "@/lib/personal-dashboard/registry";
+import { findDashboardWidgetBySource } from "@/lib/personal-dashboard/registryExtended";
 
 type CardProps = {
     children: ReactNode;
