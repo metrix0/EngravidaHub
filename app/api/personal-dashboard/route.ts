@@ -5,7 +5,7 @@ import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     filterDashboardWidgetIds,
     getDashboardPreset,
-} from "@/lib/personal-dashboard/registry";
+} from "@/lib/personal-dashboard/registryExtended";
 
 type DashboardRow = {
     user_id: string;
