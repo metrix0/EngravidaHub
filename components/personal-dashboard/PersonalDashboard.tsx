@@ -16,13 +16,11 @@ import {
     Skeleton,
 } from "@/components";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
-import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetRenderer";
+import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetView";
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
 import { usePersonalDashboardSources } from "@/components/personal-dashboard/usePersonalDashboardSources";
-import {
-    getDashboardWidget,
-    type DashboardWidgetDefinition,
-} from "@/lib/personal-dashboard/registry";
+import { getDashboardWidget } from "@/lib/personal-dashboard/registryExtended";
+import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import type { FiltersResponse } from "@/types";
 
 export default function PersonalDashboard() {
