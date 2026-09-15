@@ -52,6 +52,7 @@ export default function DashboardAddControl({
         <div
             ref={rootRef}
             data-dashboard-add-control="true"
+            data-dashboard-add-control-source={groupControl ? "portal" : "inline"}
             className="group/dashboard-add absolute bottom-3 right-3 z-30 opacity-0 transition-opacity group-hover/dashboard-widget:opacity-100 group-focus-within/dashboard-widget:opacity-100"
         >
             <button
