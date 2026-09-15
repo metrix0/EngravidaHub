@@ -20,6 +20,7 @@ import {
     MainFilters,
     Skeleton,
 } from "@/components";
+import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetView";
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
@@ -27,6 +28,14 @@ import { usePersonalDashboardSources } from "@/components/personal-dashboard/use
 import { getDashboardWidget } from "@/lib/personal-dashboard/registryExtended";
 import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import type { FiltersResponse } from "@/types";
+import {
+    AD_EVENT_STATUS_LABELS,
+    AD_EVENT_STATUSES,
+    AD_EVENT_TYPE_LABELS,
+    AD_EVENT_TYPES,
+    AD_PLATFORM_LABELS,
+    AD_PLATFORMS,
+} from "@/types/ad-event";
 
 export default function PersonalDashboard() {
     const {
@@ -43,6 +52,10 @@ export default function PersonalDashboard() {
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
+    const [eventValues, setEventValues] = useState<string[]>([]);
+    const [platformValues, setPlatformValues] = useState<string[]>([]);
+    const [statusValues, setStatusValues] = useState<string[]>([]);
+    const [eventSourceValues, setEventSourceValues] = useState<string[]>([]);
     const {
         period,
         setPeriod,
@@ -95,6 +108,9 @@ export default function PersonalDashboard() {
     const hasFinancialWidgets = definitions.some(
         (widget) => widget.source === "financeiro",
     );
+    const hasEventWidgets = definitions.some(
+        (widget) => widget.source === "eventos",
+    );
 
     const { data, loadingSources, errors } = usePersonalDashboardSources({
         definitions,
@@ -106,6 +122,10 @@ export default function PersonalDashboard() {
         tunnelValues,
         originValues,
         categories,
+        eventValues,
+        platformValues,
+        statusValues,
+        eventSourceValues,
     });
 
     const unitNames = useMemo(
@@ -193,6 +213,52 @@ export default function PersonalDashboard() {
                                 onChange={setCategories}
                                 options={data.financeiro.available_filters.categories}
                                 widthClassName="w-[250px]"
+                            />
+                        ) : null}
+                        {hasEventWidgets ? (
+                            <AdvancedFilterButton
+                                sections={[
+                                    {
+                                        id: "event",
+                                        title: "Evento",
+                                        values: eventValues,
+                                        onChange: setEventValues,
+                                        options: AD_EVENT_TYPES.map((eventType) => ({
+                                            label: AD_EVENT_TYPE_LABELS[eventType],
+                                            value: eventType,
+                                        })),
+                                    },
+                                    {
+                                        id: "platform",
+                                        title: "Plataforma",
+                                        values: platformValues,
+                                        onChange: setPlatformValues,
+                                        options: AD_PLATFORMS.map((platform) => ({
+                                            label: AD_PLATFORM_LABELS[platform],
+                                            value: platform,
+                                        })),
+                                    },
+                                    {
+                                        id: "status",
+                                        title: "Status",
+                                        values: statusValues,
+                                        onChange: setStatusValues,
+                                        options: AD_EVENT_STATUSES.map((eventStatus) => ({
+                                            label: AD_EVENT_STATUS_LABELS[eventStatus],
+                                            value: eventStatus,
+                                        })),
+                                    },
+                                    {
+                                        id: "source",
+                                        title: "Origem do evento",
+                                        values: eventSourceValues,
+                                        onChange: setEventSourceValues,
+                                        options: [
+                                            { label: "Clinisys", value: "clinisys" },
+                                            { label: "IA", value: "ai" },
+                                        ],
+                                    },
+                                ]}
                             />
                         ) : null}
                     </DashboardFilterBar>
