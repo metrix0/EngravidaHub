@@ -39,7 +39,10 @@ export default function PersonalDashboardWidgetView(props: Props) {
         );
     }
 
-    if (props.loadingSources.has(props.widget.source)) {
+    if (
+        props.loadingSources.has(props.widget.source) ||
+        props.errors[props.widget.source]
+    ) {
         return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
     }
 
