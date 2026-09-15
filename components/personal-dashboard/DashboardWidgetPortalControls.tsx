@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 
 import DashboardAddControl from "@/components/personal-dashboard/DashboardAddControl";
+import { CHANNEL_DASHBOARD_WIDGETS } from "@/lib/personal-dashboard/channelWidgets";
 
 type PortalTarget = {
     key: string;
@@ -12,10 +13,10 @@ type PortalTarget = {
     element: HTMLElement;
 };
 
-const ATENDIMENTO_GROUPS = [
-    ["dashboard-instagram", "canais.instagram_conversas"],
-    ["dashboard-messenger", "canais.messenger_conversas"],
-    ["dashboard-ligacoes", "canais.ligacoes"],
+const ATENDIMENTO_SECTIONS = [
+    ["dashboard-instagram", ["instagram."]],
+    ["dashboard-messenger", ["messenger."]],
+    ["dashboard-ligacoes", ["ligacoes."]],
 ] as const;
 
 const MESSAGE_HEADINGS = [
@@ -24,16 +25,17 @@ const MESSAGE_HEADINGS = [
     ["Histórico de envios", "mensagem_ativa.historico_envios"],
 ] as const;
 
+const ATTRIBUTION_IDS = new Set([
+    "instagram.origem_paga",
+    "instagram.clientes_campanha",
+]);
+
 export default function DashboardWidgetPortalControls() {
     const pathname = usePathname();
     const [targets, setTargets] = useState<PortalTarget[]>([]);
 
     useEffect(() => {
-        if (
-            pathname !== "/atendimento" &&
-            pathname !== "/financeiro" &&
-            pathname !== "/mensagem-ativa"
-        ) {
+        if (pathname !== "/atendimento" && pathname !== "/mensagem-ativa") {
             setTargets([]);
             return;
         }
@@ -45,9 +47,7 @@ export default function DashboardWidgetPortalControls() {
                 const next =
                     pathname === "/atendimento"
                         ? findAtendimentoTargets()
-                        : pathname === "/financeiro"
-                          ? findFinanceiroTargets()
-                          : findMensagemAtivaTargets();
+                        : findMensagemAtivaTargets();
                 for (const target of next) {
                     target.element.classList.add(
                         "relative",
@@ -86,51 +86,49 @@ export default function DashboardWidgetPortalControls() {
 }
 
 function findAtendimentoTargets(): PortalTarget[] {
-    const targets: PortalTarget[] = [];
+    const targets = new Map<string, PortalTarget>();
 
-    for (const [sectionId, widgetId] of ATENDIMENTO_GROUPS) {
+    for (const [sectionId, prefixes] of ATENDIMENTO_SECTIONS) {
         const section = document.getElementById(sectionId);
         if (!section) continue;
-        targets.push({ key: sectionId, widgetId, element: section });
+
+        const definitions = CHANNEL_DASHBOARD_WIDGETS.filter((widget) =>
+            prefixes.some((prefix) => widget.id.startsWith(prefix)),
+        );
+        for (const widget of definitions) {
+            if (ATTRIBUTION_IDS.has(widget.id)) continue;
+            const element = findDashboardCard(section, widget.title);
+            if (!element) continue;
+            targets.set(widget.id, {
+                key: `channel-${widget.id}`,
+                widgetId: widget.id,
+                element,
+            });
+        }
     }
 
-    const siteHeading = findHeading("Páginas web");
-    const siteRoot = siteHeading?.closest("div.min-w-0.space-y-5") as
-        | HTMLElement
-        | null;
-    if (siteRoot) {
-        targets.push({
-            key: "atendimento-site",
-            widgetId: "canais.site",
-            element: siteRoot,
-        });
+    const appRoot = document.querySelector<HTMLElement>(".app-content");
+    if (appRoot) {
+        for (const widget of CHANNEL_DASHBOARD_WIDGETS) {
+            if (!ATTRIBUTION_IDS.has(widget.id)) continue;
+            const element = findDashboardCard(appRoot, widget.title);
+            if (!element) continue;
+            targets.set(widget.id, {
+                key: `channel-${widget.id}`,
+                widgetId: widget.id,
+                element,
+            });
+        }
     }
 
-    return targets;
-}
-
-function findFinanceiroTargets(): PortalTarget[] {
-    const label = findExactElement("span", "Faturamento autorizado");
-    const card = label?.closest('[data-dashboard-card="true"]') as
-        | HTMLElement
-        | null;
-
-    return card
-        ? [
-              {
-                  key: "financeiro-faturamento-autorizado",
-                  widgetId: "financeiro.faturamento_autorizado",
-                  element: card,
-              },
-          ]
-        : [];
+    return [...targets.values()];
 }
 
 function findMensagemAtivaTargets(): PortalTarget[] {
     const targets: PortalTarget[] = [];
 
     for (const [headingText, widgetId] of MESSAGE_HEADINGS) {
-        const heading = findHeading(headingText);
+        const heading = findHeading(document, headingText);
         const section = heading?.closest("section") as HTMLElement | null;
         if (!section) continue;
         targets.push({
@@ -143,12 +141,28 @@ function findMensagemAtivaTargets(): PortalTarget[] {
     return targets;
 }
 
-function findHeading(text: string) {
-    return findExactElement("h2, h3", text);
+function findDashboardCard(root: ParentNode, title: string) {
+    const titled = [...root.querySelectorAll<HTMLElement>("[title]")].find(
+        (element) => element.getAttribute("title")?.trim() === title,
+    );
+    const titledCard = titled ? closestDashboardCard(titled) : null;
+    if (titledCard) return titledCard;
+
+    const heading = findHeading(root, title);
+    return heading ? closestDashboardCard(heading) : null;
 }
 
-function findExactElement(selector: string, text: string) {
-    return [...document.querySelectorAll<HTMLElement>(selector)].find(
+function closestDashboardCard(element: HTMLElement) {
+    let current: HTMLElement | null = element;
+    while (current) {
+        if (current.dataset.dashboardCard === "true") return current;
+        current = current.parentElement;
+    }
+    return null;
+}
+
+function findHeading(root: ParentNode, text: string) {
+    return [...root.querySelectorAll<HTMLElement>("h2, h3")].find(
         (element) => element.textContent?.trim() === text,
     );
 }
