@@ -4,6 +4,7 @@ import { Check, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
+import { getDashboardWidget } from "@/lib/personal-dashboard/registryExtended";
 
 const GROUPED_SECTION_SELECTOR =
     "#dashboard-instagram, #dashboard-messenger, #dashboard-ligacoes";
@@ -44,6 +45,8 @@ export default function DashboardAddControl({
 
     if (suppressed) return null;
 
+    const widget = getDashboardWidget(widgetId);
+    const bottomAligned = widget?.kind === "chart";
     const added = hasWidget(widgetId);
     const disabled = status === "loading" || saving || adding || added;
     const label = added ? "Adicionado ao dashboard" : "Adicionar ao dashboard";
@@ -52,7 +55,9 @@ export default function DashboardAddControl({
         <div
             ref={rootRef}
             data-dashboard-add-control="true"
-            className="group/dashboard-add absolute right-3 top-3 z-30 opacity-0 transition-opacity group-hover/dashboard-widget:opacity-100 group-focus-within/dashboard-widget:opacity-100"
+            className={`group/dashboard-add absolute right-3 z-30 opacity-0 transition-opacity group-hover/dashboard-widget:opacity-100 group-focus-within/dashboard-widget:opacity-100 ${
+                bottomAligned ? "bottom-3" : "top-3"
+            }`}
         >
             <button
                 type="button"
@@ -73,7 +78,11 @@ export default function DashboardAddControl({
             >
                 {added ? <Check size={15} /> : <Plus size={16} />}
             </button>
-            <span className="pointer-events-none absolute right-0 top-10 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover/dashboard-add:block">
+            <span
+                className={`pointer-events-none absolute right-0 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover/dashboard-add:block ${
+                    bottomAligned ? "bottom-10" : "top-10"
+                }`}
+            >
                 {label}
             </span>
         </div>
