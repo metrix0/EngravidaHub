@@ -154,11 +154,12 @@ function VolumeResultsCard({ history, templateData }: { history: HistoryItem[]; 
                         <ComposedChart data={dailyData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                             <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                             <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" minTickGap={18} />
-                            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" width={42} />
+                            <YAxis yAxisId="volume" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" width={42} />
+                            <YAxis yAxisId="results" hide domain={[0, "dataMax + 1"]} />
                             <Tooltip />
-                            <Bar dataKey="sent" name="Envios" fill="#06b6d4" radius={[5, 5, 0, 0]} />
-                            <Line type="monotone" dataKey="responses" name="Respostas" stroke="#10b981" strokeWidth={3} />
-                            <Line type="monotone" dataKey="schedules" name="Agendamentos" stroke="#8b5cf6" strokeWidth={3} />
+                            <Bar yAxisId="volume" dataKey="sent" name="Envios" fill="#06b6d4" radius={[5, 5, 0, 0]} />
+                            <Line yAxisId="results" type="monotone" dataKey="responses" name="Respostas" stroke="#10b981" strokeWidth={3} />
+                            <Line yAxisId="results" type="monotone" dataKey="schedules" name="Agendamentos" stroke="#8b5cf6" strokeWidth={3} />
                         </ComposedChart>
                     </ResponsiveContainer>
                 </div>
