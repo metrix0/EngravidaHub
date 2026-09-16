@@ -250,7 +250,7 @@ function TrafficSourcesCard({ sources }: { sources: TrafficSourceRow[] }) {
             {visibleSources.length === 0 ? (
                 <EmptyState label="Nenhuma origem de tráfego no período." />
             ) : (
-                <div className="mt-5 space-y-4">
+                <div className="mt-5 max-h-[420px] space-y-4 overflow-y-auto pr-1">
                     {visibleSources.map((source, index) => (
                         <div
                             key={`${source.source}-${source.medium}-${source.campaign}-${index}`}
