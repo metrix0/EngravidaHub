@@ -3,6 +3,7 @@ import crypto from "crypto";
 
 import { supabase } from "@/lib";
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
+import { hasSentMonthlyScheduleConversion } from "@/lib/ads/hasSentMonthlyScheduleConversion";
 
 type SendMetaEventsInput = {
     events: DerivedAdEvent[];
@@ -84,6 +85,21 @@ export async function sendMetaEvents({
     let adEventIds: string[] = [];
 
     try {
+        if (
+            schedule_id &&
+            client_id &&
+            await hasSentMonthlyScheduleConversion({
+                clientId: client_id,
+                platform: "Meta Ads",
+            })
+        ) {
+            return {
+                ok: true,
+                skipped: true,
+                reason: "Monthly schedule conversion already sent for client",
+            };
+        }
+
         if (!phone && !email) {
             return {
                 ok: false,
