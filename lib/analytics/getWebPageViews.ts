@@ -330,7 +330,10 @@ function summarizeLandingActions(report: GoogleAnalyticsReport) {
             whatsappClicks += eventCount;
         }
 
-        if (eventName === "click" && isMainSiteUrl(linkUrl)) {
+        if (
+            eventName === "main_site_click" ||
+            (eventName === "click" && isMainSiteUrl(linkUrl))
+        ) {
             pageActions.mainSiteClicks += eventCount;
             mainSiteClicks += eventCount;
         }
