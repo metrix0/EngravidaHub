@@ -6,7 +6,6 @@ import {
   HelpCircle,
   History,
   LoaderCircle,
-  MapPin,
   Sparkles,
 } from "lucide-react";
 import { Card, Skeleton } from "@/components";
@@ -53,6 +52,62 @@ const SIDEBAR_METRICS: Array<{
   { key: "conversations", label: "Conversas" },
   { key: "attended", label: "Atendidos" },
   { key: "revenue", label: "Faturamento", currency: true },
+];
+type FeelingMetricKey =
+  | "scheduling_or_confirmation_rate"
+  | "dropoff_rate_all_analyzed_conversations"
+  | "resolution_rate"
+  | "median_first_human_response_seconds"
+  | "attendant_quality_score";
+type FeelingMetric = {
+  key: FeelingMetricKey;
+  label: string;
+  higherIsBetter: boolean;
+  threshold: number;
+  weight: number;
+  unit: "pp" | "seconds" | "score";
+};
+const FEELING_METRICS: FeelingMetric[] = [
+  {
+    key: "scheduling_or_confirmation_rate",
+    label: "Agendamento",
+    higherIsBetter: true,
+    threshold: 3,
+    weight: 2,
+    unit: "pp",
+  },
+  {
+    key: "dropoff_rate_all_analyzed_conversations",
+    label: "Abandono",
+    higherIsBetter: false,
+    threshold: 5,
+    weight: 2,
+    unit: "pp",
+  },
+  {
+    key: "resolution_rate",
+    label: "Resolução",
+    higherIsBetter: true,
+    threshold: 5,
+    weight: 2,
+    unit: "pp",
+  },
+  {
+    key: "median_first_human_response_seconds",
+    label: "1ª resposta",
+    higherIsBetter: false,
+    threshold: 120,
+    weight: 1,
+    unit: "seconds",
+  },
+  {
+    key: "attendant_quality_score",
+    label: "Qualidade",
+    higherIsBetter: true,
+    threshold: 0.5,
+    weight: 1,
+    unit: "score",
+  },
 ];
 function date(value: string) {
   return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR");
@@ -178,6 +233,100 @@ function changeBarClass(change: number | null) {
 function changeBarWidth(change: number | null) {
   if (change === null) return 0;
   return Math.min(100, Math.max(4, 50 + Math.max(-50, Math.min(50, change))));
+}
+function feelingDifference(value: number, unit: FeelingMetric["unit"]) {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const absolute = Math.abs(value);
+  if (unit === "seconds") {
+    const amount = absolute >= 60
+      ? `${(absolute / 60).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} min`
+      : `${Math.round(absolute)} s`;
+    return `${sign}${amount}`;
+  }
+  const amount = absolute.toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: unit === "score" ? 2 : 1,
+  });
+  return `${sign}${amount}${unit === "pp" ? " pp" : ""}`;
+}
+function feelingDirection(value: number, metric: FeelingMetric) {
+  if (value === 0) return "igual";
+  const favorable = metric.higherIsBetter ? value > 0 : value < 0;
+  return favorable ? "melhor" : "pior";
+}
+function feelingSignal(value: number, metric: FeelingMetric) {
+  const oriented = value * (metric.higherIsBetter ? 1 : -1);
+  if (oriented >= metric.threshold) return metric.weight;
+  if (oriented <= -metric.threshold) return -metric.weight;
+  return 0;
+}
+function analysisFeeling(analysis: UnitMacroAnalysis | null) {
+  if (!analysis || analysis.status !== "completed")
+    return {
+      label: "Sem classificação",
+      dotClass: "bg-slate-300",
+      tooltip: "Sem classificação disponível para esta análise.",
+    };
+  const network = asRecord(analysis.metrics.network_benchmark);
+  const networkMetrics = asRecord(network.metrics);
+  const self = asRecord(analysis.metrics.self_benchmark);
+  const selfMetrics = asRecord(self.metrics);
+  const networkLines: string[] = [];
+  const selfLines: string[] = [];
+  let score = 0;
+  let signals = 0;
+
+  for (const metric of FEELING_METRICS) {
+    const networkMetric = asRecord(networkMetrics[metric.key]);
+    const networkDifference = finiteNumber(
+      networkMetric.difference_from_other_units_median,
+    );
+    if (networkDifference !== null) {
+      score += feelingSignal(networkDifference, metric);
+      signals += 1;
+      const rank = finiteNumber(networkMetric.rank);
+      const compared = finiteNumber(networkMetric.compared_units);
+      const rankText = rank !== null && compared !== null
+        ? ` · ${rank}º/${compared}`
+        : "";
+      networkLines.push(
+        `${metric.label}: ${feelingDifference(networkDifference, metric.unit)} (${feelingDirection(networkDifference, metric)})${rankText}`,
+      );
+    }
+
+    const selfMetric = asRecord(selfMetrics[metric.key]);
+    const baselineDifference = finiteNumber(
+      selfMetric.difference_from_previous_4_weeks_median,
+    );
+    if (baselineDifference !== null) {
+      score += feelingSignal(baselineDifference, metric);
+      signals += 1;
+      const comparedPeriods = finiteNumber(selfMetric.compared_periods);
+      const previousDifference = finiteNumber(
+        selfMetric.difference_from_previous_week,
+      );
+      const previousText = previousDifference === null
+        ? ""
+        : ` · ${feelingDifference(previousDifference, metric.unit)} (${feelingDirection(previousDifference, metric)}) vs semana anterior`;
+      selfLines.push(
+        `${metric.label}: ${feelingDifference(baselineDifference, metric.unit)} (${feelingDirection(baselineDifference, metric)}) vs mediana de ${comparedPeriods ?? 0} sem.${previousText}`,
+      );
+    }
+  }
+
+  if (signals === 0)
+    return {
+      label: "Sem classificação",
+      dotClass: "bg-slate-300",
+      tooltip: "Sem benchmarks suficientes para classificar esta análise.",
+    };
+  const label = score >= 2 ? "Bom" : score <= -2 ? "Ruim" : "Na média";
+  const dotClass = score >= 2 ? "bg-green" : score <= -2 ? "bg-red" : "bg-orange";
+  const lines = [label, "", "Comparação com a rede"];
+  lines.push(...(networkLines.length ? networkLines : ["Sem benchmark de rede."]));
+  lines.push("", "Comparação com a própria unidade");
+  lines.push(...(selfLines.length ? selfLines : ["Sem histórico semanal comparável."]));
+  return { label, dotClass, tooltip: lines.join("\n") };
 }
 
 export default function UnidadesPage() {
@@ -366,6 +515,7 @@ export default function UnidadesPage() {
                 (analysis) => analysis.unit_id === item.id,
               );
               const stats = focus ? sidebarStats(focus, unitAnalyses) : [];
+              const feeling = analysisFeeling(focus);
               const cards =
                 focus?.cards?.filter((card) => card.type === "conversation") ??
                 [];
@@ -375,7 +525,16 @@ export default function UnidadesPage() {
                     <aside>
                       <div className="flex items-center justify-between gap-3">
                         <h2 className="text-xl font-bold">{item.name}</h2>
-                        <MapPin size={18} className="text-brand" />
+                        <InfoTooltip
+                          text={feeling.tooltip}
+                          portal
+                          widthClassName="w-[360px]"
+                        >
+                          <span
+                            aria-label={feeling.label}
+                            className={`block h-3.5 w-3.5 rounded-full ring-2 ring-white shadow-sm ${feeling.dotClass}`}
+                          />
+                        </InfoTooltip>
                       </div>
                       <UnitMap state={item.state} name={item.name} />
                       <p className="mt-2 text-sm text-slate-500">
