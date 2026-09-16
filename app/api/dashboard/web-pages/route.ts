@@ -12,9 +12,20 @@ export async function GET(request: Request) {
     const endDate =
         range.endDate ??
         new Date(new Date(range.endAt).getTime() - 1).toISOString().slice(0, 10);
+    const previousStartDate = range.previousStartAt.slice(0, 10);
+    const previousEndDate = new Date(
+        new Date(range.previousEndAt).getTime() - 1,
+    )
+        .toISOString()
+        .slice(0, 10);
 
     try {
-        const data = await getWebPageViews({ startDate, endDate });
+        const data = await getWebPageViews({
+            startDate,
+            endDate,
+            previousStartDate,
+            previousEndDate,
+        });
 
         return NextResponse.json(data, {
             headers: { "Cache-Control": "private, no-store" },
@@ -24,7 +35,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json(
             {
-                error: "Não foi possível carregar as visualizações do Google Analytics.",
+                error: "Não foi possível carregar os dados web do Google Analytics.",
             },
             {
                 status: 500,
