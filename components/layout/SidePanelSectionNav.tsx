@@ -14,10 +14,17 @@ type SectionNavigationConfig = {
     key: string;
     parentHref: string;
     sections: SectionDefinition[];
+    dynamicSections?: "unit-headings";
+    firstSectionUsesScroller?: boolean;
 };
 
 const DASHBOARD_SECTIONS: SectionDefinition[] = [
     { id: "dashboard-conversas", label: "Conversas" },
+    {
+        id: "dashboard-consultas",
+        label: "Consultas",
+        heading: "Consultas",
+    },
     {
         id: "dashboard-instagram",
         label: "Instagram",
@@ -41,10 +48,10 @@ const FINANCEIRO_SECTIONS: SectionDefinition[] = [
 ];
 
 function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
-    if (pathname === "/") {
+    if (pathname === "/atendimento") {
         return {
             key: "dashboard",
-            parentHref: "/",
+            parentHref: "/atendimento",
             sections: DASHBOARD_SECTIONS,
         };
     }
@@ -54,6 +61,16 @@ function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
             key: "financeiro",
             parentHref: "/financeiro",
             sections: FINANCEIRO_SECTIONS,
+        };
+    }
+
+    if (pathname === "/unidades") {
+        return {
+            key: "unidades",
+            parentHref: "/unidades",
+            sections: [],
+            dynamicSections: "unit-headings",
+            firstSectionUsesScroller: false,
         };
     }
 
@@ -68,6 +85,39 @@ function findHeading(root: HTMLElement, text: string) {
     return [...root.querySelectorAll<HTMLElement>("h1, h2, h3")].find(
         (element) => element.textContent?.trim() === text,
     ) ?? null;
+}
+
+function getResolvedSections(
+    config: SectionNavigationConfig,
+    scroller: HTMLElement,
+) {
+    if (config.dynamicSections !== "unit-headings") {
+        return config.sections;
+    }
+
+    return [...scroller.querySelectorAll<HTMLElement>("aside h2")].flatMap(
+        (heading, index) => {
+            const label = heading.textContent?.trim();
+            return label
+                ? [{ id: `unidades-${index}`, label, heading: label }]
+                : [];
+        },
+    );
+}
+
+function sameSections(
+    current: SectionDefinition[],
+    next: SectionDefinition[],
+) {
+    return (
+        current.length === next.length &&
+        current.every(
+            (section, index) =>
+                section.id === next[index]?.id &&
+                section.label === next[index]?.label &&
+                section.heading === next[index]?.heading,
+        )
+    );
 }
 
 function findDashboardChannelTarget(
@@ -92,8 +142,18 @@ function resolveSectionTarget(
     scroller: HTMLElement,
     section: SectionDefinition,
     firstSectionId: string,
+    firstSectionUsesScroller = true,
 ) {
-    if (section.id === firstSectionId || !section.heading) {
+    if (section.id === firstSectionId && firstSectionUsesScroller) {
+        return scroller;
+    }
+
+    const explicitTarget = scroller.querySelector<HTMLElement>(`#${section.id}`);
+    if (explicitTarget) {
+        return explicitTarget;
+    }
+
+    if (!section.heading) {
         return scroller;
     }
 
@@ -128,14 +188,14 @@ function findParentLink(nav: HTMLElement, href: string) {
 function releaseScrollSpyLock(
     scrollSpyLockRef: { current: string | null },
     sectionId: string,
+    scroller: HTMLElement,
 ) {
-    window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-            if (scrollSpyLockRef.current === sectionId) {
-                scrollSpyLockRef.current = null;
-            }
-        });
-    });
+    window.setTimeout(() => {
+        if (scrollSpyLockRef.current === sectionId) {
+            scrollSpyLockRef.current = null;
+            scroller.dispatchEvent(new Event("scroll"));
+        }
+    }, 800);
 }
 
 export default function SidePanelSectionNav() {
@@ -143,6 +203,11 @@ export default function SidePanelSectionNav() {
     const config = useMemo(() => getNavigationConfig(pathname), [pathname]);
     const [host, setHost] = useState<HTMLDivElement | null>(null);
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
+    const [sectionsVisible, setSectionsVisible] = useState(false);
+    const [scrollContainerVersion, setScrollContainerVersion] = useState(0);
+    const [sections, setSections] = useState<SectionDefinition[]>(
+        config?.sections ?? [],
+    );
     const [activeSectionId, setActiveSectionId] = useState<string | null>(
         config?.sections[0]?.id ?? null,
     );
@@ -150,10 +215,14 @@ export default function SidePanelSectionNav() {
     const pendingSectionRef = useRef<string | null>(null);
 
     useEffect(() => {
+        setSections(config?.sections ?? []);
+    }, [config]);
+
+    useEffect(() => {
         scrollSpyLockRef.current = null;
         pendingSectionRef.current = null;
-        setActiveSectionId(config?.sections[0]?.id ?? null);
-    }, [config]);
+        setActiveSectionId(sections[0]?.id ?? null);
+    }, [config?.key, sections]);
 
     useEffect(() => {
         if (!config) {
@@ -163,6 +232,7 @@ export default function SidePanelSectionNav() {
 
         let currentHost: HTMLDivElement | null = null;
         let resizeObserver: ResizeObserver | null = null;
+        let previousSidebarWidth: number | null = null;
 
         const install = () => {
             if (currentHost?.isConnected) return true;
@@ -186,7 +256,15 @@ export default function SidePanelSectionNav() {
 
             const updateExpanded = () => {
                 const mobile = window.matchMedia("(max-width: 767px)").matches;
-                setSidebarExpanded(mobile || aside.getBoundingClientRect().width >= 180);
+                const sidebarWidth = aside.getBoundingClientRect().width;
+                const isCollapsing =
+                    previousSidebarWidth !== null &&
+                    sidebarWidth < previousSidebarWidth;
+
+                setSidebarExpanded(
+                    mobile || (!isCollapsing && sidebarWidth >= 180),
+                );
+                previousSidebarWidth = sidebarWidth;
             };
 
             updateExpanded();
@@ -217,7 +295,64 @@ export default function SidePanelSectionNav() {
     }, [config]);
 
     useEffect(() => {
-        if (!config) return;
+        if (!host || !sidebarExpanded) {
+            setSectionsVisible(false);
+            return;
+        }
+
+        setSectionsVisible(false);
+        let secondFrame = 0;
+        const firstFrame = window.requestAnimationFrame(() => {
+            secondFrame = window.requestAnimationFrame(() => {
+                setSectionsVisible(true);
+            });
+        });
+
+        return () => {
+            window.cancelAnimationFrame(firstFrame);
+            if (secondFrame) window.cancelAnimationFrame(secondFrame);
+        };
+    }, [host, sidebarExpanded, config?.key]);
+
+    useEffect(() => {
+        if (!config || getPageScroller()) return;
+
+        const appContent = document.querySelector<HTMLElement>(".app-content");
+        if (!appContent) return;
+
+        const observer = new MutationObserver(() => {
+            if (!getPageScroller()) return;
+
+            observer.disconnect();
+            setScrollContainerVersion((version) => version + 1);
+        });
+        observer.observe(appContent, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
+    }, [config]);
+
+    useEffect(() => {
+        if (!config?.dynamicSections) return;
+
+        const scroller = getPageScroller();
+        if (!scroller) return;
+
+        const refreshSections = () => {
+            const nextSections = getResolvedSections(config, scroller);
+            setSections((current) =>
+                sameSections(current, nextSections) ? current : nextSections,
+            );
+        };
+
+        refreshSections();
+        const observer = new MutationObserver(refreshSections);
+        observer.observe(scroller, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
+    }, [config, scrollContainerVersion]);
+
+    useEffect(() => {
+        if (!config || sections.length === 0) return;
 
         const scroller = getPageScroller();
         if (!scroller) return;
@@ -226,13 +361,14 @@ export default function SidePanelSectionNav() {
 
         const resolveTargets = () => {
             const nextTargets = new Map<string, HTMLElement>();
-            const firstSectionId = config.sections[0]?.id ?? "";
+            const firstSectionId = sections[0]?.id ?? "";
 
-            for (const section of config.sections) {
+            for (const section of sections) {
                 const target = resolveSectionTarget(
                     scroller,
                     section,
                     firstSectionId,
+                    config.firstSectionUsesScroller !== false,
                 );
                 if (target) nextTargets.set(section.id, target);
             }
@@ -252,9 +388,9 @@ export default function SidePanelSectionNav() {
             setActiveSectionId(pendingSectionId);
             scroller.scrollTo({
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
-                behavior: "auto",
+                behavior: "smooth",
             });
-            releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId);
+            releaseScrollSpyLock(scrollSpyLockRef, pendingSectionId, scroller);
             return true;
         };
 
@@ -272,9 +408,9 @@ export default function SidePanelSectionNav() {
             if (targets.size === 0) resolveTargets();
 
             const marker = scroller.scrollTop + Math.min(220, scroller.clientHeight * 0.28);
-            let active = config.sections[0]?.id ?? null;
+            let active = sections[0]?.id ?? null;
 
-            for (const section of config.sections) {
+            for (const section of sections) {
                 const target = targets.get(section.id);
                 if (!target) continue;
 
@@ -314,7 +450,7 @@ export default function SidePanelSectionNav() {
             resizeObserver.disconnect();
             scroller.removeEventListener("scroll", updateActiveSection);
         };
-    }, [config]);
+    }, [config, scrollContainerVersion, sections]);
 
     if (!config || !host) return null;
 
@@ -325,7 +461,8 @@ export default function SidePanelSectionNav() {
         const target = resolveSectionTarget(
             scroller,
             section,
-            config.sections[0]?.id ?? "",
+            sections[0]?.id ?? "",
+            config.firstSectionUsesScroller !== false,
         );
 
         setActiveSectionId(section.id);
@@ -338,9 +475,9 @@ export default function SidePanelSectionNav() {
             scrollSpyLockRef.current = section.id;
             scroller.scrollTo({
                 top: Math.max(0, getTargetTop(scroller, target) - 18),
-                behavior: "auto",
+                behavior: "smooth",
             });
-            releaseScrollSpyLock(scrollSpyLockRef, section.id);
+            releaseScrollSpyLock(scrollSpyLockRef, section.id, scroller);
         }
 
         if (window.matchMedia("(max-width: 767px)").matches) {
@@ -351,36 +488,46 @@ export default function SidePanelSectionNav() {
         }
     };
 
+    const expandedHeight = sections.length * 37 + 12;
+
     return createPortal(
         <div
-            className={`${sidebarExpanded ? "block" : "hidden"} mb-1 ml-8 border-l border-slate-200 py-1 pl-3`}
+            className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
+                sectionsVisible
+                    ? "translate-y-0 opacity-100"
+                    : "pointer-events-none -translate-y-2 opacity-0"
+            }`}
+            style={{ maxHeight: sectionsVisible ? `${expandedHeight}px` : "0px" }}
             aria-label={`Seções de ${config.key}`}
+            aria-hidden={!sectionsVisible}
         >
-            <div className="space-y-0.5">
-                {config.sections.map((section) => {
-                    const active = activeSectionId === section.id;
+            <div className="mb-1 ml-8 border-l border-slate-200 py-1 pl-3">
+                <div className="space-y-0.5">
+                    {sections.map((section) => {
+                        const active = activeSectionId === section.id;
 
-                    return (
-                        <button
-                            key={section.id}
-                            type="button"
-                            onClick={() => scrollToSection(section)}
-                            className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                                active
-                                    ? "font-semibold text-brand"
-                                    : "font-medium text-slate-500 hover:bg-selection hover:text-slate-700"
-                            }`}
-                            aria-current={active ? "location" : undefined}
-                        >
-                            <span
-                                className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                    active ? "bg-brand" : "bg-slate-300"
+                        return (
+                            <button
+                                key={section.id}
+                                type="button"
+                                onClick={() => scrollToSection(section)}
+                                className={`flex w-full cursor-pointer items-center rounded-lg px-2 py-2 text-left text-xs transition-colors duration-200 ${
+                                    active
+                                        ? "font-semibold text-brand"
+                                        : "font-medium text-slate-500 hover:bg-selection hover:text-slate-700"
                                 }`}
-                            />
-                            <span className="truncate">{section.label}</span>
-                        </button>
-                    );
-                })}
+                                aria-current={active ? "location" : undefined}
+                            >
+                                <span
+                                    className={`mr-2 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-200 ${
+                                        active ? "bg-brand" : "bg-slate-300"
+                                    }`}
+                                />
+                                <span className="truncate">{section.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
         </div>,
         host,

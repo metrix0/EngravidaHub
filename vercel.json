@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/unit-analyses?action=submit&type=weekly",
+      "schedule": "0 15 * * 0"
+    },
+    {
+      "path": "/api/cron/unit-analyses?action=collect&type=weekly",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}

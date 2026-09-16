@@ -109,6 +109,7 @@ type ExecutiveDashboardResponse = ExecutiveMetricsPayload & {
     schedule_creation_evolution: ScheduleCreationEvolutionPoint[];
     schedules_by_unit: ScheduleUnitDistribution[];
     schedule_unit_table: ScheduleUnitTable;
+    previous_schedule_unit_table: ScheduleUnitTable;
     word_map: ExecutiveWordMap;
 };
 
@@ -162,6 +163,12 @@ type ScheduleCreationEvolutionPoint = {
     total: number;
 };
 
+type ScheduleCreationAnalytics = {
+    evolution: ScheduleCreationEvolutionPoint[];
+    markingsByUnit: Map<string, { unit_name: string; count: number }>;
+    total: number;
+};
+
 type ScheduleUnitDistribution = {
     unit_name: string;
     count: number;
@@ -173,6 +180,8 @@ type ScheduleUnitDistribution = {
 
 type ScheduleUnitTableRow = {
     unit_name: string;
+    markings: number;
+    markings_projection: number;
     appointments: number;
     reschedulings: number;
     rescheduling_rate: number | null;
@@ -252,8 +261,9 @@ export async function GET(request: Request) {
         currentResult,
         previousResult,
         scheduleAnalytics,
-        scheduleCreationEvolution,
-        previousScheduleCount,
+        scheduleCreationAnalytics,
+        previousScheduleAnalytics,
+        previousScheduleCreationAnalytics,
         previousConversationCount,
         rawConversationSummary,
     ] = await Promise.all([
@@ -263,18 +273,26 @@ export async function GET(request: Request) {
             loadScheduleAnalytics(range, selectedUnitNames, request.signal),
         ),
         selectedUnitNamesPromise.then((selectedUnitNames) =>
-            loadScheduleCreationEvolution(
+            loadScheduleCreationAnalytics(
                 range,
                 selectedUnitNames,
                 request.signal,
             ),
         ),
         selectedUnitNamesPromise.then((selectedUnitNames) =>
-            loadScheduleTotal(
+            loadScheduleAnalytics(
                 range,
                 selectedUnitNames,
-                "previous",
                 request.signal,
+                "previous",
+            ),
+        ),
+        selectedUnitNamesPromise.then((selectedUnitNames) =>
+            loadScheduleCreationAnalytics(
+                range,
+                selectedUnitNames,
+                request.signal,
+                "previous",
             ),
         ),
         loadRawConversationCount(range, filters, "previous", request.signal),
@@ -317,7 +335,7 @@ export async function GET(request: Request) {
             ? null
             : normalizeClearSatisfactionMetric(
                   asObject(previousResult.data).clear_satisfaction_metric,
-        ),
+              ),
     );
     const unitSatisfaction = normalizeUnitSatisfaction(
         asObject(currentResult.data).unit_clear_satisfaction,
@@ -327,6 +345,9 @@ export async function GET(request: Request) {
     const currentScheduleCount = scheduleAnalytics.available
         ? scheduleAnalytics.summary.total
         : null;
+    const previousScheduleCount = previousScheduleAnalytics.available
+        ? previousScheduleAnalytics.summary.total
+        : null;
     const currentWithScheduleRate = applyScheduleRateMetric(current, {
         scheduleCount: currentScheduleCount,
         conversationCount: currentConversationCount,
@@ -335,6 +356,28 @@ export async function GET(request: Request) {
         scheduleCount: previousScheduleCount,
         conversationCount: previousConversationCount,
     });
+    const currentStartDate = range.startDate ?? brazilDate(range.startAt);
+    const currentEndDate =
+        range.endDate ??
+        brazilDate(
+            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        );
+    const previousStartDate = brazilDate(range.previousStartAt);
+    const previousEndDate = brazilDate(
+        new Date(new Date(range.previousEndAt).getTime() - 1).toISOString(),
+    );
+    const scheduleUnitTable = applyScheduleCreationToUnitTable(
+        scheduleAnalytics.displayUnitTable,
+        scheduleCreationAnalytics,
+        currentStartDate,
+        currentEndDate,
+    );
+    const previousScheduleUnitTable = applyScheduleCreationToUnitTable(
+        previousScheduleAnalytics.displayUnitTable,
+        previousScheduleCreationAnalytics,
+        previousStartDate,
+        previousEndDate,
+    );
     const byUnit = mergeUnitMetrics(
         currentWithScheduleRate.by_unit,
         scheduleAnalytics.byUnit,
@@ -362,9 +405,10 @@ export async function GET(request: Request) {
         daily_evolution: current.daily_evolution,
         schedule_summary: scheduleAnalytics.summary,
         schedule_evolution: scheduleAnalytics.evolution,
-        schedule_creation_evolution: scheduleCreationEvolution,
+        schedule_creation_evolution: scheduleCreationAnalytics.evolution,
         schedules_by_unit: scheduleAnalytics.byUnit,
-        schedule_unit_table: scheduleAnalytics.unitTable,
+        schedule_unit_table: scheduleUnitTable,
+        previous_schedule_unit_table: previousScheduleUnitTable,
         attendance_score: currentWithScheduleRate.attendance_score,
         dropoff_moments: current.dropoff_moments,
         conversation_goals: current.conversation_goals,
@@ -510,6 +554,7 @@ type ScheduleAnalyticsResult = {
     evolution: ScheduleEvolutionPoint[];
     byUnit: ScheduleUnitDistribution[];
     unitTable: ScheduleUnitTable;
+    displayUnitTable: ScheduleUnitTable;
 };
 
 const SCHEDULE_PAGE_SIZE = 1_000;
@@ -544,12 +589,24 @@ async function loadScheduleAnalytics(
     range: ReturnType<typeof resolveDashboardDateRange>,
     selectedUnitNames: string[] | null,
     signal: AbortSignal,
+    period: "current" | "previous" = "current",
 ): Promise<ScheduleAnalyticsResult> {
+    const startAt =
+        period === "current" ? range.startAt : range.previousStartAt;
+    const endAt = period === "current" ? range.endAt : range.previousEndAt;
+    const startDate =
+        period === "current" && range.startDate
+            ? range.startDate
+            : brazilDate(startAt);
+    const endDate =
+        period === "current" && range.endDate
+            ? range.endDate
+            : brazilDate(
+                  new Date(new Date(endAt).getTime() - 1).toISOString(),
+              );
+    const tableEndDate = scheduleUnitTableEndDate(startDate, endDate);
+
     try {
-        const startDate = range.startDate ?? brazilDate(range.startAt);
-        const endDate = range.endDate ?? brazilDate(
-            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-        );
         const empty = emptyScheduleAnalytics(startDate, endDate, true);
 
         if (selectedUnitNames?.length === 0) return empty;
@@ -565,7 +622,7 @@ async function loadScheduleAnalytics(
                 .from("schedules")
                 .select("id, source_hash, source_external_id, client_id, normalized_phone, patient_name, scheduled_for, created_in_source_at, unit_name, status, updated_at")
                 .gte("scheduled_for", startDate)
-                .lte("scheduled_for", endDate)
+                .lte("scheduled_for", tableEndDate)
                 .order("scheduled_for", { ascending: true })
                 .order("id", { ascending: true })
                 .range(from, from + SCHEDULE_PAGE_SIZE - 1);
@@ -582,6 +639,10 @@ async function loadScheduleAnalytics(
             if (page.length < SCHEDULE_PAGE_SIZE) break;
         }
 
+        const currentRows =
+            tableEndDate === endDate
+                ? rows
+                : rows.filter((row) => row.scheduled_for <= endDate);
         const summary = emptyScheduleSummary();
         const evolutionByDate = new Map(
             buildDateRange(startDate, endDate).map((dateIso) => [
@@ -599,7 +660,7 @@ async function loadScheduleAnalytics(
             }
         >();
 
-        for (const row of rows) {
+        for (const row of currentRows) {
             const group = normalizeScheduleStatus(row.status);
             summary.total += 1;
             incrementScheduleSummary(summary, group);
@@ -627,7 +688,7 @@ async function loadScheduleAnalytics(
             units.set(key, current);
         }
 
-        const uniqueRows = latestUniqueScheduleRows(rows);
+        const uniqueRows = latestUniqueScheduleRows(currentRows);
         summary.unique_total = uniqueRows.length;
         for (const row of uniqueRows) {
             const group = normalizeScheduleStatus(row.status);
@@ -672,7 +733,15 @@ async function loadScheduleAnalytics(
                     ),
             );
 
-        const unitTable = buildScheduleUnitTable(rows, startDate, endDate);
+        const unitTable = buildScheduleUnitTable(
+            currentRows,
+            startDate,
+            endDate,
+        );
+        const displayUnitTable =
+            tableEndDate === endDate
+                ? unitTable
+                : buildScheduleUnitTable(rows, startDate, endDate);
 
         return {
             available: true,
@@ -680,35 +749,54 @@ async function loadScheduleAnalytics(
             evolution: [...evolutionByDate.values()],
             byUnit,
             unitTable,
+            displayUnitTable,
         };
     } catch (error) {
-        console.error("[dashboard/executivo] failed to load schedules", error);
-        const startDate = range.startDate ?? brazilDate(range.startAt);
-        const endDate = range.endDate ?? brazilDate(
-            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        console.error(
+            `[dashboard/executivo] failed to load ${period} schedules`,
+            error,
         );
         return emptyScheduleAnalytics(startDate, endDate, false);
     }
 }
 
-async function loadScheduleCreationEvolution(
+async function loadScheduleCreationAnalytics(
     range: ReturnType<typeof resolveDashboardDateRange>,
     selectedUnitNames: string[] | null,
     signal: AbortSignal,
-): Promise<ScheduleCreationEvolutionPoint[]> {
-    const startDate = range.startDate ?? brazilDate(range.startAt);
-    const endDate = range.endDate ?? brazilDate(
-        new Date(new Date(range.endAt).getTime() - 1).toISOString(),
-    );
+    period: "current" | "previous" = "current",
+): Promise<ScheduleCreationAnalytics> {
+    const startAt =
+        period === "current" ? range.startAt : range.previousStartAt;
+    const endAt = period === "current" ? range.endAt : range.previousEndAt;
+    const startDate =
+        period === "current" && range.startDate
+            ? range.startDate
+            : brazilDate(startAt);
+    const endDate =
+        period === "current" && range.endDate
+            ? range.endDate
+            : brazilDate(
+                  new Date(new Date(endAt).getTime() - 1).toISOString(),
+              );
     const evolutionByDate = new Map(
         buildDateRange(startDate, endDate).map((dateIso) => [
             dateIso,
             emptyScheduleCreationEvolutionPoint(dateIso),
         ]),
     );
+    const markingsByUnit = new Map<
+        string,
+        { unit_name: string; count: number }
+    >();
+    let total = 0;
 
     if (selectedUnitNames?.length === 0) {
-        return [...evolutionByDate.values()];
+        return {
+            evolution: [...evolutionByDate.values()],
+            markingsByUnit,
+            total,
+        };
     }
 
     try {
@@ -735,20 +823,34 @@ async function loadScheduleCreationEvolution(
 
             const page = (data ?? []) as ScheduleCreationRow[];
             for (const row of page) {
+                total += 1;
                 const daily = evolutionByDate.get(row.created_in_source_at);
                 if (daily) daily.total += 1;
+
+                const unitName = row.unit_name?.trim() || "Sem unidade";
+                const key = normalizeUnitName(unitName);
+                const current = markingsByUnit.get(key) ?? {
+                    unit_name: unitName,
+                    count: 0,
+                };
+                current.count += 1;
+                markingsByUnit.set(key, current);
             }
 
             if (page.length < SCHEDULE_PAGE_SIZE) break;
         }
     } catch (error) {
         console.error(
-            "[dashboard/executivo] failed to load schedule creation evolution",
+            `[dashboard/executivo] failed to load ${period} schedule creation evolution`,
             error,
         );
     }
 
-    return [...evolutionByDate.values()];
+    return {
+        evolution: [...evolutionByDate.values()],
+        markingsByUnit,
+        total,
+    };
 }
 
 async function loadScheduleTotal(
@@ -1012,6 +1114,50 @@ function applyScheduleRateMetric(
     };
 }
 
+function applyScheduleCreationToUnitTable(
+    table: ScheduleUnitTable,
+    creation: ScheduleCreationAnalytics,
+    startDate: string,
+    endDate: string,
+): ScheduleUnitTable {
+    const projectionFactor = rangeProjectionFactor(startDate, endDate);
+    const rowsByUnit = new Map(
+        table.rows.map((row) => [normalizeUnitName(row.unit_name), row]),
+    );
+
+    for (const [key, marking] of creation.markingsByUnit) {
+        const current =
+            rowsByUnit.get(key) ??
+            summarizeScheduleUnit(
+                marking.unit_name,
+                [],
+                projectionFactor,
+            );
+        rowsByUnit.set(key, {
+            ...current,
+            markings: marking.count,
+            markings_projection: roundMetric(
+                marking.count * projectionFactor,
+            ),
+        });
+    }
+
+    return {
+        rows: [...rowsByUnit.values()].sort(
+            (first, second) =>
+                second.appointments - first.appointments ||
+                first.unit_name.localeCompare(second.unit_name, "pt-BR"),
+        ),
+        total: {
+            ...table.total,
+            markings: creation.total,
+            markings_projection: roundMetric(
+                creation.total * projectionFactor,
+            ),
+        },
+    };
+}
+
 function mergeUnitMetrics(
     units: ExecutiveMetricsPayload["by_unit"],
     scheduleCounts: ScheduleUnitDistribution[],
@@ -1220,6 +1366,8 @@ function summarizeScheduleUnit(
 
     return {
         unit_name: unitName,
+        markings: 0,
+        markings_projection: 0,
         appointments: rows.length,
         reschedulings: rescheduledRows.length,
         rescheduling_rate: percentage(rescheduledPatients, rows.length),
@@ -1227,7 +1375,7 @@ function summarizeScheduleUnit(
         pending: counts.pending,
         showed_up: counts.showedUp,
         showed_up_rate: percentage(counts.showedUp, uniqueRows.length),
-        projection: roundMetric(counts.showedUp * projectionFactor),
+        projection: roundMetric(rows.length * projectionFactor),
         rescheduled: counts.rescheduled,
         rescheduled_rate: percentage(counts.rescheduled, uniqueRows.length),
         cancelled: counts.cancelled,
@@ -1235,6 +1383,15 @@ function summarizeScheduleUnit(
         no_show: counts.noShow,
         no_show_rate: percentage(counts.noShow, uniqueRows.length),
     };
+}
+
+function scheduleUnitTableEndDate(startDate: string, endDate: string) {
+    const today = brazilDate(new Date().toISOString());
+    const currentMonthStart = `${today.slice(0, 7)}-01`;
+    if (startDate !== currentMonthStart || endDate !== today) return endDate;
+
+    const [year, monthNumber] = today.split("-").map(Number);
+    return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
 }
 
 function rangeProjectionFactor(startDate: string, endDate: string) {
@@ -1317,6 +1474,15 @@ function emptyScheduleAnalytics(
     endDate: string,
     available: boolean,
 ): ScheduleAnalyticsResult {
+    const unitTable = {
+        rows: [],
+        total: summarizeScheduleUnit(
+            "Total geral",
+            [],
+            rangeProjectionFactor(startDate, endDate),
+        ),
+    };
+
     return {
         available,
         summary: emptyScheduleSummary(),
@@ -1324,14 +1490,8 @@ function emptyScheduleAnalytics(
             emptyScheduleEvolutionPoint,
         ),
         byUnit: [],
-        unitTable: {
-            rows: [],
-            total: summarizeScheduleUnit(
-                "Total geral",
-                [],
-                rangeProjectionFactor(startDate, endDate),
-            ),
-        },
+        unitTable,
+        displayUnitTable: unitTable,
     };
 }
 

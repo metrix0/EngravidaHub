@@ -180,6 +180,10 @@ export function DashboardHeader({
     const controlsReady = storageManaged
         ? storageReady
         : internalStorageReady;
+    const resolvedTitle =
+        pathname === "/atendimento" && title === "Dashboard"
+            ? "Atendimento"
+            : title;
 
     useBrowserLayoutEffect(() => {
         if (storageManaged) {
@@ -248,7 +252,7 @@ export function DashboardHeader({
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-0">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
-                    {title}
+                    {resolvedTitle}
                 </h1>
 
                 <p className="mt-2 text-sm text-slate-500">{description}</p>

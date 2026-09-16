@@ -81,6 +81,7 @@ type EventsDashboardData = {
 
 type EventKpis = {
     total_events: number;
+    unique_events: number;
     sent_events: number;
     failed_events: number;
     fbclid_events: number;
@@ -385,6 +386,16 @@ function KpiSection({ data }: { data: EventsDashboardData }) {
     return (
         <section className="mb-6 grid grid-cols-1 gap-5">
             <HorizontalScroller scrollAmount={400}>
+                <KpiContainer>
+                    <KpiCard
+                        icon={<BarChart3 size={26} />}
+                        label="Eventos únicos"
+                        currentValue={data.kpis.unique_events}
+                        previousValue={data.previous_kpis.unique_events}
+                        formatter={(value) => value.toLocaleString("pt-BR")}
+                        color="green"
+                    />
+                </KpiContainer>
                 <KpiContainer>
                     <KpiCard
                         icon={<Send size={26} />}

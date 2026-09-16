@@ -24,6 +24,47 @@ export type ExecutiveKpis = {
     first_human_response_coverage_rate: number | null;
 };
 
+export type ExecutiveScheduleUnitTable = {
+    rows: {
+        unit_name: string;
+        markings: number;
+        markings_projection: number;
+        appointments: number;
+        projection: number;
+        reschedulings: number;
+        rescheduling_rate: number | null;
+        unique_appointments: number;
+        pending: number;
+        showed_up: number;
+        showed_up_rate: number | null;
+        rescheduled: number;
+        rescheduled_rate: number | null;
+        cancelled: number;
+        cancelled_rate: number | null;
+        no_show: number;
+        no_show_rate: number | null;
+    }[];
+    total: {
+        unit_name: string;
+        markings: number;
+        markings_projection: number;
+        appointments: number;
+        projection: number;
+        reschedulings: number;
+        rescheduling_rate: number | null;
+        unique_appointments: number;
+        pending: number;
+        showed_up: number;
+        showed_up_rate: number | null;
+        rescheduled: number;
+        rescheduled_rate: number | null;
+        cancelled: number;
+        cancelled_rate: number | null;
+        no_show: number;
+        no_show_rate: number | null;
+    };
+};
+
 export type ExecutiveDashboardData = {
     filters: {
         days: number;
@@ -95,42 +136,8 @@ export type ExecutiveDashboardData = {
         no_show_rate: number | null;
     }[];
 
-    schedule_unit_table: {
-        rows: {
-            unit_name: string;
-            appointments: number;
-            reschedulings: number;
-            rescheduling_rate: number | null;
-            unique_appointments: number;
-            pending: number;
-            showed_up: number;
-            showed_up_rate: number | null;
-            projection: number;
-            rescheduled: number;
-            rescheduled_rate: number | null;
-            cancelled: number;
-            cancelled_rate: number | null;
-            no_show: number;
-            no_show_rate: number | null;
-        }[];
-        total: {
-            unit_name: string;
-            appointments: number;
-            reschedulings: number;
-            rescheduling_rate: number | null;
-            unique_appointments: number;
-            pending: number;
-            showed_up: number;
-            showed_up_rate: number | null;
-            projection: number;
-            rescheduled: number;
-            rescheduled_rate: number | null;
-            cancelled: number;
-            cancelled_rate: number | null;
-            no_show: number;
-            no_show_rate: number | null;
-        };
-    };
+    schedule_unit_table: ExecutiveScheduleUnitTable;
+    previous_schedule_unit_table: ExecutiveScheduleUnitTable;
 
     attendance_score: {
         overall_score: number | null;

@@ -1563,6 +1563,7 @@ function PipelineTreeConnector({
                     left: trunkLeft,
                     top: firstCenter,
                     height: Math.max(1, lastCenter - firstCenter),
+                    transform: "translateY(-13px)",
                 }}
             />
             {Array.from({ length: rowCount }).map((_, index) => {
@@ -1579,12 +1580,13 @@ function PipelineTreeConnector({
                             top,
                             left:
                                 direction === "merge"
-                                    ? 0
+                                    ? -4
                                     : trunkLeft,
                             width:
                                 direction === "merge"
-                                    ? trunkLeft
+                                    ? trunkLeft + 4
                                     : 72 - trunkLeft,
+                            transform: "translateY(-13px)",
                         }}
                     >
                         {direction === "split" ? (
@@ -2056,66 +2058,86 @@ function JourneySkeleton() {
 
 function JourneyBodySkeleton() {
     return (
-        <>
-            <section className="mb-6 grid grid-cols-[1.6fr_0.8fr] gap-5">
-                <Card><Skeleton className="mb-6 h-6 w-[35%]" /><Skeleton className="h-[280px] w-full" /></Card>
-                <Card><Skeleton className="mb-6 h-6 w-[45%]" /><div className="space-y-5">{Array.from({ length: 4 }).map((_, index) => (<Skeleton key={index} className="h-8 w-full" />))}</div></Card>
-            </section>
-            <section className="mb-6 grid grid-cols-[1.5fr_0.9fr] gap-5">
-                <Card><Skeleton className="mb-6 h-6 w-[45%]" /><Skeleton className="h-[260px] w-full" /></Card>
-                <Card><Skeleton className="mb-6 h-6 w-[45%]" /><div className="space-y-5">{Array.from({ length: 5 }).map((_, index) => (<Skeleton key={index} className="h-8 w-full" />))}</div></Card>
-            </section>
-            <section className="mb-6 min-w-0">
-                <Card className="min-w-0 overflow-hidden">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <Skeleton className="h-7 w-[330px]" />
-                            <Skeleton className="mt-3 h-4 w-[420px]" />
-                        </div>
-                        <Skeleton className="h-16 w-[170px] rounded-xl" />
+        <div className="overflow-x-hidden pb-12">
+            <section className="mb-6 min-w-0 max-w-full">
+                <Card className="min-w-0 overflow-hidden p-0">
+                    <div className="border-b border-slate-100 px-6 py-5">
+                        <Skeleton className="h-7 w-[210px] max-w-full" />
+                        <Skeleton className="mt-2 h-4 w-[520px] max-w-full" />
+                        <Skeleton className="mt-3 h-4 w-[270px] max-w-full" />
                     </div>
-                    <div className="mt-7 overflow-x-auto pb-4">
-                        <div className="flex min-w-max gap-4">
-                                {Array.from({ length: 5 }).map((_, index) => (
-                                    <div key={index} className="flex shrink-0 items-center gap-4">
-                                        <Skeleton className="h-[210px] w-[168px] rounded-2xl" />
-                                        {index < 4 ? (
-                                            <Skeleton className="h-10 w-[90px]" />
-                                        ) : null}
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
-                </Card>
-            </section>
-            <section className="mb-6 min-w-0">
-                <Card>
-                    <Skeleton className="h-6 w-[330px]" />
-                    <div className="mt-5 grid grid-cols-1 items-center gap-6 lg:grid-cols-2 lg:gap-10">
-                        <Skeleton className="mx-auto h-[220px] w-[220px] rounded-full" />
-                        <div className="space-y-3">
-                            <Skeleton className="h-14 w-full rounded-xl" />
-                            {Array.from({ length: 4 }).map((_, index) => (
-                                <Skeleton
-                                    key={index}
-                                    className="h-10 w-full"
-                                />
+                    <div className="px-6 py-6">
+                        <Skeleton className="h-[520px] w-full rounded-xl" />
+                        <div className="mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
+                            {Array.from({ length: 3 }).map((_, index) => (
+                                <Skeleton key={index} className="h-[76px] w-full rounded-xl" />
                             ))}
                         </div>
                     </div>
                 </Card>
             </section>
-            <section className="mb-6 min-w-0">
+
+            <section className="mb-6 min-w-0 max-w-full">
                 <Card>
-                    <Skeleton className="h-6 w-[310px]" />
+                    <Skeleton className="h-6 w-[330px] max-w-full" />
+                    <div className="mt-5 grid grid-cols-1 items-center gap-6 lg:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1.1fr)] lg:gap-10">
+                        <Skeleton className="mx-auto h-[220px] w-[220px] max-w-full rounded-full" />
+                        <div className="space-y-3">
+                            <Skeleton className="h-14 w-full rounded-xl" />
+                            {Array.from({ length: 4 }).map((_, index) => (
+                                <Skeleton key={index} className="h-10 w-full" />
+                            ))}
+                        </div>
+                    </div>
+                </Card>
+            </section>
+
+            <section className="mb-6 min-w-0 max-w-full">
+                <Card>
+                    <Skeleton className="h-6 w-[310px] max-w-full" />
                     <div className="mt-3 flex gap-5">
                         <Skeleton className="h-3 w-[90px]" />
                         <Skeleton className="h-3 w-[80px]" />
                     </div>
-                    <Skeleton className="mt-5 h-[420px] w-full" />
+                    <Skeleton className="mt-5 h-[320px] w-full" />
                 </Card>
             </section>
-        </>
+
+            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
+                <Card>
+                    <Skeleton className="mb-6 h-6 w-[35%]" />
+                    <Skeleton className="h-[330px] w-full" />
+                </Card>
+                <Card>
+                    <Skeleton className="mb-6 h-6 w-[45%]" />
+                    <div className="space-y-5">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <Skeleton key={index} className="h-8 w-full" />
+                        ))}
+                    </div>
+                </Card>
+            </section>
+
+            <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_0.9fr]">
+                <Card>
+                    <Skeleton className="mb-3 h-6 w-[45%]" />
+                    <div className="mb-5 flex gap-4">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <Skeleton key={index} className="h-3 w-[72px]" />
+                        ))}
+                    </div>
+                    <Skeleton className="h-[470px] w-full" />
+                </Card>
+                <Card>
+                    <Skeleton className="mb-6 h-6 w-[45%]" />
+                    <div className="space-y-5">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                            <Skeleton key={index} className="h-8 w-full" />
+                        ))}
+                    </div>
+                </Card>
+            </section>
+        </div>
     );
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-const DASHBOARD_PATH = "/";
+const DASHBOARD_PATH = "/atendimento";
 const EXECUTIVE_API_PATH = "/api/dashboard/executivo";
 const RESILIENT_API_PATH = "/api/dashboard/executivo-resilient";
 const CACHE_PREFIX = "engravida-hub:executive-dashboard:v2:";

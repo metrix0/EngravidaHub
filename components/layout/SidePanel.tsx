@@ -8,18 +8,18 @@ import { usePathname, useRouter } from "next/navigation";
 import {
     BriefcaseBusiness,
     CalendarDays,
+    ChartNoAxesCombined,
     ChevronRight,
     CircleDollarSign,
     Flag,
     Funnel,
-    HelpCircle,
+    Headset,
     LayoutDashboard,
     MapPin,
     LogOut,
     Menu,
     Megaphone,
     MessageCircle,
-    MessagesSquare,
     Send,
     Sparkles,
     UserCog,
@@ -67,7 +67,7 @@ type SidePanelProps = {
 };
 
 const COLLAPSED_WIDTH = 76;
-const EXPANDED_WIDTH = 250;
+const EXPANDED_WIDTH = 230;
 const MOBILE_SWIPE_EDGE_WIDTH = 28;
 const MOBILE_SWIPE_MIN_DISTANCE = 56;
 const MOBILE_SWIPE_AXIS_LOCK_DISTANCE = 8;
@@ -82,16 +82,22 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "dashboard",
     },
     {
-        label: "Unidades",
-        href: "/unidades",
-        icon: <MapPin size={18} />,
-        tabId: "dashboard",
-    },
-    {
         label: "Financeiro",
         href: "/financeiro",
         icon: <CircleDollarSign size={18} />,
         tabId: "financeiro",
+    },
+    {
+        label: "Atendimento",
+        href: "/atendimento",
+        icon: <ChartNoAxesCombined size={18} />,
+        tabId: "dashboard",
+    },
+    {
+        label: "Unidades",
+        href: "/unidades",
+        icon: <MapPin size={18} />,
+        tabId: "dashboard",
     },
     {
         label: "Jornada",
@@ -105,17 +111,11 @@ const defaultItems: SidePanelEntry[] = [
         icon: <Megaphone size={18} />,
         tabId: "eventos",
     },
-    {
-        label: "Assistente IA",
-        href: "/assistente",
-        icon: <Sparkles size={18} />,
-        tabId: "assistente",
-    },
     { type: "separator", id: "crm" },
     {
         label: "Inbox",
         href: "/inbox",
-        icon: <MessagesSquare size={18} />,
+        icon: <Headset size={18} />,
         tabId: "inbox",
     },
     {
@@ -229,6 +229,7 @@ function PersistentSidePanel({
         pathname.startsWith("/inbox") ||
         pathname.startsWith("/agendamentos") ||
         pathname.startsWith("/assistente") ||
+        pathname.startsWith("/jornada") ||
         pathname.startsWith("/funil");
     const resolvedAffectLayout = affectLayout ?? !isCompactPage;
     const [isExpanded, setIsExpanded] = useState(
@@ -240,7 +241,6 @@ function PersistentSidePanel({
         );
     const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
     const [isStatusUpdating, setIsStatusUpdating] = useState(false);
-    const [helpModalOpen, setHelpModalOpen] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [mobileAppPromptOpen, setMobileAppPromptOpen] = useState(false);
     const mobileSwipeRef = useRef<{
@@ -576,7 +576,7 @@ function PersistentSidePanel({
                 {isStatusMenuOpen && currentAttendant && (
                     <div
                         className={`fixed bottom-20 left-4 z-[90] w-52 rounded-xl border border-border bg-white p-2 shadow-lg transition-[left] duration-200 md:bottom-7 md:w-44 ${
-                            isExpanded ? "md:left-[258px]" : "md:left-[84px]"
+                            isExpanded ? "md:left-[238px]" : "md:left-[84px]"
                         }`}
                     >
                         <button
@@ -631,13 +631,7 @@ function PersistentSidePanel({
                     </div>
 
                     <div className="relative min-h-0 flex-1">
-                        <div
-                            className={`sidepanel-scrollbar h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2 ${
-                                isExpanded
-                                    ? "sidepanel-scrollbar-visible"
-                                    : "sidepanel-scrollbar-hidden"
-                            }`}
-                        >
+                        <div className="sidepanel-scrollbar sidepanel-scrollbar-hidden h-full overflow-y-auto overflow-x-hidden px-4 pb-8 pt-2">
                             <nav className="space-y-2">
                                 {visibleItems.map((item) => {
                                     if (isSeparator(item)) {
@@ -693,29 +687,31 @@ function PersistentSidePanel({
                         </div>
                     </div>
 
-                    <div className="shrink-0 px-4 pt-4">
-                        <button
-                            type="button"
-                            onClick={() => setHelpModalOpen(true)}
-                            title="Precisa de ajuda?"
-                            className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded ? "border-border" : "border-transparent"
-                            }`}
-                        >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
-                                <HelpCircle size={22} />
-                            </span>
-                            <span
-                                className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
-                                    isExpanded
-                                        ? "md:ml-3 md:w-[150px] md:opacity-100"
-                                        : "md:ml-0 md:w-0 md:opacity-0"
+                    {allowedTabs.includes("assistente") ? (
+                        <div className="shrink-0 px-4 pt-4">
+                            <Link
+                                href="/assistente"
+                                onClick={() => setMobileOpen(false)}
+                                title="Assistente IA"
+                                className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                    isExpanded ? "border-border" : "border-transparent"
                                 }`}
                             >
-                                Precisa de ajuda?
-                            </span>
-                        </button>
-                    </div>
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
+                                    <Sparkles size={22} />
+                                </span>
+                                <span
+                                    className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
+                                        isExpanded
+                                            ? "md:ml-3 md:w-[150px] md:opacity-100"
+                                            : "md:ml-0 md:w-0 md:opacity-0"
+                                    }`}
+                                >
+                                    Assistente IA
+                                </span>
+                            </Link>
+                        </div>
+                    ) : null}
 
                     <div className="shrink-0 px-4 pt-4">
                         <button
@@ -727,9 +723,7 @@ function PersistentSidePanel({
                                     : undefined
                             }
                             title={profileName}
-                            className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white text-left transition-[padding,background-color] duration-150 ${
-                                isExpanded ? "md:px-2" : "md:px-1"
-                            } max-md:px-2 ${
+                            className={`flex h-16 w-full min-w-0 items-center overflow-hidden rounded-xl border bg-white text-left transition-[padding,background-color] duration-150 md:px-1 max-md:px-2 ${
                                 currentAttendant
                                     ? "cursor-pointer hover:bg-slate-50"
                                     : "cursor-default"
@@ -769,37 +763,6 @@ function PersistentSidePanel({
                     </div>
                 </div>
             </aside>
-
-            <Modal
-                open={helpModalOpen}
-                onClose={() => setHelpModalOpen(false)}
-                width={480}
-                height="auto"
-                maxHeight="calc(100vh - 48px)"
-                zIndexClassName="z-[100]"
-                ariaLabelledBy="sidepanel-help-title"
-            >
-                <div className="p-7">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-                        <HelpCircle size={23} />
-                    </div>
-                    <h2
-                        id="sidepanel-help-title"
-                        className="mt-5 text-xl font-bold text-slate-950"
-                    >
-                        Precisa de ajuda?
-                    </h2>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                        Entre em contato com o suporte do Engravida Hub pelo e-mail abaixo.
-                    </p>
-                    <a
-                        href="mailto:joao.almeida@engravida.com.br"
-                        className="mt-5 block rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-soft"
-                    >
-                        joao.almeida@engravida.com.br
-                    </a>
-                </div>
-            </Modal>
 
             <Modal
                 open={mobileAppPromptOpen}

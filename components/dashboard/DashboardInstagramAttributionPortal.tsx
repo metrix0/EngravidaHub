@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import InstagramAdAttributionInsights from "@/components/dashboard/InstagramAdAttributionInsights";
 
 const INSTAGRAM_HEADING = "Análise das conversas do Instagram";
+const DASHBOARD_PATH = "/atendimento";
 
 export default function DashboardInstagramAttributionPortal() {
     const pathname = usePathname();
@@ -15,7 +16,7 @@ export default function DashboardInstagramAttributionPortal() {
     const [searchParams, setSearchParams] = useState("");
 
     useEffect(() => {
-        if (pathname !== "/") {
+        if (pathname !== DASHBOARD_PATH) {
             setHost(null);
             return;
         }
@@ -61,7 +62,7 @@ export default function DashboardInstagramAttributionPortal() {
         };
     }, [pathname]);
 
-    if (pathname !== "/" || !host) return null;
+    if (pathname !== DASHBOARD_PATH || !host) return null;
 
     return createPortal(
         <InstagramAdAttributionInsights searchParams={searchParams} />,
