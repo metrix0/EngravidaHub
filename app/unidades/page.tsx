@@ -269,7 +269,7 @@ function analysisFeeling(analysis: UnitMacroAnalysis | null) {
     return {
       label: "Sem classificação",
       icon: "average" as const,
-      badgeClass: "bg-slate-200 text-slate-600",
+      badgeClass: "bg-slate-100 text-slate-500",
       tooltip: "Sem classificação disponível para esta análise.",
     };
   const network = asRecord(analysis.metrics.network_benchmark);
@@ -321,12 +321,12 @@ function analysisFeeling(analysis: UnitMacroAnalysis | null) {
     return {
       label: "Sem classificação",
       icon: "average" as const,
-      badgeClass: "bg-slate-200 text-slate-600",
+      badgeClass: "bg-slate-100 text-slate-500",
       tooltip: "Sem histórico semanal suficiente para classificar esta análise.",
     };
   const label = selfScore >= 2 ? "Bom" : selfScore <= -2 ? "Ruim" : "Na média";
   const icon = selfScore >= 2 ? "happy" as const : selfScore <= -2 ? "sad" as const : "average" as const;
-  const badgeClass = selfScore >= 2 ? "bg-green text-white" : selfScore <= -2 ? "bg-red text-white" : "bg-orange text-white";
+  const badgeClass = selfScore >= 2 ? "bg-green-soft text-green" : selfScore <= -2 ? "bg-red-soft text-red" : "bg-orange-soft text-orange";
   const lines = [label, "", "Comparação com a própria unidade"];
   lines.push(...(selfLines.length ? selfLines : ["Sem histórico semanal comparável."]));
   lines.push("", "Comparação com a rede");
@@ -537,19 +537,19 @@ export default function UnidadesPage() {
                         >
                           <span
                             aria-label={feeling.label}
-                            className={`inline-flex cursor-help items-center gap-1.5 rounded-full px-2 py-1 ${feeling.badgeClass}`}
+                            className={`inline-flex max-w-full cursor-help items-center gap-1.5 truncate whitespace-nowrap rounded-md px-2.5 py-1 ${feeling.badgeClass}`}
                           >
                             {feeling.icon === "happy" ? (
-                              <Smile size={15} />
+                              <Smile size={14} />
                             ) : feeling.icon === "sad" ? (
-                              <Frown size={15} />
+                              <Frown size={14} />
                             ) : (
-                              <Meh size={15} />
+                              <Meh size={14} />
                             )}
-                            <span className="text-[10px] font-bold uppercase leading-none tracking-wide">
+                            <span className="text-xs font-bold uppercase leading-none">
                               {feeling.label}
                             </span>
-                            <Info size={10} className="opacity-80" />
+                            <Info size={11} className="ml-0.5 opacity-60" />
                           </span>
                         </InfoTooltip>
                       </div>
