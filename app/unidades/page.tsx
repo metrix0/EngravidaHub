@@ -18,6 +18,7 @@ import AssistantConversationCard from "@/components/assistant/AssistantConversat
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import UnitMap from "@/components/units/UnitMap";
@@ -445,32 +446,38 @@ export default function UnidadesPage() {
   return (
     <main className="h-full overflow-y-auto bg-slate-50/50 p-4 text-slate-900 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Unidades</h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Acompanhe as análises mensais de cada unidade em um só lugar.
-            </p>
+        <DashboardHeader
+          title="Unidades"
+          description="Acompanhe as análises mensais de cada unidade em um só lugar."
+          period={null}
+          setPeriod={() => undefined}
+          selectedRange={{ start: null, end: null }}
+          setSelectedRange={() => undefined}
+          storageManaged
+          storageReady
+          meta={
             <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays size={14} />
                 Semanal aos domingos
               </span>
             </div>
-          </div>
-          <DropdownSelect
-            value={selectedWeek}
-            onChange={(value) => {
-              setSelectedWeekEnd(value);
-              setSelectedAnalysisId(null);
-            }}
-            options={weekOptions}
-            placeholder="Semana"
-            icon={<CalendarDays size={16} />}
-            disabled={loading || weekOptions.length === 0}
-            widthClassName="w-full sm:w-[240px]"
-          />
-        </header>
+          }
+          controls={
+            <DropdownSelect
+              value={selectedWeek}
+              onChange={(value) => {
+                setSelectedWeekEnd(value);
+                setSelectedAnalysisId(null);
+              }}
+              options={weekOptions}
+              placeholder="Semana"
+              icon={<CalendarDays size={16} />}
+              disabled={loading || weekOptions.length === 0}
+              widthClassName="w-full sm:w-[240px]"
+            />
+          }
+        />
         {error && (
           <div
             role="alert"

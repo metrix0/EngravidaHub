@@ -14,6 +14,7 @@ import {
     moveClientToFivFirstStage,
     sendAppointmentIntegration,
 } from "@/lib/scheduling/appointmentAutomation";
+import type { CalendarAppointment } from "@/types/scheduling";
 
 const personSchema = z.object({
     fullName: z.string().max(180),
@@ -163,12 +164,8 @@ export async function PATCH(
             format,
         };
 
-        if (body.procedureName !== undefined) {
-            updates.procedure_name = body.procedureName;
-        }
-        if (body.notes !== undefined) {
-            updates.notes = body.notes || null;
-        }
+        if (body.procedureName !== undefined) updates.procedure_name = body.procedureName;
+        if (body.notes !== undefined) updates.notes = body.notes || null;
         if (body.primary) {
             updates.patient_name = body.primary.fullName;
             updates.patient_phone = body.primary.phone || null;
@@ -178,18 +175,11 @@ export async function PATCH(
         }
         if (body.spouse || body.format !== undefined) {
             const spouse = body.spouse;
-            updates.spouse_name =
-                format === "casal" ? spouse?.fullName || current.spouse_name || null : null;
-            updates.spouse_phone =
-                format === "casal" ? spouse?.phone || null : null;
-            updates.spouse_email =
-                format === "casal" ? spouse?.email || null : null;
-            updates.spouse_cpf =
-                format === "casal" ? spouse?.cpf || null : null;
-            updates.spouse_birth_date =
-                format === "casal" && spouse
-                    ? parseBrazilDate(spouse.birthDate)
-                    : null;
+            updates.spouse_name = format === "casal" ? spouse?.fullName || current.spouse_name || null : null;
+            updates.spouse_phone = format === "casal" ? spouse?.phone || null : null;
+            updates.spouse_email = format === "casal" ? spouse?.email || null : null;
+            updates.spouse_cpf = format === "casal" ? spouse?.cpf || null : null;
+            updates.spouse_birth_date = format === "casal" && spouse ? parseBrazilDate(spouse.birthDate) : null;
         }
         if (body.address) {
             updates.address_street = body.address.street || null;
@@ -206,12 +196,28 @@ export async function PATCH(
             .from("appointments")
             .update(updates)
             .eq("id", appointmentId);
-
         if (error) throw error;
+
+        const appointment = await fetchAppointmentById(supabase, appointmentId);
+        if (!appointment) throw new Error("Appointment was updated but could not be reloaded");
+
+        const integration = await sendAppointmentIntegration(
+            buildAppointmentIntegrationPayload("appointment.updated", appointment),
+        );
+        if (!integration.ok) {
+            const { error: rollbackError } = await supabase
+                .from("appointments")
+                .update(appointmentRollbackValues(current))
+                .eq("id", appointmentId);
+            if (rollbackError) console.error("[appointments:patch] rollback failed", rollbackError);
+            return NextResponse.json(
+                { ok: false, error: integration.error ?? "Não foi possível atualizar o agendamento no CliniSYS." },
+                { status: 502 },
+            );
+        }
 
         if (current.client_id) {
             const clientUpdates: Record<string, unknown> = { unit_id: unitId };
-
             if (body.primary) {
                 clientUpdates.name = body.primary.fullName || null;
                 clientUpdates.phone = body.primary.phone || null;
@@ -219,7 +225,6 @@ export async function PATCH(
                 clientUpdates.cpf = body.primary.cpf || null;
                 clientUpdates.birth_date = parseBrazilDate(body.primary.birthDate);
             }
-
             if (body.address) {
                 clientUpdates.street = body.address.street || null;
                 clientUpdates.number = body.address.number || null;
@@ -230,30 +235,16 @@ export async function PATCH(
                 clientUpdates.cep = onlyDigits(body.address.cep) || null;
                 clientUpdates.country = body.address.country || null;
             }
-
             const { error: clientUpdateError } = await supabase
                 .from("clients")
                 .update(clientUpdates)
                 .eq("id", current.client_id);
-
             if (clientUpdateError) {
-                console.warn(
-                    "[appointments:patch] appointment updated but client data was not updated",
-                    {
-                        client_id: current.client_id,
-                        error: clientUpdateError.message,
-                    },
-                );
+                console.warn("[appointments:patch] appointment updated but client data was not updated", {
+                    client_id: current.client_id,
+                    error: clientUpdateError.message,
+                });
             }
-        }
-
-        const appointment = await fetchAppointmentById(
-            supabase,
-            appointmentId,
-        );
-
-        if (!appointment) {
-            throw new Error("Appointment was updated but could not be reloaded");
         }
 
         let fivAutomation: Awaited<ReturnType<typeof moveClientToFivFirstStage>>;
@@ -268,24 +259,15 @@ export async function PATCH(
             console.warn("[appointments:patch] FIV automation failed", automationError);
             fivAutomation = {
                 applied: false,
-                reason:
-                    automationError instanceof Error
-                        ? automationError.message
-                        : "fiv_automation_failed",
+                reason: automationError instanceof Error ? automationError.message : "fiv_automation_failed",
             };
         }
 
-        const integration = await sendAppointmentIntegration(
-            buildAppointmentIntegrationPayload("appointment.updated", appointment),
-        );
-
+        const reloaded = await fetchAppointmentById(supabase, appointmentId);
         return NextResponse.json({
             ok: true,
-            appointment,
-            automation: {
-                fiv: fivAutomation,
-                integration,
-            },
+            appointment: reloaded ?? appointment,
+            automation: { fiv: fivAutomation, integration },
         });
     } catch (error) {
         console.error("[appointments:patch] failed", error);
@@ -300,38 +282,67 @@ export async function DELETE(
     try {
         const { appointmentId } = await params;
         const { user } = await getCurrentAttendantFromRequest();
-
         if (!user) {
-            return NextResponse.json(
-                { ok: false, error: "Not authenticated" },
-                { status: 401 },
-            );
+            return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
         }
 
         const appointment = await fetchAppointmentById(supabase, appointmentId);
         if (!appointment) {
-            return NextResponse.json(
-                { ok: false, error: "Appointment not found" },
-                { status: 404 },
-            );
+            return NextResponse.json({ ok: false, error: "Appointment not found" }, { status: 404 });
         }
-
-        const { error } = await supabase
-            .from("appointments")
-            .delete()
-            .eq("id", appointmentId);
-
-        if (error) throw error;
 
         const integration = await sendAppointmentIntegration(
             buildAppointmentIntegrationPayload("appointment.deleted", appointment),
         );
+        if (!integration.ok) {
+            return NextResponse.json(
+                { ok: false, error: integration.error ?? "Não foi possível excluir o agendamento no CliniSYS." },
+                { status: 502 },
+            );
+        }
+
+        const { error } = await supabase.from("appointments").delete().eq("id", appointmentId);
+        if (error) throw error;
 
         return NextResponse.json({ ok: true, integration });
     } catch (error) {
         console.error("[appointments:delete] failed", error);
         return errorResponse(error);
     }
+}
+
+function appointmentRollbackValues(appointment: CalendarAppointment) {
+    return {
+        source: appointment.source,
+        source_external_id: appointment.source_external_id,
+        unit_id: appointment.unit_id,
+        doctor_id: appointment.doctor_id,
+        starts_at: appointment.starts_at,
+        ends_at: appointment.ends_at,
+        status: appointment.status,
+        format: appointment.format,
+        procedure_name: appointment.procedure_name,
+        patient_name: appointment.patient_name,
+        patient_phone: appointment.patient_phone,
+        patient_email: appointment.patient_email,
+        patient_cpf: appointment.patient_cpf,
+        patient_birth_date: appointment.patient_birth_date,
+        spouse_name: appointment.spouse_name,
+        spouse_phone: appointment.spouse_phone,
+        spouse_email: appointment.spouse_email,
+        spouse_cpf: appointment.spouse_cpf,
+        spouse_birth_date: appointment.spouse_birth_date,
+        address_street: appointment.address?.street || null,
+        address_number: appointment.address?.number || null,
+        address_complement: appointment.address?.complement || null,
+        address_neighborhood: appointment.address?.neighborhood || null,
+        address_city: appointment.address?.city || null,
+        address_state: appointment.address?.state || null,
+        address_cep: onlyDigits(appointment.address?.cep ?? "") || null,
+        address_country: appointment.address?.country || null,
+        notes: appointment.notes,
+        updated_at: new Date().toISOString(),
+    };
 }
 
 function onlyDigits(value: string) {
@@ -342,10 +353,7 @@ function errorResponse(error: unknown) {
     return NextResponse.json(
         {
             ok: false,
-            error:
-                error instanceof Error
-                    ? error.message
-                    : "Failed to update appointment",
+            error: error instanceof Error ? error.message : "Failed to update appointment",
         },
         { status: 500 },
     );

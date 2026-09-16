@@ -5,6 +5,8 @@ import type { CalendarAppointment } from "@/types/scheduling";
 
 export const APPOINTMENT_SELECT = `
     id,
+    source,
+    source_external_id,
     client_id,
     thread_id,
     unit_id,
@@ -106,6 +108,8 @@ export function mapAppointment(row: any): CalendarAppointment {
 
     return {
         id: row.id,
+        source: row.source ?? "hub",
+        source_external_id: row.source_external_id ?? null,
         client_id: row.client_id ?? null,
         thread_id: row.thread_id ?? null,
         unit_id: row.unit_id,
@@ -113,7 +117,7 @@ export function mapAppointment(row: any): CalendarAppointment {
         starts_at: row.starts_at,
         ends_at: row.ends_at,
         status: row.status,
-        format: row.format,
+        format: row.format ?? "congelamento",
         procedure_name: row.procedure_name,
         patient_name: row.patient_name,
         patient_phone: row.patient_phone ?? null,
@@ -154,7 +158,6 @@ export function parseBrazilDate(value: string) {
 
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
-
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapAddress(row: any) {

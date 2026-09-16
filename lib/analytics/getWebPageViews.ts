@@ -37,6 +37,15 @@ type GoogleAnalyticsReport = {
     }>;
 };
 
+type ReportRequest = {
+    startDate: string;
+    endDate: string;
+    dimensions: string[];
+    metrics: string[];
+    orderByMetric?: string;
+    limit?: string;
+};
+
 export type WebPageViewRow = {
     host: string;
     path: string;
@@ -44,26 +53,163 @@ export type WebPageViewRow = {
     views: number;
 };
 
+export type WebTrafficSourceRow = {
+    source: string;
+    medium: string;
+    campaign: string;
+    sessions: number;
+    percentage: number;
+};
+
+export type LandingPagePerformanceRow = WebPageViewRow & {
+    whatsapp_clicks: number;
+    main_site_clicks: number;
+    action_clicks: number;
+    action_rate: number;
+};
+
 export type WebPageViewsData = {
     property_id: string;
     start_date: string;
     end_date: string;
     main_site_views: number;
+    previous_main_site_views: number;
     landing_page_views: number;
+    previous_landing_page_views: number;
+    whatsapp_clicks: number;
+    previous_whatsapp_clicks: number;
+    main_site_clicks: number;
+    previous_main_site_clicks: number;
+    landing_page_action_rate: number;
+    previous_landing_page_action_rate: number;
     main_site_pages: WebPageViewRow[];
     landing_pages: WebPageViewRow[];
+    traffic_sources: WebTrafficSourceRow[];
+    landing_page_performance: LandingPagePerformanceRow[];
 };
 
 export async function getWebPageViews({
     startDate,
     endDate,
+    previousStartDate,
+    previousEndDate,
 }: {
     startDate: string;
     endDate: string;
+    previousStartDate: string;
+    previousEndDate: string;
 }): Promise<WebPageViewsData> {
     validateEnvironment();
 
     const accessToken = await getGoogleAccessToken();
+    const pageDimensions = ["hostName", "pagePath", "pageTitle"];
+    const eventDimensions = ["eventName", "hostName", "pagePath", "linkUrl"];
+
+    const [
+        currentPageReport,
+        previousPageReport,
+        trafficReport,
+        currentEventReport,
+        previousEventReport,
+    ] = await Promise.all([
+        runReport(accessToken, {
+            startDate,
+            endDate,
+            dimensions: pageDimensions,
+            metrics: ["screenPageViews"],
+            orderByMetric: "screenPageViews",
+            limit: "10000",
+        }),
+        runReport(accessToken, {
+            startDate: previousStartDate,
+            endDate: previousEndDate,
+            dimensions: pageDimensions,
+            metrics: ["screenPageViews"],
+            orderByMetric: "screenPageViews",
+            limit: "10000",
+        }),
+        runReport(accessToken, {
+            startDate,
+            endDate,
+            dimensions: [
+                "sessionSource",
+                "sessionMedium",
+                "sessionCampaignName",
+            ],
+            metrics: ["sessions"],
+            orderByMetric: "sessions",
+            limit: "1000",
+        }),
+        runReport(accessToken, {
+            startDate,
+            endDate,
+            dimensions: eventDimensions,
+            metrics: ["eventCount"],
+            orderByMetric: "eventCount",
+            limit: "10000",
+        }),
+        runReport(accessToken, {
+            startDate: previousStartDate,
+            endDate: previousEndDate,
+            dimensions: eventDimensions,
+            metrics: ["eventCount"],
+            orderByMetric: "eventCount",
+            limit: "10000",
+        }),
+    ]);
+
+    const currentPages = parsePageViews(currentPageReport);
+    const previousPages = parsePageViews(previousPageReport);
+    const currentActions = summarizeLandingActions(currentEventReport);
+    const previousActions = summarizeLandingActions(previousEventReport);
+    const landingPageViews = totalViews(currentPages.landingPages);
+    const previousLandingPageViews = totalViews(previousPages.landingPages);
+    const landingPageActionClicks =
+        currentActions.whatsappClicks + currentActions.mainSiteClicks;
+    const previousLandingPageActionClicks =
+        previousActions.whatsappClicks + previousActions.mainSiteClicks;
+
+    return {
+        property_id: GOOGLE_ANALYTICS_PROPERTY_ID,
+        start_date: startDate,
+        end_date: endDate,
+        main_site_views: totalViews(currentPages.mainSitePages),
+        previous_main_site_views: totalViews(previousPages.mainSitePages),
+        landing_page_views: landingPageViews,
+        previous_landing_page_views: previousLandingPageViews,
+        whatsapp_clicks: currentActions.whatsappClicks,
+        previous_whatsapp_clicks: previousActions.whatsappClicks,
+        main_site_clicks: currentActions.mainSiteClicks,
+        previous_main_site_clicks: previousActions.mainSiteClicks,
+        landing_page_action_rate: rate(
+            landingPageActionClicks,
+            landingPageViews,
+        ),
+        previous_landing_page_action_rate: rate(
+            previousLandingPageActionClicks,
+            previousLandingPageViews,
+        ),
+        main_site_pages: currentPages.mainSitePages,
+        landing_pages: currentPages.landingPages,
+        traffic_sources: parseTrafficSources(trafficReport),
+        landing_page_performance: buildLandingPagePerformance(
+            currentPages.landingPages,
+            currentActions.byPage,
+        ),
+    };
+}
+
+async function runReport(
+    accessToken: string,
+    {
+        startDate,
+        endDate,
+        dimensions,
+        metrics,
+        orderByMetric,
+        limit = "10000",
+    }: ReportRequest,
+): Promise<GoogleAnalyticsReport> {
     const response = await fetch(
         `https://analyticsdata.googleapis.com/v1beta/properties/${GOOGLE_ANALYTICS_PROPERTY_ID}:runReport`,
         {
@@ -74,19 +220,19 @@ export async function getWebPageViews({
             },
             body: JSON.stringify({
                 dateRanges: [{ startDate, endDate }],
-                dimensions: [
-                    { name: "hostName" },
-                    { name: "pagePath" },
-                    { name: "pageTitle" },
-                ],
-                metrics: [{ name: "screenPageViews" }],
-                orderBys: [
-                    {
-                        metric: { metricName: "screenPageViews" },
-                        desc: true,
-                    },
-                ],
-                limit: "10000",
+                dimensions: dimensions.map((name) => ({ name })),
+                metrics: metrics.map((name) => ({ name })),
+                ...(orderByMetric
+                    ? {
+                          orderBys: [
+                              {
+                                  metric: { metricName: orderByMetric },
+                                  desc: true,
+                              },
+                          ],
+                      }
+                    : {}),
+                limit,
             }),
             cache: "no-store",
         },
@@ -100,7 +246,10 @@ export async function getWebPageViews({
         );
     }
 
-    const report = JSON.parse(responseText) as GoogleAnalyticsReport;
+    return JSON.parse(responseText) as GoogleAnalyticsReport;
+}
+
+function parsePageViews(report: GoogleAnalyticsReport) {
     const mainSitePages = new Map<string, WebPageViewRow>();
     const landingPages = new Map<string, WebPageViewRow>();
 
@@ -122,18 +271,98 @@ export async function getWebPageViews({
         }
     }
 
-    const mainSiteRows = sortByViews(mainSitePages);
-    const landingPageRows = sortByViews(landingPages);
-
     return {
-        property_id: GOOGLE_ANALYTICS_PROPERTY_ID,
-        start_date: startDate,
-        end_date: endDate,
-        main_site_views: totalViews(mainSiteRows),
-        landing_page_views: totalViews(landingPageRows),
-        main_site_pages: mainSiteRows,
-        landing_pages: landingPageRows,
+        mainSitePages: sortByViews(mainSitePages),
+        landingPages: sortByViews(landingPages),
     };
+}
+
+function parseTrafficSources(report: GoogleAnalyticsReport): WebTrafficSourceRow[] {
+    const rows = (report.rows ?? [])
+        .map((row) => ({
+            source: cleanDimension(row.dimensionValues?.[0]?.value, "Direto"),
+            medium: cleanDimension(row.dimensionValues?.[1]?.value, "—"),
+            campaign: cleanDimension(row.dimensionValues?.[2]?.value, "—"),
+            sessions: Number(row.metricValues?.[0]?.value ?? 0),
+        }))
+        .filter((row) => Number.isFinite(row.sessions) && row.sessions > 0);
+    const totalSessions = rows.reduce((total, row) => total + row.sessions, 0);
+
+    return rows.map((row) => ({
+        ...row,
+        percentage: rate(row.sessions, totalSessions),
+    }));
+}
+
+type PageActions = {
+    whatsappClicks: number;
+    mainSiteClicks: number;
+};
+
+function summarizeLandingActions(report: GoogleAnalyticsReport) {
+    const byPage = new Map<string, PageActions>();
+    let whatsappClicks = 0;
+    let mainSiteClicks = 0;
+
+    for (const row of report.rows ?? []) {
+        const eventName = row.dimensionValues?.[0]?.value ?? "";
+        const host = normalizeHost(row.dimensionValues?.[1]?.value ?? "");
+        const path = normalizePath(row.dimensionValues?.[2]?.value ?? "/");
+        const linkUrl = row.dimensionValues?.[3]?.value ?? "";
+        const eventCount = Number(row.metricValues?.[0]?.value ?? 0);
+
+        if (
+            !LANDING_PAGE_PATHS.has(path) ||
+            !Number.isFinite(eventCount) ||
+            eventCount <= 0
+        ) {
+            continue;
+        }
+
+        const key = pageKey(host, path);
+        const pageActions = byPage.get(key) ?? {
+            whatsappClicks: 0,
+            mainSiteClicks: 0,
+        };
+
+        if (eventName === "cta_click") {
+            pageActions.whatsappClicks += eventCount;
+            whatsappClicks += eventCount;
+        }
+
+        if (
+            eventName === "main_site_click" ||
+            (eventName === "click" && isMainSiteUrl(linkUrl))
+        ) {
+            pageActions.mainSiteClicks += eventCount;
+            mainSiteClicks += eventCount;
+        }
+
+        byPage.set(key, pageActions);
+    }
+
+    return { byPage, whatsappClicks, mainSiteClicks };
+}
+
+function buildLandingPagePerformance(
+    pages: WebPageViewRow[],
+    actionsByPage: Map<string, PageActions>,
+): LandingPagePerformanceRow[] {
+    return pages.map((page) => {
+        const actions = actionsByPage.get(pageKey(page.host, page.path)) ?? {
+            whatsappClicks: 0,
+            mainSiteClicks: 0,
+        };
+        const actionClicks = actions.whatsappClicks + actions.mainSiteClicks;
+
+        return {
+            ...page,
+            whatsapp_clicks: actions.whatsappClicks,
+            main_site_clicks: actions.mainSiteClicks,
+            action_clicks: actionClicks,
+            action_rate: rate(actionClicks, page.views),
+        };
+    });
 }
 
 async function getGoogleAccessToken() {
@@ -173,7 +402,7 @@ function addPageView(
     pages: Map<string, WebPageViewRow>,
     row: WebPageViewRow,
 ) {
-    const key = `${row.host}\u0000${row.path}`;
+    const key = pageKey(row.host, row.path);
     const current = pages.get(key);
 
     if (!current) {
@@ -190,6 +419,34 @@ function sortByViews(pages: Map<string, WebPageViewRow>) {
 
 function totalViews(rows: WebPageViewRow[]) {
     return rows.reduce((total, row) => total + row.views, 0);
+}
+
+function pageKey(host: string, path: string) {
+    return `${host}\u0000${path}`;
+}
+
+function rate(value: number, total: number) {
+    if (total <= 0) return 0;
+    return (value / total) * 100;
+}
+
+function cleanDimension(value: string | undefined, fallback: string) {
+    const clean = value?.trim();
+    if (!clean || clean === "(not set)" || clean === "(none)") {
+        return fallback;
+    }
+    if (clean === "(direct)") return "Direto";
+    return clean;
+}
+
+function isMainSiteUrl(value: string) {
+    if (!value || value === "(not set)") return false;
+
+    try {
+        return MAIN_SITE_HOSTS.has(normalizeHost(new URL(value).hostname));
+    } catch {
+        return false;
+    }
 }
 
 function normalizeHost(value: string) {

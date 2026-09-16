@@ -6,11 +6,31 @@ import {
     buildAppointmentIntegrationPayload,
     sendAppointmentIntegration,
 } from "@/lib/scheduling/appointmentAutomation";
+import type { CalendarAppointment } from "@/types/scheduling";
 
 type RouteContext = {
     params: Promise<{
         clientId: string;
     }>;
+};
+
+type ClientUpdateSnapshot = {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+    cpf: string | null;
+    birth_date: string | null;
+    unit_id: string | null;
+    street: string | null;
+    number: string | null;
+    complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    cep: string | null;
+    updated_at: string | null;
 };
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
@@ -223,6 +243,54 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         updated_at: new Date().toISOString(),
     };
 
+    let originalClient: ClientUpdateSnapshot | null = null;
+    let upcomingAppointments: Awaited<ReturnType<typeof fetchCurrentOrFutureAppointments>> = [];
+    let originalAppointments: CalendarAppointment[] = [];
+    const remotelyUpdated: CalendarAppointment[] = [];
+
+    if (updateUpcomingAppointments) {
+        const clientSnapshot = await fetchClientUpdateSnapshot(clientId);
+        if (clientSnapshot.ok === false) {
+            return NextResponse.json(
+                { error: clientSnapshot.error },
+                { status: clientSnapshot.status },
+            );
+        }
+        originalClient = clientSnapshot.client;
+        upcomingAppointments = await fetchCurrentOrFutureAppointments(clientId);
+        originalAppointments = (
+            await Promise.all(
+                upcomingAppointments.map((appointment) =>
+                    fetchAppointmentById(supabase, appointment.id),
+                ),
+            )
+        ).filter((appointment): appointment is CalendarAppointment => Boolean(appointment));
+
+        for (const appointment of originalAppointments) {
+            if (!appointment.source_external_id) continue;
+
+            remotelyUpdated.push(appointment);
+            const integration = await sendAppointmentIntegration(
+                buildAppointmentIntegrationPayload(
+                    "appointment.updated",
+                    applyClientDetailsToAppointment(appointment, update),
+                ),
+            );
+
+            if (!integration.ok) {
+                await rollbackRemoteAppointments(remotelyUpdated);
+                return NextResponse.json(
+                    {
+                        error:
+                            integration.error ??
+                            "Não foi possível atualizar os agendamentos no CliniSYS.",
+                    },
+                    { status: 502 },
+                );
+            }
+        }
+    }
+
     const { data: updatedClient, error } = await supabase
         .from("clients")
         .update(update)
@@ -247,17 +315,18 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         .maybeSingle();
 
     if (error) {
+        if (remotelyUpdated.length > 0) await rollbackRemoteAppointments(remotelyUpdated);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!updatedClient) {
+        if (remotelyUpdated.length > 0) await rollbackRemoteAppointments(remotelyUpdated);
         return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
     let updatedAppointmentCount = 0;
 
     if (updateUpcomingAppointments) {
-        const upcomingAppointments = await fetchCurrentOrFutureAppointments(clientId);
         const appointmentIds = upcomingAppointments.map((appointment) => appointment.id);
 
         if (appointmentIds.length > 0) {
@@ -282,6 +351,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
                 .in("id", appointmentIds);
 
             if (appointmentUpdateError) {
+                if (originalClient) await restoreClient(originalClient);
+                if (remotelyUpdated.length > 0) await rollbackRemoteAppointments(remotelyUpdated);
                 return NextResponse.json(
                     { error: appointmentUpdateError.message },
                     { status: 500 },
@@ -289,22 +360,6 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             }
 
             updatedAppointmentCount = appointmentIds.length;
-
-            for (const appointmentId of appointmentIds) {
-                const appointment = await fetchAppointmentById(
-                    supabase,
-                    appointmentId,
-                );
-
-                if (!appointment) continue;
-
-                await sendAppointmentIntegration(
-                    buildAppointmentIntegrationPayload(
-                        "appointment.updated",
-                        appointment,
-                    ),
-                );
-            }
         }
     }
 
@@ -330,6 +385,101 @@ function digitsOrNull(value: unknown) {
     if (!normalized) return null;
     const digits = normalized.replace(/\D/g, "");
     return digits || null;
+}
+
+async function fetchClientUpdateSnapshot(clientId: string): Promise<
+    | { ok: true; client: ClientUpdateSnapshot }
+    | { ok: false; error: string; status: number }
+> {
+    const { data, error } = await supabase
+        .from("clients")
+        .select(`
+            id,
+            name,
+            phone,
+            email,
+            cpf,
+            birth_date,
+            unit_id,
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            country,
+            cep,
+            updated_at
+        `)
+        .eq("id", clientId)
+        .maybeSingle();
+
+    if (error) return { ok: false, error: error.message, status: 500 };
+    if (!data) return { ok: false, error: "Client not found", status: 404 };
+    return { ok: true, client: data as ClientUpdateSnapshot };
+}
+
+function applyClientDetailsToAppointment(
+    appointment: CalendarAppointment,
+    client: {
+        name: string;
+        phone: string | null;
+        email: string | null;
+        cpf: string | null;
+        birth_date: string | null;
+        street: string | null;
+        number: string | null;
+        complement: string | null;
+        neighborhood: string | null;
+        city: string | null;
+        state: string | null;
+        country: string | null;
+        cep: string | null;
+    },
+): CalendarAppointment {
+    return {
+        ...appointment,
+        patient_name: client.name,
+        patient_phone: client.phone,
+        patient_email: client.email,
+        patient_cpf: client.cpf,
+        patient_birth_date: client.birth_date,
+        address: {
+            street: client.street ?? "",
+            number: client.number ?? "",
+            complement: client.complement ?? "",
+            neighborhood: client.neighborhood ?? "",
+            city: client.city ?? "",
+            state: client.state ?? "",
+            country: client.country ?? "",
+            cep: client.cep ?? "",
+        },
+    };
+}
+
+async function rollbackRemoteAppointments(appointments: CalendarAppointment[]) {
+    for (const appointment of [...appointments].reverse()) {
+        const rollback = await sendAppointmentIntegration(
+            buildAppointmentIntegrationPayload("appointment.updated", appointment),
+        );
+        if (!rollback.ok) {
+            console.error("[clientes:patch] failed to roll back CliniSYS appointment", {
+                appointmentId: appointment.id,
+                error: rollback.error,
+            });
+        }
+    }
+}
+
+async function restoreClient(client: ClientUpdateSnapshot) {
+    const { id, ...values } = client;
+    const { error } = await supabase.from("clients").update(values).eq("id", id);
+    if (error) {
+        console.error("[clientes:patch] failed to roll back client", {
+            clientId: id,
+            error: error.message,
+        });
+    }
 }
 
 async function fetchCurrentOrFutureAppointments(clientId: string) {

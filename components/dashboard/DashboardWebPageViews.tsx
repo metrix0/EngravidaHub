@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe2, PanelsTopLeft } from "lucide-react";
+import {
+    ArrowUpRight,
+    Globe2,
+    MessageCircle,
+    MousePointerClick,
+    PanelsTopLeft,
+} from "lucide-react";
 
 import {
     applyCalendarDateParams,
@@ -25,11 +31,36 @@ type PageViewRow = {
     views: number;
 };
 
+type TrafficSourceRow = {
+    source: string;
+    medium: string;
+    campaign: string;
+    sessions: number;
+    percentage: number;
+};
+
+type LandingPagePerformanceRow = PageViewRow & {
+    whatsapp_clicks: number;
+    main_site_clicks: number;
+    action_clicks: number;
+    action_rate: number;
+};
+
 type WebPageViewsData = {
     main_site_views: number;
+    previous_main_site_views: number;
     landing_page_views: number;
+    previous_landing_page_views: number;
+    whatsapp_clicks: number;
+    previous_whatsapp_clicks: number;
+    main_site_clicks: number;
+    previous_main_site_clicks: number;
+    landing_page_action_rate: number;
+    previous_landing_page_action_rate: number;
     main_site_pages: PageViewRow[];
     landing_pages: PageViewRow[];
+    traffic_sources: TrafficSourceRow[];
+    landing_page_performance: LandingPagePerformanceRow[];
 };
 
 export default function DashboardWebPageViews({
@@ -72,7 +103,7 @@ export default function DashboardWebPageViews({
                 if (!response.ok) {
                     throw new Error(
                         payload.error ??
-                            "Não foi possível carregar as visualizações.",
+                            "Não foi possível carregar os dados web.",
                     );
                 }
 
@@ -88,7 +119,7 @@ export default function DashboardWebPageViews({
                 setError(
                     loadError instanceof Error
                         ? loadError.message
-                        : "Não foi possível carregar as visualizações.",
+                        : "Não foi possível carregar os dados web.",
                 );
             } finally {
                 if (!controller.signal.aborted) setLoading(false);
@@ -125,66 +156,238 @@ export default function DashboardWebPageViews({
                             Páginas web
                         </h2>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                            Visualizações do site principal e das landing pages no período selecionado.
+                            Aquisição, visualizações e ações do site principal e das landing pages.
                         </p>
                     </div>
                 </div>
             </div>
 
             <HorizontalScroller scrollAmount={360}>
-                <div className="min-w-[270px] flex-1">
+                <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<Globe2 size={26} />}
-                        label="Visualizações — site principal"
+                        label="Visualizações Site"
                         currentValue={data.main_site_views}
+                        previousValue={data.previous_main_site_views}
                         formatter={formatViews}
                         color="blue"
                     />
                 </div>
-                <div className="min-w-[270px] flex-1">
+                <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<PanelsTopLeft size={26} />}
-                        label="Visualizações — landing pages"
+                        label="Visualizações LP"
                         currentValue={data.landing_page_views}
+                        previousValue={data.previous_landing_page_views}
                         formatter={formatViews}
                         color="purple"
+                    />
+                </div>
+                <div className="min-w-[245px] flex-1">
+                    <KpiCard
+                        icon={<MessageCircle size={26} />}
+                        label="Cliques WhatsApp"
+                        currentValue={data.whatsapp_clicks}
+                        previousValue={data.previous_whatsapp_clicks}
+                        formatter={formatViews}
+                        color="green"
+                        tooltipText="Cliques nos CTAs de WhatsApp registrados nas landing pages."
+                    />
+                </div>
+                <div className="min-w-[245px] flex-1">
+                    <KpiCard
+                        icon={<ArrowUpRight size={26} />}
+                        label="Cliques Site"
+                        currentValue={data.main_site_clicks}
+                        previousValue={data.previous_main_site_clicks}
+                        formatter={formatViews}
+                        color="orange"
+                        tooltipText="Cliques de saída das landing pages que levam para engravida.com.br."
+                    />
+                </div>
+                <div className="min-w-[245px] flex-1">
+                    <KpiCard
+                        icon={<MousePointerClick size={26} />}
+                        label="Taxa Ação"
+                        currentValue={data.landing_page_action_rate}
+                        previousValue={data.previous_landing_page_action_rate}
+                        formatter={formatPercent}
+                        color="pink"
+                        tooltipText="Cliques no WhatsApp + cliques para o site principal, divididos pelas visualizações das landing pages."
                     />
                 </div>
             </HorizontalScroller>
 
             <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+                <TrafficSourcesCard sources={data.traffic_sources} />
                 <PageViewsCard
-                    title="Site principal"
+                    title="Páginas do site principal"
+                    description="Visualizações por página no período selecionado."
                     pages={data.main_site_pages}
                     emptyLabel="Nenhuma visualização do site principal no período."
                 />
-                <PageViewsCard
-                    title="Landing pages"
-                    pages={data.landing_pages}
-                    emptyLabel="Nenhuma visualização das landing pages no período."
-                />
             </div>
+
+            <LandingPagePerformanceCard
+                pages={data.landing_page_performance}
+            />
         </div>
+    );
+}
+
+function TrafficSourcesCard({ sources }: { sources: TrafficSourceRow[] }) {
+    const visibleSources = sources.slice(0, 12);
+
+    return (
+        <Card className="min-w-0">
+            <h3 className="text-base font-bold text-slate-900">
+                Origem do tráfego
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+                Sessões por origem, mídia e campanha. Inclui UTMs, orgânico, referência e acesso direto.
+            </p>
+
+            {visibleSources.length === 0 ? (
+                <EmptyState label="Nenhuma origem de tráfego no período." />
+            ) : (
+                <div className="mt-5 max-h-[420px] space-y-4 overflow-y-auto pr-1">
+                    {visibleSources.map((source, index) => (
+                        <div
+                            key={`${source.source}-${source.medium}-${source.campaign}-${index}`}
+                            className="min-w-0"
+                        >
+                            <div className="flex min-w-0 items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-slate-800">
+                                        {source.source}
+                                        <span className="font-normal text-slate-400">
+                                            {` / ${source.medium}`}
+                                        </span>
+                                    </div>
+                                    {source.campaign !== "—" ? (
+                                        <div className="mt-0.5 truncate text-xs text-slate-400">
+                                            {source.campaign}
+                                        </div>
+                                    ) : null}
+                                </div>
+                                <div className="shrink-0 text-right">
+                                    <div className="text-sm font-bold text-slate-800">
+                                        {formatViews(source.sessions)}
+                                    </div>
+                                    <div className="text-xs font-medium text-slate-400">
+                                        {formatPercent(source.percentage)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                    className="h-full rounded-full bg-blue"
+                                    style={{
+                                        width: `${Math.min(100, Math.max(0, source.percentage))}%`,
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function LandingPagePerformanceCard({
+    pages,
+}: {
+    pages: LandingPagePerformanceRow[];
+}) {
+    return (
+        <Card className="min-w-0">
+            <h3 className="text-base font-bold text-slate-900">
+                Performance das landing pages
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+                Conecta cada página às ações geradas depois da visualização.
+            </p>
+
+            {pages.length === 0 ? (
+                <EmptyState label="Nenhuma landing page no período." />
+            ) : (
+                <div className="mt-5 overflow-x-auto">
+                    <table className="w-full min-w-[780px] text-left">
+                        <thead>
+                            <tr className="border-b border-slate-100 text-xs font-bold text-slate-500">
+                                <th className="pb-3 pr-5">Landing page</th>
+                                <th className="pb-3 px-3 text-right">Visualizações</th>
+                                <th className="pb-3 px-3 text-right">WhatsApp</th>
+                                <th className="pb-3 px-3 text-right">Site principal</th>
+                                <th className="pb-3 pl-3 text-right">Taxa de ação</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {pages.map((page) => (
+                                <tr key={`${page.host}${page.path}`}>
+                                    <td className="py-3 pr-5">
+                                        <div
+                                            className="max-w-[360px] truncate text-sm font-semibold text-slate-800"
+                                            title={page.title || page.path}
+                                        >
+                                            {page.title || page.path}
+                                        </div>
+                                        <div
+                                            className="mt-0.5 max-w-[360px] truncate text-xs text-slate-400"
+                                            title={`${page.host}${page.path}`}
+                                        >
+                                            {page.host}
+                                            {page.path}
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                        {formatViews(page.views)}
+                                    </td>
+                                    <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                        {formatViews(page.whatsapp_clicks)}
+                                    </td>
+                                    <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                        {formatViews(page.main_site_clicks)}
+                                    </td>
+                                    <td className="py-3 pl-3 text-right">
+                                        <div className="text-sm font-bold text-slate-800">
+                                            {formatPercent(page.action_rate)}
+                                        </div>
+                                        <div className="mt-0.5 text-xs text-slate-400">
+                                            {formatViews(page.action_clicks)} ações
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </Card>
     );
 }
 
 function PageViewsCard({
     title,
+    description,
     pages,
     emptyLabel,
 }: {
     title: string;
+    description: string;
     pages: PageViewRow[];
     emptyLabel: string;
 }) {
     return (
         <Card className="min-w-0">
             <h3 className="text-base font-bold text-slate-900">{title}</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+                {description}
+            </p>
 
             {pages.length === 0 ? (
-                <div className="mt-5 rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center text-sm text-slate-400">
-                    {emptyLabel}
-                </div>
+                <EmptyState label={emptyLabel} />
             ) : (
                 <div className="mt-4 max-h-[420px] divide-y divide-slate-100 overflow-y-auto">
                     {pages.map((page) => (
@@ -218,8 +421,23 @@ function PageViewsCard({
     );
 }
 
+function EmptyState({ label }: { label: string }) {
+    return (
+        <div className="mt-5 rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center text-sm text-slate-400">
+            {label}
+        </div>
+    );
+}
+
 function formatViews(value: number) {
     return value.toLocaleString("pt-BR");
+}
+
+function formatPercent(value: number) {
+    return `${value.toLocaleString("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+    })}%`;
 }
 
 function WebPageViewsSkeleton() {
@@ -233,17 +451,18 @@ function WebPageViewsSkeleton() {
                 </div>
             </div>
             <div className="flex gap-5 overflow-hidden">
-                {Array.from({ length: 2 }).map((_, index) => (
+                {Array.from({ length: 5 }).map((_, index) => (
                     <Skeleton
                         key={index}
-                        className="h-[130px] min-w-[270px] flex-1"
+                        className="h-[130px] min-w-[245px] flex-1"
                     />
                 ))}
             </div>
             <div className="grid gap-5 lg:grid-cols-2">
-                <Skeleton className="h-[360px] w-full" />
-                <Skeleton className="h-[360px] w-full" />
+                <Skeleton className="h-[420px] w-full" />
+                <Skeleton className="h-[420px] w-full" />
             </div>
+            <Skeleton className="h-[420px] w-full" />
         </div>
     );
 }

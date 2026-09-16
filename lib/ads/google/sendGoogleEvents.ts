@@ -2,6 +2,7 @@
 import {createHash} from "crypto";
 import {supabase} from "@/lib";
 import type {DerivedAdEvent} from "@/lib/ads/deriveAdEventsFromAnalysis";
+import {hasSentMonthlyScheduleConversion} from "@/lib/ads/hasSentMonthlyScheduleConversion";
 
 type SendGoogleEventsInput = {
     events: DerivedAdEvent[];
@@ -123,6 +124,21 @@ export async function sendGoogleEvents({
     let shouldCreateFailedAdEventOnCatch = false;
 
     try {
+        if (
+            schedule_id &&
+            client_id &&
+            await hasSentMonthlyScheduleConversion({
+                clientId: client_id,
+                platform: "Google Ads",
+            })
+        ) {
+            return {
+                ok: true,
+                skipped: true,
+                reason: "Monthly schedule conversion already sent for client",
+            };
+        }
+
         shouldCreateFailedAdEventOnCatch = true;
 
         validateGoogleEnv();
