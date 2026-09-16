@@ -250,7 +250,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     if (updateUpcomingAppointments) {
         const clientSnapshot = await fetchClientUpdateSnapshot(clientId);
-        if (!clientSnapshot.ok) {
+        if (clientSnapshot.ok === false) {
             return NextResponse.json(
                 { error: clientSnapshot.error },
                 { status: clientSnapshot.status },
