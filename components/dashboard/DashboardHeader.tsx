@@ -8,6 +8,7 @@ import {
     useLayoutEffect,
     useRef,
     useState,
+    type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 
@@ -45,6 +46,8 @@ type DashboardHeaderProps = {
     presets?: typeof DEFAULT_CALENDAR_PRESETS;
     storageManaged?: boolean;
     storageReady?: boolean;
+    meta?: ReactNode;
+    controls?: ReactNode;
 };
 
 export function useDashboardDateFilter(
@@ -170,6 +173,8 @@ export function DashboardHeader({
     presets = DEFAULT_CALENDAR_PRESETS,
     storageManaged = false,
     storageReady = true,
+    meta,
+    controls,
 }: DashboardHeaderProps) {
     const pathname = usePathname() || "/";
     const serverFilters = useServerDashboardDateFilters();
@@ -256,6 +261,7 @@ export function DashboardHeader({
                 </h1>
 
                 <p className="mt-2 text-sm text-slate-500">{description}</p>
+                {meta}
             </div>
 
             <div
@@ -266,30 +272,32 @@ export function DashboardHeader({
                         : "invisible pointer-events-none max-w-full select-none"
                 }
             >
-                <ButtonGroup
-                    value={period}
-                    onChange={(value) => {
-                        setPeriod(value);
-                        setSelectedRange(EMPTY_DATE_RANGE);
-                    }}
-                    options={presets.map((preset) => ({
-                        value: preset.value,
-                        label: preset.label,
-                    }))}
-                >
-                    <CalendarButton
-                        value={selectedRange}
-                        onChange={setSelectedRange}
-                        onApply={(range) => {
-                            if (range.start) {
-                                setPeriod(null);
-                                return;
-                            }
-
-                            setPeriod(presets[0]?.value ?? "yesterday");
+                {controls ?? (
+                    <ButtonGroup
+                        value={period}
+                        onChange={(value) => {
+                            setPeriod(value);
+                            setSelectedRange(EMPTY_DATE_RANGE);
                         }}
-                    />
-                </ButtonGroup>
+                        options={presets.map((preset) => ({
+                            value: preset.value,
+                            label: preset.label,
+                        }))}
+                    >
+                        <CalendarButton
+                            value={selectedRange}
+                            onChange={setSelectedRange}
+                            onApply={(range) => {
+                                if (range.start) {
+                                    setPeriod(null);
+                                    return;
+                                }
+
+                                setPeriod(presets[0]?.value ?? "yesterday");
+                            }}
+                        />
+                    </ButtonGroup>
+                )}
             </div>
         </header>
     );
