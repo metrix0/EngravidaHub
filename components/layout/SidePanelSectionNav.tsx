@@ -521,10 +521,10 @@ export default function SidePanelSectionNav() {
 
     return createPortal(
         <div
-            className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
+            className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${
                 sectionsVisible
-                    ? "translate-y-0 opacity-100"
-                    : "pointer-events-none -translate-y-2 opacity-0"
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0"
             }`}
             style={{ maxHeight: sectionsVisible ? `${expandedHeight}px` : "0px" }}
             aria-label={`Seções de ${config.key}`}
