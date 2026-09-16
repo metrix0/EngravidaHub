@@ -38,11 +38,11 @@ export const CHANNEL_DASHBOARD_WIDGETS = [
     { id: "ligacoes.final_ruim", title: "Final ruim", kind: "kpi", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
     { id: "ligacoes.evolucao", title: "Evolução das ligações", kind: "chart", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
 
-    // Web pages (/jornada/web)
-    { id: "web.visualizacoes_site", title: "Visualizações — site principal", kind: "kpi", source: "canais", sourcePath: "/jornada/web", permissionTab: "jornada" },
-    { id: "web.visualizacoes_landing", title: "Visualizações — landing pages", kind: "kpi", source: "canais", sourcePath: "/jornada/web", permissionTab: "jornada" },
-    { id: "web.site_principal", title: "Site principal", kind: "table", source: "canais", sourcePath: "/jornada/web", permissionTab: "jornada" },
-    { id: "web.landing_pages", title: "Landing pages", kind: "table", source: "canais", sourcePath: "/jornada/web", permissionTab: "jornada" },
+    // Web pages (/atendimento)
+    { id: "web.visualizacoes_site", title: "Visualizações — site principal", kind: "kpi", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
+    { id: "web.visualizacoes_landing", title: "Visualizações — landing pages", kind: "kpi", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
+    { id: "web.site_principal", title: "Site principal", kind: "table", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
+    { id: "web.landing_pages", title: "Landing pages", kind: "table", source: "canais", sourcePath: "/atendimento", permissionTab: "dashboard" },
 
     // Channel share charts (/jornada)
     { id: "jornada.participacao_instagram", title: "Participação do Instagram nas conversas", kind: "chart", source: "canais", sourcePath: "/jornada", permissionTab: "jornada" },

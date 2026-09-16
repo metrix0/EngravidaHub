@@ -36,6 +36,7 @@ const DASHBOARD_SECTIONS: SectionDefinition[] = [
         heading: "Análise das conversas do Messenger",
     },
     { id: "dashboard-ligacoes", label: "Ligações", heading: "Ligações" },
+    { id: "dashboard-web", label: "Web", heading: "Páginas web" },
 ];
 
 const FINANCEIRO_SECTIONS: SectionDefinition[] = [
