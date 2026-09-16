@@ -95,6 +95,8 @@ export type AppointmentStatus =
 
 export type CalendarAppointment = {
     id: string;
+    source: string;
+    source_external_id: string | null;
     client_id: string | null;
     thread_id: string | null;
     unit_id: string;

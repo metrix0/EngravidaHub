@@ -108,6 +108,23 @@ export async function POST(request: Request) {
         }).select("id").single();
         if (insertError) throw insertError;
 
+        const pendingAppointment = await fetchAppointmentById(supabase, inserted.id);
+        if (!pendingAppointment) throw new Error("Appointment was created but could not be reloaded");
+
+        const integration = await sendAppointmentIntegration(
+            buildAppointmentIntegrationPayload("appointment.created", pendingAppointment),
+        );
+        if (!integration.ok) {
+            const { error: rollbackError } = await supabase.from("appointments").delete().eq("id", inserted.id);
+            if (rollbackError) {
+                console.error("[appointments:post] failed to roll back local appointment", rollbackError);
+            }
+            return NextResponse.json(
+                { ok: false, error: integration.error ?? "Não foi possível criar o agendamento no CliniSYS." },
+                { status: 502 },
+            );
+        }
+
         if (clientId) {
             const { error: clientUpdateError } = await supabase.from("clients").update({
                 name: body.primary.fullName || null, phone: body.primary.phone || null, email: body.primary.email || null,
@@ -119,8 +136,6 @@ export async function POST(request: Request) {
             }).eq("id", clientId);
             if (clientUpdateError) console.warn("[appointments:post] appointment created but client data was not updated", { client_id: clientId, error: clientUpdateError.message });
         }
-        const appointment = await fetchAppointmentById(supabase, inserted.id);
-        if (!appointment) throw new Error("Appointment was created but could not be reloaded");
 
         let fivAutomation: Awaited<ReturnType<typeof moveClientToFivFirstStage>>;
         try {
@@ -141,9 +156,8 @@ export async function POST(request: Request) {
             };
         }
 
-        const integration = await sendAppointmentIntegration(
-            buildAppointmentIntegrationPayload("appointment.created", appointment),
-        );
+        const appointment = await fetchAppointmentById(supabase, inserted.id);
+        if (!appointment) throw new Error("Appointment was integrated but could not be reloaded");
 
         return NextResponse.json(
             {

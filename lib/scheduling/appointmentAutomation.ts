@@ -1,9 +1,11 @@
 // lib/scheduling/appointmentAutomation.ts
+import {
+    createClinisysAppointment,
+    deleteClinisysAppointment,
+    updateClinisysAppointment,
+} from "@/lib/clinisys/client";
 import { supabase } from "@/lib/supabase/client";
 import type { CalendarAppointment } from "@/types/scheduling";
-
-const DEFAULT_INTEGRATION_URL =
-    "https://example.com/api/engravida/appointments";
 
 export type AppointmentIntegrationEvent =
     | "appointment.created"
@@ -33,6 +35,10 @@ export type AppointmentIntegrationPayload = {
     event: AppointmentIntegrationEvent;
     appointment: {
         id: string;
+        source: string;
+        sourceExternalId: string | null;
+        unitId: string;
+        doctorId: string;
         startsAt: string;
         endsAt: string;
         status: string;
@@ -55,6 +61,10 @@ export function buildAppointmentIntegrationPayload(
         event,
         appointment: {
             id: appointment.id,
+            source: appointment.source,
+            sourceExternalId: appointment.source_external_id,
+            unitId: appointment.unit_id,
+            doctorId: appointment.doctor_id,
             startsAt: appointment.starts_at,
             endsAt: appointment.ends_at,
             status: appointment.status,
@@ -99,47 +109,51 @@ export function isInitialConsultation(procedureName: string | null | undefined) 
 
 export async function sendAppointmentIntegration(
     payload: AppointmentIntegrationPayload,
-): Promise<{ ok: boolean; status?: number; error?: string }> {
-    const url =
-        process.env.SCHEDULING_INTEGRATION_URL?.trim() ||
-        DEFAULT_INTEGRATION_URL;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2_500);
-
+): Promise<{
+    ok: boolean;
+    status?: number;
+    error?: string;
+    externalId?: string;
+}> {
     try {
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Engravida-Event": payload.event,
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-            cache: "no-store",
-        });
-
-        if (!response.ok) {
-            const error = `Integration returned HTTP ${response.status}`;
-            console.warn("[appointment-integration] request failed", {
-                event: payload.event,
-                appointmentId: payload.appointment.id,
-                status: response.status,
-            });
-            return { ok: false, status: response.status, error };
+        if (payload.event === "appointment.deleted") {
+            const externalId = payload.appointment.sourceExternalId;
+            if (!externalId) return { ok: true, status: 200 };
+            await deleteClinisysAppointment(externalId);
+            return { ok: true, status: 200, externalId };
         }
 
-        return { ok: true, status: response.status };
+        if (!payload.appointment.sourceExternalId) {
+            const created = await createClinisysAppointment(payload.appointment);
+            const { error } = await supabase
+                .from("appointments")
+                .update({
+                    source: "clinisys",
+                    source_external_id: created.externalId,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq("id", payload.appointment.id);
+            if (error) throw error;
+            return { ok: true, status: 200, externalId: created.externalId };
+        }
+
+        if (payload.event === "appointment.updated") {
+            await updateClinisysAppointment(payload.appointment);
+        }
+
+        return {
+            ok: true,
+            status: 200,
+            externalId: payload.appointment.sourceExternalId,
+        };
     } catch (error) {
-        const message =
-            error instanceof Error ? error.message : "Unknown integration error";
-        console.warn("[appointment-integration] request failed", {
+        const message = error instanceof Error ? error.message : "Falha na integração com o CliniSYS.";
+        console.warn("[appointment-integration] CliniSYS request failed", {
             event: payload.event,
             appointmentId: payload.appointment.id,
             error: message,
         });
         return { ok: false, error: message };
-    } finally {
-        clearTimeout(timeout);
     }
 }
 
