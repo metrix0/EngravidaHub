@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Globe2, PanelsTopLeft } from "lucide-react";
 
 import {
@@ -36,11 +37,14 @@ export default function DashboardWebPageViews({
     period,
     selectedRange,
 }: Props) {
+    const pathname = usePathname();
     const [data, setData] = useState<WebPageViewsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (pathname === "/atendimento") return;
+
         const controller = new AbortController();
         const debounceId = window.setTimeout(() => {
             void loadPageViews();
@@ -99,8 +103,9 @@ export default function DashboardWebPageViews({
             window.clearTimeout(debounceId);
             controller.abort();
         };
-    }, [period, selectedRange.start, selectedRange.end]);
+    }, [pathname, period, selectedRange.start, selectedRange.end]);
 
+    if (pathname === "/atendimento") return null;
     if (loading) return <WebPageViewsSkeleton />;
 
     if (error) {

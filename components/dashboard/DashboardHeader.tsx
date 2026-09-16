@@ -10,7 +10,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import ButtonGroup from "@/components/ui/ButtonGroup";
 import CalendarButton from "@/components/ui/CalendarButton";
@@ -56,15 +56,16 @@ export function useDashboardDateFilter(
     options: { syncUrl?: boolean } = {},
 ) {
     const pathname = usePathname() || "/";
+    const storagePathname = getDashboardDateStoragePath(pathname);
     const serverFilters = useServerDashboardDateFilters();
     const syncUrl = options.syncUrl === true;
     const [urlReady, setUrlReady] = useState(!syncUrl);
     const [filter, setFilter] = useState<StoredDashboardDateFilter>(() =>
         resolveInitialFilter({
-            pathname,
+            pathname: storagePathname,
             defaultPeriod,
             presets,
-            serverFilter: serverFilters[pathname],
+            serverFilter: serverFilters[storagePathname],
         }),
     );
 
@@ -84,8 +85,8 @@ export function useDashboardDateFilter(
 
     useEffect(() => {
         if (!urlReady || filter.period === null) return;
-        writeStoredDateFilter(pathname, filter);
-    }, [filter, pathname, urlReady]);
+        writeStoredDateFilter(storagePathname, filter);
+    }, [filter, storagePathname, urlReady]);
 
     useEffect(() => {
         if (!syncUrl || !urlReady) return;
@@ -177,6 +178,8 @@ export function DashboardHeader({
     controls,
 }: DashboardHeaderProps) {
     const pathname = usePathname() || "/";
+    const storagePathname = getDashboardDateStoragePath(pathname);
+    const router = useRouter();
     const serverFilters = useServerDashboardDateFilters();
     const [internalStorageReady, setInternalStorageReady] = useState(
         storageManaged,
@@ -189,6 +192,11 @@ export function DashboardHeader({
         pathname === "/atendimento" && title === "Dashboard"
             ? "Atendimento"
             : title;
+    const showJourneySections =
+        pathname === "/jornada" || pathname.startsWith("/jornada/");
+    const journeySection = pathname.startsWith("/jornada/web")
+        ? ("web" as const)
+        : ("journey" as const);
 
     useBrowserLayoutEffect(() => {
         if (storageManaged) {
@@ -204,9 +212,9 @@ export function DashboardHeader({
         if (internalStorageReady) return;
 
         const storedFilter = resolveStoredFilter(
-            pathname,
+            storagePathname,
             presets,
-            serverFilters[pathname],
+            serverFilters[storagePathname],
         );
 
         if (storedFilter) {
@@ -227,12 +235,12 @@ export function DashboardHeader({
         setInternalStorageReady(true);
     }, [
         internalStorageReady,
-        pathname,
         presets,
         serverFilters,
         setPeriod,
         setSelectedRange,
         storageManaged,
+        storagePathname,
     ]);
 
     useEffect(() => {
@@ -244,65 +252,85 @@ export function DashboardHeader({
             return;
         }
 
-        writeStoredDateFilter(pathname, { period, selectedRange });
+        writeStoredDateFilter(storagePathname, { period, selectedRange });
     }, [
         internalStorageReady,
-        pathname,
         period,
         selectedRange,
         storageManaged,
+        storagePathname,
     ]);
 
     return (
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-0">
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
-                    {resolvedTitle}
-                </h1>
-
-                <p className="mt-2 text-sm text-slate-500">{description}</p>
-                {meta}
-            </div>
-
-            <div
-                aria-hidden={!controlsReady}
-                className={
-                    controlsReady
-                        ? "max-w-full"
-                        : "invisible pointer-events-none max-w-full select-none"
-                }
+        <>
+            <header
+                className={`${showJourneySections ? "mb-4" : "mb-8"} flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-0`}
             >
-                {controls ?? (
-                    <ButtonGroup
-                        value={period}
-                        onChange={(value) => {
-                            setPeriod(value);
-                            setSelectedRange(EMPTY_DATE_RANGE);
-                        }}
-                        options={presets.map((preset) => ({
-                            value: preset.value,
-                            label: preset.label,
-                        }))}
-                    >
-                        <CalendarButton
-                            value={selectedRange}
-                            onChange={setSelectedRange}
-                            onApply={(range) => {
-                                if (range.start) {
-                                    setPeriod(null);
-                                    return;
-                                }
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+                        {resolvedTitle}
+                    </h1>
 
-                                setPeriod(presets[0]?.value ?? "yesterday");
+                    <p className="mt-2 text-sm text-slate-500">{description}</p>
+                    {meta}
+                </div>
+
+                <div
+                    aria-hidden={!controlsReady}
+                    className={
+                        controlsReady
+                            ? "max-w-full"
+                            : "invisible pointer-events-none max-w-full select-none"
+                    }
+                >
+                    {controls ?? (
+                        <ButtonGroup
+                            value={period}
+                            onChange={(value) => {
+                                setPeriod(value);
+                                setSelectedRange(EMPTY_DATE_RANGE);
                             }}
-                        />
-                    </ButtonGroup>
-                )}
-            </div>
-        </header>
+                            options={presets.map((preset) => ({
+                                value: preset.value,
+                                label: preset.label,
+                            }))}
+                        >
+                            <CalendarButton
+                                value={selectedRange}
+                                onChange={setSelectedRange}
+                                onApply={(range) => {
+                                    if (range.start) {
+                                        setPeriod(null);
+                                        return;
+                                    }
+
+                                    setPeriod(presets[0]?.value ?? "yesterday");
+                                }}
+                            />
+                        </ButtonGroup>
+                    )}
+                </div>
+            </header>
+
+            {showJourneySections && (
+                <div className="mb-8 flex max-w-full">
+                    <ButtonGroup
+                        value={journeySection}
+                        onChange={(value) =>
+                            router.push(
+                                value === "web" ? "/jornada/web" : "/jornada",
+                            )
+                        }
+                        options={[
+                            { value: "journey", label: "Visão geral" },
+                            { value: "web", label: "Web" },
+                        ]}
+                    />
+                </div>
+            )}
+        </>
     );
 }
-
 
 function readDateFilterFromUrl(
     presets: typeof DEFAULT_CALENDAR_PRESETS,
@@ -448,6 +476,12 @@ function writeStoredDateFilter(
     } catch (error) {
         console.warn("[DashboardHeader] failed to save date filter", error);
     }
+}
+
+function getDashboardDateStoragePath(pathname: string) {
+    return pathname === "/jornada" || pathname.startsWith("/jornada/")
+        ? "/jornada"
+        : pathname;
 }
 
 function isAllowedFilter(
