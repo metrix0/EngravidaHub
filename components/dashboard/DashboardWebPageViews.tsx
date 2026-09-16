@@ -166,7 +166,7 @@ export default function DashboardWebPageViews({
                 <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<Globe2 size={26} />}
-                        label="Visualizações — site principal"
+                        label="Visualizações Site"
                         currentValue={data.main_site_views}
                         previousValue={data.previous_main_site_views}
                         formatter={formatViews}
@@ -176,7 +176,7 @@ export default function DashboardWebPageViews({
                 <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<PanelsTopLeft size={26} />}
-                        label="Visualizações — landing pages"
+                        label="Visualizações LP"
                         currentValue={data.landing_page_views}
                         previousValue={data.previous_landing_page_views}
                         formatter={formatViews}
@@ -186,7 +186,7 @@ export default function DashboardWebPageViews({
                 <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<MessageCircle size={26} />}
-                        label="Cliques no WhatsApp"
+                        label="Cliques WhatsApp"
                         currentValue={data.whatsapp_clicks}
                         previousValue={data.previous_whatsapp_clicks}
                         formatter={formatViews}
@@ -197,7 +197,7 @@ export default function DashboardWebPageViews({
                 <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<ArrowUpRight size={26} />}
-                        label="Cliques para o site principal"
+                        label="Cliques Site"
                         currentValue={data.main_site_clicks}
                         previousValue={data.previous_main_site_clicks}
                         formatter={formatViews}
@@ -208,7 +208,7 @@ export default function DashboardWebPageViews({
                 <div className="min-w-[245px] flex-1">
                     <KpiCard
                         icon={<MousePointerClick size={26} />}
-                        label="Taxa de ação das landing pages"
+                        label="Taxa Ação"
                         currentValue={data.landing_page_action_rate}
                         previousValue={data.previous_landing_page_action_rate}
                         formatter={formatPercent}
