@@ -344,15 +344,17 @@ export default function SidePanelSectionNav() {
     }, [host, sidebarExpanded, config?.key, manuallyCollapsed]);
 
     useEffect(() => {
-        if (!config || getPageScroller()) return;
+        if (!config) return;
 
         const appContent = document.querySelector<HTMLElement>(".app-content");
         if (!appContent) return;
 
+        let currentScroller = getPageScroller();
         const observer = new MutationObserver(() => {
-            if (!getPageScroller()) return;
+            const nextScroller = getPageScroller();
+            if (nextScroller === currentScroller) return;
 
-            observer.disconnect();
+            currentScroller = nextScroller;
             setScrollContainerVersion((version) => version + 1);
         });
         observer.observe(appContent, { childList: true, subtree: true });
