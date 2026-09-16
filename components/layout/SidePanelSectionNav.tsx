@@ -204,6 +204,7 @@ export default function SidePanelSectionNav() {
     const [host, setHost] = useState<HTMLDivElement | null>(null);
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
     const [sectionsVisible, setSectionsVisible] = useState(false);
+    const [manuallyCollapsed, setManuallyCollapsed] = useState(false);
     const [scrollContainerVersion, setScrollContainerVersion] = useState(0);
     const [sections, setSections] = useState<SectionDefinition[]>(
         config?.sections ?? [],
@@ -216,6 +217,7 @@ export default function SidePanelSectionNav() {
 
     useEffect(() => {
         setSections(config?.sections ?? []);
+        setManuallyCollapsed(false);
     }, [config]);
 
     useEffect(() => {
@@ -232,6 +234,7 @@ export default function SidePanelSectionNav() {
 
         let currentHost: HTMLDivElement | null = null;
         let resizeObserver: ResizeObserver | null = null;
+        let removeParentClickListener: (() => void) | null = null;
         let previousSidebarWidth: number | null = null;
 
         const install = () => {
@@ -243,6 +246,29 @@ export default function SidePanelSectionNav() {
 
             const parentLink = findParentLink(nav, config.parentHref);
             if (!parentLink) return false;
+
+            const handleParentClick = (event: MouseEvent) => {
+                if (
+                    event.defaultPrevented ||
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                ) {
+                    return;
+                }
+
+                const mobile = window.matchMedia("(max-width: 767px)").matches;
+                if (!mobile && aside.getBoundingClientRect().width < 180) return;
+
+                event.preventDefault();
+                setManuallyCollapsed((collapsed) => !collapsed);
+            };
+
+            parentLink.addEventListener("click", handleParentClick);
+            removeParentClickListener = () =>
+                parentLink.removeEventListener("click", handleParentClick);
 
             const previousHost = nav.querySelector<HTMLDivElement>(
                 `[data-sidepanel-section-nav="${config.key}"]`,
@@ -282,6 +308,7 @@ export default function SidePanelSectionNav() {
             return () => {
                 observer.disconnect();
                 resizeObserver?.disconnect();
+                removeParentClickListener?.();
                 currentHost?.remove();
                 setHost(null);
             };
@@ -289,13 +316,14 @@ export default function SidePanelSectionNav() {
 
         return () => {
             resizeObserver?.disconnect();
+            removeParentClickListener?.();
             currentHost?.remove();
             setHost(null);
         };
     }, [config]);
 
     useEffect(() => {
-        if (!host || !sidebarExpanded) {
+        if (!host || !sidebarExpanded || manuallyCollapsed) {
             setSectionsVisible(false);
             return;
         }
@@ -312,7 +340,7 @@ export default function SidePanelSectionNav() {
             window.cancelAnimationFrame(firstFrame);
             if (secondFrame) window.cancelAnimationFrame(secondFrame);
         };
-    }, [host, sidebarExpanded, config?.key]);
+    }, [host, sidebarExpanded, config?.key, manuallyCollapsed]);
 
     useEffect(() => {
         if (!config || getPageScroller()) return;
