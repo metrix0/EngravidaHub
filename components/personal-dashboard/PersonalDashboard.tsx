@@ -193,7 +193,7 @@ export default function PersonalDashboard() {
                     storageReady={dateFilterReady}
                 />
 
-                {dateFilterReady ? (
+                {dateFilterReady && status === "ready" ? (
                     <DashboardFilterBar>
                         <MainFilters
                             units={filters?.units}
@@ -210,15 +210,19 @@ export default function PersonalDashboard() {
                             setOriginValues={setOriginValues}
                             show={{ tunnels: false, origins: false }}
                         />
-                        {hasFinancialWidgets && data.financeiro ? (
-                            <FilterButton
-                                icon={<Layers3 size={16} />}
-                                label="Todas as categorias"
-                                values={categories}
-                                onChange={setCategories}
-                                options={data.financeiro.available_filters.categories}
-                                widthClassName="w-[250px]"
-                            />
+                        {hasFinancialWidgets ? (
+                            data.financeiro ? (
+                                <FilterButton
+                                    icon={<Layers3 size={16} />}
+                                    label="Todas as categorias"
+                                    values={categories}
+                                    onChange={setCategories}
+                                    options={data.financeiro.available_filters.categories}
+                                    widthClassName="w-[250px]"
+                                />
+                            ) : (
+                                <Skeleton className="h-11 w-[250px] rounded-xl" />
+                            )
                         ) : null}
                         <AdvancedFilterButton
                             sections={[
@@ -300,8 +304,8 @@ export default function PersonalDashboard() {
                         widths={[
                             "w-[230px]",
                             "w-[230px]",
-                            "w-[150px]",
                             "w-[250px]",
+                            "w-[150px]",
                         ]}
                     />
                 )}
