@@ -5,7 +5,6 @@ import { resolveDashboardDateRange } from "@/lib/dashboard/metrics";
 
 const PAGE_SIZE = 1_000;
 const MAX_CONVERSATIONS = 100_000;
-const ID_BATCH_SIZE = 100;
 
 type ConversationRow = {
     instagram_user_id: string | null;
@@ -40,7 +39,6 @@ export async function GET(request: Request) {
         }
 
         const attributionResult = await loadAttributions(
-            activeClientIds,
             range.startAt,
             range.endAt,
             request.signal,
@@ -109,24 +107,23 @@ async function loadInstagramClientIds(
 }
 
 async function loadAttributions(
-    instagramUserIds: string[],
     startAt: string,
     endAt: string,
     signal: AbortSignal,
 ): Promise<{ available: boolean; rows: AttributionRow[] }> {
     const rows: AttributionRow[] = [];
 
-    for (const ids of chunk(instagramUserIds, ID_BATCH_SIZE)) {
+    for (let from = 0; from < MAX_CONVERSATIONS; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("conversation_ad_attributions")
             .select(
                 "instagram_user_id, meta_ad_id, campaign_id, campaign_name, ad_name, referral_ad_title, referral_received_at",
             )
             .eq("channel", "Instagram")
-            .in("instagram_user_id", ids)
             .gte("referral_received_at", startAt)
             .lt("referral_received_at", endAt)
             .order("referral_received_at", { ascending: false })
+            .range(from, from + PAGE_SIZE - 1)
             .abortSignal(signal);
 
         if (error) {
@@ -136,7 +133,9 @@ async function loadAttributions(
             throw error;
         }
 
-        rows.push(...((data ?? []) as AttributionRow[]));
+        const page = (data ?? []) as AttributionRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
     }
 
     return { available: true, rows };
@@ -273,12 +272,4 @@ function isMissingAttributionSchema(error: { code?: string; message?: string }) 
         message.includes("conversation_ad_attributions") &&
             (message.includes("does not exist") || message.includes("schema cache"))
     );
-}
-
-function chunk<T>(items: T[], size: number) {
-    const result: T[][] = [];
-    for (let index = 0; index < items.length; index += size) {
-        result.push(items.slice(index, index + size));
-    }
-    return result;
 }

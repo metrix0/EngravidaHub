@@ -18,7 +18,6 @@ import {
 
 const PAGE_SIZE = 1_000;
 const MAX_CONVERSATIONS = 100_000;
-const ID_BATCH_SIZE = 100;
 const MAX_FIRST_RESPONSE_SECONDS = 7_200;
 const MAX_AVERAGE_RESPONSE_SECONDS = 7_200;
 const MAX_LONGEST_DELAY_SECONDS = 86_400;
@@ -167,10 +166,20 @@ export async function GET(request: Request) {
             request.signal,
         );
         const analyses = await loadInstagramAnalyses(
-            conversations.map((conversation) => conversation.id),
+            range.startAt,
+            range.endAt,
             request.signal,
         );
-        const payload = buildInstagramAnalysisPayload(conversations, analyses);
+        const conversationIds = new Set(
+            conversations.map((conversation) => conversation.id),
+        );
+        const scopedAnalyses = analyses.filter((analysis) =>
+            conversationIds.has(analysis.conversation_id),
+        );
+        const payload = buildInstagramAnalysisPayload(
+            conversations,
+            scopedAnalyses,
+        );
 
         return NextResponse.json(payload, {
             headers: { "Cache-Control": "private, no-store" },
@@ -262,12 +271,13 @@ async function loadInstagramConversations(
 }
 
 async function loadInstagramAnalyses(
-    conversationIds: string[],
+    startAt: string,
+    endAt: string,
     signal: AbortSignal,
 ) {
     const rows: InstagramAnalysisRow[] = [];
 
-    for (const ids of chunk(conversationIds, ID_BATCH_SIZE)) {
+    for (let from = 0; from < MAX_CONVERSATIONS; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("conversation_analysis")
             .select(
@@ -297,13 +307,21 @@ async function loadInstagramAnalyses(
                     "resolution_score",
                     "resolution_reasoning_category",
                     "notable",
+                    "conversations!conversation_analysis_conversation_id_fkey!inner(channel, started_at)",
                 ].join(", "),
             )
-            .in("conversation_id", ids)
+            .eq("conversations.channel", "Instagram")
+            .gte("conversations.started_at", startAt)
+            .lt("conversations.started_at", endAt)
+            .order("conversation_id", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
             .abortSignal(signal);
 
         if (error) throw error;
-        rows.push(...((data ?? []) as unknown as InstagramAnalysisRow[]));
+
+        const page = (data ?? []) as unknown as InstagramAnalysisRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
     }
 
     return rows;
@@ -797,12 +815,4 @@ function saoPauloDate(value: string) {
 function displayDate(dateIso: string) {
     const [, month, day] = dateIso.split("-");
     return `${day}/${month}`;
-}
-
-function chunk<T>(items: T[], size: number) {
-    const chunks: T[][] = [];
-    for (let index = 0; index < items.length; index += size) {
-        chunks.push(items.slice(index, index + size));
-    }
-    return chunks;
 }
