@@ -17,7 +17,7 @@ const DEFAULT_INACTIVITY_HOURS = 16;
 const DEFAULT_FINALIZE_LIMIT = 100;
 const DEFAULT_LEGACY_MESSAGE_LIMIT = 1000;
 const MAX_LIMIT = 250;
-const FINALIZE_CONCURRENCY = 8;
+const FINALIZE_CONCURRENCY = 4;
 
 type InactiveThreadRow = {
     id: string;
