@@ -216,12 +216,12 @@ function summarizeUnit(
 }
 
 function markingIdentity(row: MarkingRow) {
+    const patient = normalizePatientName(row.patient_name);
+    if (patient) return `patient:${patient}`;
+
     const phone = row.normalized_phone?.trim();
     if (phone) return `phone:${phone}`;
     if (row.client_id) return `client:${row.client_id}`;
-
-    const patient = normalizeUnitName(row.patient_name?.trim() || "");
-    if (patient) return `patient:${patient}`;
 
     return `schedule:${row.source_hash || row.id}`;
 }
@@ -254,6 +254,10 @@ function brazilDate(value: string) {
         parts.map((part) => [part.type, part.value]),
     );
     return `${values.year}-${values.month}-${values.day}`;
+}
+
+function normalizePatientName(value: string | null) {
+    return value?.trim().toLocaleLowerCase("pt-BR") ?? "";
 }
 
 function normalizeUnitName(value: string) {

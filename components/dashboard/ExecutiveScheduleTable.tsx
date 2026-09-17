@@ -4,6 +4,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Card, Skeleton } from "@/components";
+import { applyCalendarDateParams } from "@/components/ui/CalendarButton";
 import type { ExecutiveDashboardData } from "@/types";
 
 type ScheduleUnitRow = ExecutiveDashboardData["schedule_unit_table"]["rows"][number];
@@ -29,8 +30,6 @@ export default function ExecutiveScheduleTable({
 }: {
     data: ExecutiveDashboardData["schedule_unit_table"];
 }) {
-    const queryString =
-        typeof window === "undefined" ? "" : window.location.search.slice(1);
     const unitNamesParam = data.rows.map((row) => row.unit_name).join(",");
     const [markings, setMarkings] = useState<MarkingUnitTable | null>(null);
     const [markingsLoading, setMarkingsLoading] = useState(true);
@@ -38,7 +37,17 @@ export default function ExecutiveScheduleTable({
 
     useEffect(() => {
         const controller = new AbortController();
-        const params = new URLSearchParams(queryString);
+        const browserParams = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams();
+
+        applyCalendarDateParams({
+            params,
+            selectedRange: {
+                start: browserParams.get("start_date"),
+                end: browserParams.get("end_date"),
+            },
+            selectedPreset: browserParams.get("period") ?? "current_month",
+        });
         if (unitNamesParam) params.set("unit_names", unitNamesParam);
 
         setMarkingsLoading(true);
@@ -58,7 +67,27 @@ export default function ExecutiveScheduleTable({
                             "Não foi possível carregar as marcações.",
                     );
                 }
-                setMarkings(payload);
+
+                const exactMarkingsByUnit = new Map(
+                    data.rows.map((row) => [
+                        normalizeUnitKey(row.unit_name),
+                        row.markings,
+                    ]),
+                );
+
+                setMarkings({
+                    rows: payload.rows.map((row) => ({
+                        ...row,
+                        markings:
+                            exactMarkingsByUnit.get(
+                                normalizeUnitKey(row.unit_name),
+                            ) ?? row.markings,
+                    })),
+                    total: {
+                        ...payload.total,
+                        markings: data.total.markings,
+                    },
+                });
             })
             .catch((error: unknown) => {
                 if (
@@ -79,7 +108,7 @@ export default function ExecutiveScheduleTable({
             });
 
         return () => controller.abort();
-    }, [queryString, unitNamesParam]);
+    }, [data.rows, data.total.markings, unitNamesParam]);
 
     return (
         <div className="space-y-5">
@@ -338,4 +367,12 @@ function formatPercentage(value: number | null) {
         minimumFractionDigits: 0,
         maximumFractionDigits: 1,
     })}%`;
+}
+
+function normalizeUnitKey(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR");
 }
