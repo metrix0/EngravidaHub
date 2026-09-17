@@ -44,7 +44,7 @@ const supabaseFetch: typeof fetch = async (input, init) => {
 
     const method = init?.method ?? (input instanceof Request ? input.method : "GET");
     const target = supabaseRequestTarget(input);
-    const shouldLogTiming = isServer && process.env.SERVER_LOADING_LOGS !== "false";
+    const shouldLogTiming = isServer && process.env.SERVER_LOADING_LOGS === "true";
     const startedAt = performance.now();
 
     if (shouldLogTiming) {
