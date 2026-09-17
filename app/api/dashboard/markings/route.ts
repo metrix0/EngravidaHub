@@ -43,23 +43,22 @@ export async function GET(request: Request) {
         brazilDate(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
+    const endExclusive = nextDate(endDate);
 
     try {
         const selectedUnitNames = await resolveSelectedUnitNames(
             searchParams,
             request.signal,
         );
-        const rows = await loadMarkingRows(endDate, request.signal);
+        const rows = await loadMarkingRows(endExclusive, request.signal);
         const firstRowIds = firstMarkingRowIds(rows);
         const selectedUnitKeys =
             selectedUnitNames === null
                 ? null
                 : new Set(selectedUnitNames.map(normalizeUnitName));
         const currentRows = rows.filter((row) => {
-            if (
-                row.created_in_source_at < startDate ||
-                row.created_in_source_at > endDate
-            ) {
+            const createdDate = row.created_in_source_at.slice(0, 10);
+            if (createdDate < startDate || createdDate > endDate) {
                 return false;
             }
 
@@ -146,7 +145,7 @@ async function resolveSelectedUnitNames(
         .filter((name: string | undefined): name is string => Boolean(name));
 }
 
-async function loadMarkingRows(endDate: string, signal: AbortSignal) {
+async function loadMarkingRows(endExclusive: string, signal: AbortSignal) {
     const rows: MarkingRow[] = [];
 
     for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
@@ -156,7 +155,7 @@ async function loadMarkingRows(endDate: string, signal: AbortSignal) {
                 "id, source_hash, client_id, normalized_phone, patient_name, created_in_source_at, unit_name, status",
             )
             .not("created_in_source_at", "is", null)
-            .lte("created_in_source_at", endDate)
+            .lt("created_in_source_at", endExclusive)
             .order("created_in_source_at", { ascending: true })
             .order("id", { ascending: true })
             .range(from, from + PAGE_SIZE - 1)
@@ -235,6 +234,13 @@ function rangeProjectionFactor(startDate: string, endDate: string) {
     const [year, monthNumber, day] = today.split("-").map(Number);
     const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
     return daysInMonth / Math.max(1, Math.min(day, daysInMonth));
+}
+
+function nextDate(value: string) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day + 1))
+        .toISOString()
+        .slice(0, 10);
 }
 
 function brazilDate(value: string) {

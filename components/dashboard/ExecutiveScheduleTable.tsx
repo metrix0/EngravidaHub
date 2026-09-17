@@ -219,7 +219,7 @@ function MarkingsTable({
                 </div>
             ) : data ? (
                 <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl pb-2">
-                    <table className="w-full min-w-[780px] border-collapse text-xs">
+                    <table className="w-full min-w-[980px] border-collapse text-xs">
                         <thead className="bg-slate-50 text-slate-500">
                             <tr>
                                 {MARKING_HEADERS.map((label, index) => (
@@ -251,13 +251,13 @@ function MarkingsTable({
 
 const MARKING_HEADERS = [
     "Unidade",
-    "Ag.",
-    "Únicos",
-    "Proj Un.",
-    "Rem.",
-    "Desm.",
-    "1º Ag.",
-    "Proj. 1º Agn.",
+    "Marcações",
+    "Marcações únicas",
+    "Projeção de marcações únicas",
+    "Remarcações",
+    "Desmarcações",
+    "Primeira marcação",
+    "Projeção de primeira marcação",
 ];
 
 function MarkingRow({
