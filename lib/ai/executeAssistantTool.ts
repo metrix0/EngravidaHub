@@ -1,3 +1,4 @@
+import { executeAssistantAnalyticsQuery } from "@/lib/ai/assistantAnalyticsQuery";
 import {
   executeAssistantAdvancedDataTool,
   isAssistantAdvancedDataTool,
@@ -19,6 +20,8 @@ export async function executeAssistantTool(
   args: Record<string, unknown>,
   context: AssistantToolContext,
 ) {
+  if (name === "query_hub_data")
+    return executeAssistantAnalyticsQuery(args, context);
   if (name === "get_unit_macro_history")
     return getUnitMacroHistory(args, context);
   if (isAssistantAdvancedDataTool(name))

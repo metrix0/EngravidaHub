@@ -2,6 +2,31 @@
 export const ASSISTANT_TOOLS = [
     {
         type: "function",
+        name: "query_hub_data",
+        description:
+            "Executa uma consulta analítica genérica somente leitura sobre as visões aprovadas do Hub. Use para cruzamentos, coortes e relações entre registros que as ferramentas agregadas não conseguem responder. Para clientes/conversas específicos, cards, evidências e exportações, preserve as ferramentas dedicadas.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                sql: {
+                    type: "string",
+                    description:
+                        "Uma única consulta SELECT ou WITH...SELECT, sem comentários nem múltiplas instruções. Use somente as visões e colunas descritas nas instruções do Assistente.",
+                },
+                limit: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 500,
+                    description: "Máximo de linhas retornadas. Prefira agregações e limites pequenos.",
+                },
+            },
+            required: ["sql", "limit"],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "get_unit_macro_history",
         description: "Consulta o histórico compartilhado de análises semanais/mensais por unidade, com relatórios e métricas para comparar evolução. Use offset para percorrer todo o histórico.",
         strict: true,

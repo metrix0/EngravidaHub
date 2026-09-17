@@ -7,6 +7,7 @@ import { executeAssistantTool } from "@/lib/ai/executeAssistantTool";
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
+import { ASSISTANT_ANALYTICS_GUIDE } from "@/lib/ai/assistantAnalyticsQuery";
 import {
     ASSISTANT_HUB_KNOWLEDGE_BASE,
     ASSISTANT_PLAIN_LANGUAGE_RULE,
@@ -130,8 +131,10 @@ export async function POST(request: Request) {
         const selectedToolNames = new Set<string>(
             selectAssistantToolNames(messages),
         );
-        const availableTools = TOOLS.filter((tool) =>
-            selectedToolNames.has(tool.name),
+        const availableTools = TOOLS.filter(
+            (tool) =>
+                selectedToolNames.has(tool.name) &&
+                (!access.permission.unit_lock || tool.name !== "query_hub_data"),
         );
         let input: unknown[] = messages.map((message) => ({
             role: message.role,
@@ -400,11 +403,14 @@ Você é o Assistente IA interno do Engravida Hub.
 
 ${ASSISTANT_HUB_KNOWLEDGE_BASE}
 
+${ASSISTANT_ANALYTICS_GUIDE}
+
 ${ASSISTANT_PLAIN_LANGUAGE_RULE}
 
 REGRAS:
 1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
 2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook, funil, Mensagem Ativa, resgate, eventos de conversão, equipe interna ou operação. Nunca invente dados.
+2-A. Quando a pergunta exigir cruzar as mesmas pessoas/registros ao longo do tempo, combinar domínios ou fazer uma coorte que as ferramentas agregadas não entregam, use query_hub_data. Não conclua que o vínculo “não existe” antes de tentar essa consulta analítica. Continue usando as ferramentas dedicadas quando elas forem necessárias para cards de cliente/conversa, evidências, exportações ou métricas já normalizadas.
 3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
 4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
 5. Para uma análise geral de conversas do WhatsApp, objeções, motivos de não agendamento ou explicação de conversas sem análise, use get_conversation_analysis_overview. Em pedidos de “últimos N dias”, envie relative_days=N para que hoje conte como o primeiro dia; não calcule date_from manualmente. Para Instagram/Facebook, use somente as ferramentas sociais disponíveis e informe quando elas não oferecerem uma análise agregada. Em perguntas de baixa conversão de uma unidade, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
