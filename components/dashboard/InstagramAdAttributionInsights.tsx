@@ -155,6 +155,8 @@ export default function InstagramAdAttributionInsights({
         .filter((row) => row.key !== "__unattributed__")
         .slice(0, 8);
 
+    const adRows = data.top_ads;
+
     return (
         <div className="mb-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
             <Card className="min-w-0 overflow-hidden border-pink-100">
@@ -298,6 +300,74 @@ export default function InstagramAdAttributionInsights({
                                     isAnimationActive={false}
                                 >
                                     {campaignRows.map((row, index) => (
+                                        <Cell
+                                            key={row.key}
+                                            fill={COLORS[index % COLORS.length]}
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden border-pink-100 xl:col-span-2">
+                <div className="mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">
+                        Top anúncios
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                        Anúncios que mais trouxeram clientes atribuídos do Instagram no período.
+                    </p>
+                </div>
+
+                {adRows.length === 0 ? (
+                    <EmptyState text="Ainda não há anúncios atribuídos neste período." />
+                ) : (
+                    <div
+                        className="w-full min-w-0"
+                        style={{ height: Math.max(280, adRows.length * 48 + 70) }}
+                    >
+                        <ResponsiveContainer width="100%" height="100%" debounce={150}>
+                            <BarChart
+                                data={adRows}
+                                layout="vertical"
+                                margin={{ top: 4, right: 28, bottom: 8, left: 4 }}
+                            >
+                                <CartesianGrid
+                                    strokeDasharray="4 4"
+                                    stroke="#e2e8f0"
+                                    horizontal={false}
+                                />
+                                <XAxis
+                                    type="number"
+                                    allowDecimals={false}
+                                    stroke="#94a3b8"
+                                    tick={{ fontSize: 11 }}
+                                />
+                                <YAxis
+                                    type="category"
+                                    dataKey="label"
+                                    width={220}
+                                    stroke="#94a3b8"
+                                    tick={{ fontSize: 11 }}
+                                />
+                                <Tooltip
+                                    formatter={(value: number | string, _name, item) => [
+                                        `${Number(value).toLocaleString("pt-BR")} clientes (${formatPercent(item.payload?.percentage)})`,
+                                        item.payload?.campaign_name
+                                            ? `Campanha: ${item.payload.campaign_name}`
+                                            : "Clientes",
+                                    ]}
+                                />
+                                <Bar
+                                    dataKey="count"
+                                    fill={ATTRIBUTED_COLOR}
+                                    radius={[0, 7, 7, 0]}
+                                    isAnimationActive={false}
+                                >
+                                    {adRows.map((row, index) => (
                                         <Cell
                                             key={row.key}
                                             fill={COLORS[index % COLORS.length]}
