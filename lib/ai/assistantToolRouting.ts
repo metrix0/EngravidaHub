@@ -1,5 +1,6 @@
 // lib/ai/assistantToolRouting.ts
 export const ASSISTANT_TOOL_NAMES = [
+    "query_hub_data",
     "get_unit_macro_history",
     "search_clients",
     "get_client_context",
@@ -136,7 +137,8 @@ export function selectAssistantToolNames(
         selected.add("search_conversations");
     }
 
-    return selected.size > 0
-        ? ASSISTANT_TOOL_NAMES.filter((name) => selected.has(name))
-        : [...ASSISTANT_TOOL_NAMES];
+    if (selected.size === 0) return [...ASSISTANT_TOOL_NAMES];
+
+    selected.add("query_hub_data");
+    return ASSISTANT_TOOL_NAMES.filter((name) => selected.has(name));
 }

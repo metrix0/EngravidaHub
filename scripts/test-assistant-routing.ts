@@ -1,6 +1,7 @@
 // scripts/test-assistant-routing.ts
 import assert from "node:assert/strict";
 
+import { normalizeAndValidateAssistantAnalyticsSql } from "../lib/ai/assistantAnalyticsQuery";
 import { summarizeConversationAnalysisPipeline } from "../lib/ai/assistantAnalysisPipeline";
 import {
     ASSISTANT_HUB_KNOWLEDGE_BASE,
@@ -23,6 +24,11 @@ const routingCases: Array<{
     expected: AssistantToolName[];
     forbidden?: AssistantToolName[];
 }> = [
+    {
+        name: "cruzamento longitudinal de agenda",
+        messages: [{ role: "user", content: "Compare quem fez primeira avaliação presencial vs online e quantos tiveram depois agendamento de FIV ou congelamento." }],
+        expected: ["query_hub_data", "get_schedule_overview"],
+    },
     {
         name: "objeções WhatsApp com período relativo",
         messages: [{ role: "user", content: "Analise as objeções nas conversas de WhatsApp dos últimos 15 dias." }],
@@ -146,6 +152,24 @@ for (const testCase of routingCases) {
         );
     }
 }
+
+assert.equal(
+    normalizeAndValidateAssistantAnalyticsSql(
+        " SELECT count(*) FROM clinisys_events; ",
+    ),
+    "SELECT count(*) FROM clinisys_events",
+);
+assert.throws(() =>
+    normalizeAndValidateAssistantAnalyticsSql(
+        "WITH changed AS (UPDATE clients SET last_origin = 'x' RETURNING id) SELECT * FROM changed",
+    ),
+);
+assert.throws(() =>
+    normalizeAndValidateAssistantAnalyticsSql("SELECT * FROM public.clients"),
+);
+assert.throws(() =>
+    normalizeAndValidateAssistantAnalyticsSql("SELECT pg_sleep(10)"),
+);
 
 const firstResponse = summarizeFirstHumanResponseTimes([
     60,
