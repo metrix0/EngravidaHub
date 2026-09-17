@@ -224,6 +224,16 @@ export default function AssistentePage() {
         });
     }, [activeSession?.messages, loading]);
 
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+
+        textarea.style.height = "auto";
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+        textarea.style.overflowY =
+            textarea.scrollHeight > 160 ? "auto" : "hidden";
+    }, [input]);
+
     function createNewChat() {
         abortControllerRef.current?.abort();
         setActiveSessionId(null);
@@ -714,7 +724,7 @@ export default function AssistentePage() {
                                         rows={1}
                                         maxLength={8000}
                                         placeholder="Pergunte sobre clientes, agenda, conversas ou resultados..."
-                                        className="max-h-40 min-h-10 w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
+                                        className="max-h-40 min-h-10 w-full resize-none overflow-y-hidden bg-transparent px-3 py-2 text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
                                     />
 
                                     <div className="flex items-center justify-end gap-3 px-2 pb-1">
