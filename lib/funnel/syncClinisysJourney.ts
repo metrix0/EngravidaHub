@@ -38,6 +38,11 @@ type NormalizedJourneyEvent = {
     event_kind: ClinisysJourneyKind;
 };
 
+type PersistedJourneyEvent = NormalizedJourneyEvent & {
+    source: string;
+    client_id: string;
+};
+
 type JourneyClient = {
     id: string;
     phone: string | null;
@@ -124,8 +129,15 @@ export async function syncClinisysFunnelJourney({
         resolvedEvents.push({ ...event, client_id: client.id });
     }
 
+    const existingEvents = await loadExistingJourneyEvents(resolvedEvents);
+    const eventsToUpsert = resolvedEvents.filter((event) => {
+        const existing = existingEvents.get(event.source_hash);
+        return !existing || hasJourneyEventChanged(existing, event);
+    });
+    const unchangedEvents = resolvedEvents.length - eventsToUpsert.length;
+
     const now = new Date().toISOString();
-    for (const batch of chunk(resolvedEvents, UPSERT_BATCH_SIZE)) {
+    for (const batch of chunk(eventsToUpsert, UPSERT_BATCH_SIZE)) {
         const { error } = await withSupabaseRetry(
             () =>
                 supabase
@@ -201,7 +213,8 @@ export async function syncClinisysFunnelJourney({
     console.log("[syncClinisysFunnelJourney] completed", {
         fetched: rows.length,
         eligible: deduped.length,
-        upserted: resolvedEvents.length,
+        upserted: eventsToUpsert.length,
+        unchanged: unchangedEvents,
         affected_clients: affectedClientIds.length,
         moved,
         clinisys_units_updated: unitSync.updated,
@@ -213,7 +226,8 @@ export async function syncClinisysFunnelJourney({
         dry_run: false,
         fetched: rows.length,
         eligible: deduped.length,
-        upserted: resolvedEvents.length,
+        upserted: eventsToUpsert.length,
+        unchanged: unchangedEvents,
         affected_clients: affectedClientIds.length,
         moved,
         clinisys_units_considered: unitSync.considered,
@@ -263,6 +277,57 @@ function normalizeJourneyEvent(
         status: cleanText(row.agenda_chegou),
         event_kind: eventKind,
     };
+}
+
+async function loadExistingJourneyEvents(events: NormalizedJourneyEvent[]) {
+    const result = new Map<string, PersistedJourneyEvent>();
+    const sourceHashes = [
+        ...new Set(events.map((event) => event.source_hash)),
+    ];
+
+    for (const hashBatch of chunk(sourceHashes, BATCH_SIZE)) {
+        const { data, error } = await withSupabaseRetry(
+            () =>
+                supabase
+                    .from("funnel_clinisys_events")
+                    .select(
+                        "source, source_external_id, source_hash, client_id, scheduled_for, created_in_source_at, patient_name, phone, normalized_phone, unit_name, procedure_name, status, event_kind",
+                    )
+                    .in("source_hash", hashBatch),
+            {
+                attempts: 3,
+                label: "clinisys existing funnel event read",
+            },
+        );
+
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const existing = row as PersistedJourneyEvent;
+            result.set(existing.source_hash, existing);
+        }
+    }
+
+    return result;
+}
+
+function hasJourneyEventChanged(
+    existing: PersistedJourneyEvent,
+    event: NormalizedJourneyEvent,
+) {
+    return (
+        existing.source !== CLINISYS_SOURCE ||
+        existing.source_external_id !== event.source_external_id ||
+        existing.client_id !== event.client_id ||
+        existing.scheduled_for !== event.scheduled_for ||
+        existing.created_in_source_at !== event.created_in_source_at ||
+        existing.patient_name !== event.patient_name ||
+        existing.phone !== event.phone ||
+        existing.normalized_phone !== event.normalized_phone ||
+        existing.unit_name !== event.unit_name ||
+        existing.procedure_name !== event.procedure_name ||
+        existing.status !== event.status ||
+        existing.event_kind !== event.event_kind
+    );
 }
 
 async function loadClientsByPhone(events: NormalizedJourneyEvent[]) {
