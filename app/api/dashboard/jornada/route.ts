@@ -29,6 +29,12 @@ const ID_FILTER_BATCH_SIZE = 100;
 const MAX_PIPELINE_ROWS = 50_000;
 const CLINISYS_QUERY_CONCURRENCY = 2;
 const CONVERSATION_PAGE_CONCURRENCY = 2;
+const FIRST_EVALUATION_PROCEDURES = {
+    presencial: "1ª Avaliação de Reprodução Humana - presencial",
+    online: "1ª Avaliação de Reprodução Humana - online",
+} as const;
+
+type EvaluationJourneyMode = keyof typeof FIRST_EVALUATION_PROCEDURES;
 
 type JourneyAttributionEvidence =
     | PaidMediaAttributionEvidence
@@ -308,6 +314,16 @@ type PipelineInvoiceRow = {
     status: string;
 };
 
+type EvaluationJourneyEventRow = {
+    client_id: string | null;
+    scheduled_for: string;
+    created_in_source_at: string | null;
+    procedure_name: string | null;
+    status: string | null;
+    event_kind: string | null;
+    unit_name: string | null;
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = resolveDashboardDateRange(searchParams);
@@ -320,11 +336,13 @@ export async function GET(request: Request) {
             saoPauloDate(
                 new Date(new Date(range.endAt).getTime() - 1).toISOString(),
             );
-        const [paidMedia, whatsappData, analysisRows] = await Promise.all([
-            loadPaidMediaTotals(startDate, endDate, request.signal),
-            loadPaidWhatsappConversations(range, filters, request.signal),
-            loadJourneyAnalysisRows(range, request.signal),
-        ]);
+        const [paidMedia, whatsappData, analysisRows, evaluationJourneys] =
+            await Promise.all([
+                loadPaidMediaTotals(startDate, endDate, request.signal),
+                loadPaidWhatsappConversations(range, filters, request.signal),
+                loadJourneyAnalysisRows(range, request.signal),
+                loadEvaluationJourneyFunnels(range, filters, request.signal),
+            ]);
         const payload = buildJourneyConversationMetrics({
             conversations: whatsappData.rows,
             analyses: analysisRows,
@@ -351,6 +369,7 @@ export async function GET(request: Request) {
             {
                 full_pipeline: fullPipeline,
                 journey_funnel: payload.journey_funnel,
+                evaluation_journeys: evaluationJourneys,
                 dropoff_moments: payload.dropoff_moments,
                 intent_paths: payload.intent_paths,
                 objections: payload.objections,
@@ -674,6 +693,320 @@ function funnelStage(
         percentage: integerPercentage(value, started),
         relative_percentage: integerPercentage(value, previous),
         fill,
+    };
+}
+
+async function loadEvaluationJourneyFunnels(
+    range: DashboardDateRange,
+    filters: DashboardFilters,
+    signal: AbortSignal,
+) {
+    const startDate = range.startDate ?? saoPauloDate(range.startAt);
+    const endDate =
+        range.endDate ??
+        saoPauloDate(
+            new Date(new Date(range.endAt).getTime() - 1).toISOString(),
+        );
+    const selectedUnitNames = await loadEvaluationJourneyUnitNames(
+        filters.unitIds,
+        signal,
+    );
+    if (filters.unitIds.length > 0 && selectedUnitNames?.size === 0) {
+        return emptyEvaluationJourneys();
+    }
+
+    const evaluationRows = await loadFirstEvaluationJourneyRows(
+        startDate,
+        endDate,
+        signal,
+    );
+    const cohorts: Record<EvaluationJourneyMode, Map<string, string>> = {
+        presencial: new Map(),
+        online: new Map(),
+    };
+
+    for (const event of evaluationRows) {
+        const clientId = normalizeClientId(event.client_id);
+        const mode = evaluationJourneyMode(event.procedure_name);
+        if (!clientId || !mode) continue;
+        if (
+            selectedUnitNames &&
+            !selectedUnitNames.has(normalizeText(event.unit_name))
+        ) {
+            continue;
+        }
+        if (!scheduleShowedUp(normalizeScheduleStatus(event.status))) continue;
+
+        const currentDate = cohorts[mode].get(clientId);
+        if (!currentDate || event.scheduled_for < currentDate) {
+            cohorts[mode].set(clientId, event.scheduled_for);
+        }
+    }
+
+    const clientIds = [
+        ...new Set(
+            (["presencial", "online"] as EvaluationJourneyMode[]).flatMap(
+                (mode) => [...cohorts[mode].keys()],
+            ),
+        ),
+    ];
+    if (clientIds.length === 0) return emptyEvaluationJourneys();
+
+    const earliestEvaluationDate = (
+        ["presencial", "online"] as EvaluationJourneyMode[]
+    )
+        .flatMap((mode) => [...cohorts[mode].values()])
+        .sort()[0];
+    const [procedureEvents, invoices] = await Promise.all([
+        loadEvaluationJourneyProcedureRows(
+            clientIds,
+            earliestEvaluationDate,
+            signal,
+        ),
+        loadPipelineInvoices(clientIds, signal),
+    ]);
+    const eventsByClient = new Map<string, EvaluationJourneyEventRow[]>();
+    const invoicesByClient = new Map<string, PipelineInvoiceRow[]>();
+
+    for (const event of procedureEvents) {
+        const clientId = normalizeClientId(event.client_id);
+        if (!clientId) continue;
+        const rows = eventsByClient.get(clientId) ?? [];
+        rows.push(event);
+        eventsByClient.set(clientId, rows);
+    }
+    for (const invoice of invoices) {
+        const clientId = normalizeClientId(invoice.client_id);
+        if (!clientId) continue;
+        const rows = invoicesByClient.get(clientId) ?? [];
+        rows.push(invoice);
+        invoicesByClient.set(clientId, rows);
+    }
+
+    return {
+        presencial: buildEvaluationJourneyStages(
+            "presencial",
+            cohorts.presencial,
+            eventsByClient,
+            invoicesByClient,
+        ),
+        online: buildEvaluationJourneyStages(
+            "online",
+            cohorts.online,
+            eventsByClient,
+            invoicesByClient,
+        ),
+    };
+}
+
+async function loadFirstEvaluationJourneyRows(
+    startDate: string,
+    endDate: string,
+    signal: AbortSignal,
+) {
+    const rows: EvaluationJourneyEventRow[] = [];
+
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from("funnel_clinisys_events")
+            .select(
+                "client_id, scheduled_for, created_in_source_at, procedure_name, status, event_kind, unit_name",
+            )
+            .eq("event_kind", "evaluation")
+            .in("procedure_name", Object.values(FIRST_EVALUATION_PROCEDURES))
+            .gte("scheduled_for", startDate)
+            .lte("scheduled_for", endDate)
+            .order("scheduled_for", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+            .abortSignal(signal);
+        if (error) throw error;
+
+        const page = (data ?? []) as EvaluationJourneyEventRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
+async function loadEvaluationJourneyProcedureRows(
+    clientIds: string[],
+    earliestEvaluationDate: string,
+    signal: AbortSignal,
+) {
+    const pages = await mapWithConcurrency(
+        chunk(clientIds, ID_FILTER_BATCH_SIZE),
+        CLINISYS_QUERY_CONCURRENCY,
+        async (ids) => {
+            const rows: EvaluationJourneyEventRow[] = [];
+
+            for (let from = 0; ; from += PAGE_SIZE) {
+                const { data, error } = await supabase
+                    .from("funnel_clinisys_events")
+                    .select(
+                        "client_id, scheduled_for, created_in_source_at, procedure_name, status, event_kind, unit_name",
+                    )
+                    .in("client_id", ids)
+                    .eq("event_kind", "procedure")
+                    .gte("scheduled_for", earliestEvaluationDate)
+                    .order("scheduled_for", { ascending: true })
+                    .range(from, from + PAGE_SIZE - 1)
+                    .abortSignal(signal);
+                if (error) throw error;
+
+                const page = (data ?? []) as EvaluationJourneyEventRow[];
+                rows.push(...page);
+                if (page.length < PAGE_SIZE) break;
+            }
+
+            return rows;
+        },
+    );
+
+    return pages.flat();
+}
+
+async function loadEvaluationJourneyUnitNames(
+    unitIds: string[],
+    signal: AbortSignal,
+) {
+    if (unitIds.length === 0) return null;
+
+    const { data, error } = await supabase
+        .from("units")
+        .select("name")
+        .in("id", unitIds)
+        .abortSignal(signal);
+    if (error) throw error;
+
+    return new Set(
+        (data ?? [])
+            .map((unit) => normalizeText(unit.name))
+            .filter(Boolean),
+    );
+}
+
+function buildEvaluationJourneyStages(
+    mode: EvaluationJourneyMode,
+    cohort: Map<string, string>,
+    eventsByClient: Map<string, EvaluationJourneyEventRow[]>,
+    invoicesByClient: Map<string, PipelineInvoiceRow[]>,
+) {
+    let scheduled = 0;
+    let attended = 0;
+    let paid = 0;
+
+    for (const [clientId, evaluationDate] of cohort) {
+        const procedureEvents = (eventsByClient.get(clientId) ?? []).filter(
+            (event) =>
+                evaluationProcedureFollowsEvaluation(event, evaluationDate),
+        );
+        if (procedureEvents.length === 0) continue;
+        scheduled += 1;
+
+        const attendedEvents = procedureEvents.filter((event) =>
+            scheduleShowedUp(normalizeScheduleStatus(event.status)),
+        );
+        if (attendedEvents.length === 0) continue;
+        attended += 1;
+
+        const firstAttendanceDate = attendedEvents
+            .map((event) => event.scheduled_for)
+            .sort()[0];
+        const hasAuthorizedInvoice = (invoicesByClient.get(clientId) ?? []).some(
+            (invoice) =>
+                numeric(invoice.amount) > 0 &&
+                invoiceStatusIsAuthorized(invoice.status) &&
+                saoPauloDate(invoice.issued_at) >= firstAttendanceDate,
+        );
+        if (hasAuthorizedInvoice) paid += 1;
+    }
+
+    const evaluated = cohort.size;
+    const evaluationLabel =
+        mode === "presencial"
+            ? "1ª Avaliação presencial"
+            : "1ª Avaliação online";
+
+    return [
+        funnelStage(
+            `${mode}_evaluation`,
+            evaluationLabel,
+            evaluated,
+            evaluated,
+            evaluated,
+            "#ddd6fe",
+        ),
+        funnelStage(
+            `${mode}_procedure_scheduled`,
+            "Agendou procedimento",
+            scheduled,
+            evaluated,
+            evaluated,
+            "#bbf7d0",
+        ),
+        funnelStage(
+            `${mode}_procedure_attended`,
+            "Compareceu",
+            attended,
+            evaluated,
+            scheduled,
+            "#bfdbfe",
+        ),
+        funnelStage(
+            `${mode}_paid`,
+            "Pagou",
+            paid,
+            evaluated,
+            attended,
+            "#c4b5fd",
+        ),
+    ];
+}
+
+function evaluationProcedureFollowsEvaluation(
+    event: EvaluationJourneyEventRow,
+    evaluationDate: string,
+) {
+    const createdDate =
+        event.created_in_source_at?.slice(0, 10) ?? event.scheduled_for;
+    return (
+        createdDate >= evaluationDate &&
+        event.scheduled_for >= evaluationDate
+    );
+}
+
+function evaluationJourneyMode(
+    procedureName: string | null,
+): EvaluationJourneyMode | null {
+    const normalized = normalizeText(procedureName);
+    if (
+        normalized === normalizeText(FIRST_EVALUATION_PROCEDURES.presencial)
+    ) {
+        return "presencial";
+    }
+    if (normalized === normalizeText(FIRST_EVALUATION_PROCEDURES.online)) {
+        return "online";
+    }
+    return null;
+}
+
+function emptyEvaluationJourneys() {
+    const emptyEvents = new Map<string, EvaluationJourneyEventRow[]>();
+    const emptyInvoices = new Map<string, PipelineInvoiceRow[]>();
+    return {
+        presencial: buildEvaluationJourneyStages(
+            "presencial",
+            new Map(),
+            emptyEvents,
+            emptyInvoices,
+        ),
+        online: buildEvaluationJourneyStages(
+            "online",
+            new Map(),
+            emptyEvents,
+            emptyInvoices,
+        ),
     };
 }
 

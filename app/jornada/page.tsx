@@ -56,16 +56,22 @@ import MessengerConversationInsights from "@/components/dashboard/MessengerConve
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
 
+type JourneyFunnelStage = {
+    key: string;
+    name: string;
+    value: number;
+    percentage: number | null;
+    relative_percentage: number | null;
+    fill: string;
+};
+
 type JourneyDashboardData = {
     full_pipeline: FullJourneyPipeline;
-    journey_funnel: {
-        key: string;
-        name: string;
-        value: number;
-        percentage: number | null;
-        relative_percentage: number | null;
-        fill: string;
-    }[];
+    journey_funnel: JourneyFunnelStage[];
+    evaluation_journeys: {
+        presencial: JourneyFunnelStage[];
+        online: JourneyFunnelStage[];
+    };
     dropoff_moments: {
         moment: string;
         label: string;
@@ -247,6 +253,10 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
 const EMPTY_DATA: JourneyDashboardData = {
     full_pipeline: EMPTY_PIPELINE,
     journey_funnel: [],
+    evaluation_journeys: {
+        presencial: [],
+        online: [],
+    },
     dropoff_moments: [],
     intent_paths: [],
     objections: [],
@@ -344,6 +354,18 @@ export default function JourneyPage() {
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
                         : [],
+                    evaluation_journeys: {
+                        presencial: Array.isArray(
+                            json.evaluation_journeys?.presencial,
+                        )
+                            ? json.evaluation_journeys.presencial
+                            : [],
+                        online: Array.isArray(
+                            json.evaluation_journeys?.online,
+                        )
+                            ? json.evaluation_journeys.online
+                            : [],
+                    },
                     dropoff_moments: Array.isArray(json.dropoff_moments)
                         ? json.dropoff_moments
                         : [],
@@ -477,6 +499,17 @@ export default function JourneyPage() {
                         <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_0.9fr]">
                             <IntentPathsCard data={current} />
                             <ObjectionsCard data={current} />
+                        </section>
+
+                        <section className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                            <EvaluationJourneyFunnelCard
+                                title="1ª Avaliação presencial"
+                                stages={current.evaluation_journeys.presencial}
+                            />
+                            <EvaluationJourneyFunnelCard
+                                title="1ª Avaliação online"
+                                stages={current.evaluation_journeys.online}
+                            />
                         </section>
 
                         <section className="mt-6 min-w-0 max-w-full">
@@ -1870,6 +1903,79 @@ function JourneyFunnelCard({ data }: { data: JourneyDashboardData }) {
     );
 }
 
+function EvaluationJourneyFunnelCard({
+    title,
+    stages,
+}: {
+    title: string;
+    stages: JourneyFunnelStage[];
+}) {
+    return (
+        <Card>
+            <div className="mb-5">
+                <h2 className="text-lg font-bold">{title}</h2>
+            </div>
+
+            <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(245px,0.65fr)] items-center gap-5">
+                <div className="h-[330px] min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                        <FunnelChart
+                            margin={{ top: 10, right: 64, bottom: 10, left: 6 }}
+                        >
+                            <Tooltip />
+                            <Funnel
+                                dataKey="value"
+                                data={stages}
+                                isAnimationActive={false}
+                            >
+                                <LabelList
+                                    position="right"
+                                    fill="#334155"
+                                    stroke="none"
+                                    dataKey="value"
+                                />
+                                {stages.map((item) => (
+                                    <Cell key={item.key} fill={item.fill} />
+                                ))}
+                            </Funnel>
+                        </FunnelChart>
+                    </ResponsiveContainer>
+                </div>
+
+                <div className="space-y-4">
+                    {stages.map((item) => (
+                        <div
+                            key={item.key}
+                            className="flex items-center justify-between gap-1 border-b border-slate-100 pb-2 text-sm last:border-b-0"
+                        >
+                            <div className="flex min-w-0 items-center gap-3">
+                                <span
+                                    className="h-3 w-3 shrink-0 rounded-full"
+                                    style={{ backgroundColor: item.fill }}
+                                />
+                                <span
+                                    className="truncate font-medium text-slate-700"
+                                    title={item.name}
+                                >
+                                    {item.name}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-[48px_52px] items-center gap-1">
+                                <span className="text-right text-xs font-bold text-slate-500">
+                                    {formatRate(item.relative_percentage)}
+                                </span>
+                                <span className="text-right text-xs font-medium text-slate-500">
+                                    ({formatRate(item.percentage)})
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </Card>
+    );
+}
+
 function DropoffCard({ data }: { data: JourneyDashboardData }) {
     return (
         <Card>
@@ -2136,6 +2242,15 @@ function JourneyBodySkeleton() {
                         ))}
                     </div>
                 </Card>
+            </section>
+
+            <section className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                {Array.from({ length: 2 }).map((_, index) => (
+                    <Card key={index}>
+                        <Skeleton className="mb-5 h-6 w-[45%]" />
+                        <Skeleton className="h-[330px] w-full" />
+                    </Card>
+                ))}
             </section>
         </div>
     );
