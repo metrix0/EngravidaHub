@@ -83,6 +83,8 @@ function JourneyFunnelCard({ data }: { data: JourneyData }) {
 }
 
 function EvaluationJourneyFunnelCard({ title, stages }: { title: string; stages: JourneyFunnelStage[] }) {
+    const totalConversion = stages[stages.length - 1]?.percentage ?? null;
+
     return (
         <Card>
             <div className="mb-5"><h2 className="text-lg font-bold">{title}</h2></div>
@@ -105,6 +107,9 @@ function EvaluationJourneyFunnelCard({ title, stages }: { title: string; stages:
                             <div className="grid grid-cols-[48px_52px] items-center gap-1"><span className="text-right text-xs font-bold text-slate-500">{formatRate(item.relative_percentage)}</span><span className="text-right text-xs font-medium text-slate-500">({formatRate(item.percentage)})</span></div>
                         </div>
                     ))}
+                    <div className="pt-1 text-xs font-semibold text-slate-500">
+                        Conversão total: <span className="font-bold text-slate-700">{formatRate(totalConversion)}</span>
+                    </div>
                 </div>
             </div>
         </Card>

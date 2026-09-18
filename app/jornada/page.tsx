@@ -1910,6 +1910,8 @@ function EvaluationJourneyFunnelCard({
     title: string;
     stages: JourneyFunnelStage[];
 }) {
+    const totalConversion = stages[stages.length - 1]?.percentage ?? null;
+
     return (
         <Card>
             <div className="mb-5">
@@ -1970,6 +1972,12 @@ function EvaluationJourneyFunnelCard({
                             </div>
                         </div>
                     ))}
+                    <div className="pt-1 text-xs font-semibold text-slate-500">
+                        Conversão total:{" "}
+                        <span className="font-bold text-slate-700">
+                            {formatRate(totalConversion)}
+                        </span>
+                    </div>
                 </div>
             </div>
         </Card>
