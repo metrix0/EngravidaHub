@@ -198,7 +198,7 @@ export default function InfoTooltip({
             onMouseEnter={handleOpen}
             onMouseLeave={handleClose}
         >
-            <span className="inline-flex cursor-help">{children}</span>
+            <span className="inline-flex cursor-help [&_svg]:h-[13px] [&_svg]:w-[13px]">{children}</span>
             {portal
                 ? open && typeof document !== "undefined"
                     ? createPortal(tooltip, document.body)

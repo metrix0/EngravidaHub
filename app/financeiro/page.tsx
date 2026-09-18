@@ -289,10 +289,6 @@ export default function FinancialDashboardPage() {
                             projectionLoading={financialSummary.loading}
                         />
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
-                            <TicketAverageCard data={data} />
-                        </section>
-
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1.55fr_0.85fr]">
                             <RevenueEvolutionComparisonCard
                                 data={data}
@@ -328,6 +324,10 @@ export default function FinancialDashboardPage() {
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
                             <CrmCard data={data} />
                             <DoctorCard data={data} />
+                        </section>
+
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                            <TicketAverageCard data={data} />
                         </section>
 
                         <AdsSection data={data} />
@@ -437,7 +437,7 @@ function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
         <Card>
             <CardTitle
                 title="Ticket Médio"
-                tooltip="Geral: faturamento das NFS-e autorizadas ÷ notas autorizadas. Tratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação. Primeira consulta: mesma conta apenas para NFS-e cuja descrição identifica 1ª avaliação."
+                tooltip={"Geral: faturamento das NFS-e autorizadas ÷ notas autorizadas.\n\nTratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.\n\nPrimeira consulta: mesma conta apenas para NFS-e cuja descrição identifica 1ª avaliação."}
                 subtitle="Valor médio por NFS-e autorizada no período selecionado"
             />
 
@@ -1876,19 +1876,6 @@ function FinancialBodySkeleton() {
                     ))}
                 </HorizontalScroller>
             </section>
-            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
-                <Card>
-                    <Skeleton className="mb-5 h-6 w-[32%]" />
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        {Array.from({ length: 3 }).map((_, index) => (
-                            <Skeleton
-                                key={index}
-                                className="h-[78px] w-full rounded-xl"
-                            />
-                        ))}
-                    </div>
-                </Card>
-            </section>
             <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1.55fr_0.85fr]">
                 <Card>
                     <Skeleton className="mb-5 h-6 w-[38%]" />
@@ -1928,6 +1915,19 @@ function FinancialBodySkeleton() {
                             <Skeleton
                                 key={index}
                                 className="h-10 w-full rounded-none"
+                            />
+                        ))}
+                    </div>
+                </Card>
+            </section>
+            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[32%]" />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                            <Skeleton
+                                key={index}
+                                className="h-[78px] w-full rounded-xl"
                             />
                         ))}
                     </div>
