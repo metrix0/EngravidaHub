@@ -210,17 +210,17 @@ export default function ChannelDashboardWidgetRenderer({
 function renderInstagram(id: string, data: InstagramAnalysisData) {
     switch (id) {
         case "instagram.conversas_analisadas":
-            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="pink" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura.`} />;
+            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="pink" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Instagram. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
         case "instagram.resolucao_real":
-            return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" />;
+            return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" tooltipText={`Baseado em ${data.resolution_observed.toLocaleString("pt-BR")} conversas com resultado de resolução observável.`} />;
         case "instagram.clientes_satisfeitos":
-            return <KpiCard icon={<Smile size={26} />} label="Clientes satisfeitos" currentValue={data.satisfaction_rate} suffix="%" color="blue" />;
+            return <KpiCard icon={<Smile size={26} />} label="Clientes satisfeitos" currentValue={data.satisfaction_rate} suffix="%" color="blue" tooltipText={`Considera apenas sinais claros de satisfação ou insatisfação. ${data.satisfaction_observed.toLocaleString("pt-BR")} conversas observadas.`} />;
         case "instagram.taxa_abandono":
-            return <KpiCard icon={<CircleX size={26} />} label="Taxa de abandono" currentValue={data.dropoff_rate} suffix="%" color="orange" positiveDirection="down" />;
+            return <KpiCard icon={<CircleX size={26} />} label="Taxa de abandono" currentValue={data.dropoff_rate} suffix="%" color="orange" positiveDirection="down" tooltipText={`${data.dropoff_count.toLocaleString("pt-BR")} conversas tiveram abandono detectado pela análise.`} />;
         case "instagram.primeira_resposta_humana":
-            return <KpiCard icon={<Clock size={26} />} label="1ª resposta humana" currentValue={data.average_first_human_response_seconds} formatter={formatDuration} color="purple" positiveDirection="down" />;
+            return <KpiCard icon={<Clock size={26} />} label="1ª resposta humana" currentValue={data.average_first_human_response_seconds} formatter={formatDuration} color="purple" positiveDirection="down" tooltipText={`Média filtrada até 2 horas. Mediana: ${formatDuration(data.median_first_human_response_seconds)}. P90: ${formatDuration(data.p90_first_human_response_seconds)}. ${data.first_human_response_observed.toLocaleString("pt-BR")} respostas observadas.`} />;
         case "instagram.qualidade_atendimento":
-            return <KpiCard icon={<BadgeCheck size={26} />} label="Qualidade do atendimento" currentValue={data.attendant_quality_score} suffix="/100" color="pink" />;
+            return <KpiCard icon={<BadgeCheck size={26} />} label="Qualidade do atendimento" currentValue={data.attendant_quality_score} suffix="/100" color="pink" tooltipText={`${data.attendant_quality_observed.toLocaleString("pt-BR")} conversas com qualidade geral avaliada.`} />;
         case "instagram.evolucao_diaria":
             return <EvolutionCard title="Evolução diária do Instagram" data={data.daily_evolution} />;
         case "instagram.pontos_abandono":
@@ -251,17 +251,17 @@ function renderInstagram(id: string, data: InstagramAnalysisData) {
 function renderMessenger(id: string, data: MessengerAnalysisData) {
     switch (id) {
         case "messenger.conversas_analisadas":
-            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="blue" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura.`} />;
+            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="blue" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Messenger. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
         case "messenger.resolucao_real":
-            return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" />;
+            return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" tooltipText={`Baseado em ${data.resolution_observed.toLocaleString("pt-BR")} conversas com resultado de resolução observável.`} />;
         case "messenger.clientes_satisfeitos":
-            return <KpiCard icon={<Smile size={26} />} label="Clientes satisfeitos" currentValue={data.satisfaction_rate} suffix="%" color="blue" />;
+            return <KpiCard icon={<Smile size={26} />} label="Clientes satisfeitos" currentValue={data.satisfaction_rate} suffix="%" color="blue" tooltipText={`Considera apenas sinais claros de satisfação ou insatisfação. ${data.satisfaction_observed.toLocaleString("pt-BR")} conversas observadas.`} />;
         case "messenger.taxa_abandono":
-            return <KpiCard icon={<CircleX size={26} />} label="Taxa de abandono" currentValue={data.dropoff_rate} suffix="%" color="orange" positiveDirection="down" />;
+            return <KpiCard icon={<CircleX size={26} />} label="Taxa de abandono" currentValue={data.dropoff_rate} suffix="%" color="orange" positiveDirection="down" tooltipText={`${data.dropoff_count.toLocaleString("pt-BR")} conversas tiveram abandono detectado pela análise.`} />;
         case "messenger.primeira_resposta_humana":
-            return <KpiCard icon={<Clock size={26} />} label="1ª resposta humana" currentValue={data.average_first_human_response_seconds} formatter={formatDuration} color="purple" positiveDirection="down" />;
+            return <KpiCard icon={<Clock size={26} />} label="1ª resposta humana" currentValue={data.average_first_human_response_seconds} formatter={formatDuration} color="purple" positiveDirection="down" tooltipText={`Média filtrada até 2 horas. Mediana: ${formatDuration(data.median_first_human_response_seconds)}. P90: ${formatDuration(data.p90_first_human_response_seconds)}. ${data.first_human_response_observed.toLocaleString("pt-BR")} respostas observadas.`} />;
         case "messenger.qualidade_atendimento":
-            return <KpiCard icon={<BadgeCheck size={26} />} label="Qualidade do atendimento" currentValue={data.attendant_quality_score} suffix="/100" color="blue" />;
+            return <KpiCard icon={<BadgeCheck size={26} />} label="Qualidade do atendimento" currentValue={data.attendant_quality_score} suffix="/100" color="blue" tooltipText={`${data.attendant_quality_observed.toLocaleString("pt-BR")} conversas com qualidade geral avaliada.`} />;
         case "messenger.evolucao_diaria":
             return <EvolutionCard title="Evolução diária do Messenger" data={data.daily_evolution} />;
         default:
@@ -274,11 +274,11 @@ function renderCalls(id: string, data: CallsData) {
         case "ligacoes.realizadas":
             return <KpiCard icon={<PhoneCall size={26} />} label="Ligações realizadas" currentValue={data.total} formatter={formatInteger} color="green" />;
         case "ligacoes.final_bom":
-            return <KpiCard icon={<ThumbsUp size={26} />} label="Final bom" currentValue={data.good_rate} suffix="%" color="green" />;
+            return <KpiCard icon={<ThumbsUp size={26} />} label="Final bom" currentValue={data.good_rate} suffix="%" color="green" tooltipText={`${data.good.toLocaleString("pt-BR")} ligações com final bom.`} />;
         case "ligacoes.final_neutro":
-            return <KpiCard icon={<Minus size={26} />} label="Final neutro" currentValue={data.neutral_rate} suffix="%" color="blue" />;
+            return <KpiCard icon={<Minus size={26} />} label="Final neutro" currentValue={data.neutral_rate} suffix="%" color="blue" tooltipText={`${data.neutral.toLocaleString("pt-BR")} ligações com final neutro.`} />;
         case "ligacoes.final_ruim":
-            return <KpiCard icon={<ThumbsDown size={26} />} label="Final ruim" currentValue={data.bad_rate} suffix="%" color="brand" positiveDirection="down" />;
+            return <KpiCard icon={<ThumbsDown size={26} />} label="Final ruim" currentValue={data.bad_rate} suffix="%" color="brand" positiveDirection="down" tooltipText={`${data.bad.toLocaleString("pt-BR")} ligações com final ruim.`} />;
         case "ligacoes.evolucao":
             return <CallEvolutionCard data={data} />;
         default:

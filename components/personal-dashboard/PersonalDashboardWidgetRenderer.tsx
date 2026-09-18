@@ -324,6 +324,15 @@ function renderAtendimento(
     const previousResponseMinutes = secondsToMinutes(
         data.previous_kpis.average_first_human_response_seconds,
     );
+    const rawResponseMinutes = secondsToMinutes(
+        data.kpis.raw_average_first_human_response_seconds,
+    );
+    const medianResponseMinutes = secondsToMinutes(
+        data.kpis.median_first_human_response_seconds,
+    );
+    const p90ResponseMinutes = secondsToMinutes(
+        data.kpis.p90_first_human_response_seconds,
+    );
 
     switch (id) {
         case "atendimento.conversas_analisadas":
@@ -367,6 +376,7 @@ function renderAtendimento(
                     currentValue={data.kpis.scheduling_rate}
                     previousValue={data.previous_kpis.scheduling_rate}
                     suffix="%"
+                    tooltipText="Informação adquirida pelo Clinisys"
                     color="purple"
                 />
             );
@@ -378,6 +388,19 @@ function renderAtendimento(
                     currentValue={responseMinutes}
                     previousValue={previousResponseMinutes}
                     suffix=" min"
+                    tooltipText={[
+                        `Média sem respostas acima de 2h: ${formatMinutes(responseMinutes)}`,
+                        `Média bruta: ${formatMinutes(rawResponseMinutes)}`,
+                        `Mediana: ${formatMinutes(medianResponseMinutes)}`,
+                        `P90: ${formatMinutes(p90ResponseMinutes)}`,
+                        `Base da média: ${data.kpis.first_human_response_included_in_average.toLocaleString("pt-BR")} de ${data.kpis.first_human_response_observed.toLocaleString("pt-BR")} respostas observadas`,
+                        `${data.kpis.first_human_response_eligible.toLocaleString("pt-BR")} conversas elegíveis`,
+                        `${data.kpis.first_human_response_excluded_over_2h.toLocaleString("pt-BR")} respostas acima de 2h removidas`,
+                        "",
+                        "Origem da 1ª resposta observada:",
+                        `Bot handoff → atendente: ${data.response_anchor_breakdown.bot_handoff_to_attendant.toLocaleString("pt-BR")}`,
+                        `Mensagem pendente do cliente → atendente: ${data.response_anchor_breakdown.pending_client_to_attendant.toLocaleString("pt-BR")}`,
+                    ].join("\n")}
                     color="orange"
                     positiveDirection="down"
                 />
@@ -565,6 +588,8 @@ function renderFinanceiro(
                     previousValue={data.previous_kpis.average_ticket}
                     formatter={formatCurrency}
                     color="purple"
+                    tooltipText="Faturamento total das NFS-e autorizadas ÷ quantidade de NFS-e autorizadas no período selecionado."
+                    tooltipWidthClassName="w-[300px]"
                 />
             );
         case "financeiro.pacientes_faturados":
@@ -588,6 +613,7 @@ function renderFinanceiro(
                     formatter={formatCurrency}
                     color="orange"
                     positiveDirection="down"
+                    tooltipText={`Valor exato: ${formatCurrency(data.kpis.cancelled_amount)}`}
                 />
             );
         case "financeiro.taxa_cancelamento":
@@ -615,6 +641,9 @@ function renderFinanceiro(
                 ads.kpis.attributed_revenue,
                 ads.previous_kpis.attributed_revenue,
                 "currency",
+                false,
+                "Soma das NFS-e autorizadas ligadas a clientes com evidência de aquisição paga. Atribuição: Origem Google/Meta; na ausência, UTM ou ID de clique (Google: gclid, gbraid, wbraid; Meta: fbclid, fbc, ctwa_clid). Sinais conflitantes e faturas sem cliente ficam de fora.",
+                "w-[260px]",
             );
         case "financeiro.retorno_midia":
             return paidMediaKpi(
@@ -630,6 +659,7 @@ function renderFinanceiro(
                 ads.previous_kpis.cost_per_schedule,
                 "currency",
                 true,
+                "Investimento ÷ agendamentos vinculados a clientes de mídia.",
             );
         case "financeiro.custo_paciente_faturado":
             return paidMediaKpi(
@@ -638,6 +668,7 @@ function renderFinanceiro(
                 ads.previous_kpis.cost_per_billed_patient,
                 "currency",
                 true,
+                "Investimento ÷ pacientes de mídia com NFS-e autorizada.",
             );
         case "financeiro.evolucao_faturamento":
             return (
@@ -1291,6 +1322,8 @@ function paidMediaKpi(
     previousValue: number | null,
     format: "currency" | "multiple",
     positiveDown = false,
+    tooltipText?: string,
+    tooltipWidthClassName?: string,
 ) {
     return (
         <KpiCard
@@ -1302,6 +1335,8 @@ function paidMediaKpi(
             suffix={format === "multiple" ? "x" : ""}
             positiveDirection={positiveDown ? "down" : "up"}
             color={positiveDown ? "orange" : "blue"}
+            tooltipText={tooltipText}
+            tooltipWidthClassName={tooltipWidthClassName}
         />
     );
 }
@@ -1799,6 +1834,10 @@ function EmptyBody() {
 
 function secondsToMinutes(value: number | null) {
     return value === null ? null : Math.round(value / 60);
+}
+
+function formatMinutes(value: number | null) {
+    return value === null ? "—" : `${value.toLocaleString("pt-BR")} min`;
 }
 
 function formatInteger(value: number) {
