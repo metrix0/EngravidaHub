@@ -38,6 +38,10 @@ export type FinancialDashboardData = {
     };
     kpis: FinancialKpis;
     previous_kpis: FinancialKpis;
+    ticket_averages: {
+        treatments: number | null;
+        first_consultation: number | null;
+    };
     evolution: {
         period: string;
         label: string;

@@ -17,6 +17,7 @@ import {
     parseUuidArray,
     resolveDashboardDateRange,
 } from "@/lib/dashboard/metrics";
+import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
 import type {
     FinancialDashboardData,
     FinancialKpis,
@@ -26,6 +27,13 @@ import type {
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
 const CLIENT_BATCH_CONCURRENCY = 6;
+const TREATMENT_CATEGORIES = new Set([
+    "ivf",
+    "freezing",
+    "genetics",
+    "embryo_transfer",
+    "bank_donation",
+]);
 
 const MEDIA_BUDGET_CITIES = [
     { key: "sao_paulo", city: "São Paulo", monthlyBudget: 70_000, aliases: ["sao paulo", "sp"] },
@@ -271,6 +279,7 @@ export async function GET(request: Request) {
             },
             kpis: currentKpis,
             previous_kpis: previousKpis,
+            ticket_averages: buildTicketAverages(currentInvoices),
             evolution: buildEvolution(currentInvoices, range.startAt, range.endAt),
             twelve_month_trend: twelveMonthTrend,
             by_status: buildStatusBreakdown(currentInvoices),
@@ -614,6 +623,28 @@ function isMissingFinancialTrendRpc(error: {
             ),
         )
     );
+}
+
+function buildTicketAverages(
+    invoices: InvoiceRow[],
+): FinancialDashboardData["ticket_averages"] {
+    const authorized = invoices.filter(
+        (invoice) => statusGroup(invoice.status) === "authorized",
+    );
+    const treatments = authorized.filter((invoice) =>
+        TREATMENT_CATEGORIES.has(invoice.category),
+    );
+    const firstConsultations = authorized.filter((invoice) =>
+        isFirstEvaluationProcedure(invoice.description),
+    );
+
+    return {
+        treatments: averageMoney(sumAmounts(treatments), treatments.length),
+        first_consultation: averageMoney(
+            sumAmounts(firstConsultations),
+            firstConsultations.length,
+        ),
+    };
 }
 
 function buildKpis(invoices: InvoiceRow[]): FinancialKpis {

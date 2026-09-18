@@ -12,15 +12,21 @@ import {
 
 import { Card, InfoTooltip, PercentageBar } from "@/components";
 
+type JourneyFunnelStage = {
+    key: string;
+    name: string;
+    value: number;
+    percentage: number | null;
+    relative_percentage: number | null;
+    fill: string;
+};
+
 type JourneyData = {
-    journey_funnel: Array<{
-        key: string;
-        name: string;
-        value: number;
-        percentage: number | null;
-        relative_percentage: number | null;
-        fill: string;
-    }>;
+    journey_funnel: JourneyFunnelStage[];
+    evaluation_journeys: {
+        presencial: JourneyFunnelStage[];
+        online: JourneyFunnelStage[];
+    };
     dropoff_moments: Array<{
         moment: string;
         label: string;
@@ -40,6 +46,8 @@ type Props = { widgetId: string; data: JourneyData };
 
 export default function ExactJornadaSimpleDashboardGraphs({ widgetId, data }: Props) {
     if (widgetId === "jornada.funil_conversa") return <JourneyFunnelCard data={data} />;
+    if (widgetId === "jornada.avaliacao_presencial") return <EvaluationJourneyFunnelCard title="1ª Avaliação presencial" stages={data.evaluation_journeys.presencial} />;
+    if (widgetId === "jornada.avaliacao_online") return <EvaluationJourneyFunnelCard title="1ª Avaliação online" stages={data.evaluation_journeys.online} />;
     if (widgetId === "jornada.pontos_abandono") return <DropoffCard data={data} />;
     if (widgetId === "jornada.objecoes") return <ObjectionsCard data={data} />;
     return null;
@@ -68,6 +76,40 @@ function JourneyFunnelCard({ data }: { data: JourneyData }) {
                             <div className="grid grid-cols-[48px_52px] items-center gap-1"><span className="text-right text-xs font-bold text-slate-500">{formatRate(item.relative_percentage)}</span><span className="text-right text-xs font-medium text-slate-500">({formatRate(item.percentage)})</span></div>
                         </div>
                     ))}
+                </div>
+            </div>
+        </Card>
+    );
+}
+
+function EvaluationJourneyFunnelCard({ title, stages }: { title: string; stages: JourneyFunnelStage[] }) {
+    const totalConversion = stages[stages.length - 1]?.percentage ?? null;
+
+    return (
+        <Card>
+            <div className="mb-5"><h2 className="text-lg font-bold">{title}</h2></div>
+            <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(245px,0.65fr)] items-center gap-5">
+                <div className="h-[330px] min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                        <FunnelChart margin={{ top: 10, right: 64, bottom: 10, left: 6 }}>
+                            <Tooltip />
+                            <Funnel dataKey="value" data={stages} isAnimationActive={false}>
+                                <LabelList position="right" fill="#334155" stroke="none" dataKey="value" />
+                                {stages.map((item) => <Cell key={item.key} fill={item.fill} />)}
+                            </Funnel>
+                        </FunnelChart>
+                    </ResponsiveContainer>
+                </div>
+                <div className="space-y-4">
+                    {stages.map((item) => (
+                        <div key={item.key} className="flex items-center justify-between gap-1 border-b border-slate-100 pb-2 text-sm last:border-b-0">
+                            <div className="flex min-w-0 items-center gap-3"><span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: item.fill }} /><span className="truncate font-medium text-slate-700" title={item.name}>{item.name}</span></div>
+                            <div className="grid grid-cols-[48px_52px] items-center gap-1"><span className="text-right text-xs font-bold text-slate-500">{formatRate(item.relative_percentage)}</span><span className="text-right text-xs font-medium text-slate-500">({formatRate(item.percentage)})</span></div>
+                        </div>
+                    ))}
+                    <div className="pt-1 text-xs font-semibold text-slate-500">
+                        Conversão total: <span className="font-bold text-slate-700">{formatRate(totalConversion)}</span>
+                    </div>
                 </div>
             </div>
         </Card>

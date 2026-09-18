@@ -75,6 +75,8 @@ export const DASHBOARD_WIDGETS = [
     { id: "jornada.cobertura_whatsapp", title: "Cobertura das conversas no WhatsApp", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
     { id: "jornada.fontes_whatsapp", title: "De onde vem o WhatsApp rastreado", kind: "table", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
     { id: "jornada.funil_conversa", title: "Jornada na Conversa", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
+    { id: "jornada.avaliacao_presencial", title: "1ª Avaliação presencial", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
+    { id: "jornada.avaliacao_online", title: "1ª Avaliação online", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
     { id: "jornada.pontos_abandono", title: "Pontos de abandono", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
     { id: "jornada.resultados_intencao", title: "Resultados por intenção inicial", kind: "table", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },
     { id: "jornada.objecoes", title: "Principais objeções", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada" },

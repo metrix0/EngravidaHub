@@ -326,6 +326,10 @@ export default function FinancialDashboardPage() {
                             <DoctorCard data={data} />
                         </section>
 
+                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                            <TicketAverageCard data={data} />
+                        </section>
+
                         <AdsSection data={data} />
                     </div>
                 )}
@@ -377,6 +381,8 @@ function KpiSection({
                         previousValue={data.previous_kpis.average_ticket}
                         formatter={formatCurrency}
                         color="purple"
+                        tooltipText="Faturamento total das NFS-e autorizadas ÷ quantidade de NFS-e autorizadas no período selecionado."
+                        tooltipWidthClassName="w-[300px]"
                     />
                 </KpiContainer>
 
@@ -424,6 +430,38 @@ function KpiSection({
 
 function KpiContainer({ children }: { children: ReactNode }) {
     return <div className="min-w-[285px] shrink-0">{children}</div>;
+}
+
+function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
+    return (
+        <Card>
+            <CardTitle
+                title="Ticket Médio"
+                tooltip={"Geral: faturamento das NFS-e autorizadas ÷ notas autorizadas.\n\nTratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.\n\nPrimeira consulta: mesma conta apenas para NFS-e cuja descrição identifica 1ª avaliação."}
+                subtitle="Valor médio por NFS-e autorizada no período selecionado"
+            />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <MiniMetric
+                    icon={<WalletCards size={17} />}
+                    label="Geral"
+                    value={formatNullableCurrency(data.kpis.average_ticket)}
+                />
+                <MiniMetric
+                    icon={<CircleDollarSign size={17} />}
+                    label="Tratamentos"
+                    value={formatNullableCurrency(data.ticket_averages.treatments)}
+                />
+                <MiniMetric
+                    icon={<ReceiptText size={17} />}
+                    label="Primeira consulta"
+                    value={formatNullableCurrency(
+                        data.ticket_averages.first_consultation,
+                    )}
+                />
+            </div>
+        </Card>
+    );
 }
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
@@ -1877,6 +1915,19 @@ function FinancialBodySkeleton() {
                             <Skeleton
                                 key={index}
                                 className="h-10 w-full rounded-none"
+                            />
+                        ))}
+                    </div>
+                </Card>
+            </section>
+            <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Card>
+                    <Skeleton className="mb-5 h-6 w-[32%]" />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                            <Skeleton
+                                key={index}
+                                className="h-[78px] w-full rounded-xl"
                             />
                         ))}
                     </div>

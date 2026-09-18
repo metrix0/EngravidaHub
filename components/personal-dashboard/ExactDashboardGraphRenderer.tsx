@@ -32,6 +32,8 @@ type Props = {
 
 const SIMPLE_JOURNEY_GRAPH_IDS = new Set([
     "jornada.funil_conversa",
+    "jornada.avaliacao_presencial",
+    "jornada.avaliacao_online",
     "jornada.pontos_abandono",
     "jornada.objecoes",
 ]);
