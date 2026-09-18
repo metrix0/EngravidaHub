@@ -277,19 +277,84 @@ export async function sendZernioInboxMessage({
     } satisfies SentZernioMessage;
 }
 
+export type ZernioAdMediaItem = {
+    type: "image" | "video";
+    url: string | null;
+    thumbnail_url: string | null;
+    index: number | null;
+};
+
 export async function getZernioAd(adId: string): Promise<ZernioAd> {
     const normalizedAdId = adId.trim();
     if (!normalizedAdId) {
         throw new Error("Zernio ad ID is required.");
     }
 
-    const response = await zernioRequest<{ ad?: unknown }>(
-        `/ads/${encodeURIComponent(normalizedAdId)}`,
-    );
-    const ad = asRecord(response.ad);
-    if (!ad) {
-        throw new ZernioApiError("O Zernio não retornou os dados do anúncio.");
+    try {
+        const response = await zernioRequest<{ ad?: unknown }>(
+            `/ads/${encodeURIComponent(normalizedAdId)}`,
+        );
+        const ad = sanitizeZernioAd(response.ad);
+        if (ad) return ad;
+    } catch (error) {
+        if (!(error instanceof ZernioApiError) || error.status !== 404) {
+            throw error;
+        }
     }
+
+    const response = await zernioRequest<Record<string, unknown>>(
+        `/ads?platformAdId=${encodeURIComponent(normalizedAdId)}&limit=1`,
+    );
+    const candidates = Array.isArray(response.ads)
+        ? response.ads
+        : Array.isArray(response.data)
+          ? response.data
+          : [];
+    const ad = sanitizeZernioAd(candidates[0]);
+
+    if (!ad) {
+        throw new ZernioApiError("Ad not found", { status: 404 });
+    }
+
+    return ad;
+}
+
+export async function getZernioAdMedia(
+    adId: string,
+): Promise<ZernioAdMediaItem[]> {
+    const normalizedAdId = adId.trim();
+    if (!normalizedAdId) {
+        throw new Error("Zernio ad ID is required.");
+    }
+
+    const response = await zernioRequest<{ media?: unknown[] }>(
+        `/ads/${encodeURIComponent(normalizedAdId)}/media`,
+    );
+
+    return (Array.isArray(response.media) ? response.media : [])
+        .map((value) => {
+            const item = asRecord(value);
+            const type = stringValue(item?.type);
+            if (type !== "image" && type !== "video") return null;
+
+            return {
+                type,
+                url: stringValue(item?.url),
+                thumbnail_url: stringValue(item?.thumbnailUrl),
+                index:
+                    typeof item?.index === "number" &&
+                    Number.isFinite(item.index)
+                        ? item.index
+                        : null,
+            } satisfies ZernioAdMediaItem;
+        })
+        .filter((item): item is ZernioAdMediaItem => item !== null);
+}
+
+function sanitizeZernioAd(value: unknown): ZernioAd | null {
+    const ad = asRecord(value);
+    if (!ad) return null;
+
     const creative = asRecord(ad.creative);
 
     return {

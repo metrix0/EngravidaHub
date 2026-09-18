@@ -4,12 +4,26 @@ import { randomUUID } from "crypto";
 import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 import type { ParsedZernioMessage } from "@/lib/importers/zernio/parseZernioWebhook";
 import { supabase } from "@/lib/supabase/client";
-import { getZernioAd, ZernioApiError } from "@/lib/zernio/client";
+import {
+    getZernioAd,
+    getZernioAdMedia,
+    ZernioApiError,
+} from "@/lib/zernio/client";
 
 const META_GRAPH_REQUEST_TIMEOUT_MS = 20_000;
 const BACKFILL_PAGE_SIZE = 1_000;
 const BACKFILL_UPDATE_BATCH_SIZE = 100;
 const META_LOOKUP_CONCURRENCY = 8;
+const AD_CREATIVE_BUCKET = "ad-creatives";
+const MAX_AD_THUMBNAIL_BYTES = 8 * 1024 * 1024;
+const AD_THUMBNAIL_DOWNLOAD_TIMEOUT_MS = 20_000;
+const ALLOWED_AD_THUMBNAIL_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/avif",
+]);
 
 type PersistConversationAdAttributionInput = {
     message: ParsedZernioMessage;
@@ -123,7 +137,7 @@ export async function persistConversationAdAttribution({
         const { error: updateError } = await supabase
             .from("conversation_ad_attributions")
             .update(attributionUpdateValues(ad, enrichedAt))
-            .eq("id", rowId);
+            .eq("meta_ad_id", referral.ad_id);
 
         if (updateError) throw updateError;
 
@@ -204,7 +218,7 @@ export async function backfillConversationAdAttributions() {
 
     await runWithConcurrency(adIds, META_LOOKUP_CONCURRENCY, async (adId) => {
         try {
-            const ad = await getMetaGraphAd(adId);
+            const ad = await resolveConversationAd(adId);
             const enrichedAt = new Date().toISOString();
             const { error } = await supabase
                 .from("conversation_ad_attributions")
@@ -236,11 +250,23 @@ export async function backfillConversationAdAttributions() {
 }
 
 async function resolveConversationAd(metaAdId: string) {
+    const cached = await loadCachedConversationAd(metaAdId);
+    if (cached) {
+        return {
+            ...cached,
+            imageUrl: await persistPermanentAdThumbnail(
+                metaAdId,
+                cached.imageUrl,
+            ),
+        } satisfies ConversationAdDetails;
+    }
+
     let zernioError: unknown = null;
 
     try {
         const ad = await getZernioAd(metaAdId);
         if (
+            ad.name ||
             ad.campaign_id ||
             ad.campaign_name ||
             ad.ad_set_id ||
@@ -254,23 +280,173 @@ async function resolveConversationAd(metaAdId: string) {
                 adSetId: ad.ad_set_id,
                 adSetName: ad.ad_set_name,
                 name: ad.name,
-                imageUrl: ad.image_url,
+                imageUrl: await persistPermanentAdThumbnail(
+                    metaAdId,
+                    ad.image_url,
+                ),
                 videoUrl: ad.video_url,
             } satisfies ConversationAdDetails;
         }
 
         zernioError = new Error(
-            "Zernio ad response did not include campaign or ad set details",
+            "Zernio ad response did not include ad metadata",
         );
     } catch (error) {
         zernioError = error;
     }
 
     try {
-        return await getMetaGraphAd(metaAdId);
+        const ad = await getMetaGraphAd(metaAdId);
+        return {
+            ...ad,
+            imageUrl: await persistPermanentAdThumbnail(metaAdId, ad.imageUrl),
+        } satisfies ConversationAdDetails;
     } catch (metaError) {
         throw new ConversationAdResolutionError(zernioError, metaError);
     }
+}
+
+async function loadCachedConversationAd(
+    metaAdId: string,
+): Promise<ConversationAdDetails | null> {
+    const { data, error } = await supabase
+        .from("conversation_ad_attributions")
+        .select(
+            "zernio_ad_id, platform, campaign_id, campaign_name, ad_set_id, ad_set_name, ad_name, creative_image_url, creative_video_url",
+        )
+        .eq("meta_ad_id", metaAdId)
+        .eq("enrichment_status", "resolved")
+        .order("enriched_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+        zernioAdId: data.zernio_ad_id ?? null,
+        platform: data.platform ?? null,
+        campaignId: data.campaign_id ?? null,
+        campaignName: data.campaign_name ?? null,
+        adSetId: data.ad_set_id ?? null,
+        adSetName: data.ad_set_name ?? null,
+        name: data.ad_name ?? null,
+        imageUrl: data.creative_image_url ?? null,
+        videoUrl: data.creative_video_url ?? null,
+    };
+}
+
+async function persistPermanentAdThumbnail(
+    metaAdId: string,
+    fallbackUrl: string | null,
+) {
+    if (isPermanentAdThumbnailUrl(fallbackUrl)) return fallbackUrl;
+
+    let sourceUrl = fallbackUrl;
+
+    try {
+        const media = await getZernioAdMedia(metaAdId);
+        const image = media.find((item) => item.type === "image" && item.url);
+        const video = media.find(
+            (item) => item.type === "video" && item.thumbnail_url,
+        );
+        sourceUrl = image?.url ?? video?.thumbnail_url ?? sourceUrl;
+    } catch (error) {
+        if (!sourceUrl) {
+            console.warn(
+                "[conversation-ad-attribution] Ad media lookup failed",
+                {
+                    meta_ad_id: metaAdId,
+                    error: toErrorMessage(error),
+                },
+            );
+            return null;
+        }
+    }
+
+    if (!sourceUrl) return null;
+
+    try {
+        return await downloadAndStoreAdThumbnail(metaAdId, sourceUrl);
+    } catch (error) {
+        console.warn(
+            "[conversation-ad-attribution] Ad thumbnail cache failed",
+            {
+                meta_ad_id: metaAdId,
+                error: toErrorMessage(error),
+            },
+        );
+        return null;
+    }
+}
+
+async function downloadAndStoreAdThumbnail(
+    metaAdId: string,
+    sourceUrl: string,
+) {
+    const url = new URL(sourceUrl);
+    if (url.protocol !== "https:") {
+        throw new Error("Ad thumbnail URL must use HTTPS");
+    }
+
+    const response = await fetch(url, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(AD_THUMBNAIL_DOWNLOAD_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Ad thumbnail download returned HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        ?.trim()
+        .toLowerCase();
+
+    if (!contentType || !ALLOWED_AD_THUMBNAIL_TYPES.has(contentType)) {
+        throw new Error("Ad thumbnail returned an unsupported content type");
+    }
+
+    const declaredSize = Number(response.headers.get("content-length"));
+    if (
+        Number.isFinite(declaredSize) &&
+        declaredSize > MAX_AD_THUMBNAIL_BYTES
+    ) {
+        throw new Error("Ad thumbnail is too large");
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_AD_THUMBNAIL_BYTES) {
+        throw new Error("Ad thumbnail is too large");
+    }
+
+    const path = `thumbnails/${metaAdId}`;
+    const { error } = await supabase.storage
+        .from(AD_CREATIVE_BUCKET)
+        .upload(path, bytes, {
+            contentType,
+            cacheControl: "31536000",
+            upsert: true,
+        });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage
+        .from(AD_CREATIVE_BUCKET)
+        .getPublicUrl(path);
+
+    return data.publicUrl;
+}
+
+function isPermanentAdThumbnailUrl(value: string | null) {
+    if (!value) return false;
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+    if (!supabaseUrl) return false;
+
+    return value.startsWith(
+        `${supabaseUrl}/storage/v1/object/public/${AD_CREATIVE_BUCKET}/`,
+    );
 }
 
 async function getMetaGraphAd(metaAdId: string): Promise<ConversationAdDetails> {

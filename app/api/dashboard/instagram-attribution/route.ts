@@ -220,6 +220,7 @@ function buildPayload(
             key,
             label: value.label,
             campaign_name: value.campaign_name,
+            thumbnail_url: adThumbnailPublicUrl(key),
             count: value.count,
             percentage: percentage(value.count, attributedClients),
         }))
@@ -257,6 +258,13 @@ function emptyPayload(totalClients: number) {
                 : [],
         top_ads: [],
     };
+}
+
+function adThumbnailPublicUrl(metaAdId: string) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+    if (!supabaseUrl) return null;
+
+    return `${supabaseUrl}/storage/v1/object/public/ad-creatives/thumbnails/${encodeURIComponent(metaAdId)}`;
 }
 
 function percentage(value: number, total: number) {

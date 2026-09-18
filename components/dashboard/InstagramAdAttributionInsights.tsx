@@ -52,6 +52,7 @@ type InstagramAttributionData = {
     top_ads: Array<
         DistributionRow & {
             campaign_name: string | null;
+            thumbnail_url: string | null;
         }
     >;
 };
@@ -348,10 +349,10 @@ export default function InstagramAdAttributionInsights({
                                 />
                                 <YAxis
                                     type="category"
-                                    dataKey="label"
-                                    width={220}
+                                    dataKey="key"
+                                    width={250}
                                     stroke="#94a3b8"
-                                    tick={{ fontSize: 11 }}
+                                    tick={<AdThumbnailTick rows={adRows} />}
                                 />
                                 <Tooltip
                                     formatter={(value: number | string, _name, item) => [
@@ -413,6 +414,61 @@ function AttributionSkeleton() {
             ))}
         </div>
     );
+}
+
+function AdThumbnailTick({
+    x = 0,
+    y = 0,
+    payload,
+    rows,
+}: {
+    x?: number;
+    y?: number;
+    payload?: { value?: string | number };
+    rows: InstagramAttributionData["top_ads"];
+}) {
+    const key = String(payload?.value ?? "");
+    const row = rows.find((candidate) => candidate.key === key);
+    const label = row?.label ?? key;
+    const imageX = x - 244;
+    const imageY = y - 16;
+
+    return (
+        <g>
+            <rect
+                x={imageX}
+                y={imageY}
+                width={32}
+                height={32}
+                rx={6}
+                fill="#f1f5f9"
+            />
+            {row?.thumbnail_url ? (
+                <image
+                    href={row.thumbnail_url}
+                    x={imageX}
+                    y={imageY}
+                    width={32}
+                    height={32}
+                    preserveAspectRatio="xMidYMid slice"
+                />
+            ) : null}
+            <text
+                x={imageX + 40}
+                y={y}
+                dy="0.35em"
+                fontSize={11}
+                fill="#64748b"
+            >
+                {truncateAdLabel(label)}
+            </text>
+            <title>{label}</title>
+        </g>
+    );
+}
+
+function truncateAdLabel(value: string) {
+    return value.length > 29 ? `${value.slice(0, 28)}…` : value;
 }
 
 function EmptyState({ text }: { text: string }) {
