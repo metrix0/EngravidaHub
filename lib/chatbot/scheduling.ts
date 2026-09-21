@@ -946,7 +946,9 @@ function isConfirmRequest(value: string) {
 
 function isCancelRequest(value: string) {
     return (
-        value === "schedule:cancel" ||\n        value === "common:menu" ||\n        value === "menu" ||
+        value === "schedule:cancel" ||
+        value === "common:menu" ||
+        value === "menu" ||
         /^(cancelar|cancela|cancelar agendamento|desistir)$/.test(value)
     );
 }
