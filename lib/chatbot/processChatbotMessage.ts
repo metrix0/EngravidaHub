@@ -19,6 +19,10 @@ export const INITIAL_CHATBOT_MESSAGE = "__initial__";
 const INITIAL_PROMPT_MESSAGE =
     "Olá sou a Assistente Virtual da Engravida! 😊 Nosso time técnico está fora do horário de atendimento, mas posso adiantar seu atendimento agora. Sobre qual assunto você quer falar?";
 
+type ProcessedChatbotReply = Omit<OutOfHoursChatbotReply, "action"> & {
+    action: OutOfHoursChatbotReply["action"] | "end_conversation";
+} & Record<string, unknown>;
+
 export async function processChatbotMessage({
     message,
     stage: rawStage,
@@ -31,7 +35,7 @@ export async function processChatbotMessage({
     phone?: string | null;
     sessionKey?: string | null;
     signal?: AbortSignal;
-}): Promise<OutOfHoursChatbotReply & Record<string, unknown>> {
+}): Promise<ProcessedChatbotReply> {
     const stage = normalizeChatbotStage(rawStage);
     const isInitialPrompt = message === INITIAL_CHATBOT_MESSAGE;
 
