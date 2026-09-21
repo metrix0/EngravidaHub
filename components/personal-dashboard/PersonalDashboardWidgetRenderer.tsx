@@ -198,6 +198,7 @@ type ActiveAnalytics = {
         response_count: number;
         schedule_count: number;
         created_at: string;
+        automation: string | null;
     }>;
 };
 
@@ -1273,13 +1274,37 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
     const dailyRows = [...byDay.values()].sort((a, b) =>
         a.date.localeCompare(b.date),
     );
+    const resgateByTemplate = new Map<string, { label: string; sent: number }>();
+    for (const item of data.history ?? []) {
+        if (item.automation !== "resgate") continue;
+        const templateKey = item.template_id || item.template_name;
+        const template = resgateByTemplate.get(templateKey) ?? {
+            label: item.template_name,
+            sent: 0,
+        };
+        template.sent += item.sent_count;
+        resgateByTemplate.set(templateKey, template);
+    }
+    const resgateTemplateRows = [...resgateByTemplate.values()].sort(
+        (a, b) => b.sent - a.sent,
+    );
 
     switch (id) {
         case "mensagem_ativa.templates_utilizados":
             return (
                 <HorizontalValueChart
-                    title="Templates utilizados"
+                    title="Templates utilizados Mensagem Ativa"
                     rows={templateRows.map((item) => ({
+                        label: item.label,
+                        value: item.sent,
+                    }))}
+                />
+            );
+        case "mensagem_ativa.fluxo_resgate_leads":
+            return (
+                <HorizontalValueChart
+                    title="Fluxo de Resgate de Leads"
+                    rows={resgateTemplateRows.map((item) => ({
                         label: item.label,
                         value: item.sent,
                     }))}

@@ -20,6 +20,7 @@ type AnalyticsSendRow = {
     template_name: string;
     sent_count: number;
     created_at: string;
+    filters: Record<string, unknown> | null;
 };
 
 type HistoryMetricsRow = {
@@ -70,6 +71,10 @@ export async function GET(request: Request) {
                         template_name: row.template_name,
                         sent_count: row.sent_count,
                         created_at: row.created_at,
+                        automation:
+                            typeof row.filters?.automation === "string"
+                                ? row.filters.automation
+                                : null,
                         response_count: metrics?.response_count ?? 0,
                         schedule_count: metrics?.schedule_count ?? 0,
                     };
@@ -99,7 +104,7 @@ async function loadSends(startDate: string, endDate: string) {
     for (let offset = 0; ; offset += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("active_message_sends")
-            .select("id, template_id, template_name, sent_count, created_at")
+            .select("id, template_id, template_name, sent_count, created_at, filters")
             .gte("created_at", `${startDate}T00:00:00-03:00`)
             .lt("created_at", `${endExclusive}T00:00:00-03:00`)
             .order("created_at", { ascending: true })
