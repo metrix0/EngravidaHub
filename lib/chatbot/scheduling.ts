@@ -1,7 +1,7 @@
 // lib/chatbot/scheduling.ts
 import { randomUUID } from "node:crypto";
 
-import { listClinisysAvailability } from "@/lib/clinisys/client";
+import { listReplicatedClinisysAvailability } from "@/lib/clinisys/replicatedAvailability";
 import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 import {
     buildAppointmentIntegrationPayload,
@@ -58,12 +58,6 @@ type DoctorOption = {
     unit_id: string;
     name: string;
     specialty: string | null;
-};
-
-type AvailabilitySlot = {
-    data?: string;
-    inicio?: string;
-    termino?: string;
 };
 
 type UnitAvailabilitySlot = {
@@ -644,7 +638,26 @@ async function offerAvailabilityWindow(
     unit: UnitOption,
     searchFrom?: string,
 ) {
-    const slots = await loadUnitAvailableSlots(unit.id);
+    let slots: UnitAvailabilitySlot[];
+    try {
+        slots = await loadUnitAvailableSlots(unit.id);
+    } catch (error) {
+        if (error instanceof ReplicatedAgendaUnavailableError) {
+            return schedulingReply(
+                session,
+                buildChatbotReply({
+                    action: "queue_human",
+                    route: "deterministic",
+                    stage,
+                    reply:
+                        "Não consegui consultar a agenda dessa unidade agora. Vou encaminhar para nosso time continuar o atendimento.",
+                    options: [],
+                    handoffReason: "technical",
+                }),
+            );
+        }
+        throw error;
+    }
     const today = todayInBrazil();
     const minimumDate =
         searchFrom && searchFrom > today ? searchFrom : today;
@@ -889,47 +902,40 @@ async function loadDoctor(unitId: string, doctorId: string) {
     );
 }
 
+class ReplicatedAgendaUnavailableError extends Error {}
+
 async function loadUnitAvailableSlots(
     unitId: string,
 ): Promise<UnitAvailabilitySlot[]> {
-    const [unit, doctors] = await Promise.all([
-        loadUnit(unitId),
-        loadDoctors(unitId),
-    ]);
-    if (!unit || doctors.length === 0) return [];
+    const doctors = await loadDoctors(unitId);
+    if (doctors.length === 0) return [];
 
-    const results = await Promise.allSettled(
-        doctors.map(async (doctor) => {
-            const slots = await listClinisysAvailability({
-                unitId,
-                doctorId: doctor.id,
-                unitName: unit.name,
-                doctorName: doctor.name,
-                procedureName: PROCEDURE_NAME,
-            });
+    const result = await listReplicatedClinisysAvailability({
+        unitId,
+        doctorIds: doctors.map((doctor) => doctor.id),
+        dateFrom: todayInBrazil(),
+        dateTo: addDays(todayInBrazil(), 180),
+    });
 
-            return (slots as AvailabilitySlot[]).flatMap((slot) => {
-                const date = toIsoDate(slot.data ?? "");
-                const time = normalizeTime(slot.inicio ?? "");
-                if (!validIsoDate(date) || !time) return [];
-                return [
-                    {
-                        date,
-                        time,
-                        doctorId: doctor.id,
-                    } satisfies UnitAvailabilitySlot,
-                ];
-            });
-        }),
-    );
+    if (result.slots.length === 0 && result.missingDoctorIds.length > 0) {
+        throw new ReplicatedAgendaUnavailableError(
+            "A agenda replicada ainda não está disponível para todos os médicos da unidade.",
+        );
+    }
 
     const unique = new Map<string, UnitAvailabilitySlot>();
-    for (const result of results) {
-        if (result.status !== "fulfilled") continue;
-        for (const slot of result.value) {
-            const key = `${slot.date}|${slot.time}`;
-            if (!unique.has(key)) unique.set(key, slot);
-        }
+    for (const slot of result.slots) {
+        const date = toIsoDate(slot.data);
+        const time = normalizeTime(slot.inicio);
+        if (!validIsoDate(date) || !time) continue;
+
+        const value = {
+            date,
+            time,
+            doctorId: slot.doctorId,
+        } satisfies UnitAvailabilitySlot;
+        const key = `${date}|${time}`;
+        if (!unique.has(key)) unique.set(key, value);
     }
 
     return [...unique.values()].sort(
@@ -944,26 +950,28 @@ async function loadAvailableSlots(
     doctorId: string,
     date: string,
 ) {
-    const [unit, doctor] = await Promise.all([
-        loadUnit(unitId),
-        loadDoctor(unitId, doctorId),
-    ]);
-    if (!unit || !doctor) return [];
+    const doctor = await loadDoctor(unitId, doctorId);
+    if (!doctor) return [];
 
-    const slots = await listClinisysAvailability({
+    const result = await listReplicatedClinisysAvailability({
         unitId,
-        doctorId,
-        unitName: unit.name,
-        doctorName: doctor.name,
-        procedureName: PROCEDURE_NAME,
+        doctorIds: [doctorId],
+        dateFrom: date,
+        dateTo: date,
     });
 
-    const unique = new Map<string, { time: string; raw: AvailabilitySlot }>();
-    for (const slot of slots as AvailabilitySlot[]) {
-        if (toIsoDate(slot.data ?? "") !== date) continue;
-        const time = normalizeTime(slot.inicio ?? "");
+    if (result.missingDoctorIds.includes(doctorId)) {
+        throw new ReplicatedAgendaUnavailableError(
+            "A agenda replicada ainda não está disponível para o médico selecionado.",
+        );
+    }
+
+    const unique = new Map<string, { time: string }>();
+    for (const slot of result.slots) {
+        if (toIsoDate(slot.data) !== date) continue;
+        const time = normalizeTime(slot.inicio);
         if (!time || unique.has(time)) continue;
-        unique.set(time, { time, raw: slot });
+        unique.set(time, { time });
     }
 
     return [...unique.values()].sort((a, b) => a.time.localeCompare(b.time));
