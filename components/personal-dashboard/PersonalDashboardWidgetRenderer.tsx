@@ -1278,7 +1278,7 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
         case "mensagem_ativa.templates_utilizados":
             return (
                 <HorizontalValueChart
-                    title="Templates utilizados"
+                    title="Templates utilizados Mensagem Ativa"
                     rows={templateRows.map((item) => ({
                         label: item.label,
                         value: item.sent,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Clock3, Info } from "lucide-react";
+import { Check, ChevronDown, Clock3, HelpCircle, Info } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Bar,
@@ -15,7 +15,7 @@ import {
 } from "recharts";
 
 import Skeleton from "@/components/ui/Skeleton";
-import { DataTable, HoverBadgeList, Pagination, type DataTableColumn } from "@/components";
+import { DataTable, HoverBadgeList, InfoTooltip, Pagination, type DataTableColumn } from "@/components";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import type { ActiveMessageSendHistory } from "@/types/activeMessages";
 
@@ -63,7 +63,7 @@ export function TemplatesUsedCard({ history, loading = false }: { history: Histo
     const templateData = useMemo(() => buildTemplateData(history), [history]);
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="font-bold text-slate-950">Templates utilizados</h3>
+            <h3 className="font-bold text-slate-950">Templates utilizados Mensagem Ativa</h3>
             {loading ? <Skeleton className="mt-5 h-[280px] rounded-xl" /> : templateData.length > 0 ? (
                 <div style={{ height: Math.max(280, templateData.length * 54) }} className="mt-5 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -132,7 +132,12 @@ export function VolumeResultsCard({ history, loading = false }: { history: Histo
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
-                <h3 className="font-bold text-slate-950">Volume e resultados de Envios Ativos</h3>
+                <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-slate-950">Volume e resultados de Envios Ativos</h3>
+                    <InfoTooltip text="Mostra, por dia, quantos Envios Ativos foram enviados e quantos geraram respostas e agendamentos, com filtro por template.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
                 {templateData.length > 0 ? (
                     <div ref={templateMenuRef} className="relative">
                         <button type="button" onClick={() => setTemplateMenuOpen((open) => !open)} className="flex min-w-[172px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-slate-800" aria-haspopup="listbox" aria-expanded={templateMenuOpen}>
