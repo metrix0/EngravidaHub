@@ -1,24 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { HelpCircle } from "lucide-react";
-import {
-    Bar,
-    CartesianGrid,
-    ComposedChart,
-    Line,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-} from "recharts";
-
-import Card from "@/components/ui/Card";
-import InfoTooltip from "@/components/ui/InfoTooltip";
-import Skeleton from "@/components/ui/Skeleton";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
 import InstagramAdAttributionInsights from "@/components/dashboard/InstagramAdAttributionInsights";
+import DashboardCallInsights from "@/components/dashboard/DashboardCallInsights";
+import DashboardWebPageViews from "@/components/dashboard/DashboardWebPageViews";
 import {
     applyCalendarDateParams,
     type CalendarPresetValue,
@@ -56,28 +43,6 @@ const SHARE_TITLES: Record<string, string> = {
     "jornada.participacao_messenger": "Participação do Messenger nas conversas",
 };
 
-type CallDashboardData = {
-    total: number;
-    good: number;
-    neutral: number;
-    bad: number;
-    good_rate: number;
-    neutral_rate: number;
-    bad_rate: number;
-    daily_evolution: Array<{
-        date: string;
-        date_iso: string;
-        good: number;
-        neutral: number;
-        bad: number;
-    }>;
-};
-
-const CALL_VOLUME = "#94a3b8";
-const CALL_GOOD = "#0fbb73";
-const CALL_NEUTRAL = "#1683ff";
-const CALL_BAD = "#e43535";
-
 export default function ExactChannelDashboardGraphRenderer({
     widgetId,
     period,
@@ -86,13 +51,32 @@ export default function ExactChannelDashboardGraphRenderer({
 }: Props) {
     if (widgetId === "ligacoes.evolucao") {
         return (
-            <ExactCallEvolutionCard
-                period={period}
-                selectedRange={selectedRange}
-                unitNames={unitNames}
-            />
+            <IsolatedSourceCard title="Evolução das ligações">
+                <DashboardCallInsights period={period} selectedRange={selectedRange} unitNames={unitNames} />
+            </IsolatedSourceCard>
         );
     }
+
+    if (widgetId === "web.site_principal") {
+        return (
+            <IsolatedSourceCard title="Páginas do site principal">
+                <DashboardWebPageViews period={period} selectedRange={selectedRange} />
+            </IsolatedSourceCard>
+        );
+    }
+
+    if (widgetId === "web.landing_pages") {
+        return (
+            <IsolatedSourceCard title="Performance das landing pages">
+                <DashboardWebPageViews period={period} selectedRange={selectedRange} />
+            </IsolatedSourceCard>
+        );
+    }
+
+    if (widgetId === "canais.instagram_conversas") return <InstagramConversationInsights mode="analysis" period={period} selectedRange={selectedRange} />;
+    if (widgetId === "canais.messenger_conversas") return <MessengerConversationInsights mode="analysis" period={period} selectedRange={selectedRange} />;
+    if (widgetId === "canais.ligacoes") return <DashboardCallInsights period={period} selectedRange={selectedRange} unitNames={unitNames} />;
+    if (widgetId === "canais.site") return <DashboardWebPageViews period={period} selectedRange={selectedRange} />;
 
     if (widgetId === "messenger.evolucao_diaria") {
         return (
@@ -222,156 +206,8 @@ function buildSearchParams(
     return params.toString();
 }
 
-function ExactCallEvolutionCard({
-    period,
-    selectedRange,
-    unitNames,
-}: {
-    period: CalendarPresetValue | null;
-    selectedRange: DateRange;
-    unitNames: string[];
-}) {
-    const [data, setData] = useState<CallDashboardData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const query = useMemo(() => {
-        const params = new URLSearchParams();
-        applyCalendarDateParams({ params, selectedRange, selectedPreset: period });
-        for (const unit of unitNames) params.append("unit", unit);
-        return params.toString();
-    }, [period, selectedRange.end, selectedRange.start, unitNames.join("|")]);
 
-    useEffect(() => {
-        const controller = new AbortController();
-        setLoading(true);
-        setError(null);
-        void fetch(`/api/dashboard/calls?${query}`, {
-            cache: "no-store",
-            signal: controller.signal,
-        })
-            .then(async (response) => {
-                const json = (await response.json()) as CallDashboardData & { error?: string };
-                if (!response.ok) throw new Error(json.error ?? "Falha ao carregar dados de ligações.");
-                setData(json);
-            })
-            .catch((loadError) => {
-                if (!controller.signal.aborted) {
-                    setError(loadError instanceof Error ? loadError.message : "Falha ao carregar dados de ligações.");
-                }
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) setLoading(false);
-            });
-        return () => controller.abort();
-    }, [query]);
 
-    if (loading) return <Skeleton className="h-[370px] w-full rounded-2xl" />;
-    if (error || !data) {
-        return (
-            <Card>
-                <div className="py-10 text-center text-sm text-slate-500">{error ?? "Dados indisponíveis."}</div>
-            </Card>
-        );
-    }
 
-    const chartData = data.daily_evolution.map((item) => ({
-        ...item,
-        total: item.good + item.neutral + item.bad,
-    }));
 
-    return (
-        <Card className="min-w-0 overflow-hidden">
-            <div>
-                <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900">Evolução das ligações</h3>
-                    <InfoTooltip
-                        text={"Final bom, final neutro e final ruim seguem as classificações registradas nas ligações."}
-                        portal
-                        fitContent
-                    >
-                        <HelpCircle size={15} className="text-slate-400" />
-                    </InfoTooltip>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Volume diário de ligações com uma linha para cada tipo de final.
-                </p>
-            </div>
 
-            {data.total === 0 ? (
-                <div className="mt-6 rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center text-sm text-slate-400">
-                    Nenhuma ligação registrada no período.
-                </div>
-            ) : (
-                <>
-                    <div className="mt-5 h-[300px] min-w-0">
-                        <ResponsiveContainer width="100%" height="100%" debounce={150}>
-                            <ComposedChart
-                                data={chartData}
-                                margin={{ top: 8, right: 12, left: -8, bottom: 0 }}
-                                barCategoryGap="24%"
-                            >
-                                <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                                <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" minTickGap={22} />
-                                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                                <Tooltip content={<CallTooltip />} />
-                                <Bar
-                                    dataKey="total"
-                                    name="Volume de ligações"
-                                    fill={CALL_VOLUME}
-                                    fillOpacity={0.22}
-                                    stroke={CALL_VOLUME}
-                                    radius={[5, 5, 0, 0]}
-                                    maxBarSize={44}
-                                    isAnimationActive={false}
-                                />
-                                <Line type="monotone" dataKey="good" name="Final bom" stroke={CALL_GOOD} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                                <Line type="monotone" dataKey="neutral" name="Final neutro" stroke={CALL_NEUTRAL} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                                <Line type="monotone" dataKey="bad" name="Final ruim" stroke={CALL_BAD} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                            </ComposedChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-5 text-xs text-slate-500">
-                        <Legend color={CALL_VOLUME} label="Volume de ligações" />
-                        <Legend color={CALL_GOOD} label="Final bom" />
-                        <Legend color={CALL_NEUTRAL} label="Final neutro" />
-                        <Legend color={CALL_BAD} label="Final ruim" />
-                    </div>
-                </>
-            )}
-        </Card>
-    );
-}
-
-function CallTooltip({
-    active,
-    payload,
-    label,
-}: {
-    active?: boolean;
-    payload?: Array<{ name?: string; value?: number }>;
-    label?: string;
-}) {
-    if (!active || !payload?.length) return null;
-    return (
-        <div className="min-w-[180px] rounded-xl border border-border bg-white px-4 py-3 shadow-lg">
-            <div className="mb-2 text-xs font-bold text-slate-800">{label ?? ""}</div>
-            <div className="space-y-1.5">
-                {payload.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between gap-5 text-xs">
-                        <span className="text-slate-500">{item.name}</span>
-                        <span className="font-semibold text-slate-800">{(item.value ?? 0).toLocaleString("pt-BR")}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-    return (
-        <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-            <span>{label}</span>
-        </div>
-    );
-}

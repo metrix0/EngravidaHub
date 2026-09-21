@@ -7,7 +7,6 @@ import ExactFinanceiroDashboardGraphs from "@/components/personal-dashboard/Exac
 import ExactJornadaDashboardGraphs from "@/components/personal-dashboard/ExactJornadaDashboardGraphs";
 import ExactJornadaSimpleDashboardGraphs from "@/components/personal-dashboard/ExactJornadaSimpleDashboardGraphs";
 import ExactMensagemAtivaDashboardGraphs from "@/components/personal-dashboard/ExactMensagemAtivaDashboardGraphs";
-import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetRenderer";
 import { isChannelDashboardWidgetId } from "@/lib/personal-dashboard/registryExtended";
 import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import type { CalendarPresetValue, DateRange } from "@/components/ui/CalendarButton";
@@ -35,6 +34,7 @@ const SIMPLE_JOURNEY_GRAPH_IDS = new Set([
     "jornada.avaliacao_presencial",
     "jornada.avaliacao_online",
     "jornada.pontos_abandono",
+    "jornada.resultados_intencao",
     "jornada.objecoes",
 ]);
 
@@ -53,7 +53,14 @@ export default function ExactDashboardGraphRenderer(props: Props) {
     }
 
     if (widget.id.startsWith("canais.")) {
-        return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
+        return (
+            <ExactChannelDashboardGraphRenderer
+                widgetId={widget.id}
+                period={props.period}
+                selectedRange={props.selectedRange}
+                unitNames={props.unitNames}
+            />
+        );
     }
 
     if (widget.source === "atendimento" && sources.atendimento) {
@@ -112,17 +119,5 @@ export default function ExactDashboardGraphRenderer(props: Props) {
         );
     }
 
-    return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
-}
-
-function baseRendererProps(props: Props) {
-    return {
-        widget: props.widget,
-        sources: props.sources,
-        loadingSources: props.loadingSources,
-        errors: props.errors,
-        period: props.period,
-        selectedRange: props.selectedRange,
-        unitIds: props.unitIds,
-    };
+    return null;
 }
