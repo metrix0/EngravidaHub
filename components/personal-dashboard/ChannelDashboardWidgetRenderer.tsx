@@ -6,7 +6,6 @@ import {
     CircleX,
     Clock,
     Globe2,
-    MessageCircle,
     Minus,
     PanelsTopLeft,
     PhoneCall,
@@ -15,6 +14,7 @@ import {
     ThumbsDown,
     ThumbsUp,
 } from "lucide-react";
+import { FaFacebookMessenger, FaInstagram } from "react-icons/fa6";
 import {
     Area,
     AreaChart,
@@ -210,7 +210,7 @@ export default function ChannelDashboardWidgetRenderer({
 function renderInstagram(id: string, data: InstagramAnalysisData) {
     switch (id) {
         case "instagram.conversas_analisadas":
-            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="pink" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Instagram. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
+            return <KpiCard icon={<FaInstagram size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="pink" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Instagram. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
         case "instagram.resolucao_real":
             return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" tooltipText={`Baseado em ${data.resolution_observed.toLocaleString("pt-BR")} conversas com resultado de resolução observável.`} />;
         case "instagram.clientes_satisfeitos":
@@ -251,7 +251,7 @@ function renderInstagram(id: string, data: InstagramAnalysisData) {
 function renderMessenger(id: string, data: MessengerAnalysisData) {
     switch (id) {
         case "messenger.conversas_analisadas":
-            return <KpiCard icon={<MessageCircle size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="blue" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Messenger. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
+            return <KpiCard icon={<FaFacebookMessenger size={26} />} label="Conversas analisadas" currentValue={data.conversations_analyzed} formatter={formatInteger} color="blue" tooltipText={`${formatPercent(data.analysis_coverage_rate)} de cobertura entre ${data.conversations_total.toLocaleString("pt-BR")} conversas do Messenger. ${data.notable_count.toLocaleString("pt-BR")} foram marcadas como notáveis.`} />;
         case "messenger.resolucao_real":
             return <KpiCard icon={<ShieldCheck size={26} />} label="Resolução real" currentValue={data.resolution_rate} suffix="%" color="green" tooltipText={`Baseado em ${data.resolution_observed.toLocaleString("pt-BR")} conversas com resultado de resolução observável.`} />;
         case "messenger.clientes_satisfeitos":

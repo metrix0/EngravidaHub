@@ -33,6 +33,13 @@ import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import { ConversationPanel } from "@/components/conversations/ConversationPanel";
 import {
+    EventsByDayCard as SharedEventsByDayCard,
+    EventsByTypeCard as SharedEventsByTypeCard,
+    ClickIdRatesCard as SharedClickIdRatesCard,
+    RecentEventsCard as SharedRecentEventsCard,
+} from "@/components/personal-dashboard/ExactEventosDashboardGraphs";
+
+import {
     Card,
     DashboardHeader,
     DashboardFilterBar,
@@ -467,147 +474,15 @@ function KpiContainer({ children }: { children: ReactNode }) {
 }
 
 function EventsByDayCard({ data }: { data: EventsDashboardData }) {
-    const bars = AD_PLATFORMS.flatMap((platform) =>
-        AD_EVENT_TYPES.map((eventType) => ({
-            key: getDailyKey(platform, eventType),
-            platform,
-            eventType,
-            label: `${AD_PLATFORM_LABELS[platform]} · ${AD_EVENT_TYPE_LABELS[eventType]}`,
-            color: DAILY_EVENT_COLORS[getDailyKey(platform, eventType)] ?? "#64748b",
-        })),
-    );
-
-    return (
-        <Card>
-            <div className="mb-5">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold">Eventos enviados por dia</h2>
-                    <InfoTooltip text="Mostra a quantidade de eventos enviados por plataforma e tipo de evento, agrupada no fuso America/Sao_Paulo.">
-                        <HelpCircle size={16} className="text-slate-400" />
-                    </InfoTooltip>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-                    {bars.map((bar) => (
-                        <div key={bar.key} className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: bar.color }} />
-                            <span>{bar.label}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="h-[285px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.daily} barCategoryGap="22%">
-                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
-                        <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                        <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                        <Tooltip cursor={false} />
-                        {bars.map((bar) => (
-                            <Bar
-                                key={bar.key}
-                                dataKey={bar.key}
-                                name={bar.label}
-                                stackId="events"
-                                fill={bar.color}
-                            />
-                        ))}
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-        </Card>
-    );
+    return <SharedEventsByDayCard data={data} />;
 }
 
 function EventsByTypeCard({ data }: { data: EventsDashboardData }) {
-    return (
-        <Card>
-            <div className="mb-5 flex items-center gap-2">
-                <h2 className="text-lg font-bold">Eventos por tipo</h2>
-                <InfoTooltip text="Distribuição dos eventos após os filtros atuais.">
-                    <HelpCircle size={16} className="text-slate-400" />
-                </InfoTooltip>
-            </div>
-
-            <div className="relative h-[215px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                        <Pie
-                            data={data.by_type}
-                            dataKey="count"
-                            nameKey="label"
-                            innerRadius={58}
-                            outerRadius={86}
-                        >
-                            {data.by_type.map((item) => (
-                                <Cell
-                                    key={item.event_type}
-                                    fill={EVENT_TYPE_CHART_COLORS[item.event_type]}
-                                />
-                            ))}
-                        </Pie>
-                        <Tooltip />
-                    </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="text-2xl font-bold text-slate-900">
-                        {data.kpis.total_events.toLocaleString("pt-BR")}
-                    </div>
-                    <div className="text-xs text-slate-500">tentativas</div>
-                </div>
-            </div>
-
-            <div className="mt-5 space-y-3 text-sm">
-                {data.by_type.map((item) => (
-                    <div key={item.event_type} className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <span
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: EVENT_TYPE_CHART_COLORS[item.event_type] }}
-                            />
-                            <span className="text-slate-600">{item.label}</span>
-                        </div>
-                        <span className="font-semibold text-slate-700">
-                            {item.count} ({formatRate(item.percentage)})
-                        </span>
-                    </div>
-                ))}
-            </div>
-        </Card>
-    );
+    return <SharedEventsByTypeCard data={data} />;
 }
 
 function ClickIdRatesCard({ data }: { data: EventsDashboardData }) {
-
-    return (
-        <Card>
-            <div className="mb-5 flex items-center gap-2">
-                <h2 className="text-lg font-bold">Parâmetros de clique</h2>
-                <InfoTooltip text="Meta usa a presença de IP do cliente. Google usa a presença de GClid. A base é o total de eventos da respectiva plataforma após os filtros.">
-                    <HelpCircle size={16} className="text-slate-400" />
-                </InfoTooltip>
-            </div>
-
-            <div className="space-y-4">
-                <RateBox
-                    icon={<FaMeta size={18} />}
-                    label="% IP Meta"
-                    value={data.kpis.fbclid_rate}
-                    count={data.kpis.fbclid_events}
-                    colorClass="text-blue-600"
-                    barClass="bg-blue-600"
-                />
-                <RateBox
-                    icon={<FaGoogle size={17} />}
-                    label="% GClid"
-                    value={data.kpis.gclid_rate}
-                    count={data.kpis.gclid_events}
-                    colorClass="text-amber-600"
-                    barClass="bg-amber-500"
-                />
-            </div>
-        </Card>
-    );
+    return <SharedClickIdRatesCard data={data} />;
 }
 
 function RateBox({
@@ -649,126 +524,8 @@ function RateBox({
     );
 }
 
-function RecentEventsCard({
-    data,
-    currentPage,
-    onPageChange,
-    onSelectConversation,
-}: {
-    data: EventsDashboardData;
-    currentPage: number;
-    onPageChange: (page: number) => void;
-    onSelectConversation: (conversationId: string) => void;
-}) {
-    const totalPages = Math.max(1, Math.ceil(data.recent_total / PAGE_SIZE));
-    const firstItem =
-        data.recent_total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-    const lastItem = Math.min(currentPage * PAGE_SIZE, data.recent_total);
-
-    return (
-        <Card>
-            <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-bold">Eventos recentes</h2>
-            </div>
-
-            <div
-                data-recent-events-card
-                className="overflow-visible rounded-xl border border-slate-100"
-            >
-                <div className="grid grid-cols-[1fr_1fr_0.95fr_0.95fr_0.55fr_1.3fr_0.75fr_0.4fr] bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
-                    <div>Data/Hora</div>
-                    <div>Cliente</div>
-                    <div>Telefone</div>
-                    <div>Evento</div>
-                    <div>Plataforma</div>
-                    <div>Parâmetros</div>
-                    <div>Status</div>
-                    <div>Conversa</div>
-                </div>
-
-                {data.recent.map((event) => (
-                    <div
-                        key={event.id}
-                        className="grid grid-cols-[1fr_1fr_0.95fr_0.95fr_0.55fr_1.3fr_0.75fr_0.4fr] items-center gap-2 border-t border-slate-100 px-4 py-4 text-sm"
-                    >
-                        <div
-                            title={formatDateTime(event.date)}
-                            className="truncate text-slate-600"
-                        >
-                            {formatDateTime(event.date)}
-                        </div>
-
-                        <div
-                            title={event.client_name}
-                            className="min-w-0 truncate font-medium text-slate-700"
-                        >
-                            {event.client_name}
-                        </div>
-
-                        <div title={event.phone} className="truncate text-slate-600">
-                            {formatPhone(event.phone)}
-                        </div>
-
-                        <div>
-                            <EventTypeBadge eventType={event.event_type} />
-                        </div>
-
-                        <div className="mr-2 flex justify-center">
-                            <PlatformBadge platform={event.platform} />
-                        </div>
-
-                        <div className="min-w-0">
-                            <ParameterBadges parameters={event.parameters ?? []} />
-                        </div>
-
-                        <div>
-                            <EventStatusBadge status={event.status} />
-                        </div>
-
-                        {event.conversation_id ? (
-                            <button
-                                type="button"
-                                onClick={() => onSelectConversation(event.conversation_id!)}
-                                className="flex w-full cursor-pointer items-center justify-center font-bold text-slate-500 transition-colors hover:text-slate-700"
-                            >
-                                <MessageCircleMore size={16} />
-                            </button>
-                        ) : (
-                            <div className="flex w-full justify-center">
-                                <InfoTooltip
-                                    text="Evento disparado por Clinisys"
-                                    widthClassName="w-55 text-center"
-                                >
-                                    <div className="flex w-full items-center justify-center text-slate-500">
-                                        <img src="clinisys.png" width={16} alt="Clinisys" />
-                                    </div>
-                                </InfoTooltip>
-                            </div>
-                        )}
-                    </div>
-                ))}
-            </div>
-
-            <div className="flex items-center justify-between border-t border-slate-100 px-6 py-5">
-                <div className="text-sm text-slate-500">
-                    Mostrando {firstItem} a {lastItem} de {data.recent_total} eventos
-                </div>
-
-                <Pagination
-                    totalPages={totalPages}
-                    currentPage={currentPage}
-                    onPageChange={onPageChange}
-                />
-
-                <button
-                    type="button"
-                    className="flex h-11 cursor-pointer items-center gap-3 rounded-xl px-4 text-sm text-slate-500"
-                >
-                    {PAGE_SIZE} por página
-                </button>
-            </div>
-        </Card>
-    );
+function RecentEventsCard({ data, currentPage, onPageChange, onSelectConversation }: { data: EventsDashboardData; currentPage: number; onPageChange: (page: number) => void; onSelectConversation: (conversationId: string) => void }) {
+    return <SharedRecentEventsCard data={data} currentPage={currentPage} onPageChange={onPageChange} onSelectConversation={onSelectConversation} />;
 }
 
 function EventTypeBadge({ eventType }: { eventType: AdEventType }) {

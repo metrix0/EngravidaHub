@@ -130,7 +130,7 @@ function AppointmentsTable({
     return (
         <Card className="min-w-0 max-w-full overflow-hidden">
             <h2 className="mb-5 text-lg font-bold">
-                Online e presencial (Agendamentos)
+                Online e presencial (Avaliações)
             </h2>
 
             <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl pb-2">
@@ -237,7 +237,7 @@ function MarkingsTable({
     return (
         <Card className="min-w-0 max-w-full overflow-hidden">
             <h2 className="mb-5 text-lg font-bold">
-                Online e presencial (Marcações)
+                Marcações
             </h2>
 
             {loading ? (

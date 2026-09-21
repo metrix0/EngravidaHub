@@ -36,6 +36,7 @@ import { readUrlFilterValues } from "@/lib/dashboard/urlFilterParams";
 type Props = {
     period: CalendarPresetValue | null;
     selectedRange: DateRange;
+    unitNames?: string[];
 };
 
 type CallDashboardData = {
@@ -69,6 +70,7 @@ const FINAL_TAG_EXPLANATION = [
 export default function DashboardCallInsights({
     period,
     selectedRange,
+    unitNames,
 }: Props) {
     const [data, setData] = useState<CallDashboardData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export default function DashboardCallInsights({
                 });
 
                 const currentUrl = new URLSearchParams(locationSearch);
-                const units = readUrlFilterValues(currentUrl, [
+                const units = unitNames ?? readUrlFilterValues(currentUrl, [
                     "unit",
                     "units",
                     "unit_id",
@@ -147,6 +149,7 @@ export default function DashboardCallInsights({
         period,
         selectedRange.end,
         selectedRange.start,
+        unitNames,
     ]);
 
     if (loading) return <CallInsightsSkeleton />;

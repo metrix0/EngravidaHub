@@ -6,7 +6,6 @@ import {
     BadgeCheck,
     CircleX,
     Clock,
-    MessageCircle,
     ShieldCheck,
     Smile,
 } from "lucide-react";
@@ -260,7 +259,7 @@ function InstagramAnalysisSection({ data }: { data: InstagramAnalysisData }) {
             <HorizontalScroller scrollAmount={360}>
                 <div className="min-w-[270px]">
                     <KpiCard
-                        icon={<MessageCircle size={26} />}
+                        icon={<FaInstagram size={26} />}
                         label="Conversas analisadas"
                         currentValue={data.conversations_analyzed}
                         formatter={(value: number) => value.toLocaleString("pt-BR")}

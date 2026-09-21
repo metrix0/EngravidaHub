@@ -19,7 +19,7 @@ type SectionNavigationConfig = {
 };
 
 const DASHBOARD_SECTIONS: SectionDefinition[] = [
-    { id: "dashboard-conversas", label: "Conversas" },
+    { id: "dashboard-conversas", label: "WhatsApp" },
     {
         id: "dashboard-consultas",
         label: "Consultas",

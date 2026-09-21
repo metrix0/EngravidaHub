@@ -31,7 +31,7 @@ type Props = {
 export default function PersonalDashboardWidgetView(props: Props) {
     const isChannelWidget = isChannelDashboardWidgetId(props.widget.id);
 
-    if (props.widget.kind === "chart" && isChannelWidget) {
+    if (props.widget.kind !== "kpi" && isChannelWidget) {
         return <ExactDashboardGraphRenderer {...props} />;
     }
 
@@ -53,7 +53,7 @@ export default function PersonalDashboardWidgetView(props: Props) {
         return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
     }
 
-    if (props.widget.kind === "chart") {
+    if (props.widget.kind !== "kpi") {
         return <ExactDashboardGraphRenderer {...props} />;
     }
 
