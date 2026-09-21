@@ -1323,7 +1323,7 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
         case "mensagem_ativa.volume_resultados":
             return (
                 <LineSeriesCard
-                    title="Volume e resultados de Envios Ativos"
+                    title="Volume Mensagens Ativas"
                     data={dailyRows}
                     xKey="date"
                     series={[

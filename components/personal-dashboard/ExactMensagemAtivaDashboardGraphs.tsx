@@ -105,7 +105,7 @@ export function ResgateLeadsCard({ history, loading = false }: { history: Histor
 export function VolumeResultsCard({
     history,
     loading = false,
-    title = "Volume e resultados de Envios Ativos",
+    title = "Volume Mensagens Ativas",
     infoText = "Mostra, por dia, quantos Envios Ativos foram enviados e quantos geraram respostas e agendamentos, com filtro por template.",
     showTemplateFilter = true,
 }: {
