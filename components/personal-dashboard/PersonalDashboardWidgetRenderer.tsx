@@ -427,7 +427,7 @@ function renderAtendimento(
                     previousValue={previousTotal.appointments}
                     formatter={formatInteger}
                     projectionText={`Projeção ${Math.round(total.projection).toLocaleString("pt-BR")}`}
-                    tooltipText="Conta todos os agendamentos cuja data da consulta (scheduled_for) cai no período selecionado — ou seja, atendimentos marcados para acontecer nas clínicas nesse período. É diferente de Marcações, que conta quando o agendamento foi criado no CliniSys (created_in_source_at), independentemente da data da consulta. Exemplo: uma consulta criada hoje para o mês que vem conta como Marcação hoje, mas como Agendamento no mês que vem."
+                    tooltipText="Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Agendamento no mês que vem."
                     color="purple"
                 />
             );
