@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
+import { resetChatbotConversationState } from "@/lib/chatbot/conversationState";
 import {
     INITIAL_CHATBOT_MESSAGE,
     processChatbotMessage,
@@ -112,7 +113,11 @@ export async function DELETE(request: Request) {
         );
     }
 
-    await resetChatbotSchedulingSession(devSessionKey(parsed.data.session_id));
+    const sessionKey = devSessionKey(parsed.data.session_id);
+    await Promise.all([
+        resetChatbotSchedulingSession(sessionKey),
+        resetChatbotConversationState(sessionKey),
+    ]);
     return NextResponse.json({ ok: true });
 }
 

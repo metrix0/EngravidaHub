@@ -66,6 +66,14 @@ type AvailabilitySlot = {
     termino?: string;
 };
 
+type UnitAvailabilitySlot = {
+    date: string;
+    time: string;
+    doctorId: string;
+};
+
+type DayPeriod = "morning" | "afternoon";
+
 export type ChatbotSchedulingMetadata = {
     active: boolean;
     step: SchedulingStep;
@@ -129,44 +137,7 @@ export async function startChatbotScheduling({
 
     const knownUnit = await loadKnownUnitForPhone(normalizedPhone);
     if (knownUnit) {
-        const doctors = await loadDoctors(knownUnit.id);
-
-        if (doctors.length === 1) {
-            const updated = await updateSession(session.session_key, {
-                unit_id: knownUnit.id,
-                doctor_id: doctors[0].id,
-                step: "date",
-            });
-            return askDate(updated, topicStage, knownUnit, doctors[0]);
-        }
-
-        if (doctors.length > 1) {
-            const updated = await updateSession(session.session_key, {
-                unit_id: knownUnit.id,
-                doctor_id: null,
-                step: "doctor",
-            });
-
-            return schedulingReply(
-                updated,
-                buildChatbotReply({
-                    action: "show_menu",
-                    route: "deterministic",
-                    stage: topicStage,
-                    reply: `Encontrei sua unidade como ${unitLabel(knownUnit)}. Com qual médico você prefere agendar?`,
-                    options: [
-                        ...doctors.slice(0, 9).map((doctor) => ({
-                            id: `schedule:doctor:${doctor.id}`,
-                            label: doctor.name,
-                        })),
-                        {
-                            id: "schedule:change_unit",
-                            label: "Escolher outra unidade",
-                        },
-                    ],
-                }),
-            );
-        }
+        return offerAvailabilityWindow(session, topicStage, knownUnit);
     }
 
     const units = await loadUnits();
@@ -270,51 +241,7 @@ async function handleUnitStep(
         );
     }
 
-    const doctors = await loadDoctors(selected.id);
-    if (doctors.length === 0) {
-        return schedulingReply(
-            session,
-            buildChatbotReply({
-                action: "reply",
-                route: "deterministic",
-                stage,
-                reply: "Não encontrei médicos ativos vinculados a essa unidade. Escolha outra unidade.",
-                options: units.slice(0, 10).map((unit) => ({
-                    id: `schedule:unit:${unit.id}`,
-                    label: unitLabel(unit),
-                })),
-            }),
-        );
-    }
-
-    if (doctors.length === 1) {
-        const updated = await updateSession(session.session_key, {
-            unit_id: selected.id,
-            doctor_id: doctors[0].id,
-            step: "date",
-        });
-        return askDate(updated, stage, selected, doctors[0]);
-    }
-
-    const updated = await updateSession(session.session_key, {
-        unit_id: selected.id,
-        doctor_id: null,
-        step: "doctor",
-    });
-
-    return schedulingReply(
-        updated,
-        buildChatbotReply({
-            action: "show_menu",
-            route: "deterministic",
-            stage,
-            reply: `Certo, ${unitLabel(selected)}. Com qual médico você prefere agendar?`,
-            options: doctors.slice(0, 10).map((doctor) => ({
-                id: `schedule:doctor:${doctor.id}`,
-                label: doctor.name,
-            })),
-        }),
-    );
+    return offerAvailabilityWindow(session, stage, selected);
 }
 
 async function handleDoctorStep(
@@ -322,82 +249,82 @@ async function handleDoctorStep(
     message: string,
     stage: ChatbotStage,
 ) {
-    if (!session.unit_id) {
+    if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
     }
 
-    const doctors = await loadDoctors(session.unit_id);
-    const selected = selectDoctor(message, doctors);
+    const period = parseDayPeriod(message);
+    const unit = await loadUnit(session.unit_id);
+    if (!unit) return restartAtUnit(session, stage);
 
-    if (!selected) {
+    if (isNegativeAvailabilityResponse(message)) {
+        return offerAvailabilityWindow(
+            session,
+            stage,
+            unit,
+            addDays(endOfWeek(session.scheduling_date), 1),
+        );
+    }
+
+    if (!period) {
+        return askDayPeriod(session, stage);
+    }
+
+    const windowEnd = endOfWeek(session.scheduling_date);
+    const windowSlots = (await loadUnitAvailableSlots(session.unit_id)).filter(
+        (slot) =>
+            slot.date >= session.scheduling_date &&
+            slot.date <= windowEnd,
+    );
+    const slots = windowSlots.filter((slot) =>
+        isSlotInPeriod(slot.time, period),
+    );
+
+    if (slots.length === 0) {
+        const alternative: DayPeriod =
+            period === "morning" ? "afternoon" : "morning";
+        const alternativeSlots = windowSlots.filter((slot) =>
+            isSlotInPeriod(slot.time, alternative),
+        );
+
+        if (alternativeSlots.length === 0) {
+            return offerAvailabilityWindow(
+                session,
+                stage,
+                unit,
+                addDays(windowEnd, 1),
+            );
+        }
+
         return schedulingReply(
             session,
             buildChatbotReply({
                 action: "show_menu",
                 route: "deterministic",
                 stage,
-                reply: "Não identifiquei o médico. Escolha uma das opções abaixo ou escreva o nome.",
-                options: doctors.slice(0, 10).map((doctor) => ({
-                    id: `schedule:doctor:${doctor.id}`,
-                    label: doctor.name,
-                })),
-            }),
-        );
-    }
-
-    const unit = await loadUnit(session.unit_id);
-    const updated = await updateSession(session.session_key, {
-        doctor_id: selected.id,
-        step: "date",
-    });
-    return askDate(updated, stage, unit, selected);
-}
-
-async function handleDateStep(
-    session: SchedulingSessionRow,
-    message: string,
-    stage: ChatbotStage,
-) {
-    if (!session.unit_id || !session.doctor_id) {
-        return restartAtUnit(session, stage);
-    }
-
-    const date = parseRequestedDate(message);
-    if (!date) {
-        return schedulingReply(
-            session,
-            buildChatbotReply({
-                action: "reply",
-                route: "deterministic",
-                stage,
-                reply: "Informe uma data válida para a consulta, por exemplo 25/09/2026.",
-                options: [{ id: "schedule:cancel", label: "Cancelar agendamento" }],
-            }),
-        );
-    }
-
-    const slots = await loadAvailableSlots(
-        session.unit_id,
-        session.doctor_id,
-        date,
-    );
-
-    if (slots.length === 0) {
-        return schedulingReply(
-            session,
-            buildChatbotReply({
-                action: "reply",
-                route: "deterministic",
-                stage,
-                reply: `Não encontrei horários disponíveis para ${formatDate(date)}. Informe outra data.`,
-                options: [{ id: "schedule:cancel", label: "Cancelar agendamento" }],
+                reply: `Não encontrei horários ${period === "morning" ? "pela manhã" : "à tarde"} nessa semana. Tenho ${alternative === "morning" ? "pela manhã" : "à tarde"}. Serve para você?`,
+                options: [
+                    {
+                        id: `schedule:period:${alternative}`,
+                        label:
+                            alternative === "morning"
+                                ? "Sim, pela manhã"
+                                : "Sim, à tarde",
+                    },
+                    {
+                        id: "schedule:availability:no",
+                        label: "Outra semana",
+                    },
+                    {
+                        id: "schedule:change_unit",
+                        label: "Escolher outra unidade",
+                    },
+                ],
             }),
         );
     }
 
     const updated = await updateSession(session.session_key, {
-        scheduling_date: date,
-        scheduling_time: null,
         step: "time",
     });
 
@@ -407,11 +334,51 @@ async function handleDateStep(
             action: "show_menu",
             route: "deterministic",
             stage,
-            reply: `Encontrei horários disponíveis em ${formatDate(date)}. Qual você prefere?`,
+            reply: `Perfeito. Estes são os horários disponíveis ${period === "morning" ? "pela manhã" : "à tarde"}:`,
             options: slots.slice(0, 10).map((slot) => ({
-                id: `schedule:time:${slot.time}`,
-                label: slot.time,
+                id: slotOptionId(slot),
+                label: slotLabel(slot),
             })),
+        }),
+    );
+}
+
+async function handleDateStep(
+    session: SchedulingSessionRow,
+    message: string,
+    stage: ChatbotStage,
+) {
+    if (!session.unit_id || !session.scheduling_date) {
+        return restartAtUnit(session, stage);
+    }
+
+    if (isPositiveAvailabilityResponse(message)) {
+        const updated = await updateSession(session.session_key, {
+            step: "doctor",
+        });
+        return askDayPeriod(updated, stage);
+    }
+
+    if (isNegativeAvailabilityResponse(message)) {
+        const unit = await loadUnit(session.unit_id);
+        if (!unit) return restartAtUnit(session, stage);
+
+        return offerAvailabilityWindow(
+            session,
+            stage,
+            unit,
+            addDays(endOfWeek(session.scheduling_date), 1),
+        );
+    }
+
+    return schedulingReply(
+        session,
+        buildChatbotReply({
+            action: "show_menu",
+            route: "deterministic",
+            stage,
+            reply: availabilityQuestionForWindow(session.scheduling_date),
+            options: availabilityQuestionOptions(),
         }),
     );
 }
@@ -421,39 +388,47 @@ async function handleTimeStep(
     message: string,
     stage: ChatbotStage,
 ) {
-    if (
-        !session.unit_id ||
-        !session.doctor_id ||
-        !session.scheduling_date
-    ) {
+    if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
     }
 
-    const requestedTime = parseRequestedTime(message);
-    const slots = await loadAvailableSlots(
-        session.unit_id,
-        session.doctor_id,
-        session.scheduling_date,
-    );
-    const selected = slots.find((slot) => slot.time === requestedTime);
-
+    const selected = parseSlotOption(message);
     if (!selected) {
         return schedulingReply(
             session,
             buildChatbotReply({
-                action: "show_menu",
+                action: "reply",
                 route: "deterministic",
                 stage,
-                reply: "Esse horário não está mais disponível. Escolha um dos horários atuais.",
-                options: slots.slice(0, 10).map((slot) => ({
-                    id: `schedule:time:${slot.time}`,
-                    label: slot.time,
-                })),
+                reply: "Escolha um dos horários disponíveis.",
+                options: [],
             }),
         );
     }
 
+    const doctor = await loadDoctor(session.unit_id, selected.doctorId);
+    if (!doctor) {
+        const unit = await loadUnit(session.unit_id);
+        return unit
+            ? offerAvailabilityWindow(session, stage, unit)
+            : restartAtUnit(session, stage);
+    }
+
+    const currentSlots = await loadAvailableSlots(
+        session.unit_id,
+        selected.doctorId,
+        selected.date,
+    );
+    if (!currentSlots.some((slot) => slot.time === selected.time)) {
+        const unit = await loadUnit(session.unit_id);
+        if (!unit) return restartAtUnit(session, stage);
+
+        return offerAvailabilityWindow(session, stage, unit);
+    }
+
     const updated = await updateSession(session.session_key, {
+        doctor_id: selected.doctorId,
+        scheduling_date: selected.date,
         scheduling_time: selected.time,
         step: "name",
     });
@@ -663,22 +638,111 @@ async function blockedCreationReply(
     );
 }
 
-async function askDate(
+async function offerAvailabilityWindow(
     session: SchedulingSessionRow,
     stage: ChatbotStage,
-    unit: UnitOption | null,
-    doctor: DoctorOption,
+    unit: UnitOption,
+    searchFrom?: string,
+) {
+    const slots = await loadUnitAvailableSlots(unit.id);
+    const today = todayInBrazil();
+    const minimumDate =
+        searchFrom && searchFrom > today ? searchFrom : today;
+    const available = slots.filter((slot) => slot.date >= minimumDate);
+
+    if (available.length === 0) {
+        const updated = await updateSession(session.session_key, {
+            unit_id: unit.id,
+            doctor_id: null,
+            scheduling_date: null,
+            scheduling_time: null,
+            step: "unit",
+        });
+
+        return schedulingReply(
+            updated,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "deterministic",
+                stage,
+                reply:
+                    "No momento não encontrei horários disponíveis nessa unidade. Você pode escolher outra unidade ou aguardar nosso time.",
+                options: [
+                    {
+                        id: "schedule:change_unit",
+                        label: "Escolher outra unidade",
+                    },
+                    {
+                        id: "schedule:cancel",
+                        label: "Cancelar",
+                    },
+                ],
+            }),
+        );
+    }
+
+    const thisWeekEnd = endOfWeek(today);
+    const nextWeekStart = addDays(thisWeekEnd, 1);
+    const nextWeekEnd = endOfWeek(nextWeekStart);
+    let windowStart: string;
+
+    if (
+        minimumDate <= thisWeekEnd &&
+        available.some(
+            (slot) => slot.date >= today && slot.date <= thisWeekEnd,
+        )
+    ) {
+        windowStart = today;
+    } else if (
+        minimumDate <= nextWeekEnd &&
+        available.some(
+            (slot) =>
+                slot.date >= nextWeekStart && slot.date <= nextWeekEnd,
+        )
+    ) {
+        windowStart = nextWeekStart;
+    } else {
+        windowStart = startOfWeek(available[0].date);
+    }
+
+    const updated = await updateSession(session.session_key, {
+        unit_id: unit.id,
+        doctor_id: null,
+        scheduling_date: windowStart,
+        scheduling_time: null,
+        step: "date",
+    });
+
+    return schedulingReply(
+        updated,
+        buildChatbotReply({
+            action: "show_menu",
+            route: "deterministic",
+            stage,
+            reply: availabilityQuestionForWindow(windowStart),
+            options: availabilityQuestionOptions(),
+        }),
+    );
+}
+
+async function askDayPeriod(
+    session: SchedulingSessionRow,
+    stage: ChatbotStage,
 ) {
     return schedulingReply(
         session,
         buildChatbotReply({
-            action: "reply",
+            action: "show_menu",
             route: "deterministic",
             stage,
-            reply: `Perfeito. ${unit?.name ?? "Unidade selecionada"} com ${doctor.name}. Para qual data você quer consultar horários? Envie no formato DD/MM/AAAA.`,
+            reply: "Você prefere manhã ou tarde?",
             options: [
-                { id: "schedule:change_unit", label: "Escolher outra unidade" },
-                { id: "schedule:cancel", label: "Cancelar agendamento" },
+                { id: "schedule:period:morning", label: "Manhã" },
+                { id: "schedule:period:afternoon", label: "Tarde" },
+                {
+                    id: "schedule:change_unit",
+                    label: "Escolher outra unidade",
+                },
             ],
         }),
     );
@@ -825,6 +889,56 @@ async function loadDoctor(unitId: string, doctorId: string) {
     );
 }
 
+async function loadUnitAvailableSlots(
+    unitId: string,
+): Promise<UnitAvailabilitySlot[]> {
+    const [unit, doctors] = await Promise.all([
+        loadUnit(unitId),
+        loadDoctors(unitId),
+    ]);
+    if (!unit || doctors.length === 0) return [];
+
+    const results = await Promise.allSettled(
+        doctors.map(async (doctor) => {
+            const slots = await listClinisysAvailability({
+                unitId,
+                doctorId: doctor.id,
+                unitName: unit.name,
+                doctorName: doctor.name,
+                procedureName: PROCEDURE_NAME,
+            });
+
+            return (slots as AvailabilitySlot[]).flatMap((slot) => {
+                const date = toIsoDate(slot.data ?? "");
+                const time = normalizeTime(slot.inicio ?? "");
+                if (!validIsoDate(date) || !time) return [];
+                return [
+                    {
+                        date,
+                        time,
+                        doctorId: doctor.id,
+                    } satisfies UnitAvailabilitySlot,
+                ];
+            });
+        }),
+    );
+
+    const unique = new Map<string, UnitAvailabilitySlot>();
+    for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        for (const slot of result.value) {
+            const key = `${slot.date}|${slot.time}`;
+            if (!unique.has(key)) unique.set(key, slot);
+        }
+    }
+
+    return [...unique.values()].sort(
+        (left, right) =>
+            left.date.localeCompare(right.date) ||
+            left.time.localeCompare(right.time),
+    );
+}
+
 async function loadAvailableSlots(
     unitId: string,
     doctorId: string,
@@ -915,6 +1029,113 @@ function selectDoctor(message: string, doctors: DoctorOption[]) {
             .includes(wanted),
     );
     return matches.length === 1 ? matches[0] : null;
+}
+
+function parseDayPeriod(value: string): DayPeriod | null {
+    const normalized = normalizeText(value);
+    if (
+        normalized === "schedule:period:morning" ||
+        /^(manha|de manha|pela manha|prefiro manha)$/.test(normalized)
+    ) {
+        return "morning";
+    }
+    if (
+        normalized === "schedule:period:afternoon" ||
+        /^(tarde|a tarde|de tarde|pela tarde|prefiro tarde)$/.test(normalized)
+    ) {
+        return "afternoon";
+    }
+    return null;
+}
+
+function isPositiveAvailabilityResponse(value: string) {
+    const normalized = normalizeText(value);
+    return (
+        normalized === "schedule:availability:yes" ||
+        /^(sim|tenho|tenho sim|sim tenho|pode ser|consigo|sim consigo|claro|essa semana serve|semana que vem serve)$/.test(
+            normalized,
+        )
+    );
+}
+
+function isNegativeAvailabilityResponse(value: string) {
+    const normalized = normalizeText(value);
+    return (
+        normalized === "schedule:availability:no" ||
+        /^(nao|acho que nao|nao consigo|essa semana nao|semana que vem nao|outra semana|prefiro outra semana)$/.test(
+            normalized,
+        )
+    );
+}
+
+function availabilityQuestionOptions() {
+    return [
+        { id: "schedule:availability:yes", label: "Sim" },
+        { id: "schedule:availability:no", label: "Não" },
+        { id: "schedule:change_unit", label: "Escolher outra unidade" },
+    ];
+}
+
+function availabilityQuestionForWindow(windowStart: string) {
+    const today = todayInBrazil();
+    const thisWeekEnd = endOfWeek(today);
+    const nextWeekStart = addDays(thisWeekEnd, 1);
+
+    if (windowStart >= today && windowStart <= thisWeekEnd) {
+        return "Você tem disponibilidade para esta semana?";
+    }
+    if (windowStart === nextWeekStart) {
+        return "Você tem disponibilidade para semana que vem?";
+    }
+    return `Encontrei horários na semana de ${formatDate(windowStart)}. Você tem disponibilidade nessa semana?`;
+}
+
+function slotOptionId(slot: UnitAvailabilitySlot) {
+    return `schedule:slot:${slot.doctorId}:${slot.date}:${slot.time.replace(":", "")}`;
+}
+
+function parseSlotOption(value: string): UnitAvailabilitySlot | null {
+    const match = /^schedule:slot:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2}):(\d{2})(\d{2})$/i.exec(
+        value.trim(),
+    );
+    if (!match) return null;
+
+    const time = `${match[3]}:${match[4]}`;
+    return validIsoDate(match[2]) && normalizeTime(time)
+        ? {
+              doctorId: match[1],
+              date: match[2],
+              time,
+          }
+        : null;
+}
+
+function slotLabel(slot: UnitAvailabilitySlot) {
+    const date = new Date(`${slot.date}T12:00:00Z`);
+    const weekday = new Intl.DateTimeFormat("pt-BR", {
+        weekday: "short",
+        timeZone: "UTC",
+    })
+        .format(date)
+        .replace(".", "");
+    return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${formatDate(slot.date)} às ${slot.time}`;
+}
+
+function isSlotInPeriod(time: string, period: DayPeriod) {
+    const hour = Number(time.slice(0, 2));
+    return period === "morning" ? hour < 12 : hour >= 12;
+}
+
+function startOfWeek(value: string) {
+    const date = new Date(`${value}T12:00:00Z`);
+    const day = date.getUTCDay();
+    const daysSinceMonday = day === 0 ? 6 : day - 1;
+    date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+    return date.toISOString().slice(0, 10);
+}
+
+function endOfWeek(value: string) {
+    return addDays(startOfWeek(value), 6);
 }
 
 function parseRequestedDate(value: string) {
