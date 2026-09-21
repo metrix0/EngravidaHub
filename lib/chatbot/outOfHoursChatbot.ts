@@ -436,6 +436,19 @@ function routeCommonQuestion(
 
     if (stage === "menu") return null;
 
+    if (isAcknowledgement(message)) {
+        return buildReply({
+            action: "show_menu",
+            route: "deterministic",
+            stage,
+            reply: "Certo 😊 Tem interesse em agendar uma consulta?",
+            options: [
+                { id: "common:schedule", label: "Sim, quero agendar" },
+                { id: "common:other", label: "Outra dúvida" },
+            ],
+        });
+    }
+
     if (/\b(valor|valores|custa|custo|preco|precos|quanto fica)\b/.test(message)) {
         return topicPriceReply(stage);
     }
@@ -811,6 +824,12 @@ function isMenuRequest(message: string) {
 
 function isGreeting(message: string) {
     return /^(oi+|ola+|bom dia|boa tarde|boa noite|hey|hello|tudo bem)[!. ]*$/.test(message);
+}
+
+function isAcknowledgement(message: string) {
+    return /^(entendi|entendido|ok|okay|certo|beleza|obrigado|obrigada|valeu)$/.test(
+        message,
+    );
 }
 
 function isHumanRequest(message: string) {

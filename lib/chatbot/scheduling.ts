@@ -127,6 +127,48 @@ export async function startChatbotScheduling({
 
     if (error) throw error;
 
+    const knownUnit = await loadKnownUnitForPhone(normalizedPhone);
+    if (knownUnit) {
+        const doctors = await loadDoctors(knownUnit.id);
+
+        if (doctors.length === 1) {
+            const updated = await updateSession(session.session_key, {
+                unit_id: knownUnit.id,
+                doctor_id: doctors[0].id,
+                step: "date",
+            });
+            return askDate(updated, topicStage, knownUnit, doctors[0]);
+        }
+
+        if (doctors.length > 1) {
+            const updated = await updateSession(session.session_key, {
+                unit_id: knownUnit.id,
+                doctor_id: null,
+                step: "doctor",
+            });
+
+            return schedulingReply(
+                updated,
+                buildChatbotReply({
+                    action: "show_menu",
+                    route: "deterministic",
+                    stage: topicStage,
+                    reply: `Encontrei sua unidade como ${unitLabel(knownUnit)}. Com qual médico você prefere agendar?`,
+                    options: [
+                        ...doctors.slice(0, 9).map((doctor) => ({
+                            id: `schedule:doctor:${doctor.id}`,
+                            label: doctor.name,
+                        })),
+                        {
+                            id: "schedule:change_unit",
+                            label: "Escolher outra unidade",
+                        },
+                    ],
+                }),
+            );
+        }
+    }
+
     const units = await loadUnits();
     return schedulingReply(
         session,
@@ -135,7 +177,7 @@ export async function startChatbotScheduling({
             route: "deterministic",
             stage: topicStage,
             reply:
-                "Claro. Posso consultar os horários disponíveis no CliniSYS e preparar seu agendamento por aqui. Em qual unidade você quer ser atendido?",
+                "Claro. Posso consultar os horários disponíveis e preparar seu agendamento por aqui. Em qual unidade você quer ser atendido?",
             options: units.slice(0, 10).map((unit) => ({
                 id: `schedule:unit:${unit.id}`,
                 label: unitLabel(unit),
@@ -156,6 +198,10 @@ export async function handleChatbotScheduling({
 
     const stage = normalizeChatbotStage(session.topic_stage);
     const normalized = normalizeText(message);
+
+    if (normalized === "schedule:change_unit") {
+        return restartAtUnit(session, stage);
+    }
 
     if (isCancelRequest(normalized)) {
         await resetChatbotSchedulingSession(sessionKey);
@@ -343,7 +389,7 @@ async function handleDateStep(
                 action: "reply",
                 route: "deterministic",
                 stage,
-                reply: `Não encontrei horários disponíveis no CliniSYS para ${formatDate(date)}. Informe outra data.`,
+                reply: `Não encontrei horários disponíveis para ${formatDate(date)}. Informe outra data.`,
                 options: [{ id: "schedule:cancel", label: "Cancelar agendamento" }],
             }),
         );
@@ -478,7 +524,7 @@ async function handleConfirmStep(
             action: "reply",
             route: "deterministic",
             stage,
-            reply: `Agendamento confirmado para ${formatDate(session.scheduling_date!)} às ${session.scheduling_time}. Código do CliniSYS: ${created.externalId}.`,
+            reply: `Agendamento confirmado para ${formatDate(session.scheduling_date!)} às ${session.scheduling_time}. Código do agendamento: ${created.externalId}.`,
             options: [{ id: "common:menu", label: "Voltar ao menu" }],
         }),
     );
@@ -559,7 +605,7 @@ async function createAppointment(session: SchedulingSessionRow) {
     if (!integration.ok || !integration.externalId) {
         await supabase.from("appointments").delete().eq("id", appointmentId);
         throw new Error(
-            integration.error ?? "Não foi possível criar o agendamento no CliniSYS.",
+            integration.error ?? "Não foi possível concluir o agendamento.",
         );
     }
 
@@ -610,7 +656,7 @@ async function blockedCreationReply(
             route: "deterministic",
             stage,
             reply:
-                "Os dados e o horário foram validados no CliniSYS, mas a criação automática está temporariamente em modo de teste. Nenhum agendamento foi criado. Nosso time pode concluir o agendamento.",
+                "Ainda não consigo concluir o agendamento por aqui. Nenhum agendamento foi criado. Nosso time pode concluir para você.",
             options: [],
         }),
         true,
@@ -630,7 +676,10 @@ async function askDate(
             route: "deterministic",
             stage,
             reply: `Perfeito. ${unit?.name ?? "Unidade selecionada"} com ${doctor.name}. Para qual data você quer consultar horários? Envie no formato DD/MM/AAAA.`,
-            options: [{ id: "schedule:cancel", label: "Cancelar agendamento" }],
+            options: [
+                { id: "schedule:change_unit", label: "Escolher outra unidade" },
+                { id: "schedule:cancel", label: "Cancelar agendamento" },
+            ],
         }),
     );
 }
@@ -804,6 +853,23 @@ async function loadAvailableSlots(
     }
 
     return [...unique.values()].sort((a, b) => a.time.localeCompare(b.time));
+}
+
+async function loadKnownUnitForPhone(phone: string | null) {
+    const identity = normalizePhoneIdentity(phone);
+    if (!identity) return null;
+
+    const { data, error } = await supabase
+        .from("clients")
+        .select("unit_id")
+        .eq("phone_identity", identity)
+        .limit(1)
+        .maybeSingle();
+
+    if (error) throw error;
+    if (!data?.unit_id) return null;
+
+    return loadUnit(data.unit_id);
 }
 
 async function findClientIdByPhone(phone: string | null) {

@@ -345,6 +345,8 @@ O valor da consulta é de R$ 250,00 com pagamento antecipado ou R$ 300,00 no dia
 
 **wer** \= O valor da consulta para o casal é de 300 reais no dia (ou 250 reais para pagamento adiantado) e dá direito a um retorno em até 90 dias. Pode ser presencial ou online.
 
+Tem interesse em agendar uma consulta?
+
 **ert** \= Temos clínicas em:  
 SP  👉 São Paulo (SP);  
 👉 Bauru (SP);  
