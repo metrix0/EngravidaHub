@@ -355,7 +355,7 @@ function renderAtendimento(
                     currentValue={data.kpis.real_resolution_rate}
                     previousValue={data.previous_kpis.real_resolution_rate}
                     suffix="%"
-                    color="green"
+                    color="blue"
                 />
             );
         case "atendimento.clientes_satisfeitos":
@@ -494,7 +494,7 @@ function renderAtendimento(
                     xKey="date"
                     series={[
                         { key: "conversations", name: "Conversas", color: "#10b981" },
-                        { key: "resolution_rate", name: "Resolução %", color: "#10b981" },
+                        { key: "resolution_rate", name: "Resolução %", color: "#1683ff" },
                     ]}
                 />
             );

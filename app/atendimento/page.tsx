@@ -419,7 +419,7 @@ export default function ExecutiveDashboardPage() {
                                         currentValue={data.kpis.real_resolution_rate}
                                         previousValue={data.previous_kpis.real_resolution_rate}
                                         suffix="%"
-                                        color="green"
+                                        color="blue"
                                     />
                                 </div>
 

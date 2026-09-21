@@ -64,7 +64,7 @@ export function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                 <h2 className="text-lg font-bold">Evolução de conversas</h2>
                 <div className="mt-3 flex items-center gap-6 text-xs text-slate-500">
                     <LegendDot color="bg-emerald-500" label="Conversas" />
-                    <LegendDot color="bg-emerald-500" label="Resolução (%)" />
+                    <LegendDot color="bg-blue-500" label="Resolução (%)" />
                     <LegendDot color="bg-violet-500" label="Satisfação (%)" />
                 </div>
             </div>
@@ -110,7 +110,7 @@ export function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             type="monotone"
                             dataKey="resolution_rate"
                             yAxisId="percentage"
-                            stroke="#10b981"
+                            stroke="#1683ff"
                             strokeWidth={3}
                             dot={{ r: 4 }}
                         />
