@@ -100,7 +100,7 @@ export const DASHBOARD_WIDGETS = [
     { id: "funil.procedimentos_agendados", title: "Procedimentos agendados", kind: "kpi", source: "funil", sourcePath: "/funil", permissionTab: "funil" },
     { id: "funil.comparecimento_procedimento", title: "Comparecimento procedimento", kind: "kpi", source: "funil", sourcePath: "/funil", permissionTab: "funil" },
     { id: "mensagem_ativa.templates_utilizados", title: "Templates utilizados Mensagem Ativa", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
-    { id: "mensagem_ativa.volume_resultados", title: "Volume e resultados de Envios Ativos", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
+    { id: "mensagem_ativa.volume_resultados", title: "Volume Mensagens Ativas", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
     { id: "mensagem_ativa.fluxo_resgate_leads", title: "Fluxo de Resgate de Leads", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
     { id: "mensagem_ativa.historico_envios", title: "Histórico de envios", kind: "table", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa" },
 ] satisfies DashboardWidgetDefinition[];
