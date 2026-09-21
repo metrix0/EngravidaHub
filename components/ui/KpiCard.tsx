@@ -20,6 +20,7 @@ type KpiCardProps = {
     unavailableLabel?: string;
     freeWidth?: boolean;
     projectionText?: string | null;
+    valueAddon?: ReactNode;
 };
 
 const colorClasses: Record<KpiCardColor, string> = {
@@ -45,6 +46,7 @@ export default function KpiCard({
     unavailableLabel = "—",
     freeWidth = false,
     projectionText = null,
+    valueAddon = null,
 }: KpiCardProps) {
     const formattedValue =
         currentValue === null
@@ -95,9 +97,20 @@ export default function KpiCard({
                         ) : null}
                     </div>
 
-                    <div className="mt-1 whitespace-nowrap text-3xl font-bold tracking-tight text-text">
-                        {formattedValue}
-                    </div>
+                    {valueAddon ? (
+                        <div className="mt-1 flex items-baseline gap-2 whitespace-nowrap">
+                            <span className="text-3xl font-bold tracking-tight text-text">
+                                {formattedValue}
+                            </span>
+                            <span className="text-sm font-semibold text-slate-400">
+                                {valueAddon}
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="mt-1 whitespace-nowrap text-3xl font-bold tracking-tight text-text">
+                            {formattedValue}
+                        </div>
+                    )}
 
                     {projectionText ? (
                         <div

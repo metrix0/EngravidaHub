@@ -132,7 +132,7 @@ export function VolumeResultsCard({ history, loading = false }: { history: Histo
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
-                <h3 className="font-bold text-slate-950">Volume e resultados</h3>
+                <h3 className="font-bold text-slate-950">Volume e resultados de Envios Ativos</h3>
                 {templateData.length > 0 ? (
                     <div ref={templateMenuRef} className="relative">
                         <button type="button" onClick={() => setTemplateMenuOpen((open) => !open)} className="flex min-w-[172px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-slate-800" aria-haspopup="listbox" aria-expanded={templateMenuOpen}>

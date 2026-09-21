@@ -21,6 +21,7 @@ import {
     UsersRound,
     WalletCards,
 } from "lucide-react";
+import { FaWhatsapp } from "react-icons/fa6";
 import {
     Area,
     AreaChart,
@@ -338,12 +339,12 @@ function renderAtendimento(
         case "atendimento.conversas_analisadas":
             return (
                 <KpiCard
-                    icon={<MessageCircle size={26} />}
+                    icon={<FaWhatsapp size={26} />}
                     label="Conversas analisadas"
                     currentValue={data.kpis.conversations_analyzed}
                     previousValue={data.previous_kpis.conversations_analyzed}
                     formatter={formatInteger}
-                    color="blue"
+                    color="green"
                 />
             );
         case "atendimento.resolucao_real":
@@ -477,6 +478,11 @@ function renderAtendimento(
                     previousValue={previousTotal.showed_up}
                     formatter={formatInteger}
                     projectionText={projected(total.showed_up)}
+                    valueAddon={
+                        total.showed_up_rate === null
+                            ? null
+                            : `${total.showed_up_rate.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+                    }
                     color="green"
                 />
             );
@@ -487,7 +493,7 @@ function renderAtendimento(
                     data={data.daily_evolution}
                     xKey="date"
                     series={[
-                        { key: "conversations", name: "Conversas", color: "#1683ff" },
+                        { key: "conversations", name: "Conversas", color: "#10b981" },
                         { key: "resolution_rate", name: "Resolução %", color: "#10b981" },
                     ]}
                 />
@@ -1282,7 +1288,7 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
         case "mensagem_ativa.volume_resultados":
             return (
                 <LineSeriesCard
-                    title="Volume e resultados"
+                    title="Volume e resultados de Envios Ativos"
                     data={dailyRows}
                     xKey="date"
                     series={[

@@ -11,11 +11,11 @@ import {
     CircleAlert,
     Clock,
     HelpCircle,
-    MessageCircle,
     ShieldCheck,
     Smile,
     UsersRound,
 } from "lucide-react";
+import { FaWhatsapp } from "react-icons/fa6";
 import {
     Area,
     AreaChart,
@@ -386,15 +386,29 @@ export default function ExecutiveDashboardPage() {
                 ) : (
                     <div className="min-w-0 max-w-full overflow-x-hidden pb-12">
                         <section id="dashboard-conversas" className="mb-6 grid grid-cols-1 gap-5">
+                            <div className="px-1">
+                                <div className="flex items-center gap-2.5">
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-soft text-green">
+                                        <FaWhatsapp size={19} aria-hidden="true" />
+                                    </span>
+                                    <h2 className="text-lg font-bold text-slate-900">
+                                        Análise das conversas do WhatsApp
+                                    </h2>
+                                </div>
+                                <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+                                    Indicadores e padrões extraídos das conversas de WhatsApp.
+                                </p>
+                            </div>
+
                             <HorizontalScroller scrollAmount={400}>
                                 <div className="min-w-[260px]">
                                     <KpiCard
-                                        icon={<MessageCircle size={26} />}
+                                        icon={<FaWhatsapp size={26} />}
                                         label="Conversas analisadas"
                                         currentValue={data.kpis.conversations_analyzed}
                                         previousValue={data.previous_kpis.conversations_analyzed}
                                         formatter={(value: number) => value.toLocaleString("pt-BR")}
-                                        color="blue"
+                                        color="green"
                                     />
                                 </div>
 
@@ -639,6 +653,11 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
                         previousValue={card.previousValue}
                         formatter={formatNumber}
                         projectionText={card.projectionText}
+                        valueAddon={
+                            card.label === "Compareceu" && total.showed_up_rate !== null
+                                ? `${total.showed_up_rate.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+                                : null
+                        }
                         tooltipText={card.tooltipText}
                         color={card.color}
                         positiveDirection={card.positiveDirection}

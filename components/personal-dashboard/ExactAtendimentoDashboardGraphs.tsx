@@ -63,7 +63,7 @@ export function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
             <div className="mb-5">
                 <h2 className="text-lg font-bold">Evolução de conversas</h2>
                 <div className="mt-3 flex items-center gap-6 text-xs text-slate-500">
-                    <LegendDot color="bg-blue-500" label="Conversas" />
+                    <LegendDot color="bg-emerald-500" label="Conversas" />
                     <LegendDot color="bg-emerald-500" label="Resolução (%)" />
                     <LegendDot color="bg-violet-500" label="Satisfação (%)" />
                 </div>
@@ -74,8 +74,8 @@ export function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                     <AreaChart data={data.daily_evolution}>
                         <defs>
                             <linearGradient id="conversationFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#1683ff" stopOpacity={0.22} />
-                                <stop offset="95%" stopColor="#1683ff" stopOpacity={0} />
+                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.22} />
+                                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                             </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
@@ -102,7 +102,7 @@ export function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
                             type="monotone"
                             dataKey="conversations"
                             yAxisId="conversations"
-                            stroke="#1683ff"
+                            stroke="#10b981"
                             strokeWidth={3}
                             fill="url(#conversationFill)"
                         />

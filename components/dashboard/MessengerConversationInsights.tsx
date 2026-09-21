@@ -6,11 +6,10 @@ import {
     BadgeCheck,
     CircleX,
     Clock,
-    MessageCircle,
     ShieldCheck,
     Smile,
 } from "lucide-react";
-import { FaFacebookF } from "react-icons/fa6";
+import { FaFacebookF, FaFacebookMessenger } from "react-icons/fa6";
 import {
     Area,
     AreaChart,
@@ -198,7 +197,7 @@ function MessengerAnalysisSection({ data }: { data: MessengerAnalysisData }) {
             <HorizontalScroller scrollAmount={360}>
                 <div className="min-w-[270px]">
                     <KpiCard
-                        icon={<MessageCircle size={26} />}
+                        icon={<FaFacebookMessenger size={26} />}
                         label="Conversas analisadas"
                         currentValue={data.conversations_analyzed}
                         formatter={(value: number) => value.toLocaleString("pt-BR")}
