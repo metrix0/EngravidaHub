@@ -23,6 +23,7 @@ const ATENDIMENTO_SECTIONS = [
 const MESSAGE_HEADINGS = [
     ["Templates utilizados Mensagem Ativa", "mensagem_ativa.templates_utilizados"],
     ["Volume e resultados de Envios Ativos", "mensagem_ativa.volume_resultados"],
+    ["Fluxo de Resgate de Leads", "mensagem_ativa.fluxo_resgate_leads"],
     ["Histórico de envios", "mensagem_ativa.historico_envios"],
 ] as const;
 

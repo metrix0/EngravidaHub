@@ -56,6 +56,7 @@ import ButtonGroup from "@/components/ui/ButtonGroup";
 import {
     TemplatesUsedCard as SharedTemplatesUsedCard,
     VolumeResultsCard as SharedVolumeResultsCard,
+    ResgateLeadsCard as SharedResgateLeadsCard,
     HistoryTable as SharedHistoryTable,
 } from "@/components/personal-dashboard/ExactMensagemAtivaDashboardGraphs";
 
@@ -114,6 +115,7 @@ type ActiveMessageAnalyticsHistoryItem = {
     response_count: number;
     schedule_count: number;
     created_at: string;
+    automation: string | null;
 };
 
 type ActiveMessageAnalyticsResponse = {
@@ -1355,7 +1357,7 @@ function ActiveMessageAnalytics({ history }: { history: ActiveMessageSendHistory
             <div className="mb-4 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand"><ChartNoAxesCombined size={19} /></div><div><h2 className="font-bold text-slate-950">Desempenho dos envios</h2><p className="mt-1 text-sm text-slate-500">Uso dos templates, volume enviado e resultados.</p></div></div>
             <div aria-hidden={!dateFilterReady} className={`mb-6 flex flex-wrap items-center justify-end gap-2 ${dateFilterReady ? "" : "invisible pointer-events-none select-none"}`}><ButtonGroup value={period} onChange={(value) => { setPeriod(value); setSelectedRange({ start: null, end: null }); }} options={DEFAULT_CALENDAR_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}><CalendarButton value={selectedRange} onChange={setSelectedRange} onApply={(range) => { if (range.start) { setPeriod(null); return; } setPeriod(DEFAULT_CALENDAR_PRESETS[0]?.value ?? "yesterday"); }} /></ButtonGroup></div>
             {analyticsError ? <div className="mb-6 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-bold text-red">{analyticsError}</div> : null}
-            <div className="grid items-start gap-6 xl:grid-cols-2"><SharedTemplatesUsedCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedVolumeResultsCard history={analyticsHistory} loading={initialAnalyticsLoading} /></div>
+            <div className="grid items-start gap-6 xl:grid-cols-2"><SharedTemplatesUsedCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedVolumeResultsCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedResgateLeadsCard history={analyticsHistory} loading={initialAnalyticsLoading} /></div>
         </section>
     );
 }

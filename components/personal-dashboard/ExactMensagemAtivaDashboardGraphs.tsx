@@ -27,6 +27,7 @@ export type HistoryItem = {
     response_count: number;
     schedule_count: number;
     created_at: string;
+    automation: string | null;
 };
 
 type Props = { widgetId: string; data: { history: HistoryItem[] } };
@@ -37,6 +38,9 @@ export default function ExactMensagemAtivaDashboardGraphs({ widgetId, data }: Pr
     }
     if (widgetId === "mensagem_ativa.volume_resultados") {
         return <VolumeResultsCard history={data.history} />;
+    }
+    if (widgetId === "mensagem_ativa.fluxo_resgate_leads") {
+        return <ResgateLeadsCard history={data.history} />;
     }
     if (widgetId === "mensagem_ativa.historico_envios") {
         return <HistoryTable history={data.history} />;
@@ -59,11 +63,11 @@ function buildTemplateData(history: HistoryItem[]) {
 
 type TemplateData = ReturnType<typeof buildTemplateData>;
 
-export function TemplatesUsedCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
+export function TemplatesUsedCard({ history, loading = false, title = "Templates utilizados Mensagem Ativa" }: { history: HistoryItem[]; loading?: boolean; title?: string }) {
     const templateData = useMemo(() => buildTemplateData(history), [history]);
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="font-bold text-slate-950">Templates utilizados Mensagem Ativa</h3>
+            <h3 className="font-bold text-slate-950">{title}</h3>
             {loading ? <Skeleton className="mt-5 h-[280px] rounded-xl" /> : templateData.length > 0 ? (
                 <div style={{ height: Math.max(280, templateData.length * 54) }} className="mt-5 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -78,6 +82,21 @@ export function TemplatesUsedCard({ history, loading = false }: { history: Histo
                 </div>
             ) : <ActiveMessageChartEmpty />}
         </section>
+    );
+}
+
+export function ResgateLeadsCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
+    const resgateHistory = useMemo(
+        () => history.filter((item) => item.automation === "resgate"),
+        [history],
+    );
+
+    return (
+        <TemplatesUsedCard
+            history={resgateHistory}
+            loading={loading}
+            title="Fluxo de Resgate de Leads"
+        />
     );
 }
 
