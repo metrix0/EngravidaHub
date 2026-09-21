@@ -1071,3 +1071,6 @@ function slug(value: string) {
 function escapeRegExp(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+
+export { buildReply as buildChatbotReply };
