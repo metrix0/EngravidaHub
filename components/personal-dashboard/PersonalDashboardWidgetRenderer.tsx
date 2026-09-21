@@ -1274,19 +1274,26 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
     const dailyRows = [...byDay.values()].sort((a, b) =>
         a.date.localeCompare(b.date),
     );
-    const resgateByTemplate = new Map<string, { label: string; sent: number }>();
+    const resgateByDay = new Map<
+        string,
+        { date: string; sent: number; responses: number; schedules: number }
+    >();
     for (const item of data.history ?? []) {
         if (item.automation !== "resgate") continue;
-        const templateKey = item.template_id || item.template_name;
-        const template = resgateByTemplate.get(templateKey) ?? {
-            label: item.template_name,
+        const date = formatDateKey(item.created_at);
+        const day = resgateByDay.get(date) ?? {
+            date,
             sent: 0,
+            responses: 0,
+            schedules: 0,
         };
-        template.sent += item.sent_count;
-        resgateByTemplate.set(templateKey, template);
+        day.sent += item.sent_count;
+        day.responses += item.response_count;
+        day.schedules += item.schedule_count;
+        resgateByDay.set(date, day);
     }
-    const resgateTemplateRows = [...resgateByTemplate.values()].sort(
-        (a, b) => b.sent - a.sent,
+    const resgateDailyRows = [...resgateByDay.values()].sort((a, b) =>
+        a.date.localeCompare(b.date),
     );
 
     switch (id) {
@@ -1302,12 +1309,15 @@ function renderMensagemAtiva(id: string, data: ActiveAnalytics | null) {
             );
         case "mensagem_ativa.fluxo_resgate_leads":
             return (
-                <HorizontalValueChart
+                <LineSeriesCard
                     title="Fluxo de Resgate de Leads"
-                    rows={resgateTemplateRows.map((item) => ({
-                        label: item.label,
-                        value: item.sent,
-                    }))}
+                    data={resgateDailyRows}
+                    xKey="date"
+                    series={[
+                        { key: "sent", name: "Enviados", color: "#06b6d4" },
+                        { key: "responses", name: "Respostas", color: "#10b981" },
+                        { key: "schedules", name: "Agendamentos", color: "#8b5cf6" },
+                    ]}
                 />
             );
         case "mensagem_ativa.volume_resultados":
