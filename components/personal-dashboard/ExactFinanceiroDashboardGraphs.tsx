@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
 
-import { CalendarCheck2, CircleDollarSign, HelpCircle, Link2 } from "lucide-react";
+import { CalendarCheck2, CircleDollarSign, HelpCircle, Link2, ReceiptText, WalletCards } from "lucide-react";
 import {
     Bar,
     BarChart,
@@ -65,6 +65,8 @@ export default function ExactFinanceiroDashboardGraphs({
     categories,
 }: Props) {
     switch (widgetId) {
+        case "financeiro.ticket_medio_detalhado":
+            return <TicketAverageCard data={data} />;
         case "financeiro.evolucao_faturamento":
             return <RevenueEvolutionComparisonCard data={data} unitIds={unitIds} categories={categories} />;
         case "financeiro.status_fiscal":
@@ -96,6 +98,42 @@ export default function ExactFinanceiroDashboardGraphs({
         default:
             return null;
     }
+}
+
+export function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
+    return (
+        <Card>
+            <CardTitle
+                title="Ticket Médio"
+                tooltip={"Geral: faturamento das NFS-e autorizadas ÷ notas autorizadas.\n\nTratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.\n\nPrimeira consulta: mesma conta apenas para NFS-e cuja descrição identifica 1ª avaliação."}
+                subtitle="Valor médio por NFS-e autorizada no período selecionado"
+            />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <MiniMetric
+                    icon={<WalletCards size={17} />}
+                    label="Geral"
+                    value={formatNullableCurrency(data.kpis.average_ticket)}
+                />
+                <MiniMetric
+                    icon={<CircleDollarSign size={17} />}
+                    label="Tratamentos"
+                    value={formatNullableCurrency(data.ticket_averages.treatments)}
+                    tooltip={formatTreatmentProceduresTooltip(
+                        data.ticket_averages.procedures,
+                    )}
+                    tooltipWidthClassName="w-[380px]"
+                />
+                <MiniMetric
+                    icon={<ReceiptText size={17} />}
+                    label="Primeira consulta"
+                    value={formatNullableCurrency(
+                        data.ticket_averages.first_consultation,
+                    )}
+                />
+            </div>
+        </Card>
+    );
 }
 
 export function StatusCard({ data }: { data: FinancialDashboardData }) {
@@ -708,20 +746,45 @@ function MiniMetric({
     icon,
     label,
     value,
+    tooltip,
+    tooltipWidthClassName,
 }: {
     icon: ReactNode;
     label: string;
     value: string;
+    tooltip?: string;
+    tooltipWidthClassName?: string;
 }) {
     return (
         <div className="rounded-xl bg-slate-50 px-3 py-3">
             <div className="flex items-center gap-2 text-slate-500">
                 {icon}
                 <span className="text-[11px] font-medium">{label}</span>
+                {tooltip ? (
+                    <InfoTooltip
+                        text={tooltip}
+                        portal
+                        widthClassName={tooltipWidthClassName}
+                    >
+                        <HelpCircle size={13} className="text-slate-400" />
+                    </InfoTooltip>
+                ) : null}
             </div>
             <div className="mt-2 text-xl font-bold text-slate-800">{value}</div>
         </div>
     );
+}
+
+function formatTreatmentProceduresTooltip(
+    procedures: FinancialDashboardData["ticket_averages"]["procedures"],
+) {
+    return [
+        "Procedimentos incluídos em Tratamentos:",
+        ...procedures.map(
+            (procedure) =>
+                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)} · ticket médio ${procedure.quantity > 0 ? formatCurrency(procedure.total / procedure.quantity) : "—"}`,
+        ),
+    ].join("\n");
 }
 function LegendDot({ color, label }: { color: string; label: string }) {
     return (

@@ -49,7 +49,6 @@ import {
     type HoverBadgeListItem,
     InfoTooltip,
     KpiCard,
-    MainFilters,
     Pagination,
     Skeleton,
 } from "@/components";
@@ -283,7 +282,7 @@ export default function EventsPage() {
             <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
                 <section className="min-w-0 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Eventos" description="Acompanhe os eventos enviados para as plataformas de anúncios" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} storageManaged storageReady />
-                    <DashboardFilterBarSkeleton widths={["w-[150px]", "w-[150px]"]} />
+                    <DashboardFilterBarSkeleton widths={["w-[150px]"]} />
                     <EventsBodySkeleton />
                 </section>
             </main>
@@ -305,16 +304,22 @@ export default function EventsPage() {
                 />
 
                 <DashboardFilterBar>
-                    <MainFilters
-                        tunnels={filters?.tunnels}
-                        origins={filters?.origins}
-                        tunnelValues={tunnelValues}
-                        setTunnelValues={resetPageAndSet(setTunnelValues)}
-                        originValues={originValues}
-                        setOriginValues={resetPageAndSet(setOriginValues)}
-                    />
                     <AdvancedFilterButton
                         sections={[
+                            {
+                                id: "tunnels",
+                                title: "Túnel",
+                                values: tunnelValues,
+                                onChange: resetPageAndSet(setTunnelValues),
+                                options: filters?.tunnels ?? [],
+                            },
+                            {
+                                id: "origins",
+                                title: "Origem",
+                                values: originValues,
+                                onChange: resetPageAndSet(setOriginValues),
+                                options: filters?.origins ?? [],
+                            },
                             {
                                 id: "event",
                                 title: "Evento",

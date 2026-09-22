@@ -279,7 +279,7 @@ export function ScheduleEvolutionCard({ data }: { data: ExecutiveDashboardData }
         <Card>
             <div className="mb-5">
                 <h2 className="text-lg font-bold">
-                    Agendamentos no período
+                    Avaliações no período
                 </h2>
                 <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
                     <LegendDot color="bg-blue-500" label="Agendamentos únicos" />

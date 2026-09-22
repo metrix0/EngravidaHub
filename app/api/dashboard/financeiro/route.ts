@@ -294,6 +294,7 @@ export async function GET(request: Request) {
                 previous_kpis: previousAds.kpis,
                 evolution: currentAds.evolution,
                 by_platform: currentAds.byPlatform,
+                previous_by_platform: previousAds.byPlatform,
                 top_campaigns: currentAds.topCampaigns,
                 by_city: mediaByCity.rows,
                 unmatched_city_spend: mediaByCity.unmatchedSpend,
@@ -638,12 +639,26 @@ function buildTicketAverages(
         isFirstEvaluationProcedure(invoice.description),
     );
 
+    const procedures = [...TREATMENT_CATEGORIES].map((category) => {
+        const categoryInvoices = treatments.filter(
+            (invoice) => invoice.category === category,
+        );
+
+        return {
+            category,
+            label: getFinancialCategoryLabel(category),
+            quantity: categoryInvoices.length,
+            total: roundMoney(sumAmounts(categoryInvoices)),
+        };
+    });
+
     return {
         treatments: averageMoney(sumAmounts(treatments), treatments.length),
         first_consultation: averageMoney(
             sumAmounts(firstConsultations),
             firstConsultations.length,
         ),
+        procedures,
     };
 }
 

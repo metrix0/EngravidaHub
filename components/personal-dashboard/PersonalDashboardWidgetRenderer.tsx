@@ -423,12 +423,13 @@ function renderAtendimento(
             return (
                 <KpiCard
                     icon={<CalendarCheck2 size={26} />}
-                    label="Agendamentos"
+                    label="Avaliações"
                     currentValue={total.appointments}
                     previousValue={previousTotal.appointments}
                     formatter={formatInteger}
                     projectionText={`Projeção ${Math.round(total.projection).toLocaleString("pt-BR")}`}
-                    tooltipText="Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Agendamento no mês que vem."
+                    tooltipText="Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Avaliação no mês que vem."
+                    tooltipWidthClassName="w-[300px]"
                     color="purple"
                 />
             );
@@ -526,7 +527,7 @@ function renderAtendimento(
         case "atendimento.agendamentos_periodo":
             return (
                 <LineSeriesCard
-                    title="Agendamentos no período"
+                    title="Avaliações no período"
                     data={data.schedule_evolution}
                     xKey="date"
                     series={[

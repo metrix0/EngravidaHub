@@ -268,7 +268,7 @@ function feelingSignal(value: number, metric: FeelingMetric) {
 function analysisFeeling(analysis: UnitMacroAnalysis | null) {
   if (!analysis || analysis.status !== "completed")
     return {
-      label: "Sem classificação",
+      label: "-",
       icon: "average" as const,
       badgeClass: "bg-slate-100 text-slate-500",
       tooltip: "Sem classificação disponível para esta análise.",
@@ -320,7 +320,7 @@ function analysisFeeling(analysis: UnitMacroAnalysis | null) {
 
   if (selfSignals === 0)
     return {
-      label: "Sem classificação",
+      label: "-",
       icon: "average" as const,
       badgeClass: "bg-slate-100 text-slate-500",
       tooltip: "Sem histórico semanal suficiente para classificar esta análise.",

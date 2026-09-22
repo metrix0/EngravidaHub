@@ -41,6 +41,12 @@ export type FinancialDashboardData = {
     ticket_averages: {
         treatments: number | null;
         first_consultation: number | null;
+        procedures: {
+            category: string;
+            label: string;
+            quantity: number;
+            total: number;
+        }[];
     };
     evolution: {
         period: string;
@@ -118,6 +124,23 @@ export type FinancialDashboardData = {
             attributed_revenue: number | null;
         }[];
         by_platform: {
+            platform: "google_ads" | "meta_ads";
+            label: string;
+            spend: number;
+            attributed_revenue: number | null;
+            return_on_spend: number | null;
+            impressions: number;
+            clicks: number;
+            click_through_rate: number | null;
+            cost_per_click: number | null;
+            reported_conversions: number;
+            cost_per_reported_conversion: number | null;
+            schedules: number | null;
+            billed_patients: number | null;
+            cost_per_schedule: number | null;
+            cost_per_billed_patient: number | null;
+        }[];
+        previous_by_platform: {
             platform: "google_ads" | "meta_ads";
             label: string;
             spend: number;
