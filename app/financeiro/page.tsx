@@ -465,6 +465,10 @@ function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
                     icon={<CircleDollarSign size={17} />}
                     label="Tratamentos"
                     value={formatNullableCurrency(data.ticket_averages.treatments)}
+                    tooltip={formatTreatmentProceduresTooltip(
+                        data.ticket_averages.procedures,
+                    )}
+                    tooltipWidthClassName="w-[380px]"
                 />
                 <MiniMetric
                     icon={<ReceiptText size={17} />}
@@ -480,6 +484,10 @@ function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
     const ads = data.ads;
+    const metaSpend =
+        ads.by_platform.find((item) => item.platform === "meta_ads")?.spend ?? 0;
+    const googleSpend =
+        ads.by_platform.find((item) => item.platform === "google_ads")?.spend ?? 0;
 
     return (
         <section className="mt-8 border-t border-slate-200 pt-8">
@@ -581,6 +589,26 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     color="pink"
                                     positiveDirection="down"
                                     tooltipText="Investimento ÷ pacientes de mídia com NFS-e autorizada."
+                                />
+                            </KpiContainer>
+
+                            <KpiContainer>
+                                <KpiCard
+                                    icon={<FaMeta size={26} />}
+                                    label="Investimento Meta"
+                                    currentValue={metaSpend}
+                                    formatter={formatCompactCurrency}
+                                    color="blue"
+                                />
+                            </KpiContainer>
+
+                            <KpiContainer>
+                                <KpiCard
+                                    icon={<FaGoogle size={26} />}
+                                    label="Investimento Google"
+                                    currentValue={googleSpend}
+                                    formatter={formatCompactCurrency}
+                                    color="orange"
                                 />
                             </KpiContainer>
                         </HorizontalScroller>
@@ -870,20 +898,45 @@ function MiniMetric({
     icon,
     label,
     value,
+    tooltip,
+    tooltipWidthClassName,
 }: {
     icon: ReactNode;
     label: string;
     value: string;
+    tooltip?: string;
+    tooltipWidthClassName?: string;
 }) {
     return (
         <div className="rounded-xl bg-slate-50 px-3 py-3">
             <div className="flex items-center gap-2 text-slate-500">
                 {icon}
                 <span className="text-[11px] font-medium">{label}</span>
+                {tooltip ? (
+                    <InfoTooltip
+                        text={tooltip}
+                        portal
+                        widthClassName={tooltipWidthClassName}
+                    >
+                        <HelpCircle size={13} className="text-slate-400" />
+                    </InfoTooltip>
+                ) : null}
             </div>
             <div className="mt-2 text-xl font-bold text-slate-800">{value}</div>
         </div>
     );
+}
+
+function formatTreatmentProceduresTooltip(
+    procedures: FinancialDashboardData["ticket_averages"]["procedures"],
+) {
+    return [
+        "Procedimentos incluídos em Tratamentos:",
+        ...procedures.map(
+            (procedure) =>
+                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)}`,
+        ),
+    ].join("\n");
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {

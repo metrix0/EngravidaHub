@@ -41,6 +41,12 @@ export type FinancialDashboardData = {
     ticket_averages: {
         treatments: number | null;
         first_consultation: number | null;
+        procedures: {
+            category: string;
+            label: string;
+            quantity: number;
+            total: number;
+        }[];
     };
     evolution: {
         period: string;
