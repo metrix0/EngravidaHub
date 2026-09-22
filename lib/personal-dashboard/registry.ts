@@ -89,6 +89,7 @@ export const DASHBOARD_WIDGETS = [
     { id: "financeiro.faturamento_autorizado", title: "Faturamento autorizado", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.notas_autorizadas", title: "Notas autorizadas", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.ticket_medio", title: "Ticket médio", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
+    { id: "financeiro.ticket_medio_detalhado", title: "Ticket Médio", kind: "chart", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.pacientes_faturados", title: "Pacientes faturados", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.valor_cancelado", title: "Valor cancelado", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.taxa_cancelamento", title: "Taxa de cancelamento", kind: "kpi", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },

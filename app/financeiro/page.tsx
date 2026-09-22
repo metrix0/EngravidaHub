@@ -62,6 +62,7 @@ import {
     useFinancialUnitSummary,
 } from "@/components/dashboard/FinancialDashboardExtras";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
 import {
     StatusCard as SharedStatusCard,
     TwelveMonthRevenueCard as SharedTwelveMonthRevenueCard,
@@ -74,6 +75,7 @@ import {
     AdsCampaignCard as SharedAdsCampaignCard,
     MediaBudgetByCityCard as SharedMediaBudgetByCityCard,
     PaidCityReturnCard as SharedPaidCityReturnCard,
+    TicketAverageCard as SharedTicketAverageCard,
 } from "@/components/personal-dashboard/ExactFinanceiroDashboardGraphs";
 
 
@@ -448,37 +450,9 @@ function KpiContainer({ children }: { children: ReactNode }) {
 
 function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
     return (
-        <Card>
-            <CardTitle
-                title="Ticket Médio"
-                tooltip={"Geral: faturamento das NFS-e autorizadas ÷ notas autorizadas.\n\nTratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.\n\nPrimeira consulta: mesma conta apenas para NFS-e cuja descrição identifica 1ª avaliação."}
-                subtitle="Valor médio por NFS-e autorizada no período selecionado"
-            />
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <MiniMetric
-                    icon={<WalletCards size={17} />}
-                    label="Geral"
-                    value={formatNullableCurrency(data.kpis.average_ticket)}
-                />
-                <MiniMetric
-                    icon={<CircleDollarSign size={17} />}
-                    label="Tratamentos"
-                    value={formatNullableCurrency(data.ticket_averages.treatments)}
-                    tooltip={formatTreatmentProceduresTooltip(
-                        data.ticket_averages.procedures,
-                    )}
-                    tooltipWidthClassName="w-[380px]"
-                />
-                <MiniMetric
-                    icon={<ReceiptText size={17} />}
-                    label="Primeira consulta"
-                    value={formatNullableCurrency(
-                        data.ticket_averages.first_consultation,
-                    )}
-                />
-            </div>
-        </Card>
+        <DashboardWidget widgetId="financeiro.ticket_medio_detalhado">
+            <SharedTicketAverageCard data={data} />
+        </DashboardWidget>
     );
 }
 
@@ -925,18 +899,6 @@ function MiniMetric({
             <div className="mt-2 text-xl font-bold text-slate-800">{value}</div>
         </div>
     );
-}
-
-function formatTreatmentProceduresTooltip(
-    procedures: FinancialDashboardData["ticket_averages"]["procedures"],
-) {
-    return [
-        "Procedimentos incluídos em Tratamentos:",
-        ...procedures.map(
-            (procedure) =>
-                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)} · ticket médio ${procedure.quantity > 0 ? formatCurrency(procedure.total / procedure.quantity) : "—"}`,
-        ),
-    ].join("\n");
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
