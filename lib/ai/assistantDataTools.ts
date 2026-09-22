@@ -949,6 +949,14 @@ async function getConversationAnalysisOverview(
         hasHighAnalysisConfidence(row.dropoff_confidence),
     );
     const metrics = calculateAnalysisMetrics(rows);
+    const audienceBreakdown = {
+        ra: conversationAudienceMetrics(
+            rows.filter((row) => row.audience === "ra"),
+        ),
+        atendimento: conversationAudienceMetrics(
+            rows.filter((row) => row.audience !== "ra"),
+        ),
+    };
     const cards: AssistantCard[] = [];
 
     if (includeExample) {
@@ -1078,6 +1086,7 @@ async function getConversationAnalysisOverview(
                     12,
                 ),
             },
+            audience_breakdown: audienceBreakdown,
             quality: {
                 resolution_rate: metrics.resolution_rate,
                 average_satisfaction_score:
@@ -2453,6 +2462,7 @@ type AnalysisRow = {
     notable_reason: string | null;
     analysis_provider: string | null;
     analysis_prompt_version: string | null;
+    audience: "ra" | "atendimento";
     unit_id: string | null;
     unit_name: string | null;
 };
@@ -2514,6 +2524,12 @@ async function loadAnalysisRows({
                 ),
                 conversations!conversation_analysis_conversation_id_fkey!inner (
                     channel
+                ),
+                attendants!conversation_analysis_attendant_id_fkey (
+                    queue_id,
+                    queues!attendants_queue_id_fkey (
+                        sector
+                    )
                 )
             `)
             .gte("started_at", fromIso)
@@ -2535,6 +2551,8 @@ async function loadAnalysisRows({
         for (const row of page) {
             const client = relationOne(row.clients);
             const unit = relationOne(client?.units);
+            const attendant = relationOne(row.attendants);
+            const queue = relationOne(attendant?.queues);
 
             rows.push({
                 conversation_id: row.conversation_id,
@@ -2571,6 +2589,7 @@ async function loadAnalysisRows({
                 analysis_provider: row.analysis_provider ?? null,
                 analysis_prompt_version:
                     row.analysis_prompt_version ?? null,
+                audience: queue?.sector === "ra" ? "ra" : "atendimento",
                 unit_id: unit?.id ?? client?.unit_id ?? null,
                 unit_name: unit?.name ?? null,
             });
@@ -2580,6 +2599,104 @@ async function loadAnalysisRows({
     }
 
     return rows;
+}
+
+function conversationAudienceMetrics(rows: AnalysisRow[]) {
+    const scheduledRows = rows.filter(isScheduledConversationOutcome);
+    const notScheduledRows = rows.filter(
+        (row) => !isScheduledConversationOutcome(row),
+    );
+    const rowsWithObjections = notScheduledRows.filter(hasTypedObjection);
+    const highConfidenceObjectionRows = notScheduledRows.filter(
+        hasHighConfidenceTypedObjection,
+    );
+    const lowConfidenceObjectionRows = notScheduledRows.filter(
+        hasLowConfidenceTypedObjection,
+    );
+    const dropoffRows = notScheduledRows.filter(
+        (row) => row.dropoff_happened === true,
+    );
+    const highConfidenceDropoffRows = dropoffRows.filter((row) =>
+        hasHighAnalysisConfidence(row.dropoff_confidence),
+    );
+    const metrics = calculateAnalysisMetrics(rows);
+
+    return {
+        analyzed_conversations: rows.length,
+        outcomes: {
+            scheduled_or_confirmed_conversations: scheduledRows.length,
+            not_scheduled_conversations: notScheduledRows.length,
+            scheduling_or_confirmation_rate: percentage(
+                scheduledRows.length,
+                rows.length,
+            ),
+            goal_achievement_rate: metrics.goal_achievement_rate,
+        },
+        non_scheduling: {
+            conversations: notScheduledRows.length,
+            conversations_with_objections: rowsWithObjections.length,
+            high_confidence_conversations_with_objections:
+                highConfidenceObjectionRows.length,
+            low_confidence_conversations_with_objections:
+                lowConfidenceObjectionRows.length,
+            objection_coverage_rate: percentage(
+                rowsWithObjections.length,
+                notScheduledRows.length,
+            ),
+            unresolved_objection_conversations: notScheduledRows.filter(
+                hasUnresolvedObjection,
+            ).length,
+            dropoffs: dropoffRows.length,
+            high_confidence_dropoffs: highConfidenceDropoffRows.length,
+            low_or_unrated_confidence_dropoffs:
+                dropoffRows.length - highConfidenceDropoffRows.length,
+            dropoff_rate: percentage(
+                dropoffRows.length,
+                notScheduledRows.length,
+            ),
+            top_objections: summarizeConversationObjections(notScheduledRows),
+            top_high_confidence_objections: summarizeConversationObjections(
+                notScheduledRows,
+                "high",
+            ),
+            top_low_confidence_objections: summarizeConversationObjections(
+                notScheduledRows,
+                "low",
+            ),
+            top_dropoff_moments: labeledTopValues(
+                dropoffRows.map((row) => row.dropoff_moment),
+                dropoffMomentLabel,
+                10,
+            ),
+            top_dropoff_reasons: topValues(
+                dropoffRows.map((row) => row.dropoff_likely_reason),
+                12,
+            ),
+        },
+        quality: {
+            resolution_rate: metrics.resolution_rate,
+            average_satisfaction_score: metrics.average_satisfaction_score,
+            average_attendant_quality_score:
+                metrics.average_attendant_quality_score,
+            average_first_human_response_seconds:
+                metrics.average_first_human_response_seconds,
+            raw_average_first_human_response_seconds:
+                metrics.raw_average_first_human_response_seconds,
+            median_first_human_response_seconds:
+                metrics.median_first_human_response_seconds,
+            p90_first_human_response_seconds:
+                metrics.p90_first_human_response_seconds,
+            first_human_response_observed:
+                metrics.first_human_response_observed,
+            first_human_response_included_in_average:
+                metrics.first_human_response_included_in_average,
+            first_human_response_excluded_over_2h:
+                metrics.first_human_response_excluded_over_2h,
+            first_human_response_normalization: metrics.normalization_rule,
+            average_human_response_seconds:
+                metrics.average_human_response_seconds,
+        },
+    };
 }
 
 function calculateAnalysisMetrics(rows: AnalysisRow[]) {
