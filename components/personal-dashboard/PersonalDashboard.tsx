@@ -19,13 +19,18 @@ import {
     MainFilters,
     Skeleton,
 } from "@/components";
-import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
+import AdvancedFilterButton, {
+    type AdvancedFilterSection,
+} from "@/components/ui/AdvancedFilterButton";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetView";
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
 import { usePersonalDashboardSources } from "@/components/personal-dashboard/usePersonalDashboardSources";
 import { getDashboardWidget } from "@/lib/personal-dashboard/registryExtended";
-import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
+import type {
+    DashboardWidgetDefinition,
+    DashboardWidgetFilterKey,
+} from "@/lib/personal-dashboard/registry";
 import type { FiltersResponse } from "@/types";
 import {
     AD_EVENT_STATUS_LABELS,
@@ -67,12 +72,42 @@ export default function PersonalDashboard() {
         void ensureLoaded().catch(() => undefined);
     }, [ensureLoaded]);
 
-    useEffect(() => {
-        if (!dateFilterReady) return;
-        const controller = new AbortController();
+    const definitions = useMemo(
+        () =>
+            widget_ids
+                .map(getDashboardWidget)
+                .filter(
+                    (widget): widget is DashboardWidgetDefinition =>
+                        widget !== null,
+                ),
+        [widget_ids],
+    );
+    const kpis = definitions.filter((widget) => widget.kind === "kpi");
+    const content = definitions.filter((widget) => widget.kind !== "kpi");
+    const supportedFilters = useMemo(
+        () =>
+            new Set<DashboardWidgetFilterKey>(
+                definitions.flatMap((widget) => widget.supportedFilters),
+            ),
+        [definitions],
+    );
+    const filterEntitiesKey = useMemo(
+        () =>
+            (["units", "attendants", "tunnels", "origins"] as const)
+                .filter((key) => supportedFilters.has(key))
+                .join(","),
+        [supportedFilters],
+    );
 
+    useEffect(() => {
+        if (!dateFilterReady || !filterEntitiesKey) {
+            setFilters(null);
+            return;
+        }
+
+        const controller = new AbortController();
         void fetch(
-            "/api/dashboard/filters?entities=units,attendants,tunnels,origins",
+            `/api/dashboard/filters?entities=${filterEntitiesKey}`,
             {
                 cache: "no-store",
                 credentials: "include",
@@ -90,32 +125,44 @@ export default function PersonalDashboard() {
             });
 
         return () => controller.abort();
-    }, [dateFilterReady]);
+    }, [dateFilterReady, filterEntitiesKey]);
 
-    const definitions = useMemo(
-        () =>
-            widget_ids
-                .map(getDashboardWidget)
-                .filter(
-                    (widget): widget is DashboardWidgetDefinition =>
-                        widget !== null,
-                ),
-        [widget_ids],
-    );
-    const kpis = definitions.filter((widget) => widget.kind === "kpi");
-    const content = definitions.filter((widget) => widget.kind !== "kpi");
-    const hasFinancialWidgets = definitions.some(
-        (widget) => widget.source === "financeiro",
-    );
-    const hasEventWidgets = definitions.some(
-        (widget) => widget.source === "eventos",
-    );
+    useEffect(() => {
+        if (!supportedFilters.has("units")) {
+            setUnitIds((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("attendants")) {
+            setAttendantIds((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("tunnels")) {
+            setTunnelValues((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("origins")) {
+            setOriginValues((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("categories")) {
+            setCategories((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("event_types")) {
+            setEventValues((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("platforms")) {
+            setPlatformValues((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("statuses")) {
+            setStatusValues((current) => (current.length > 0 ? [] : current));
+        }
+        if (!supportedFilters.has("event_sources")) {
+            setEventSourceValues((current) =>
+                current.length > 0 ? [] : current,
+            );
+        }
+    }, [supportedFilters]);
 
     const {
         data,
         loadingSources,
         errors,
-        loading: sourcesLoading,
     } = usePersonalDashboardSources({
         definitions,
         ready: status === "ready" && dateFilterReady,
@@ -141,6 +188,89 @@ export default function PersonalDashboard() {
             ),
         [filters?.units, unitIds],
     );
+
+    const advancedFilterSections = useMemo(() => {
+        const sections: AdvancedFilterSection[] = [];
+
+        if (supportedFilters.has("tunnels")) {
+            sections.push({
+                id: "tunnels",
+                title: "Túnel",
+                values: tunnelValues,
+                onChange: setTunnelValues,
+                options: filters?.tunnels ?? [],
+            });
+        }
+        if (supportedFilters.has("origins")) {
+            sections.push({
+                id: "origins",
+                title: "Origem",
+                values: originValues,
+                onChange: setOriginValues,
+                options: filters?.origins ?? [],
+            });
+        }
+        if (supportedFilters.has("event_types")) {
+            sections.push({
+                id: "event",
+                title: "Evento",
+                values: eventValues,
+                onChange: setEventValues,
+                options: AD_EVENT_TYPES.map((eventType) => ({
+                    label: AD_EVENT_TYPE_LABELS[eventType],
+                    value: eventType,
+                })),
+            });
+        }
+        if (supportedFilters.has("platforms")) {
+            sections.push({
+                id: "platform",
+                title: "Plataforma",
+                values: platformValues,
+                onChange: setPlatformValues,
+                options: AD_PLATFORMS.map((platform) => ({
+                    label: AD_PLATFORM_LABELS[platform],
+                    value: platform,
+                })),
+            });
+        }
+        if (supportedFilters.has("statuses")) {
+            sections.push({
+                id: "status",
+                title: "Status",
+                values: statusValues,
+                onChange: setStatusValues,
+                options: AD_EVENT_STATUSES.map((eventStatus) => ({
+                    label: AD_EVENT_STATUS_LABELS[eventStatus],
+                    value: eventStatus,
+                })),
+            });
+        }
+        if (supportedFilters.has("event_sources")) {
+            sections.push({
+                id: "source",
+                title: "Origem do evento",
+                values: eventSourceValues,
+                onChange: setEventSourceValues,
+                options: [
+                    { label: "Clinisys", value: "clinisys" },
+                    { label: "IA", value: "ai" },
+                ],
+            });
+        }
+
+        return sections;
+    }, [
+        eventSourceValues,
+        eventValues,
+        filters?.origins,
+        filters?.tunnels,
+        originValues,
+        platformValues,
+        statusValues,
+        supportedFilters,
+        tunnelValues,
+    ]);
 
     async function reorderSection(
         section: DashboardWidgetDefinition[],
@@ -194,128 +324,59 @@ export default function PersonalDashboard() {
                 />
 
                 {dateFilterReady && status === "ready" ? (
-                    <DashboardFilterBar>
-                        <MainFilters
-                            units={filters?.units}
-                            attendants={filters?.attendants}
-                            tunnels={filters?.tunnels}
-                            origins={filters?.origins}
-                            unitValues={unitIds}
-                            setUnitValues={setUnitIds}
-                            attendantValues={attendantIds}
-                            setAttendantValues={setAttendantIds}
-                            tunnelValues={tunnelValues}
-                            setTunnelValues={setTunnelValues}
-                            originValues={originValues}
-                            setOriginValues={setOriginValues}
-                            show={{ tunnels: false, origins: false }}
-                        />
-                        {hasFinancialWidgets ? (
-                            data.financeiro ? (
-                                <FilterButton
-                                    icon={<Layers3 size={16} />}
-                                    label="Todas as categorias"
-                                    values={categories}
-                                    onChange={setCategories}
-                                    options={data.financeiro.available_filters.categories}
-                                    widthClassName="w-[250px]"
+                    supportedFilters.size > 0 ? (
+                        <DashboardFilterBar>
+                            {supportedFilters.has("units") ||
+                            supportedFilters.has("attendants") ? (
+                                <MainFilters
+                                    units={filters?.units}
+                                    attendants={filters?.attendants}
+                                    unitValues={unitIds}
+                                    setUnitValues={setUnitIds}
+                                    attendantValues={attendantIds}
+                                    setAttendantValues={setAttendantIds}
+                                    show={{
+                                        units: supportedFilters.has("units"),
+                                        attendants:
+                                            supportedFilters.has("attendants"),
+                                        tunnels: false,
+                                        origins: false,
+                                    }}
                                 />
-                            ) : (
-                                <Skeleton className="h-11 w-[250px] rounded-xl" />
-                            )
-                        ) : null}
-                        <AdvancedFilterButton
-                            sections={[
-                                {
-                                    id: "tunnels",
-                                    title: "Túnel",
-                                    values: tunnelValues,
-                                    onChange: setTunnelValues,
-                                    options: filters?.tunnels ?? [],
-                                },
-                                {
-                                    id: "origins",
-                                    title: "Origem",
-                                    values: originValues,
-                                    onChange: setOriginValues,
-                                    options: filters?.origins ?? [],
-                                },
-                                ...(hasEventWidgets
-                                    ? [
-                                          {
-                                              id: "event",
-                                              title: "Evento",
-                                              values: eventValues,
-                                              onChange: setEventValues,
-                                              options: AD_EVENT_TYPES.map(
-                                                  (eventType) => ({
-                                                      label: AD_EVENT_TYPE_LABELS[eventType],
-                                                      value: eventType,
-                                                  }),
-                                              ),
-                                          },
-                                          {
-                                              id: "platform",
-                                              title: "Plataforma",
-                                              values: platformValues,
-                                              onChange: setPlatformValues,
-                                              options: AD_PLATFORMS.map(
-                                                  (platform) => ({
-                                                      label: AD_PLATFORM_LABELS[platform],
-                                                      value: platform,
-                                                  }),
-                                              ),
-                                          },
-                                          {
-                                              id: "status",
-                                              title: "Status",
-                                              values: statusValues,
-                                              onChange: setStatusValues,
-                                              options: AD_EVENT_STATUSES.map(
-                                                  (eventStatus) => ({
-                                                      label: AD_EVENT_STATUS_LABELS[eventStatus],
-                                                      value: eventStatus,
-                                                  }),
-                                              ),
-                                          },
-                                          {
-                                              id: "source",
-                                              title: "Origem do evento",
-                                              values: eventSourceValues,
-                                              onChange: setEventSourceValues,
-                                              options: [
-                                                  {
-                                                      label: "Clinisys",
-                                                      value: "clinisys",
-                                                  },
-                                                  {
-                                                      label: "IA",
-                                                      value: "ai",
-                                                  },
-                                              ],
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
-                    </DashboardFilterBar>
-                ) : (
-                    <DashboardFilterBarSkeleton
-                        widths={[
-                            "w-[230px]",
-                            "w-[230px]",
-                            "w-[250px]",
-                            "w-[150px]",
-                        ]}
-                    />
-                )}
+                            ) : null}
+                            {supportedFilters.has("categories") ? (
+                                data.financeiro ? (
+                                    <FilterButton
+                                        icon={<Layers3 size={16} />}
+                                        label="Todas as categorias"
+                                        values={categories}
+                                        onChange={setCategories}
+                                        options={
+                                            data.financeiro.available_filters
+                                                .categories
+                                        }
+                                        widthClassName="w-[250px]"
+                                    />
+                                ) : (
+                                    <Skeleton className="h-11 w-[250px] rounded-xl" />
+                                )
+                            ) : null}
+                            {advancedFilterSections.length > 0 ? (
+                                <AdvancedFilterButton
+                                    sections={advancedFilterSections}
+                                />
+                            ) : null}
+                        </DashboardFilterBar>
+                    ) : null
+                ) : definitions.length > 0 ? (
+                    <DashboardFilterBarSkeleton widths={["w-[230px]"]} />
+                ) : null}
 
                 {status === "error" ? (
                     <DashboardError onRetry={() => void ensureLoaded()} />
                 ) : status === "loading" ||
                   status === "idle" ||
-                  !dateFilterReady ||
-                  (definitions.length > 0 && sourcesLoading) ? (
+                  !dateFilterReady ? (
                     <DashboardLoading />
                 ) : definitions.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-16 text-center">

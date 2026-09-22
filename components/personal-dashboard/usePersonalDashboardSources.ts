@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
     applyArrayParams,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/CalendarButton";
 import type {
     DashboardWidgetDefinition,
+    DashboardWidgetFilterKey,
     DashboardWidgetSource,
 } from "@/lib/personal-dashboard/registry";
 import type {
@@ -43,6 +44,13 @@ type Props = {
     platformValues: string[];
     statusValues: string[];
     eventSourceValues: string[];
+};
+
+type SourceRequest = {
+    source: Exclude<DashboardWidgetSource, "canais">;
+    key: string;
+    url: string;
+    summaryUrl?: string;
 };
 
 const EMPTY_DATA: SourceData = {
@@ -82,75 +90,29 @@ export function usePersonalDashboardSources({
         () => new Set(),
     );
     const [errors, setErrors] = useState<Record<string, string>>({});
-    const [settledRequestKey, setSettledRequestKey] = useState<string | null>(null);
+    const settledKeysRef = useRef<Record<string, string>>({});
 
-    const sources = useMemo(
-        () =>
-            ([...new Set(
-                definitions
-                    .map((widget) => widget.source)
-                    .filter((source) => source !== "canais"),
-            )] as DashboardWidgetSource[]).sort(),
-        [definitions],
-    );
-    const sourceKey = sources.join("|");
-    const needsFinancialSummary = definitions.some((widget) =>
-        FINANCIAL_SUMMARY_WIDGETS.has(widget.id),
-    );
-    const requestKey = useMemo(
-        () =>
-            JSON.stringify({
-                sourceKey,
-                needsFinancialSummary,
-                period,
-                selectedRange,
-                unitIds,
-                attendantIds,
-                tunnelValues,
-                originValues,
-                categories,
-                eventValues,
-                platformValues,
-                statusValues,
-                eventSourceValues,
-            }),
-        [
-            attendantIds,
-            categories,
-            eventSourceValues,
-            eventValues,
-            needsFinancialSummary,
-            originValues,
-            period,
-            platformValues,
-            selectedRange,
-            sourceKey,
-            statusValues,
-            tunnelValues,
-            unitIds,
-        ],
-    );
-    const requestPending =
-        ready && sources.length > 0 && settledRequestKey !== requestKey;
-    const effectiveLoadingSources = useMemo(() => {
-        const next = new Set(loadingSources);
-        if (requestPending) {
-            for (const source of sources) next.add(source);
-        }
-        return next;
-    }, [loadingSources, requestPending, sourceKey]);
-    const loading = requestPending || loadingSources.size > 0;
+    const definitionsBySource = useMemo(() => {
+        const grouped = new Map<
+            Exclude<DashboardWidgetSource, "canais">,
+            DashboardWidgetDefinition[]
+        >();
 
-    useEffect(() => {
-        if (!ready || sources.length === 0) {
-            if (sources.length === 0) {
-                setLoadingSources(new Set());
-                setErrors({});
-            }
-            return;
+        for (const widget of definitions) {
+            if (widget.source === "canais") continue;
+            const source = widget.source as Exclude<
+                DashboardWidgetSource,
+                "canais"
+            >;
+            const current = grouped.get(source) ?? [];
+            current.push(widget);
+            grouped.set(source, current);
         }
 
-        const controller = new AbortController();
+        return grouped;
+    }, [definitions]);
+
+    const requests = useMemo(() => {
         const dateParams = new URLSearchParams();
         applyCalendarDateParams({
             params: dateParams,
@@ -158,163 +120,270 @@ export function usePersonalDashboardSources({
             selectedPreset: period,
         });
 
-        setLoadingSources(new Set(sources));
+        const next: SourceRequest[] = [];
+        for (const [source, sourceDefinitions] of definitionsBySource) {
+            const filters = new Set<DashboardWidgetFilterKey>(
+                sourceDefinitions.flatMap(
+                    (widget) => widget.supportedFilters,
+                ),
+            );
+            const supports = (key: DashboardWidgetFilterKey) =>
+                filters.has(key);
 
-        async function loadAll() {
-            const nextData: SourceData = { ...EMPTY_DATA };
-            const nextErrors: Record<string, string> = {};
-
-            for (const source of sources) {
-                if (controller.signal.aborted) return;
-                try {
-                    await loadSource(source, controller.signal, nextData);
-                } catch (error) {
-                    if (controller.signal.aborted) return;
-                    const message =
-                        error instanceof Error
-                            ? error.message
-                            : "Falha ao carregar widget.";
-                    console.error(`[personal-dashboard] ${source} failed`, error);
-                    nextErrors[source] = message;
-                }
-            }
-
-            if (controller.signal.aborted) return;
-            setData(nextData);
-            setErrors(nextErrors);
-            setLoadingSources(new Set());
-            setSettledRequestKey(requestKey);
-        }
-
-        async function loadSource(
-            source: DashboardWidgetSource,
-            signal: AbortSignal,
-            nextData: SourceData,
-        ) {
             if (source === "atendimento") {
                 const params = new URLSearchParams(dateParams);
                 applyArrayParams(params, {
-                    unit_ids: unitIds,
-                    attendant_ids: attendantIds,
-                    tunnels: tunnelValues,
-                    origins: originValues,
+                    unit_ids: supports("units") ? unitIds : [],
+                    attendant_ids: supports("attendants")
+                        ? attendantIds
+                        : [],
+                    tunnels: supports("tunnels") ? tunnelValues : [],
+                    origins: supports("origins") ? originValues : [],
                 });
-                nextData.atendimento = await fetchJson<ExecutiveDashboardData>(
-                    `/api/dashboard/executivo?${params.toString()}`,
-                    signal,
+                next.push(
+                    sourceRequest(
+                        source,
+                        `/api/dashboard/executivo?${params.toString()}`,
+                    ),
                 );
-                return;
+                continue;
             }
 
             if (source === "financeiro") {
                 const params = new URLSearchParams(dateParams);
-                applyArrayParams(params, { unit_ids: unitIds, categories });
-                nextData.financeiro = await fetchJson<FinancialDashboardData>(
-                    `/api/dashboard/financeiro?${params.toString()}`,
-                    signal,
+                applyArrayParams(params, {
+                    unit_ids: supports("units") ? unitIds : [],
+                    categories: supports("categories") ? categories : [],
+                });
+                const url = `/api/dashboard/financeiro?${params.toString()}`;
+                const needsSummary = sourceDefinitions.some((widget) =>
+                    FINANCIAL_SUMMARY_WIDGETS.has(widget.id),
                 );
-
-                if (needsFinancialSummary) {
-                    nextData.financeiroSummary =
-                        await fetchJson<FinancialUnitSummaryData>(
-                            `/api/dashboard/financeiro/unit-summary?${params.toString()}`,
-                            signal,
-                        );
-                }
-                return;
+                const summaryUrl = needsSummary
+                    ? `/api/dashboard/financeiro/unit-summary?${params.toString()}`
+                    : undefined;
+                next.push(sourceRequest(source, url, summaryUrl));
+                continue;
             }
 
             if (source === "jornada") {
                 const params = new URLSearchParams(dateParams);
                 applyArrayParams(params, {
-                    unit_ids: unitIds,
-                    attendant_ids: attendantIds,
-                    tunnels: tunnelValues,
-                    origins: originValues,
+                    unit_ids: supports("units") ? unitIds : [],
+                    attendant_ids: supports("attendants")
+                        ? attendantIds
+                        : [],
+                    tunnels: supports("tunnels") ? tunnelValues : [],
+                    origins: supports("origins") ? originValues : [],
                 });
-                nextData.jornada = await fetchJson<unknown>(
-                    `/api/dashboard/jornada?${params.toString()}`,
-                    signal,
+                next.push(
+                    sourceRequest(
+                        source,
+                        `/api/dashboard/jornada?${params.toString()}`,
+                    ),
                 );
-                return;
+                continue;
             }
 
             if (source === "eventos") {
                 const params = new URLSearchParams(dateParams);
                 applyArrayParams(params, {
-                    tunnels: tunnelValues,
-                    origins: originValues,
+                    tunnels: supports("tunnels") ? tunnelValues : [],
+                    origins: supports("origins") ? originValues : [],
                 });
-                if (platformValues.length > 0) {
+                if (supports("platforms") && platformValues.length > 0) {
                     params.set("platforms", platformValues.join(","));
                 }
-                if (eventValues.length > 0) {
+                if (supports("event_types") && eventValues.length > 0) {
                     params.set("event_types", eventValues.join(","));
                 }
-                if (statusValues.length > 0) {
+                if (supports("statuses") && statusValues.length > 0) {
                     params.set("statuses", statusValues.join(","));
                 }
-                if (eventSourceValues.length > 0) {
+                if (
+                    supports("event_sources") &&
+                    eventSourceValues.length > 0
+                ) {
                     params.set("sources", eventSourceValues.join(","));
                 }
                 params.set("page", "1");
                 params.set("page_size", "20");
-                nextData.eventos = await fetchJson<unknown>(
-                    `/api/dashboard/eventos?${params.toString()}`,
-                    signal,
+                next.push(
+                    sourceRequest(
+                        source,
+                        `/api/dashboard/eventos?${params.toString()}`,
+                    ),
                 );
-                return;
+                continue;
             }
 
             if (source === "clientes") {
-                nextData.clientes = await fetchJson<unknown>("/api/clientes", signal);
-                return;
+                next.push(sourceRequest(source, "/api/clientes"));
+                continue;
             }
 
             if (source === "funil") {
                 const params = new URLSearchParams(dateParams);
-                applyArrayParams(params, { unit_ids: unitIds });
-                nextData.funil = await fetchJson<unknown>(
-                    `/api/funnel?${params.toString()}`,
-                    signal,
+                applyArrayParams(params, {
+                    unit_ids: supports("units") ? unitIds : [],
+                });
+                next.push(
+                    sourceRequest(
+                        source,
+                        `/api/funnel?${params.toString()}`,
+                    ),
                 );
-                return;
+                continue;
             }
 
             if (source === "mensagem_ativa") {
-                nextData.mensagem_ativa = await fetchJson<unknown>(
-                    `/api/mensagem-ativa/analytics?${dateParams.toString()}`,
-                    signal,
+                next.push(
+                    sourceRequest(
+                        source,
+                        `/api/mensagem-ativa/analytics?${dateParams.toString()}`,
+                    ),
                 );
             }
         }
 
-        void loadAll();
-        return () => controller.abort();
+        return next.sort((left, right) =>
+            left.source.localeCompare(right.source),
+        );
     }, [
         attendantIds,
         categories,
+        definitionsBySource,
         eventSourceValues,
         eventValues,
-        needsFinancialSummary,
         originValues,
         period,
         platformValues,
-        ready,
-        requestKey,
         selectedRange,
-        sourceKey,
         statusValues,
         tunnelValues,
         unitIds,
     ]);
 
+    useEffect(() => {
+        if (!ready) {
+            setLoadingSources(new Set());
+            return;
+        }
+
+        const pending = requests.filter(
+            (request) =>
+                settledKeysRef.current[request.source] !== request.key,
+        );
+        if (pending.length === 0) return;
+
+        const controller = new AbortController();
+        setLoadingSources(new Set(pending.map((request) => request.source)));
+
+        async function loadPending() {
+            for (const request of pending) {
+                if (controller.signal.aborted) return;
+
+                try {
+                    const update = await loadSource(
+                        request,
+                        controller.signal,
+                    );
+                    if (controller.signal.aborted) return;
+
+                    settledKeysRef.current[request.source] = request.key;
+                    setData((current) => ({ ...current, ...update }));
+                    setErrors((current) => {
+                        if (!current[request.source]) return current;
+                        const next = { ...current };
+                        delete next[request.source];
+                        return next;
+                    });
+                } catch (error) {
+                    if (controller.signal.aborted) return;
+                    settledKeysRef.current[request.source] = request.key;
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : "Falha ao carregar widget.";
+                    console.error(
+                        `[personal-dashboard] ${request.source} failed`,
+                        error,
+                    );
+                    setErrors((current) => ({
+                        ...current,
+                        [request.source]: message,
+                    }));
+                } finally {
+                    if (!controller.signal.aborted) {
+                        setLoadingSources((current) => {
+                            if (!current.has(request.source)) return current;
+                            const next = new Set(current);
+                            next.delete(request.source);
+                            return next;
+                        });
+                    }
+                }
+            }
+        }
+
+        void loadPending();
+        return () => controller.abort();
+    }, [ready, requests]);
+
     return {
         data,
-        loadingSources: effectiveLoadingSources,
+        loadingSources,
         errors,
-        loading,
+        loading: loadingSources.size > 0,
     };
+}
+
+function sourceRequest(
+    source: SourceRequest["source"],
+    url: string,
+    summaryUrl?: string,
+): SourceRequest {
+    return {
+        source,
+        url,
+        summaryUrl,
+        key: summaryUrl ? `${url}|${summaryUrl}` : url,
+    };
+}
+
+async function loadSource(
+    request: SourceRequest,
+    signal: AbortSignal,
+): Promise<Partial<SourceData>> {
+    if (request.source === "atendimento") {
+        return {
+            atendimento: await fetchJson<ExecutiveDashboardData>(
+                request.url,
+                signal,
+            ),
+        };
+    }
+
+    if (request.source === "financeiro") {
+        const financeiro = await fetchJson<FinancialDashboardData>(
+            request.url,
+            signal,
+        );
+        const financeiroSummary = request.summaryUrl
+            ? await fetchJson<FinancialUnitSummaryData>(
+                  request.summaryUrl,
+                  signal,
+              )
+            : null;
+        return { financeiro, financeiroSummary };
+    }
+
+    const value = await fetchJson<unknown>(request.url, signal);
+    if (request.source === "jornada") return { jornada: value };
+    if (request.source === "eventos") return { eventos: value };
+    if (request.source === "clientes") return { clientes: value };
+    if (request.source === "funil") return { funil: value };
+    return { mensagem_ativa: value };
 }
 
 async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
