@@ -21,6 +21,7 @@ export type UnitMacroAnalysis = {
   context: Record<string, unknown>;
   previous_analysis_ids: string[];
   model: string | null;
+  prompt_version: string | null;
   error_message: string | null;
   attempt_count: number;
   claimed_at: string | null;

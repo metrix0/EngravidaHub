@@ -733,52 +733,99 @@ export async function collectUnitAnalysis(input: Input) {
   if (error) throw error;
   const row = data as UnitMacroAnalysis;
   if (row.status === "completed") return { ok: true, id: row.id, status: row.status, usage: row.usage };
+
+  const promptRefreshNeeded = row.prompt_version !== PROMPT_VERSION;
   const batchId = record(row.context).batch_id;
-  if (typeof batchId !== "string") throw new Error("Esta análise não possui lote para coletar. Verifique o erro registrado; não será reenviada automaticamente.");
-  const batch = await openai.batches.retrieve(batchId);
-  if (["validating", "in_progress", "finalizing", "cancelling"].includes(batch.status))
+  const batch = promptRefreshNeeded
+    ? null
+    : typeof batchId === "string"
+      ? await openai.batches.retrieve(batchId)
+      : null;
+  if (!promptRefreshNeeded && !batch)
+    throw new Error("Esta análise não possui lote para coletar. Verifique o erro registrado; não será reenviada automaticamente.");
+  if (batch && ["validating", "in_progress", "finalizing", "cancelling"].includes(batch.status))
     return { ok: true, id: row.id, status: "processing", batch_status: batch.status };
+
   let evidenceRetryAttempted = false;
   let evidenceRetryDiagnostics: Json | null = null;
+  let promptRefreshAttempted = false;
   try {
-    if (batch.status !== "completed" || !batch.output_file_id)
-      throw new Error("Lote terminou com status " + batch.status);
-    const content = await openai.files.content(batch.output_file_id);
-    const lines = (await content.text()).split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
-    const line = lines.find(item => item.custom_id === row.id);
-    if (!line || line.error || line.response?.status_code !== 200)
-      throw new Error("Lote sem resposta válida para esta análise.");
-    const storedExamples = record(row.context).examples;
-    if (!Array.isArray(storedExamples)) throw new Error("Contexto de evidência indisponível.");
-
-    let examples = storedExamples as Example[];
-    let metrics = row.metrics;
-    let previousAnalysisIds = row.previous_analysis_ids;
+    let examples: Example[];
+    let metrics: Record<string, unknown>;
+    let previousAnalysisIds: string[];
     let result;
-    try {
-      result = completeResponse(record(line.response.body), examples, "batch");
-    } catch (error) {
-      if (!(error instanceof EvidenceValidationError)) throw error;
-      evidenceRetryAttempted = true;
-      evidenceRetryDiagnostics = error.diagnostics;
+
+    if (promptRefreshNeeded) {
+      promptRefreshAttempted = true;
       const prepared = await prepare(row, unit);
       examples = prepared.examples;
       metrics = prepared.metrics;
       previousAnalysisIds = prepared.previousAnalysisIds;
-      const correction = {
-        expected_shape: record(error.diagnostics).expected_shape ?? null,
-        failures: record(error.diagnostics).failures ?? [],
-      };
-      const retryResponse = await openai.responses.create(
-        requestBody(prepared.input, correction),
+      const response = await openai.responses.create(
+        requestBody(prepared.input),
         { maxRetries: 0, timeout: 120000 },
       );
       try {
-        result = completeResponse(retryResponse as unknown as Json, examples, "direct");
-      } catch (retryError) {
-        if (retryError instanceof EvidenceValidationError)
-          evidenceRetryDiagnostics = retryError.diagnostics;
-        throw retryError;
+        result = completeResponse(response as unknown as Json, examples, "direct");
+      } catch (error) {
+        if (!(error instanceof EvidenceValidationError)) throw error;
+        evidenceRetryAttempted = true;
+        evidenceRetryDiagnostics = error.diagnostics;
+        const correction = {
+          expected_shape: record(error.diagnostics).expected_shape ?? null,
+          failures: record(error.diagnostics).failures ?? [],
+        };
+        const retryResponse = await openai.responses.create(
+          requestBody(prepared.input, correction),
+          { maxRetries: 0, timeout: 120000 },
+        );
+        try {
+          result = completeResponse(retryResponse as unknown as Json, examples, "direct");
+        } catch (retryError) {
+          if (retryError instanceof EvidenceValidationError)
+            evidenceRetryDiagnostics = retryError.diagnostics;
+          throw retryError;
+        }
+      }
+    } else {
+      if (!batch || batch.status !== "completed" || !batch.output_file_id)
+        throw new Error("Lote terminou com status " + String(batch?.status));
+      const content = await openai.files.content(batch.output_file_id);
+      const lines = (await content.text()).split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
+      const line = lines.find(item => item.custom_id === row.id);
+      if (!line || line.error || line.response?.status_code !== 200)
+        throw new Error("Lote sem resposta válida para esta análise.");
+      const storedExamples = record(row.context).examples;
+      if (!Array.isArray(storedExamples)) throw new Error("Contexto de evidência indisponível.");
+
+      examples = storedExamples as Example[];
+      metrics = row.metrics;
+      previousAnalysisIds = row.previous_analysis_ids;
+      try {
+        result = completeResponse(record(line.response.body), examples, "batch");
+      } catch (error) {
+        if (!(error instanceof EvidenceValidationError)) throw error;
+        evidenceRetryAttempted = true;
+        evidenceRetryDiagnostics = error.diagnostics;
+        const prepared = await prepare(row, unit);
+        examples = prepared.examples;
+        metrics = prepared.metrics;
+        previousAnalysisIds = prepared.previousAnalysisIds;
+        const correction = {
+          expected_shape: record(error.diagnostics).expected_shape ?? null,
+          failures: record(error.diagnostics).failures ?? [],
+        };
+        const retryResponse = await openai.responses.create(
+          requestBody(prepared.input, correction),
+          { maxRetries: 0, timeout: 120000 },
+        );
+        try {
+          result = completeResponse(retryResponse as unknown as Json, examples, "direct");
+        } catch (retryError) {
+          if (retryError instanceof EvidenceValidationError)
+            evidenceRetryDiagnostics = retryError.diagnostics;
+          throw retryError;
+        }
       }
     }
 
@@ -787,6 +834,9 @@ export async function collectUnitAnalysis(input: Input) {
       ...row.context,
       examples,
       evidence: result.evidence,
+      ...(promptRefreshAttempted
+        ? { prompt_refresh: { from: row.prompt_version, to: PROMPT_VERSION, succeeded: true } }
+        : {}),
       ...(evidenceRetryAttempted
         ? { evidence_retry: { attempted: true, succeeded: true } }
         : {}),
@@ -794,25 +844,32 @@ export async function collectUnitAnalysis(input: Input) {
     const { error: saveError } = await supabase.from("unit_macro_analyses").update({
       status: "completed", report: result.report, cards, usage: result.usage,
       metrics, context, previous_analysis_ids: previousAnalysisIds,
+      model: MODEL, prompt_version: PROMPT_VERSION,
       tool_names: ["get_schedule_overview", "get_conversation_analysis_overview", "get_financial_overview", "compare_unit_performance", "get_conversation_context"],
       error_message: null, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", row.id);
     if (saveError) throw saveError;
     return {
       ok: true, id: row.id, status: "completed", usage: result.usage,
+      prompt_refresh: promptRefreshAttempted,
       evidence_retry: evidenceRetryAttempted,
     };
   } catch (error) {
-    const context = evidenceRetryAttempted
-      ? {
-          ...row.context,
-          evidence_retry: {
-            attempted: true,
-            succeeded: false,
-            diagnostics: evidenceRetryDiagnostics,
-          },
-        }
-      : row.context;
+    const context = {
+      ...row.context,
+      ...(promptRefreshAttempted
+        ? { prompt_refresh: { from: row.prompt_version, to: PROMPT_VERSION, succeeded: false } }
+        : {}),
+      ...(evidenceRetryAttempted
+        ? {
+            evidence_retry: {
+              attempted: true,
+              succeeded: false,
+              diagnostics: evidenceRetryDiagnostics,
+            },
+          }
+        : {}),
+    };
     const { error: saveError } = await supabase.from("unit_macro_analyses").update({
       status: "failed", context,
       error_message: error instanceof Error ? error.message : String(error),
