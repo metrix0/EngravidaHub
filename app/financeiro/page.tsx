@@ -934,7 +934,7 @@ function formatTreatmentProceduresTooltip(
         "Procedimentos incluídos em Tratamentos:",
         ...procedures.map(
             (procedure) =>
-                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)}`,
+                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)} · ticket médio ${procedure.quantity > 0 ? formatCurrency(procedure.total / procedure.quantity) : "—"}`,
         ),
     ].join("\n");
 }
