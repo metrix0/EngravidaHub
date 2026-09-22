@@ -50,6 +50,7 @@ export type OutOfHoursChatbotReply = {
     has_options: boolean;
     ai_used: boolean;
     knowledge_ids: string[];
+    handoff_reason?: "explicit" | "technical" | "unclear";
     blip_message: {
         type: "text/plain";
         content: string;
@@ -436,6 +437,32 @@ function routeCommonQuestion(
 
     if (stage === "menu") return null;
 
+    if (isNegativeResponse(message)) {
+        return buildReply({
+            action: "show_menu",
+            route: "deterministic",
+            stage,
+            reply: "Tudo bem 😊 Se quiser, posso tirar outra dúvida.",
+            options: [
+                { id: "common:other", label: "Outra dúvida" },
+                { id: "common:menu", label: "Voltar ao menu" },
+            ],
+        });
+    }
+
+    if (isAcknowledgement(message)) {
+        return buildReply({
+            action: "show_menu",
+            route: "deterministic",
+            stage,
+            reply: "Certo 😊 Tem interesse em agendar uma consulta?",
+            options: [
+                { id: "common:schedule", label: "Sim, quero agendar" },
+                { id: "common:other", label: "Outra dúvida" },
+            ],
+        });
+    }
+
     if (/\b(valor|valores|custa|custo|preco|precos|quanto fica)\b/.test(message)) {
         return topicPriceReply(stage);
     }
@@ -524,21 +551,29 @@ function queueHumanReply(stage: ChatbotStage) {
         reply:
             "Certo. Vou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível.",
         options: [],
+        handoffReason: "explicit",
     });
 }
 
-function unsupportedQuestionReply(stage: ChatbotStage) {
+function unsupportedQuestionReply(
+    stage: ChatbotStage,
+    reason: "technical" | "unclear" = "unclear",
+) {
     const technicalFallback = findEntry("geral", "tecnica")?.text;
     return buildReply({
         action: "queue_human",
         route: "fallback",
         stage,
-        reply: [
-            technicalFallback ??
-                "Essa dúvida precisa ser confirmada com um especialista.",
-            "Vou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível.",
-        ].join("\n\n"),
+        reply:
+            reason === "technical"
+                ? [
+                      technicalFallback ??
+                          "Essa dúvida precisa ser confirmada com um especialista.",
+                      "Vou encaminhar sua conversa para nosso time continuar o atendimento assim que estiver disponível.",
+                  ].join("\n\n")
+                : "Não consegui entender sua dúvida com segurança.",
         options: [],
+        handoffReason: reason,
     });
 }
 
@@ -621,7 +656,10 @@ async function answerWithKnowledgeSelection(
 ) {
     const candidates = retrieveKnowledgeCandidates(message, stage);
     if (candidates.length === 0 || !process.env.OPENAI_API_KEY) {
-        return unsupportedQuestionReply(stage);
+        return unsupportedQuestionReply(
+            stage,
+            looksTechnicalQuestion(message) ? "technical" : "unclear",
+        );
     }
 
     try {
@@ -636,7 +674,9 @@ async function answerWithKnowledgeSelection(
                     "Nunca escreva a resposta ao cliente e nunca use conhecimento próprio.",
                     "Marque answerable=true apenas quando os trechos fornecidos respondem explicitamente à dúvida.",
                     "Retorne somente IDs existentes na lista, na ordem em que devem ser enviados, sem duplicar.",
-                    "Use no máximo 3 IDs. Se a base não contiver a resposta técnica completa, use answerable=false, knowledge_ids=[] e needs_human=true.",
+                    "Use no máximo 3 IDs.",
+                    "Use needs_human=true somente quando a mensagem fizer uma pergunta médica, clínica, legal ou de indicação que precise de uma pessoa e não possa ser respondida integralmente pelos trechos aprovados.",
+                    "Se a mensagem for apenas ambígua, vaga, uma reação curta ou não tiver uma pergunta identificável, use answerable=false, knowledge_ids=[] e needs_human=false.",
                     "Perguntas médicas, legais, de preço ou de indicação exigem apoio literal nos trechos.",
                 ].join("\n"),
                 input: [
@@ -689,8 +729,14 @@ async function answerWithKnowledgeSelection(
         const parsed = aiSelectionSchema.safeParse(
             JSON.parse(response.output_text || "{}"),
         );
-        if (!parsed.success || !parsed.data.answerable) {
-            return unsupportedQuestionReply(stage);
+        if (!parsed.success) {
+            return unsupportedQuestionReply(stage, "unclear");
+        }
+        if (!parsed.data.answerable) {
+            return unsupportedQuestionReply(
+                stage,
+                parsed.data.needs_human ? "technical" : "unclear",
+            );
         }
 
         const candidatesById = new Map(
@@ -703,7 +749,10 @@ async function answerWithKnowledgeSelection(
         );
 
         if (selectedEntries.length === 0) {
-            return unsupportedQuestionReply(stage);
+            return unsupportedQuestionReply(
+                stage,
+                parsed.data.needs_human ? "technical" : "unclear",
+            );
         }
 
         const needsHuman = parsed.data.needs_human;
@@ -722,10 +771,11 @@ async function answerWithKnowledgeSelection(
             options: needsHuman ? [] : optionsForStage(stage),
             aiUsed: true,
             knowledgeIds: selectedEntries.map((entry) => entry.id),
+            handoffReason: needsHuman ? "technical" : undefined,
         });
     } catch (error) {
         console.error("[out-of-hours-chatbot] knowledge selection failed", error);
-        return unsupportedQuestionReply(stage);
+        return unsupportedQuestionReply(stage, "unclear");
     }
 }
 
@@ -737,6 +787,7 @@ function buildReply({
     options,
     aiUsed = false,
     knowledgeIds = [],
+    handoffReason,
 }: {
     action: OutOfHoursChatbotReply["action"];
     route: OutOfHoursChatbotReply["route"];
@@ -745,6 +796,7 @@ function buildReply({
     options: ChatbotOption[];
     aiUsed?: boolean;
     knowledgeIds?: string[];
+    handoffReason?: OutOfHoursChatbotReply["handoff_reason"];
 }): OutOfHoursChatbotReply {
     const safeOptions = options.slice(0, 10);
     const blipMenuContent: OutOfHoursChatbotReply["blip_menu_content"] =
@@ -772,6 +824,7 @@ function buildReply({
         has_options: safeOptions.length > 0,
         ai_used: aiUsed,
         knowledge_ids: knowledgeIds,
+        ...(handoffReason ? { handoff_reason: handoffReason } : {}),
         blip_message: { type: "text/plain", content: reply },
         blip_menu_content: blipMenuContent,
     };
@@ -811,6 +864,25 @@ function isMenuRequest(message: string) {
 
 function isGreeting(message: string) {
     return /^(oi+|ola+|bom dia|boa tarde|boa noite|hey|hello|tudo bem)[!. ]*$/.test(message);
+}
+
+function isAcknowledgement(message: string) {
+    return /^(entendi|entendido|ok|okay|certo|beleza|obrigado|obrigada|valeu)$/.test(
+        message,
+    );
+}
+
+function isNegativeResponse(message: string) {
+    return /^(nao|acho que nao|agora nao|nao agora|nao quero|nao tenho interesse|sem interesse|prefiro nao|talvez depois|melhor nao)$/.test(
+        message,
+    );
+}
+
+function looksTechnicalQuestion(message: string) {
+    const normalizedMessage = normalize(message);
+    return /\b(medico|medica|tratamento|diagnostico|exame|medicamento|dose|risco|chance|chances|indicado|indicacao|cirurgia|procedimento|resultado|fiv|inseminacao|endometriose|adenomiose|sop|mioma|cisto|laqueadura|vasectomia|fertilidade|ovulo|ovulos|semen|embriao|embrioes|gravidez|idade)\b/.test(
+        normalizedMessage,
+    );
 }
 
 function isHumanRequest(message: string) {
@@ -1071,3 +1143,6 @@ function slug(value: string) {
 function escapeRegExp(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+
+export { buildReply as buildChatbotReply };
