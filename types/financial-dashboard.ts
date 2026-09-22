@@ -140,6 +140,23 @@ export type FinancialDashboardData = {
             cost_per_schedule: number | null;
             cost_per_billed_patient: number | null;
         }[];
+        previous_by_platform: {
+            platform: "google_ads" | "meta_ads";
+            label: string;
+            spend: number;
+            attributed_revenue: number | null;
+            return_on_spend: number | null;
+            impressions: number;
+            clicks: number;
+            click_through_rate: number | null;
+            cost_per_click: number | null;
+            reported_conversions: number;
+            cost_per_reported_conversion: number | null;
+            schedules: number | null;
+            billed_patients: number | null;
+            cost_per_schedule: number | null;
+            cost_per_billed_patient: number | null;
+        }[];
         top_campaigns: {
             platform: "google_ads" | "meta_ads";
             platform_label: string;

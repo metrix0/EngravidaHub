@@ -462,6 +462,10 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
         ads.by_platform.find((item) => item.platform === "meta_ads")?.spend ?? 0;
     const googleSpend =
         ads.by_platform.find((item) => item.platform === "google_ads")?.spend ?? 0;
+    const previousMetaSpend =
+        ads.previous_by_platform.find((item) => item.platform === "meta_ads")?.spend ?? null;
+    const previousGoogleSpend =
+        ads.previous_by_platform.find((item) => item.platform === "google_ads")?.spend ?? null;
 
     return (
         <section className="mt-8 border-t border-slate-200 pt-8">
@@ -571,6 +575,7 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     icon={<FaMeta size={26} />}
                                     label="Investimento Meta"
                                     currentValue={metaSpend}
+                                    previousValue={previousMetaSpend}
                                     formatter={formatCompactCurrency}
                                     color="blue"
                                 />
@@ -581,6 +586,7 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                                     icon={<FaGoogle size={26} />}
                                     label="Investimento Google"
                                     currentValue={googleSpend}
+                                    previousValue={previousGoogleSpend}
                                     formatter={formatCompactCurrency}
                                     color="orange"
                                 />

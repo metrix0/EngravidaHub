@@ -294,6 +294,7 @@ export async function GET(request: Request) {
                 previous_kpis: previousAds.kpis,
                 evolution: currentAds.evolution,
                 by_platform: currentAds.byPlatform,
+                previous_by_platform: previousAds.byPlatform,
                 top_campaigns: currentAds.topCampaigns,
                 by_city: mediaByCity.rows,
                 unmatched_city_spend: mediaByCity.unmatchedSpend,
