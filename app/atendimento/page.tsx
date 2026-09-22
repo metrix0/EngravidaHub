@@ -609,6 +609,7 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
             previousValue: previousTotal.appointments,
             projectionText: `Projeção ${formatProjection(total.projection)}`,
             tooltipText: "Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Avaliação no mês que vem.",
+            tooltipWidthClassName: "w-[300px]",
             color: "purple" as const,
             icon: <CalendarCheck2 size={26} />,
             positiveDirection: "up" as const,
