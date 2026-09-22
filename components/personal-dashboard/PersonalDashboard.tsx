@@ -448,7 +448,7 @@ export default function PersonalDashboard() {
 
                         {content.length > 0 ? (
                             <section className="mb-8">
-                                <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-2">
+                                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
                                     {content.map((widget, index) => (
                                         <DashboardItem
                                             key={widget.id}
@@ -482,7 +482,6 @@ export default function PersonalDashboard() {
                                                     widget.id,
                                                 )
                                             }
-                                            stretchHeight={widget.kind === "chart"}
                                             className={
                                                 widget.kind === "table"
                                                     ? "xl:col-span-2"
@@ -522,7 +521,6 @@ function DashboardItem({
     canMoveBefore,
     canMoveAfter,
     horizontal = false,
-    stretchHeight = false,
     onMoveBefore,
     onMoveAfter,
     onRemove,
@@ -535,7 +533,6 @@ function DashboardItem({
     canMoveBefore: boolean;
     canMoveAfter: boolean;
     horizontal?: boolean;
-    stretchHeight?: boolean;
     onMoveBefore: () => void;
     onMoveAfter: () => void;
     onRemove: () => void;
@@ -544,7 +541,7 @@ function DashboardItem({
 }) {
     return (
         <div
-            className={`group/personal-widget relative min-w-0 ${stretchHeight ? "h-full" : ""} ${className}`}
+            className={`group/personal-widget relative min-w-0 ${className}`}
             draggable={!saving}
             onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";
@@ -592,13 +589,7 @@ function DashboardItem({
                     <Trash2 size={14} />
                 </ControlButton>
             </div>
-            {stretchHeight ? (
-                <div className="h-full [&>*]:h-full [&_[data-dashboard-card='true']]:h-full">
-                    {children}
-                </div>
-            ) : (
-                children
-            )}
+            {children}
         </div>
     );
 }
