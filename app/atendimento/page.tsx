@@ -595,11 +595,20 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
             positiveDirection: "up" as const,
         },
         {
-            label: "Agendamentos",
+            label: "Compareceu",
+            value: total.showed_up,
+            previousValue: previousTotal.showed_up,
+            projectionText: `Projeção ${projected(total.showed_up)}`,
+            color: "green" as const,
+            icon: <CheckCircle2 size={26} />,
+            positiveDirection: "up" as const,
+        },
+        {
+            label: "Avaliações",
             value: total.appointments,
             previousValue: previousTotal.appointments,
             projectionText: `Projeção ${formatProjection(total.projection)}`,
-            tooltipText: "Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Agendamento no mês que vem.",
+            tooltipText: "Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Avaliação no mês que vem.",
             color: "purple" as const,
             icon: <CalendarCheck2 size={26} />,
             positiveDirection: "up" as const,
@@ -630,15 +639,6 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
             color: "brand" as const,
             icon: <CircleAlert size={26} />,
             positiveDirection: "down" as const,
-        },
-        {
-            label: "Compareceu",
-            value: total.showed_up,
-            previousValue: previousTotal.showed_up,
-            projectionText: `Projeção ${projected(total.showed_up)}`,
-            color: "green" as const,
-            icon: <CheckCircle2 size={26} />,
-            positiveDirection: "up" as const,
         },
     ];
 
