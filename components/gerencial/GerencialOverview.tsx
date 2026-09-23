@@ -5,16 +5,17 @@ import {
     Banknote,
     CalendarCheck2,
     CalendarPlus2,
+    HelpCircle,
     Megaphone,
 } from "lucide-react";
 import {
     Area,
     AreaChart,
     ResponsiveContainer,
-    Tooltip,
 } from "recharts";
 
 import { Card, Skeleton } from "@/components";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { usePersonalDashboardSources } from "@/components/personal-dashboard/usePersonalDashboardSources";
 import {
     applyArrayParams,
@@ -74,6 +75,7 @@ type ActiveMessageAnalyticsData = {
 type MetricRow = {
     label: string;
     value: string;
+    tooltip?: string;
 };
 
 type OutcomeRow = {
@@ -83,6 +85,7 @@ type OutcomeRow = {
 };
 
 type MiniTooltipPayloadItem = {
+    dataKey?: string | number;
     value?: number | string;
     payload?: Record<string, unknown>;
 };
@@ -324,9 +327,12 @@ export default function GerencialOverview({
                             title="Resumo financeiro"
                             rows={[
                                 {
-                                    label: "Ticket médio",
+                                    label: "Ticket médio procedimentos",
                                     value: formatCurrency(
-                                        financial.kpis.average_ticket,
+                                        financial.ticket_averages.treatments,
+                                    ),
+                                    tooltip: formatTreatmentProceduresTooltip(
+                                        financial.ticket_averages.procedures,
                                     ),
                                 },
                                 {
@@ -689,6 +695,11 @@ function MiniAreaCard({
     stroke: string;
     fill: string;
 }) {
+    const [hoveredPoint, setHoveredPoint] = useState<{
+        label: string;
+        value: number;
+    } | null>(null);
+
     return (
         <Card className="min-w-0 p-4 md:p-4">
             <div className="text-xs font-bold text-slate-800">
@@ -698,8 +709,8 @@ function MiniAreaCard({
                 {subtitle}
             </div>
             {data.length > 0 ? (
-                <div className="mt-3 h-[158px] w-full" aria-label={title}>
-                    <div className="h-[96px] w-full">
+                <>
+                    <div className="mt-3 h-[96px] w-full" aria-label={title}>
                         <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={[...data]}
@@ -709,21 +720,14 @@ function MiniAreaCard({
                                 bottom: 0,
                                 left: 2,
                             }}
+                        
+                            onMouseMove={(state) => {
+                                setHoveredPoint(
+                                    getMiniChartHoverPoint(state, dataKey),
+                                );
+                            }}
+                            onMouseLeave={() => setHoveredPoint(null)}
                         >
-                            <Tooltip
-                                content={
-                                    <MiniAreaTooltip
-                                        valueLabel={valueLabel}
-                                        valueKind={valueKind}
-                                    />
-                                }
-                                position={{ x: 0, y: 104 }}
-                                allowEscapeViewBox={{ x: false, y: true }}
-                                cursor={{
-                                    stroke: "#cbd5e1",
-                                    strokeDasharray: "3 3",
-                                }}
-                            />
                             <Area
                                 type="monotone"
                                 dataKey={dataKey}
@@ -738,7 +742,25 @@ function MiniAreaCard({
                         </AreaChart>
                     </ResponsiveContainer>
                     </div>
-                </div>
+                    {hoveredPoint ? (
+                        <MiniHoverReadout
+                            label={hoveredPoint.label}
+                            rows={[
+                                {
+                                    label: valueLabel,
+                                    value:
+                                        valueKind === "currency"
+                                            ? formatCurrency(
+                                                  hoveredPoint.value,
+                                              )
+                                            : formatInteger(
+                                                  hoveredPoint.value,
+                                              ),
+                                },
+                            ]}
+                        />
+                    ) : null}
+                </>
             ) : (
                 <MiniEmpty />
             )}
@@ -751,6 +773,12 @@ function PlatformSpendCard({
 }: {
     data: FinancialDashboardData["ads"]["evolution"];
 }) {
+    const [hoveredPoint, setHoveredPoint] = useState<{
+        label: string;
+        metaSpend: number;
+        googleSpend: number;
+    } | null>(null);
+
     return (
         <Card className="min-w-0 p-4 md:p-4">
             <div className="text-xs font-bold text-slate-800">
@@ -770,11 +798,11 @@ function PlatformSpendCard({
                 />
             </div>
             {data.length > 0 ? (
-                <div
-                    className="mt-2 h-[158px] w-full"
-                    aria-label="Investimento por plataforma"
-                >
-                    <div className="h-[96px] w-full">
+                <>
+                    <div
+                        className="mt-2 h-[96px] w-full"
+                        aria-label="Investimento por plataforma"
+                    >
                         <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={data}
@@ -784,16 +812,13 @@ function PlatformSpendCard({
                                 bottom: 0,
                                 left: 2,
                             }}
+                            onMouseMove={(state) => {
+                                setHoveredPoint(
+                                    getPlatformHoverPoint(state),
+                                );
+                            }}
+                            onMouseLeave={() => setHoveredPoint(null)}
                         >
-                            <Tooltip
-                                content={<PlatformSpendTooltip />}
-                                position={{ x: 0, y: 104 }}
-                                allowEscapeViewBox={{ x: false, y: true }}
-                                cursor={{
-                                    stroke: "#cbd5e1",
-                                    strokeDasharray: "3 3",
-                                }}
-                            />
                             <Area
                                 type="monotone"
                                 dataKey="meta_spend"
@@ -819,7 +844,33 @@ function PlatformSpendCard({
                         </AreaChart>
                     </ResponsiveContainer>
                     </div>
-                </div>
+                    {hoveredPoint ? (
+                        <MiniHoverReadout
+                            label={hoveredPoint.label}
+                            rows={[
+                                {
+                                    label: "Meta Ads",
+                                    value: formatCurrency(
+                                        hoveredPoint.metaSpend,
+                                    ),
+                                },
+                                {
+                                    label: "Google Ads",
+                                    value: formatCurrency(
+                                        hoveredPoint.googleSpend,
+                                    ),
+                                },
+                                {
+                                    label: "Investimento",
+                                    value: formatCurrency(
+                                        hoveredPoint.metaSpend +
+                                            hoveredPoint.googleSpend,
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : null}
+                </>
             ) : (
                 <MiniEmpty />
             )}
@@ -845,8 +896,20 @@ function CompactStatsCard({
                         key={row.label}
                         className="flex items-center justify-between gap-3 py-2.5"
                     >
-                        <span className="text-xs text-slate-500">
-                            {row.label}
+                        <span className="flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
+                            <span>{row.label}</span>
+                            {row.tooltip ? (
+                                <InfoTooltip
+                                    text={row.tooltip}
+                                    portal
+                                    widthClassName="w-[380px]"
+                                >
+                                    <HelpCircle
+                                        size={13}
+                                        className="text-slate-400"
+                                    />
+                                </InfoTooltip>
+                            ) : null}
                         </span>
                         <span className="text-right text-sm font-bold text-slate-800">
                             {row.value}
@@ -858,74 +921,80 @@ function CompactStatsCard({
     );
 }
 
-function MiniAreaTooltip({
-    active,
-    payload,
-    valueLabel,
-    valueKind,
+function MiniHoverReadout({
+    label,
+    rows,
 }: {
-    active?: boolean;
-    payload?: MiniTooltipPayloadItem[];
-    valueLabel: string;
-    valueKind: "currency" | "integer";
+    label: string;
+    rows: MetricRow[];
 }) {
-    if (!active || !payload?.length) return null;
-
-    const row = payload[0]?.payload ?? {};
-    const label = String(
-        row.label ?? row.date ?? row.period ?? "",
-    );
-    const value = Number(payload[0]?.value ?? 0);
-
     return (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+        <div className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
             {label ? (
-                <div className="mb-3 text-sm font-semibold text-slate-800">
+                <div className="mb-1 text-[10px] font-semibold text-slate-500">
                     {label}
                 </div>
             ) : null}
-            <div className="flex items-center justify-between gap-6 text-sm">
-                <span className="text-slate-600">{valueLabel}</span>
-                <span className="font-semibold text-slate-800">
-                    {valueKind === "currency"
-                        ? formatCurrency(value)
-                        : formatInteger(value)}
-                </span>
+            <div className="space-y-1">
+                {rows.map((row) => (
+                    <div
+                        key={row.label}
+                        className="flex items-center justify-between gap-3 text-[10px]"
+                    >
+                        <span className="text-slate-500">{row.label}</span>
+                        <span className="font-bold text-slate-700">
+                            {row.value}
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
     );
 }
 
-function PlatformSpendTooltip({
-    active,
-    payload,
-}: {
-    active?: boolean;
-    payload?: MiniTooltipPayloadItem[];
-}) {
-    if (!active || !payload?.length) return null;
+function getMiniChartHoverPoint(state: unknown, dataKey: string) {
+    const chartState = state as {
+        activePayload?: MiniTooltipPayloadItem[];
+    };
+    const item =
+        chartState.activePayload?.find(
+            (payload) => String(payload.dataKey ?? "") === dataKey,
+        ) ?? chartState.activePayload?.[0];
+    if (!item) return null;
 
-    const row = payload[0]?.payload ?? {};
-    const label = String(row.label ?? row.period ?? "");
-    const metaSpend = Number(row.meta_spend ?? 0);
-    const googleSpend = Number(row.google_spend ?? 0);
+    const row = item.payload ?? {};
+    return {
+        label: String(row.label ?? row.date ?? row.period ?? ""),
+        value: Number(item.value ?? row[dataKey] ?? 0),
+    };
+}
 
-    return (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
-            {label ? (
-                <div className="mb-2 font-bold text-slate-700">
-                    {label}
-                </div>
-            ) : null}
-            <div className="space-y-1 text-slate-600">
-                <div>Meta Ads: {formatCurrency(metaSpend)}</div>
-                <div>Google Ads: {formatCurrency(googleSpend)}</div>
-                <div>
-                    Investimento: {formatCurrency(metaSpend + googleSpend)}
-                </div>
-            </div>
-        </div>
-    );
+function getPlatformHoverPoint(state: unknown) {
+    const chartState = state as {
+        activePayload?: MiniTooltipPayloadItem[];
+    };
+    const row = chartState.activePayload?.[0]?.payload;
+    if (!row) return null;
+
+    return {
+        label: String(row.label ?? row.period ?? ""),
+        metaSpend: Number(row.meta_spend ?? 0),
+        googleSpend: Number(row.google_spend ?? 0),
+    };
+}
+
+function formatTreatmentProceduresTooltip(
+    procedures: FinancialDashboardData["ticket_averages"]["procedures"],
+) {
+    return [
+        "Tratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.",
+        "",
+        "Procedimentos incluídos em Tratamentos:",
+        ...procedures.map(
+            (procedure) =>
+                `${procedure.label}: quantidade ${procedure.quantity.toLocaleString("pt-BR")} · total ${formatCurrency(procedure.total)} · ticket médio ${procedure.quantity > 0 ? formatCurrency(procedure.total / procedure.quantity) : "—"}`,
+        ),
+    ].join("\n");
 }
 
 function LegendDot({
