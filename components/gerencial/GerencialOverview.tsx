@@ -59,6 +59,10 @@ type MarkingsData = {
         unique_markings: number;
         unique_projection: number;
     };
+    previous_total: {
+        unique_markings: number;
+        unique_projection: number;
+    };
 };
 
 type ActiveMessageHistoryItem = {
@@ -73,10 +77,18 @@ type ActiveMessageAnalyticsData = {
     history: ActiveMessageHistoryItem[];
 };
 
+type TrendComparison = {
+    current: number | null | undefined;
+    previous: number | null | undefined;
+    positiveDirection?: "up" | "down";
+    enabled?: boolean;
+};
+
 type MetricRow = {
     label: string;
     value: string;
     tooltip?: string;
+    trend?: TrendComparison;
 };
 
 type OutcomeRow = {
@@ -242,7 +254,17 @@ export default function GerencialOverview({
         financial?.ads.by_platform.find(
             (item) => item.platform === "google_ads",
         )?.spend ?? 0;
+    const previousMetaInvestment =
+        financial?.ads.previous_by_platform.find(
+            (item) => item.platform === "meta_ads",
+        )?.spend ?? 0;
+    const previousGoogleInvestment =
+        financial?.ads.previous_by_platform.find(
+            (item) => item.platform === "google_ads",
+        )?.spend ?? 0;
     const scheduleTotal = executive?.schedule_unit_table.total ?? null;
+    const previousScheduleTotal =
+        executive?.previous_schedule_unit_table.total ?? null;
     const resgate = useMemo(
         () => summarizeResgate(activeMessages?.history ?? []),
         [activeMessages?.history],
@@ -299,6 +321,11 @@ export default function GerencialOverview({
                             eyebrow="Faturamento"
                             label="Faturamento total"
                             value={formatCurrency(financialTotal)}
+                            trend={{
+                                current: financialTotal,
+                                previous:
+                                    financial.previous_kpis.authorized_revenue,
+                            }}
                             rows={[
                                 {
                                     label: "Projeção",
@@ -335,18 +362,39 @@ export default function GerencialOverview({
                                     tooltip: formatTreatmentProceduresTooltip(
                                         financial.ticket_averages.procedures,
                                     ),
+                                    trend: {
+                                        current:
+                                            financial.ticket_averages.treatments,
+                                        previous:
+                                            financial.previous_ticket_averages
+                                                ?.treatments,
+                                    },
                                 },
                                 {
                                     label: "Notas autorizadas",
                                     value: formatInteger(
                                         financial.kpis.authorized_invoices,
                                     ),
+                                    trend: {
+                                        current:
+                                            financial.kpis.authorized_invoices,
+                                        previous:
+                                            financial.previous_kpis
+                                                .authorized_invoices,
+                                    },
                                 },
                                 {
                                     label: "Pacientes faturados",
                                     value: formatInteger(
                                         financial.kpis.billed_patients,
                                     ),
+                                    trend: {
+                                        current:
+                                            financial.kpis.billed_patients,
+                                        previous:
+                                            financial.previous_kpis
+                                                .billed_patients,
+                                    },
                                 },
                             ]}
                         />
@@ -377,16 +425,35 @@ export default function GerencialOverview({
                             value={formatCurrency(
                                 financial.ads.kpis.spend,
                             )}
+                            trend={{
+                                current: financial.ads.kpis.spend,
+                                previous:
+                                    financial.ads.previous_kpis.spend,
+                                enabled:
+                                    financial.ads.comparison_available,
+                            }}
                             rows={[
                                 {
                                     label: "Meta",
                                     value: formatCurrency(metaInvestment),
+                                    trend: {
+                                        current: metaInvestment,
+                                        previous: previousMetaInvestment,
+                                        enabled:
+                                            financial.ads.comparison_available,
+                                    },
                                 },
                                 {
                                     label: "Google Ads",
                                     value: formatCurrency(
                                         googleInvestment,
                                     ),
+                                    trend: {
+                                        current: googleInvestment,
+                                        previous: previousGoogleInvestment,
+                                        enabled:
+                                            financial.ads.comparison_available,
+                                    },
                                 },
                                 {
                                     label: "Total ontem",
@@ -446,6 +513,11 @@ export default function GerencialOverview({
                             value={formatInteger(
                                 scheduleTotal.showed_up,
                             )}
+                            trend={{
+                                current: scheduleTotal.showed_up,
+                                previous:
+                                    previousScheduleTotal?.showed_up,
+                            }}
                             rows={[
                                 {
                                     label: "Projeção",
@@ -458,12 +530,26 @@ export default function GerencialOverview({
                                     value: formatInteger(
                                         scheduleTotal.cancelled,
                                     ),
+                                    trend: {
+                                        current: scheduleTotal.cancelled,
+                                        previous:
+                                            previousScheduleTotal?.cancelled,
+                                        positiveDirection: "down",
+                                    },
                                 },
                                 {
                                     label: "Remarcações",
                                     value: formatInteger(
                                         scheduleTotal.reschedulings,
                                     ),
+                                    trend: {
+                                        current:
+                                            scheduleTotal.reschedulings,
+                                        previous:
+                                            previousScheduleTotal
+                                                ?.reschedulings,
+                                        positiveDirection: "down",
+                                    },
                                 },
                             ]}
                         />
@@ -528,6 +614,12 @@ export default function GerencialOverview({
                             value={formatInteger(
                                 markings.total.unique_markings,
                             )}
+                            trend={{
+                                current:
+                                    markings.total.unique_markings,
+                                previous:
+                                    markings.previous_total.unique_markings,
+                            }}
                             rows={[
                                 {
                                     label: "Ontem",
@@ -640,11 +732,13 @@ function MetricCard({
     eyebrow,
     label,
     value,
+    trend,
     rows,
 }: {
     eyebrow: string;
     label: string;
     value: string;
+    trend?: TrendComparison;
     rows: MetricRow[];
 }) {
     return (
@@ -658,6 +752,7 @@ function MetricCard({
             <div className="mt-1 break-words text-2xl font-bold tracking-tight text-slate-950">
                 {value}
             </div>
+            <TrendText trend={trend} />
             <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
                 {rows.map((row) => (
                     <div
@@ -667,9 +762,12 @@ function MetricCard({
                         <span className="text-xs text-slate-500">
                             {row.label}
                         </span>
-                        <span className="text-sm font-bold text-slate-800">
-                            {row.value}
-                        </span>
+                        <div className="shrink-0 text-right">
+                            <div className="text-sm font-bold text-slate-800">
+                                {row.value}
+                            </div>
+                            <TrendText trend={row.trend} compact />
+                        </div>
                     </div>
                 ))}
             </div>
@@ -868,14 +966,75 @@ function CompactStatsCard({
                                 </InfoTooltip>
                             ) : null}
                         </span>
-                        <span className="text-right text-sm font-bold text-slate-800">
-                            {row.value}
-                        </span>
+                        <div className="shrink-0 text-right">
+                            <div className="text-sm font-bold text-slate-800">
+                                {row.value}
+                            </div>
+                            <TrendText trend={row.trend} compact />
+                        </div>
                     </div>
                 ))}
             </div>
         </Card>
     );
+}
+
+function TrendText({
+    trend,
+    compact = false,
+}: {
+    trend?: TrendComparison;
+    compact?: boolean;
+}) {
+    const value = getTrend(trend);
+    if (!value) return null;
+
+    return (
+        <div
+            className={`${compact ? "mt-0.5 text-[10px]" : "mt-2 text-xs"} font-medium leading-tight ${
+                value.isPositive ? "text-green" : "text-red"
+            }`}
+        >
+            {value.label}
+        </div>
+    );
+}
+
+function getTrend(trend?: TrendComparison) {
+    if (!trend || trend.enabled === false) return null;
+
+    const {
+        current,
+        previous,
+        positiveDirection = "up",
+    } = trend;
+    if (current == null || previous == null || previous === 0) {
+        return null;
+    }
+
+    const difference = current - previous;
+    if (difference === 0) return null;
+
+    const percentageChange = (difference / previous) * 100;
+    if (Math.abs(percentageChange) < 0.1) return null;
+
+    const wentUp = difference > 0;
+    const isPositive =
+        positiveDirection === "up" ? wentUp : !wentUp;
+    const arrow = wentUp ? "↑" : "↓";
+    const formattedChange = Math.abs(percentageChange).toLocaleString(
+        "pt-BR",
+        {
+            minimumFractionDigits:
+                Math.abs(percentageChange) < 1 ? 1 : 0,
+            maximumFractionDigits: 1,
+        },
+    );
+
+    return {
+        isPositive,
+        label: `${arrow} ${formattedChange}% vs. período anterior`,
+    };
 }
 
 function MiniAreaTooltip({

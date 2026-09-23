@@ -44,6 +44,10 @@ export async function GET(request: Request) {
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
     const endExclusive = nextDate(endDate);
+    const previousStartDate = brazilDate(range.previousStartAt);
+    const previousEndDate = brazilDate(
+        new Date(new Date(range.previousEndAt).getTime() - 1).toISOString(),
+    );
 
     try {
         const selectedUnitNames = await resolveSelectedUnitNames(
@@ -59,6 +63,20 @@ export async function GET(request: Request) {
         const currentRows = rows.filter((row) => {
             const createdDate = row.created_in_source_at.slice(0, 10);
             if (createdDate < startDate || createdDate > endDate) {
+                return false;
+            }
+
+            if (selectedUnitKeys === null) return true;
+            return selectedUnitKeys.has(
+                normalizeUnitName(row.unit_name?.trim() || "Sem unidade"),
+            );
+        });
+        const previousRows = rows.filter((row) => {
+            const createdDate = row.created_in_source_at.slice(0, 10);
+            if (
+                createdDate < previousStartDate ||
+                createdDate > previousEndDate
+            ) {
                 return false;
             }
 
@@ -101,6 +119,12 @@ export async function GET(request: Request) {
                     currentRows,
                     firstRowIds,
                     projectionFactor,
+                ),
+                previous_total: summarizeUnit(
+                    "Total geral",
+                    previousRows,
+                    firstRowIds,
+                    1,
                 ),
             },
             { headers: { "Cache-Control": "private, no-store" } },
