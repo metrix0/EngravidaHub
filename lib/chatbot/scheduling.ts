@@ -1192,22 +1192,247 @@ async function handleSchedulingFallbackIntent({
             return session.step === "confirm"
                 ? handleConfirmStep(session, "schedule:confirm", stage)
                 : null;
-        case "question": {
-            const answer = await routeOutOfHoursChatbot({
+        case "question":
+            return answerSchedulingSideQuestion(
+                session,
                 message,
                 stage,
-            });
-            return schedulingReply(session, {
-                ...answer,
-                options: [],
-                has_options: false,
-                blip_menu_content: null,
-            });
-        }
+            );
         case "repeat":
         case "unknown":
             return null;
     }
+}
+
+async function answerSchedulingSideQuestion(
+    session: SchedulingSessionRow,
+    message: string,
+    stage: ChatbotStage,
+) {
+    const schedulingAnswer = await answerSchedulingAvailabilityQuestion(
+        session,
+        message,
+    );
+    const answer = schedulingAnswer
+        ? schedulingAnswer
+        : (
+              await routeOutOfHoursChatbot({
+                  message,
+                  stage,
+              })
+          ).reply;
+
+    return resumeSchedulingAfterQuestion(session, stage, answer);
+}
+
+async function answerSchedulingAvailabilityQuestion(
+    session: SchedulingSessionRow,
+    message: string,
+) {
+    const normalized = normalizeText(message);
+    if (
+        !session.unit_id ||
+        !/\b(fim de semana|final de semana|sabado|domingo)\b/.test(normalized)
+    ) {
+        return null;
+    }
+
+    try {
+        const [unit, slots] = await Promise.all([
+            loadUnit(session.unit_id),
+            loadUnitAvailableSlots(session.unit_id),
+        ]);
+        if (!unit) return null;
+
+        const today = todayInBrazil();
+        const futureWeekendSlots = slots.filter(
+            (slot) =>
+                slot.date >= today &&
+                isWeekendDate(slot.date),
+        );
+        if (futureWeekendSlots.length === 0) {
+            return `No momento, não encontrei horários de sábado ou domingo disponíveis na unidade ${unit.name}.`;
+        }
+
+        const hasSaturday = futureWeekendSlots.some(
+            (slot) => weekdayForDate(slot.date) === 6,
+        );
+        const hasSunday = futureWeekendSlots.some(
+            (slot) => weekdayForDate(slot.date) === 0,
+        );
+        const days =
+            hasSaturday && hasSunday
+                ? "aos sábados e domingos"
+                : hasSaturday
+                  ? "aos sábados"
+                  : "aos domingos";
+
+        return `Sim. No momento, encontrei horários disponíveis ${days} na unidade ${unit.name}.`;
+    } catch (error) {
+        if (error instanceof ReplicatedAgendaUnavailableError) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+async function resumeSchedulingAfterQuestion(
+    session: SchedulingSessionRow,
+    stage: ChatbotStage,
+    answer: string,
+): Promise<ChatbotSchedulingReply> {
+    if (session.step === "unit") {
+        const units = await loadUnits();
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "ai",
+                stage,
+                reply: `${answer}\n\nPara continuar, em qual unidade você quer ser atendido?`,
+                options: units.slice(0, 10).map((unit) => ({
+                    id: `schedule:unit:${unit.id}`,
+                    label: unitLabel(unit),
+                })),
+                aiUsed: true,
+            }),
+        );
+    }
+
+    if (session.step === "date" && session.scheduling_date) {
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "ai",
+                stage,
+                reply: `${answer}\n\n${availabilityQuestionForWindow(session.scheduling_date)}`,
+                options: availabilityQuestionOptions(),
+                aiUsed: true,
+            }),
+        );
+    }
+
+    if (session.step === "doctor") {
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "ai",
+                stage,
+                reply: `${answer}\n\nPara continuar, você prefere manhã ou tarde?`,
+                options: [
+                    { id: "schedule:period:morning", label: "Manhã" },
+                    { id: "schedule:period:afternoon", label: "Tarde" },
+                ],
+                aiUsed: true,
+            }),
+        );
+    }
+
+    if (
+        session.step === "time" &&
+        session.unit_id &&
+        session.scheduling_date
+    ) {
+        const windowEnd = endOfWeek(session.scheduling_date);
+        const slots = (await loadUnitAvailableSlots(session.unit_id)).filter(
+            (slot) =>
+                slot.date >= session.scheduling_date &&
+                slot.date <= windowEnd,
+        );
+
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "ai",
+                stage,
+                reply: `${answer}\n\nPara continuar, escolha um dos horários disponíveis:`,
+                options: slots.slice(0, 10).map((slot) => ({
+                    id: slotOptionId(slot),
+                    label: slotLabel(slot),
+                })),
+                aiUsed: true,
+            }),
+        );
+    }
+
+    if (session.step === "name") {
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "reply",
+                route: "ai",
+                stage,
+                reply: `${answer}\n\nPara continuar, qual é o nome completo da pessoa que fará a consulta?`,
+                options: [
+                    {
+                        id: "schedule:cancel",
+                        label: "Cancelar agendamento",
+                    },
+                ],
+                aiUsed: true,
+            }),
+        );
+    }
+
+    if (session.step === "confirm") {
+        const [unit, doctor] = await Promise.all([
+            session.unit_id ? loadUnit(session.unit_id) : null,
+            session.unit_id && session.doctor_id
+                ? loadDoctor(session.unit_id, session.doctor_id)
+                : null,
+        ]);
+
+        return schedulingReply(
+            session,
+            buildChatbotReply({
+                action: "show_menu",
+                route: "ai",
+                stage,
+                reply: [
+                    answer,
+                    "",
+                    "Para continuar, confirme os dados do agendamento:",
+                    `Paciente: ${session.patient_name ?? "—"}`,
+                    `Unidade: ${unit?.name ?? "—"}`,
+                    `Médico: ${doctor?.name ?? "—"}`,
+                    `Data: ${session.scheduling_date ? formatDate(session.scheduling_date) : "—"}`,
+                    `Horário: ${session.scheduling_time ?? "—"}`,
+                ].join("\n"),
+                options: [
+                    {
+                        id: "schedule:confirm",
+                        label: "Confirmar agendamento",
+                    },
+                    { id: "schedule:cancel", label: "Cancelar" },
+                ],
+                aiUsed: true,
+            }),
+        );
+    }
+
+    return schedulingReply(
+        session,
+        buildChatbotReply({
+            action: "reply",
+            route: "ai",
+            stage,
+            reply: answer,
+            options: [],
+            aiUsed: true,
+        }),
+    );
+}
+
+function weekdayForDate(value: string) {
+    return new Date(`${value}T12:00:00Z`).getUTCDay();
+}
+
+function isWeekendDate(value: string) {
+    const weekday = weekdayForDate(value);
+    return weekday === 0 || weekday === 6;
 }
 
 async function classifySchedulingFallbackIntent({
