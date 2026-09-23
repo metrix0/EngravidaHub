@@ -250,6 +250,27 @@ export default function GerencialOverview({
         loadingSources.has("atendimento") && !executive;
     const activeMessagesLoading =
         loadingSources.has("mensagem_ativa") && !activeMessages;
+    const markingsRhythm = useMemo(() => {
+        const rows = executive?.schedule_creation_evolution ?? [];
+        if (rows.length === 0) {
+            return {
+                dailyAverage: null,
+                bestDayLabel: "—",
+                bestDayTotal: null,
+            };
+        }
+
+        const total = rows.reduce((sum, row) => sum + row.total, 0);
+        const bestDay = rows.reduce((best, row) =>
+            row.total > best.total ? row : best,
+        );
+
+        return {
+            dailyAverage: total / rows.length,
+            bestDayLabel: bestDay.date,
+            bestDayTotal: bestDay.total,
+        };
+    }, [executive?.schedule_creation_evolution]);
 
     return (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -289,12 +310,6 @@ export default function GerencialOverview({
                                 },
                             ]}
                         />
-                        <ProjectionProgressCard
-                            current={financialTotal}
-                            projection={financialProjection}
-                            formatter={formatCurrency}
-                            accent="var(--color-green)"
-                        />
                         <MiniAreaCard
                             title="Ritmo de faturamento"
                             subtitle="Evolução no período selecionado"
@@ -304,6 +319,29 @@ export default function GerencialOverview({
                             valueKind="currency"
                             stroke="var(--color-green)"
                             fill="var(--color-green-soft)"
+                        />
+                        <CompactStatsCard
+                            title="Resumo financeiro"
+                            rows={[
+                                {
+                                    label: "Ticket médio",
+                                    value: formatCurrency(
+                                        financial.kpis.average_ticket,
+                                    ),
+                                },
+                                {
+                                    label: "Notas autorizadas",
+                                    value: formatInteger(
+                                        financial.kpis.authorized_invoices,
+                                    ),
+                                },
+                                {
+                                    label: "Pacientes faturados",
+                                    value: formatInteger(
+                                        financial.kpis.billed_patients,
+                                    ),
+                                },
+                            ]}
                         />
                     </>
                 )}
@@ -498,12 +536,6 @@ export default function GerencialOverview({
                                 },
                             ]}
                         />
-                        <ProjectionProgressCard
-                            current={markings.total.unique_markings}
-                            projection={markings.total.unique_projection}
-                            formatter={formatInteger}
-                            accent="var(--color-orange)"
-                        />
                     </>
                 )}
 
@@ -528,6 +560,36 @@ export default function GerencialOverview({
                         fill="var(--color-orange-soft)"
                     />
                 )}
+
+                {!atendimentoLoading && executive ? (
+                    <CompactStatsCard
+                        title="Ritmo das marcações"
+                        rows={[
+                            {
+                                label: "Média diária",
+                                value:
+                                    markingsRhythm.dailyAverage === null
+                                        ? "—"
+                                        : markingsRhythm.dailyAverage.toLocaleString(
+                                              "pt-BR",
+                                              {
+                                                  maximumFractionDigits: 1,
+                                              },
+                                          ),
+                            },
+                            {
+                                label: "Melhor dia",
+                                value: markingsRhythm.bestDayLabel,
+                            },
+                            {
+                                label: "Marcações no melhor dia",
+                                value: formatInteger(
+                                    markingsRhythm.bestDayTotal,
+                                ),
+                            },
+                        ]}
+                    />
+                ) : null}
             </OverviewColumn>
         </div>
     );
@@ -636,11 +698,9 @@ function MiniAreaCard({
                 {subtitle}
             </div>
             {data.length > 0 ? (
-                <div
-                    className="mt-3 h-[96px] w-full"
-                    aria-label={title}
-                >
-                    <ResponsiveContainer width="100%" height="100%">
+                <div className="mt-3 h-[158px] w-full" aria-label={title}>
+                    <div className="h-[96px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={[...data]}
                             margin={{
@@ -657,6 +717,8 @@ function MiniAreaCard({
                                         valueKind={valueKind}
                                     />
                                 }
+                                position={{ x: 0, y: 104 }}
+                                allowEscapeViewBox={{ x: false, y: true }}
                                 cursor={{
                                     stroke: "#cbd5e1",
                                     strokeDasharray: "3 3",
@@ -675,6 +737,7 @@ function MiniAreaCard({
                             />
                         </AreaChart>
                     </ResponsiveContainer>
+                    </div>
                 </div>
             ) : (
                 <MiniEmpty />
@@ -708,10 +771,11 @@ function PlatformSpendCard({
             </div>
             {data.length > 0 ? (
                 <div
-                    className="mt-2 h-[96px] w-full"
+                    className="mt-2 h-[158px] w-full"
                     aria-label="Investimento por plataforma"
                 >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[96px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={data}
                             margin={{
@@ -723,6 +787,8 @@ function PlatformSpendCard({
                         >
                             <Tooltip
                                 content={<PlatformSpendTooltip />}
+                                position={{ x: 0, y: 104 }}
+                                allowEscapeViewBox={{ x: false, y: true }}
                                 cursor={{
                                     stroke: "#cbd5e1",
                                     strokeDasharray: "3 3",
@@ -752,6 +818,7 @@ function PlatformSpendCard({
                             />
                         </AreaChart>
                     </ResponsiveContainer>
+                    </div>
                 </div>
             ) : (
                 <MiniEmpty />
@@ -760,64 +827,32 @@ function PlatformSpendCard({
     );
 }
 
-function ProjectionProgressCard({
-    current,
-    projection,
-    formatter,
-    accent,
+function CompactStatsCard({
+    title,
+    rows,
 }: {
-    current: number | null | undefined;
-    projection: number | null | undefined;
-    formatter: (value: number | null | undefined) => string;
-    accent: string;
+    title: string;
+    rows: MetricRow[];
 }) {
-    const validProjection =
-        typeof projection === "number" && projection > 0;
-    const validCurrent = typeof current === "number";
-    const percentage =
-        validProjection && validCurrent
-            ? (current / projection) * 100
-            : null;
-    const remaining =
-        validProjection && validCurrent
-            ? Math.max(projection - current, 0)
-            : null;
-    const progress = Math.max(
-        0,
-        Math.min(100, percentage ?? 0),
-    );
-
     return (
         <Card className="min-w-0 p-4 md:p-4">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <div className="text-xs font-bold text-slate-800">
-                        Progresso da projeção
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-slate-400">
-                        Realizado em relação à projeção
-                    </div>
-                </div>
-                <div className="shrink-0 text-sm font-bold text-slate-800">
-                    {percentage === null
-                        ? "—"
-                        : `${percentage.toLocaleString("pt-BR", {
-                              maximumFractionDigits: 1,
-                          })}%`}
-                </div>
+            <div className="text-xs font-bold text-slate-800">
+                {title}
             </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                    className="h-full rounded-full"
-                    style={{
-                        width: `${progress}%`,
-                        backgroundColor: accent,
-                    }}
-                />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500">
-                <span>Atual: {formatter(current)}</span>
-                <span>Falta: {formatter(remaining)}</span>
+            <div className="mt-3 divide-y divide-slate-100 border-t border-slate-100">
+                {rows.map((row) => (
+                    <div
+                        key={row.label}
+                        className="flex items-center justify-between gap-3 py-2.5"
+                    >
+                        <span className="text-xs text-slate-500">
+                            {row.label}
+                        </span>
+                        <span className="text-right text-sm font-bold text-slate-800">
+                            {row.value}
+                        </span>
+                    </div>
+                ))}
             </div>
         </Card>
     );
