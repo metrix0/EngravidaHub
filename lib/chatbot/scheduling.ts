@@ -976,9 +976,12 @@ async function loadUnitAvailableSlots(
         dateTo: addDays(todayInBrazil(), 180),
     });
 
-    if (result.slots.length === 0 && result.missingDoctorIds.length > 0) {
+    if (
+        result.coveredDoctorIds.length === 0 &&
+        result.missingDoctorIds.length > 0
+    ) {
         throw new ReplicatedAgendaUnavailableError(
-            "A agenda replicada ainda não está disponível para todos os médicos da unidade.",
+            "A agenda replicada ainda não está disponível para a unidade.",
         );
     }
 
