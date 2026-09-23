@@ -29,6 +29,7 @@ import {
     type DataTableColumn,
     type DropdownSelectOption,
 } from "@/components";
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 
 type TabId =
@@ -278,6 +279,7 @@ const TAB_COLOR_ORDER: Record<ColorName, number> = {
 };
 
 export default function UsuariosPage() {
+    const { currentUser } = useCurrentUser();
     const [data, setData] = useState<ApiResponse | null>(null);
     const [units, setUnits] = useState<Unit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -610,6 +612,12 @@ export default function UsuariosPage() {
                         tabsJson.error ?? "Erro ao salvar abas permitidas",
                     );
                 }
+            }
+
+            if (currentUser?.user?.id === user.id) {
+                window.dispatchEvent(
+                    new Event("current-user-permissions-changed"),
+                );
             }
         } catch (saveError) {
             console.error("[usuarios] failed to save", saveError);
