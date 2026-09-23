@@ -696,11 +696,6 @@ function MiniAreaCard({
     stroke: string;
     fill: string;
 }) {
-    const [hoveredPoint, setHoveredPoint] = useState<{
-        label: string;
-        value: number;
-    } | null>(null);
-
     return (
         <Card className="min-w-0 p-4 md:p-4">
             <div className="text-xs font-bold text-slate-800">
@@ -710,9 +705,11 @@ function MiniAreaCard({
                 {subtitle}
             </div>
             {data.length > 0 ? (
-                <>
-                    <div className="mt-3 h-[96px] w-full" aria-label={title}>
-                        <ResponsiveContainer width="100%" height="100%">
+                <div
+                    className="mt-3 h-[96px] w-full"
+                    aria-label={title}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={[...data]}
                             margin={{
@@ -721,16 +718,17 @@ function MiniAreaCard({
                                 bottom: 0,
                                 left: 2,
                             }}
-                        
-                            onMouseMove={(state) => {
-                                setHoveredPoint(
-                                    getMiniChartHoverPoint(state, dataKey),
-                                );
-                            }}
-                            onMouseLeave={() => setHoveredPoint(null)}
                         >
                             <Tooltip
-                                content={() => null}
+                                content={
+                                    <MiniAreaTooltip
+                                        valueLabel={valueLabel}
+                                        valueKind={valueKind}
+                                    />
+                                }
+                                position={{ x: 0, y: 104 }}
+                                allowEscapeViewBox={{ x: false, y: true }}
+                                wrapperStyle={{ zIndex: 20 }}
                                 cursor={{
                                     stroke: "#cbd5e1",
                                     strokeDasharray: "3 3",
@@ -749,26 +747,7 @@ function MiniAreaCard({
                             />
                         </AreaChart>
                     </ResponsiveContainer>
-                    </div>
-                    {hoveredPoint ? (
-                        <MiniHoverReadout
-                            label={hoveredPoint.label}
-                            rows={[
-                                {
-                                    label: valueLabel,
-                                    value:
-                                        valueKind === "currency"
-                                            ? formatCurrency(
-                                                  hoveredPoint.value,
-                                              )
-                                            : formatInteger(
-                                                  hoveredPoint.value,
-                                              ),
-                                },
-                            ]}
-                        />
-                    ) : null}
-                </>
+                </div>
             ) : (
                 <MiniEmpty />
             )}
@@ -781,12 +760,6 @@ function PlatformSpendCard({
 }: {
     data: FinancialDashboardData["ads"]["evolution"];
 }) {
-    const [hoveredPoint, setHoveredPoint] = useState<{
-        label: string;
-        metaSpend: number;
-        googleSpend: number;
-    } | null>(null);
-
     return (
         <Card className="min-w-0 p-4 md:p-4">
             <div className="text-xs font-bold text-slate-800">
@@ -806,12 +779,11 @@ function PlatformSpendCard({
                 />
             </div>
             {data.length > 0 ? (
-                <>
-                    <div
-                        className="mt-2 h-[96px] w-full"
-                        aria-label="Investimento por plataforma"
-                    >
-                        <ResponsiveContainer width="100%" height="100%">
+                <div
+                    className="mt-2 h-[96px] w-full"
+                    aria-label="Investimento por plataforma"
+                >
+                    <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                             data={data}
                             margin={{
@@ -820,15 +792,12 @@ function PlatformSpendCard({
                                 bottom: 0,
                                 left: 2,
                             }}
-                            onMouseMove={(state) => {
-                                setHoveredPoint(
-                                    getPlatformHoverPoint(state),
-                                );
-                            }}
-                            onMouseLeave={() => setHoveredPoint(null)}
                         >
                             <Tooltip
-                                content={() => null}
+                                content={<PlatformSpendTooltip />}
+                                position={{ x: 0, y: 104 }}
+                                allowEscapeViewBox={{ x: false, y: true }}
+                                wrapperStyle={{ zIndex: 20 }}
                                 cursor={{
                                     stroke: "#cbd5e1",
                                     strokeDasharray: "3 3",
@@ -858,34 +827,7 @@ function PlatformSpendCard({
                             />
                         </AreaChart>
                     </ResponsiveContainer>
-                    </div>
-                    {hoveredPoint ? (
-                        <MiniHoverReadout
-                            label={hoveredPoint.label}
-                            rows={[
-                                {
-                                    label: "Meta Ads",
-                                    value: formatCurrency(
-                                        hoveredPoint.metaSpend,
-                                    ),
-                                },
-                                {
-                                    label: "Google Ads",
-                                    value: formatCurrency(
-                                        hoveredPoint.googleSpend,
-                                    ),
-                                },
-                                {
-                                    label: "Investimento",
-                                    value: formatCurrency(
-                                        hoveredPoint.metaSpend +
-                                            hoveredPoint.googleSpend,
-                                    ),
-                                },
-                            ]}
-                        />
-                    ) : null}
-                </>
+                </div>
             ) : (
                 <MiniEmpty />
             )}
@@ -936,66 +878,74 @@ function CompactStatsCard({
     );
 }
 
-function MiniHoverReadout({
-    label,
-    rows,
+function MiniAreaTooltip({
+    active,
+    payload,
+    valueLabel,
+    valueKind,
 }: {
-    label: string;
-    rows: MetricRow[];
+    active?: boolean;
+    payload?: MiniTooltipPayloadItem[];
+    valueLabel: string;
+    valueKind: "currency" | "integer";
 }) {
+    if (!active || !payload?.length) return null;
+
+    const row = payload[0]?.payload ?? {};
+    const label = String(
+        row.label ?? row.date ?? row.period ?? "",
+    );
+    const value = Number(payload[0]?.value ?? 0);
+
     return (
-        <div className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
             {label ? (
-                <div className="mb-1 text-[10px] font-semibold text-slate-500">
+                <div className="mb-3 text-sm font-semibold text-slate-800">
                     {label}
                 </div>
             ) : null}
-            <div className="space-y-1">
-                {rows.map((row) => (
-                    <div
-                        key={row.label}
-                        className="flex items-center justify-between gap-3 text-[10px]"
-                    >
-                        <span className="text-slate-500">{row.label}</span>
-                        <span className="font-bold text-slate-700">
-                            {row.value}
-                        </span>
-                    </div>
-                ))}
+            <div className="flex items-center justify-between gap-6 text-sm">
+                <span className="text-slate-600">{valueLabel}</span>
+                <span className="font-semibold text-slate-800">
+                    {valueKind === "currency"
+                        ? formatCurrency(value)
+                        : formatInteger(value)}
+                </span>
             </div>
         </div>
     );
 }
 
-function getMiniChartHoverPoint(state: unknown, dataKey: string) {
-    const chartState = state as {
-        activePayload?: MiniTooltipPayloadItem[];
-    };
-    const item =
-        chartState.activePayload?.find(
-            (payload) => String(payload.dataKey ?? "") === dataKey,
-        ) ?? chartState.activePayload?.[0];
-    if (!item) return null;
+function PlatformSpendTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: MiniTooltipPayloadItem[];
+}) {
+    if (!active || !payload?.length) return null;
 
-    const row = item.payload ?? {};
-    return {
-        label: String(row.label ?? row.date ?? row.period ?? ""),
-        value: Number(item.value ?? row[dataKey] ?? 0),
-    };
-}
+    const row = payload[0]?.payload ?? {};
+    const label = String(row.label ?? row.period ?? "");
+    const metaSpend = Number(row.meta_spend ?? 0);
+    const googleSpend = Number(row.google_spend ?? 0);
 
-function getPlatformHoverPoint(state: unknown) {
-    const chartState = state as {
-        activePayload?: MiniTooltipPayloadItem[];
-    };
-    const row = chartState.activePayload?.[0]?.payload;
-    if (!row) return null;
-
-    return {
-        label: String(row.label ?? row.period ?? ""),
-        metaSpend: Number(row.meta_spend ?? 0),
-        googleSpend: Number(row.google_spend ?? 0),
-    };
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
+            {label ? (
+                <div className="mb-2 font-bold text-slate-700">
+                    {label}
+                </div>
+            ) : null}
+            <div className="space-y-1 text-slate-600">
+                <div>Meta Ads: {formatCurrency(metaSpend)}</div>
+                <div>Google Ads: {formatCurrency(googleSpend)}</div>
+                <div>
+                    Investimento: {formatCurrency(metaSpend + googleSpend)}
+                </div>
+            </div>
+        </div>
+    );
 }
 
 function formatTreatmentProceduresTooltip(
