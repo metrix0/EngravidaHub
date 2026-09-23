@@ -7,6 +7,7 @@ import {
     buildChatbotSessionKey,
     processChatbotMessage,
 } from "@/lib/chatbot/processChatbotMessage";
+import { sendBlipWhatsAppTypingIndicator } from "@/lib/blip/sendBlipTextMessage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ const requestSchema = z
         message: z.string().trim().min(1).max(2_000),
         stage: z.string().trim().max(40).optional().nullable(),
         phone: z.string().trim().max(40).optional().nullable(),
+        message_id: z.string().trim().max(500).optional().nullable(),
     })
     .strict();
 
@@ -61,6 +63,28 @@ export async function POST(request: Request) {
     }
 
     try {
+        let typingStarted = false;
+        const startAiTyping = async () => {
+            if (
+                typingStarted ||
+                !parsed.data.message_id ||
+                !parsed.data.phone
+            ) {
+                return;
+            }
+
+            typingStarted = true;
+
+            try {
+                await sendBlipWhatsAppTypingIndicator({
+                    recipientNumber: parsed.data.phone,
+                    messageId: parsed.data.message_id,
+                });
+            } catch (error) {
+                console.warn("[blip-chatbot] typing indicator failed", error);
+            }
+        };
+
         const response = await processChatbotMessage({
             message: parsed.data.message,
             stage: parsed.data.stage,
@@ -70,6 +94,7 @@ export async function POST(request: Request) {
                 request.signal,
                 AbortSignal.timeout(25_000),
             ]),
+            onAiStart: startAiTyping,
         });
 
         return NextResponse.json(response, {

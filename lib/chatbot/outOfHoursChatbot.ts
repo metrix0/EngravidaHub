@@ -234,10 +234,12 @@ export async function routeOutOfHoursChatbot({
     message,
     stage,
     signal,
+    onAiStart,
 }: {
     message: string;
     stage: ChatbotStage;
     signal?: AbortSignal;
+    onAiStart?: () => Promise<void>;
 }): Promise<OutOfHoursChatbotReply> {
     const normalizedMessage = normalize(message);
 
@@ -270,7 +272,7 @@ export async function routeOutOfHoursChatbot({
     const commonReply = routeCommonQuestion(normalizedMessage, stage);
     if (commonReply) return commonReply;
 
-    return answerWithKnowledgeSelection(message, stage, signal);
+    return answerWithKnowledgeSelection(message, stage, signal, onAiStart);
 }
 
 export function normalizeChatbotStage(value: unknown): ChatbotStage {
@@ -653,6 +655,7 @@ async function answerWithKnowledgeSelection(
     message: string,
     stage: ChatbotStage,
     signal?: AbortSignal,
+    onAiStart?: () => Promise<void>,
 ) {
     const candidates = retrieveKnowledgeCandidates(message, stage);
     if (candidates.length === 0 || !process.env.OPENAI_API_KEY) {
@@ -664,6 +667,7 @@ async function answerWithKnowledgeSelection(
 
     try {
         const client = getOpenAIClient();
+        await onAiStart?.();
         const response = await client.responses.create(
             {
                 model: MODEL,
