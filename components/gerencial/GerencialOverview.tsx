@@ -749,10 +749,12 @@ function MetricCard({
             <div className="mt-3 text-xs font-medium text-slate-500">
                 {label}
             </div>
-            <div className="mt-1 break-words text-2xl font-bold tracking-tight text-slate-950">
-                {value}
+            <div className="mt-1 flex min-w-0 items-baseline gap-2">
+                <div className="min-w-0 break-words text-2xl font-bold tracking-tight text-slate-950">
+                    {value}
+                </div>
+                <TrendText trend={trend} />
             </div>
-            <TrendText trend={trend} />
             <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
                 {rows.map((row) => (
                     <div
@@ -762,7 +764,7 @@ function MetricCard({
                         <span className="text-xs text-slate-500">
                             {row.label}
                         </span>
-                        <div className="shrink-0 text-right">
+                        <div className="flex shrink-0 items-baseline gap-1.5 text-right">
                             <div className="text-sm font-bold text-slate-800">
                                 {row.value}
                             </div>
@@ -966,7 +968,7 @@ function CompactStatsCard({
                                 </InfoTooltip>
                             ) : null}
                         </span>
-                        <div className="shrink-0 text-right">
+                        <div className="flex shrink-0 items-baseline gap-1.5 text-right">
                             <div className="text-sm font-bold text-slate-800">
                                 {row.value}
                             </div>
@@ -990,13 +992,13 @@ function TrendText({
     if (!value) return null;
 
     return (
-        <div
-            className={`${compact ? "mt-0.5 text-[10px]" : "mt-2 text-xs"} whitespace-nowrap font-medium leading-tight tabular-nums ${
+        <span
+            className={`${compact ? "text-[10px]" : "text-xs"} shrink-0 whitespace-nowrap font-medium leading-none tabular-nums ${
                 value.isPositive ? "text-green" : "text-red"
             }`}
         >
             {value.label}
-        </div>
+        </span>
     );
 }
 
