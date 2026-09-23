@@ -70,6 +70,7 @@ type ActiveMessageHistoryItem = {
     sent_count: number;
     template_message_count?: number;
     response_count: number;
+    schedule_count: number;
     automation: string | null;
 };
 
@@ -265,6 +266,13 @@ export default function GerencialOverview({
     const scheduleTotal = executive?.schedule_unit_table.total ?? null;
     const previousScheduleTotal =
         executive?.previous_schedule_unit_table.total ?? null;
+    const showedUpProjection = scheduleTotal
+        ? projectScheduleMetric(
+              scheduleTotal.showed_up,
+              scheduleTotal.appointments,
+              scheduleTotal.projection,
+          )
+        : null;
     const resgate = useMemo(
         () => summarizeResgate(activeMessages?.history ?? []),
         [activeMessages?.history],
@@ -522,7 +530,7 @@ export default function GerencialOverview({
                                 {
                                     label: "Projeção",
                                     value: formatInteger(
-                                        scheduleTotal.projection,
+                                        showedUpProjection,
                                     ),
                                 },
                                 {
@@ -906,7 +914,6 @@ function PlatformSpendCard({
                             <Area
                                 type="monotone"
                                 dataKey="meta_spend"
-                                stackId="spend"
                                 stroke="var(--color-blue)"
                                 fill="var(--color-blue-soft)"
                                 strokeWidth={2}
@@ -917,7 +924,6 @@ function PlatformSpendCard({
                             <Area
                                 type="monotone"
                                 dataKey="google_spend"
-                                stackId="spend"
                                 stroke="var(--color-orange)"
                                 fill="var(--color-orange-soft)"
                                 strokeWidth={2}
@@ -1276,7 +1282,8 @@ function MiniEmpty() {
 }
 
 function summarizeResgate(history: ActiveMessageHistoryItem[]) {
-    let total = 0;
+    let responses = 0;
+    let schedules = 0;
     let sent = 0;
     let cost = 0;
     let completePricing = true;
@@ -1284,7 +1291,8 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
     for (const item of history) {
         if (item.automation !== "resgate") continue;
 
-        total += item.response_count;
+        responses += item.response_count;
+        schedules += item.schedule_count;
         sent += item.sent_count;
 
         const templateCount = item.template_message_count ?? 0;
@@ -1302,12 +1310,21 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
     }
 
     return {
-        total,
+        total: schedules,
         sent,
-        responseRate: sent > 0 ? (total / sent) * 100 : null,
+        responseRate: sent > 0 ? (responses / sent) * 100 : null,
         costPerResgate:
-            total > 0 && completePricing ? cost / total : null,
+            schedules > 0 && completePricing ? cost / schedules : null,
     };
+}
+
+function projectScheduleMetric(
+    value: number,
+    appointments: number,
+    appointmentsProjection: number,
+) {
+    if (appointments <= 0) return value;
+    return value * (appointmentsProjection / appointments);
 }
 
 function formatInteger(value: number | null | undefined) {

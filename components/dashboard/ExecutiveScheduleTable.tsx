@@ -166,12 +166,12 @@ function AppointmentsTable({
 const APPOINTMENT_HEADERS = [
     "Unidade",
     "Agendamentos",
-    "Projeção",
     "Remarcações",
     "% remar.",
     "Únicos",
     "A realizar",
     "Compareceu",
+    "Proj. comparecimento",
     "% comp.",
     "Remarcou",
     "% rem.",
@@ -190,12 +190,16 @@ function ScheduleRow({
 }) {
     const values: (number | null)[] = [
         row.appointments,
-        row.projection,
         row.reschedulings,
         row.rescheduling_rate,
         row.unique_appointments,
         row.pending,
         row.showed_up,
+        projectScheduleMetric(
+            row.showed_up,
+            row.appointments,
+            row.projection,
+        ),
         row.showed_up_rate,
         row.rescheduled,
         row.rescheduled_rate,
@@ -204,8 +208,8 @@ function ScheduleRow({
         row.no_show,
         row.no_show_rate,
     ];
-    const projectionIndexes = new Set([1]);
-    const percentageIndexes = new Set([3, 7, 9, 11, 13]);
+    const projectionIndexes = new Set([6]);
+    const percentageIndexes = new Set([2, 7, 9, 11, 13]);
 
     return (
         <TableRowShell label={row.unit_name} total={total}>
@@ -347,6 +351,15 @@ function TableRowShell({
             {children}
         </tr>
     );
+}
+
+function projectScheduleMetric(
+    value: number,
+    appointments: number,
+    appointmentsProjection: number,
+) {
+    if (appointments <= 0) return value;
+    return value * (appointmentsProjection / appointments);
 }
 
 function formatNumber(value: number | null) {
