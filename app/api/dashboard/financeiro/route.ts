@@ -280,6 +280,7 @@ export async function GET(request: Request) {
             kpis: currentKpis,
             previous_kpis: previousKpis,
             ticket_averages: buildTicketAverages(currentInvoices),
+            previous_ticket_averages: buildTicketAverages(previousInvoices),
             evolution: buildEvolution(currentInvoices, range.startAt, range.endAt),
             twelve_month_trend: twelveMonthTrend,
             by_status: buildStatusBreakdown(currentInvoices),

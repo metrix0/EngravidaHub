@@ -37,18 +37,11 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const publicPath = isPublicPath(pathname);
     const validationStartedRef = useRef(false);
-    const initialCachedUserRef = useRef<CurrentUserResponse | null>(null);
-
-    if (initialCachedUserRef.current === null) {
-        initialCachedUserRef.current = getCachedCurrentUser();
-    }
 
     const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(
-        initialCachedUserRef.current,
+        null,
     );
-    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(
-        !initialCachedUserRef.current,
-    );
+    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
     const [currentUserError, setCurrentUserError] = useState<string | null>(null);
 
     const refreshCurrentUser = useCallback(async (force = false) => {
@@ -153,9 +146,5 @@ export function useCurrentUser() {
         throw new Error("useCurrentUser must be used inside CurrentUserProvider");
     }
 
-    const cachedCurrentUser = getCachedCurrentUser();
-
-    return cachedCurrentUser
-        ? { ...context, currentUser: cachedCurrentUser }
-        : context;
+    return context;
 }

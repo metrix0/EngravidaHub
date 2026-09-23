@@ -1,5 +1,6 @@
 "use client";
 
+import GerencialOverview from "@/components/gerencial/GerencialOverview";
 import ChannelDashboardWidgetRenderer from "@/components/personal-dashboard/ChannelDashboardWidgetRenderer";
 import ExactDashboardGraphRenderer from "@/components/personal-dashboard/ExactDashboardGraphRenderer";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetRenderer";
@@ -29,6 +30,16 @@ type Props = {
 };
 
 export default function PersonalDashboardWidgetView(props: Props) {
+    if (props.widget.id === "gerencial.visao_geral") {
+        return (
+            <GerencialOverview
+                period={props.period}
+                selectedRange={props.selectedRange}
+                unitIds={props.unitIds}
+            />
+        );
+    }
+
     const isChannelWidget = isChannelDashboardWidgetId(props.widget.id);
 
     if (props.widget.kind !== "kpi" && isChannelWidget) {

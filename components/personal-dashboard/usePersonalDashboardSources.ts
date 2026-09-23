@@ -46,8 +46,13 @@ type Props = {
     eventSourceValues: string[];
 };
 
+type FetchableDashboardWidgetSource = Exclude<
+    DashboardWidgetSource,
+    "canais" | "gerencial"
+>;
+
 type SourceRequest = {
-    source: Exclude<DashboardWidgetSource, "canais">;
+    source: FetchableDashboardWidgetSource;
     key: string;
     url: string;
     summaryUrl?: string;
@@ -94,16 +99,18 @@ export function usePersonalDashboardSources({
 
     const definitionsBySource = useMemo(() => {
         const grouped = new Map<
-            Exclude<DashboardWidgetSource, "canais">,
+            FetchableDashboardWidgetSource,
             DashboardWidgetDefinition[]
         >();
 
         for (const widget of definitions) {
-            if (widget.source === "canais") continue;
-            const source = widget.source as Exclude<
-                DashboardWidgetSource,
-                "canais"
-            >;
+            if (
+                widget.source === "canais" ||
+                widget.source === "gerencial"
+            ) {
+                continue;
+            }
+            const source = widget.source as FetchableDashboardWidgetSource;
             const current = grouped.get(source) ?? [];
             current.push(widget);
             grouped.set(source, current);

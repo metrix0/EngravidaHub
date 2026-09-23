@@ -115,7 +115,7 @@ export default function AdvancedFilterButton({
             <button
                 type="button"
                 onClick={handleToggleOpen}
-                className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!border-brand !bg-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}
+                className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!border-brand !bg-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}
             >
                 <span className="flex shrink-0 items-center text-current">
                     {icon}

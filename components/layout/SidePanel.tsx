@@ -20,6 +20,7 @@ import {
     Menu,
     Megaphone,
     MessageCircle,
+    PanelsTopLeft,
     Send,
     Sparkles,
     UserCog,
@@ -80,6 +81,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/",
         icon: <LayoutDashboard size={18} />,
         tabId: "dashboard",
+    },
+    {
+        label: "Gerencial",
+        href: "/gerencial",
+        icon: <PanelsTopLeft size={18} />,
+        tabId: "gerencial",
     },
     {
         label: "Financeiro",

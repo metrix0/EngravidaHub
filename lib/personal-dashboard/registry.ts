@@ -19,7 +19,8 @@ export type DashboardWidgetSource =
     | "eventos"
     | "clientes"
     | "funil"
-    | "mensagem_ativa";
+    | "mensagem_ativa"
+    | "gerencial";
 
 export type DashboardWidgetDefinition = {
     id: string;
@@ -140,6 +141,7 @@ export const DASHBOARD_WIDGETS = [
     { id: "funil.comparecimento_avaliacao", title: "Comparecimento avaliação", kind: "kpi", source: "funil", sourcePath: "/funil", permissionTab: "funil", supportedFilters: UNIT_FILTERS },
     { id: "funil.procedimentos_agendados", title: "Procedimentos agendados", kind: "kpi", source: "funil", sourcePath: "/funil", permissionTab: "funil", supportedFilters: UNIT_FILTERS },
     { id: "funil.comparecimento_procedimento", title: "Comparecimento procedimento", kind: "kpi", source: "funil", sourcePath: "/funil", permissionTab: "funil", supportedFilters: UNIT_FILTERS },
+    { id: "gerencial.visao_geral", title: "Visão gerencial", kind: "table", source: "gerencial", sourcePath: "/gerencial", permissionTab: "gerencial", supportedFilters: UNIT_FILTERS },
     { id: "mensagem_ativa.templates_utilizados", title: "Templates utilizados Mensagem Ativa", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa", supportedFilters: NO_FILTERS },
     { id: "mensagem_ativa.volume_resultados", title: "Volume Mensagens Ativas", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa", supportedFilters: NO_FILTERS },
     { id: "mensagem_ativa.fluxo_resgate_leads", title: "Fluxo de Resgate de Leads", kind: "chart", source: "mensagem_ativa", sourcePath: "/mensagem-ativa", permissionTab: "mensagem_ativa", supportedFilters: NO_FILTERS },

@@ -29,10 +29,12 @@ import {
     type DataTableColumn,
     type DropdownSelectOption,
 } from "@/components";
+import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 
 type TabId =
     | "dashboard"
+    | "gerencial"
     | "financeiro"
     | "conversas"
     | "jornada"
@@ -161,6 +163,7 @@ type UserView = {
 
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
+    { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "purple", position: 12 },
     { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
     { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
@@ -183,6 +186,7 @@ const PRESETS: PermissionPreset[] = [
         icon: "crown",
         default_tabs: [
             "dashboard",
+            "gerencial",
             "financeiro",
             "conversas",
             "jornada",
@@ -275,6 +279,7 @@ const TAB_COLOR_ORDER: Record<ColorName, number> = {
 };
 
 export default function UsuariosPage() {
+    const { currentUser } = useCurrentUser();
     const [data, setData] = useState<ApiResponse | null>(null);
     const [units, setUnits] = useState<Unit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -607,6 +612,12 @@ export default function UsuariosPage() {
                         tabsJson.error ?? "Erro ao salvar abas permitidas",
                     );
                 }
+            }
+
+            if (currentUser?.user?.id === user.id) {
+                window.dispatchEvent(
+                    new Event("current-user-permissions-changed"),
+                );
             }
         } catch (saveError) {
             console.error("[usuarios] failed to save", saveError);

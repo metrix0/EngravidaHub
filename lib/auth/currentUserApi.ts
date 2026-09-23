@@ -32,8 +32,9 @@ const EMPTY_CURRENT_USER: CurrentUserResponse = {
     permission: null,
 };
 
-const CACHE_KEY = "engravida:current-user-access:v2";
+const CACHE_KEY = "engravida:current-user-access:v3";
 const OLD_CACHE_KEYS = [
+    "engravida:current-user-access:v2",
     "engravida:current-user-access:v1",
     "engravida:current-user:v2",
 ];

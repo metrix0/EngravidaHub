@@ -2,6 +2,7 @@
 
 export const APP_TAB_IDS = [
     "dashboard",
+    "gerencial",
     "financeiro",
     "conversas",
     "jornada",
@@ -65,6 +66,7 @@ export function parseUnitLockCookie(
 
 export const APP_TAB_HREFS: Record<AppTabId, string> = {
     dashboard: "/",
+    gerencial: "/gerencial",
     financeiro: "/financeiro",
     conversas: "/conversas",
     jornada: "/jornada",
@@ -81,6 +83,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
 
 const APP_TAB_ROUTE_ORDER: AppTabId[] = [
     "dashboard",
+    "gerencial",
     "financeiro",
     "assistente",
     "jornada",
