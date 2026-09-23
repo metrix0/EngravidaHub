@@ -164,7 +164,7 @@ export async function handleChatbotScheduling({
     const stage = normalizeChatbotStage(session.topic_stage);
     const normalized = normalizeText(message);
 
-    if (normalized === "schedule:change_unit") {
+    if (isChangeUnitRequest(normalized)) {
         return restartAtUnit(session, stage);
     }
 
@@ -251,7 +251,7 @@ async function handleDoctorStep(
     const unit = await loadUnit(session.unit_id);
     if (!unit) return restartAtUnit(session, stage);
 
-    if (isNegativeAvailabilityResponse(message)) {
+    if (isNextAvailabilityWindowRequest(message)) {
         return offerAvailabilityWindow(
             session,
             stage,
@@ -353,7 +353,7 @@ async function handleDateStep(
         return askDayPeriod(updated, stage);
     }
 
-    if (isNegativeAvailabilityResponse(message)) {
+    if (isNextAvailabilityWindowRequest(message)) {
         const unit = await loadUnit(session.unit_id);
         if (!unit) return restartAtUnit(session, stage);
 
@@ -384,6 +384,25 @@ async function handleTimeStep(
 ) {
     if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
+    }
+
+    const unit = await loadUnit(session.unit_id);
+    if (!unit) return restartAtUnit(session, stage);
+
+    if (isNextAvailabilityWindowRequest(message)) {
+        return offerAvailabilityWindow(
+            session,
+            stage,
+            unit,
+            addDays(endOfWeek(session.scheduling_date), 1),
+        );
+    }
+
+    if (parseDayPeriod(message)) {
+        const updated = await updateSession(session.session_key, {
+            step: "doctor",
+        });
+        return handleDoctorStep(updated, message, stage);
     }
 
     const selected = parseSlotOption(message);
@@ -1041,19 +1060,13 @@ function selectDoctor(message: string, doctors: DoctorOption[]) {
 
 function parseDayPeriod(value: string): DayPeriod | null {
     const normalized = normalizeText(value);
-    if (
-        normalized === "schedule:period:morning" ||
-        /^(manha|de manha|pela manha|prefiro manha)$/.test(normalized)
-    ) {
-        return "morning";
-    }
-    if (
-        normalized === "schedule:period:afternoon" ||
-        /^(tarde|a tarde|de tarde|pela tarde|prefiro tarde)$/.test(normalized)
-    ) {
-        return "afternoon";
-    }
-    return null;
+    if (normalized === "schedule:period:morning") return "morning";
+    if (normalized === "schedule:period:afternoon") return "afternoon";
+
+    const morning = /\bmanha\b/.test(normalized);
+    const afternoon = /\btarde\b/.test(normalized);
+    if (morning === afternoon) return null;
+    return morning ? "morning" : "afternoon";
 }
 
 function isPositiveAvailabilityResponse(value: string) {
@@ -1071,6 +1084,26 @@ function isNegativeAvailabilityResponse(value: string) {
     return (
         normalized === "schedule:availability:no" ||
         /^(nao|acho que nao|nao consigo|essa semana nao|semana que vem nao|outra semana|prefiro outra semana)$/.test(
+            normalized,
+        )
+    );
+}
+
+function isNextAvailabilityWindowRequest(value: string) {
+    const normalized = normalizeText(value);
+    return (
+        isNegativeAvailabilityResponse(normalized) ||
+        /\b(outra semana|proxima semana|semana que vem|mais pra frente|mais adiante|outra data|outro dia|outros dias|outros horarios|mais horarios)\b/.test(
+            normalized,
+        )
+    );
+}
+
+function isChangeUnitRequest(value: string) {
+    const normalized = normalizeText(value);
+    return (
+        normalized === "schedule:change_unit" ||
+        /\b(outra unidade|trocar unidade|mudar unidade|escolher outra unidade|quero outra unidade)\b/.test(
             normalized,
         )
     );
