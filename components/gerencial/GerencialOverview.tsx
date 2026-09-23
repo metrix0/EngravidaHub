@@ -444,7 +444,7 @@ export default function GerencialOverview({
                                     },
                                 },
                                 {
-                                    label: "Google Ads",
+                                    label: "Google",
                                     value: formatCurrency(
                                         googleInvestment,
                                     ),
@@ -746,14 +746,12 @@ function MetricCard({
             <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                 {eyebrow}
             </div>
-            <div className="mt-3 text-xs font-medium text-slate-500">
-                {label}
-            </div>
-            <div className="mt-1 flex min-w-0 items-baseline gap-2">
-                <div className="min-w-0 break-words text-2xl font-bold tracking-tight text-slate-950">
-                    {value}
-                </div>
+            <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <span>{label}</span>
                 <TrendText trend={trend} />
+            </div>
+            <div className="mt-1 whitespace-nowrap text-2xl font-bold tracking-tight text-slate-950">
+                {value}
             </div>
             <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
                 {rows.map((row) => (
@@ -866,7 +864,7 @@ function PlatformSpendCard({
                 Investimento por plataforma
             </div>
             <div className="mt-0.5 text-[10px] text-slate-400">
-                Meta e Google Ads no período
+                Meta e Google no período
             </div>
             <div className="mt-3 flex items-center gap-3 text-[10px] text-slate-500">
                 <LegendDot
@@ -1100,7 +1098,7 @@ function PlatformSpendTooltip({
             ) : null}
             <div className="space-y-1 text-slate-600">
                 <div>Meta Ads: {formatCurrency(metaSpend)}</div>
-                <div>Google Ads: {formatCurrency(googleSpend)}</div>
+                <div>Google: {formatCurrency(googleSpend)}</div>
                 <div>
                     Investimento: {formatCurrency(metaSpend + googleSpend)}
                 </div>
