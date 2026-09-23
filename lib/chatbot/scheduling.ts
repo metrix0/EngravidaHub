@@ -346,10 +346,6 @@ async function handleDoctorStep(
                         id: "schedule:availability:no",
                         label: "Outra semana",
                     },
-                    {
-                        id: "schedule:change_unit",
-                        label: "Escolher outra unidade",
-                    },
                 ],
             }),
         );
@@ -733,10 +729,6 @@ async function offerAvailabilityWindow(
                     "No momento não encontrei horários disponíveis nessa unidade. Você pode escolher outra unidade ou aguardar nosso time.",
                 options: [
                     {
-                        id: "schedule:change_unit",
-                        label: "Escolher outra unidade",
-                    },
-                    {
                         id: "schedule:cancel",
                         label: "Cancelar",
                     },
@@ -803,10 +795,6 @@ async function askDayPeriod(
             options: [
                 { id: "schedule:period:morning", label: "Manhã" },
                 { id: "schedule:period:afternoon", label: "Tarde" },
-                {
-                    id: "schedule:change_unit",
-                    label: "Escolher outra unidade",
-                },
             ],
         }),
     );
@@ -1343,7 +1331,6 @@ function availabilityQuestionOptions() {
     return [
         { id: "schedule:availability:yes", label: "Sim" },
         { id: "schedule:availability:no", label: "Não" },
-        { id: "schedule:change_unit", label: "Escolher outra unidade" },
     ];
 }
 
