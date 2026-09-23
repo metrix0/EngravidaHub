@@ -1,6 +1,9 @@
 // lib/chatbot/scheduling.ts
 import { randomUUID } from "node:crypto";
 
+import OpenAI from "openai";
+import { z } from "zod";
+
 import { listReplicatedClinisysAvailability } from "@/lib/clinisys/replicatedAvailability";
 import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 import {
@@ -12,6 +15,7 @@ import { supabase } from "@/lib/supabase/client";
 import {
     buildChatbotReply,
     normalizeChatbotStage,
+    routeOutOfHoursChatbot,
     type ChatbotStage,
     type OutOfHoursChatbotReply,
 } from "@/lib/chatbot/outOfHoursChatbot";
@@ -21,6 +25,34 @@ export const CHATBOT_APPOINTMENT_CREATION_ENABLED = false;
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const PROCEDURE_NAME = "Consulta";
 const APPOINTMENT_DURATION_MINUTES = 45;
+const SCHEDULING_INTENT_MODEL = "gpt-5.6-luna";
+
+const SCHEDULING_FALLBACK_INTENTS = [
+    "select_unit",
+    "accept_window",
+    "next_window",
+    "morning",
+    "afternoon",
+    "change_time",
+    "change_unit",
+    "cancel",
+    "confirm",
+    "question",
+    "repeat",
+    "unknown",
+] as const;
+
+type SchedulingFallbackIntent =
+    (typeof SCHEDULING_FALLBACK_INTENTS)[number];
+
+const schedulingFallbackSchema = z
+    .object({
+        intent: z.enum(SCHEDULING_FALLBACK_INTENTS),
+        unit_id: z.string().nullable(),
+    })
+    .strict();
+
+let schedulingOpenAIClient: OpenAI | null = null;
 
 type SchedulingStep =
     | "unit"
@@ -164,7 +196,7 @@ export async function handleChatbotScheduling({
     const stage = normalizeChatbotStage(session.topic_stage);
     const normalized = normalizeText(message);
 
-    if (isChangeUnitRequest(normalized)) {
+    if (normalized === "schedule:change_unit") {
         return restartAtUnit(session, stage);
     }
 
@@ -220,6 +252,14 @@ async function handleUnitStep(
     const selected = selectUnit(message, units);
 
     if (!selected) {
+        const fallback = await handleSchedulingFallbackIntent({
+            session,
+            message,
+            stage,
+            units,
+        });
+        if (fallback) return fallback;
+
         return schedulingReply(
             session,
             buildChatbotReply({
@@ -251,16 +291,13 @@ async function handleDoctorStep(
     const unit = await loadUnit(session.unit_id);
     if (!unit) return restartAtUnit(session, stage);
 
-    if (isNextAvailabilityWindowRequest(message)) {
-        return offerAvailabilityWindow(
-            session,
-            stage,
-            unit,
-            addDays(endOfWeek(session.scheduling_date), 1),
-        );
-    }
-
     if (!period) {
+        const fallback = await handleSchedulingFallbackIntent({
+            session,
+            message,
+            stage,
+        });
+        if (fallback) return fallback;
         return askDayPeriod(session, stage);
     }
 
@@ -353,17 +390,12 @@ async function handleDateStep(
         return askDayPeriod(updated, stage);
     }
 
-    if (isNextAvailabilityWindowRequest(message)) {
-        const unit = await loadUnit(session.unit_id);
-        if (!unit) return restartAtUnit(session, stage);
-
-        return offerAvailabilityWindow(
-            session,
-            stage,
-            unit,
-            addDays(endOfWeek(session.scheduling_date), 1),
-        );
-    }
+    const fallback = await handleSchedulingFallbackIntent({
+        session,
+        message,
+        stage,
+    });
+    if (fallback) return fallback;
 
     return schedulingReply(
         session,
@@ -386,27 +418,14 @@ async function handleTimeStep(
         return restartAtUnit(session, stage);
     }
 
-    const unit = await loadUnit(session.unit_id);
-    if (!unit) return restartAtUnit(session, stage);
-
-    if (isNextAvailabilityWindowRequest(message)) {
-        return offerAvailabilityWindow(
-            session,
-            stage,
-            unit,
-            addDays(endOfWeek(session.scheduling_date), 1),
-        );
-    }
-
-    if (parseDayPeriod(message)) {
-        const updated = await updateSession(session.session_key, {
-            step: "doctor",
-        });
-        return handleDoctorStep(updated, message, stage);
-    }
-
     const selected = parseSlotOption(message);
     if (!selected) {
+        const fallback = await handleSchedulingFallbackIntent({
+            session,
+            message,
+            stage,
+        });
+        if (fallback) return fallback;
         return schedulingReply(
             session,
             buildChatbotReply({
@@ -465,6 +484,13 @@ async function handleNameStep(
 ) {
     const name = message.trim();
     if (name.length < 5 || name.split(/\s+/).length < 2) {
+        const fallback = await handleSchedulingFallbackIntent({
+            session,
+            message,
+            stage,
+        });
+        if (fallback) return fallback;
+
         return schedulingReply(
             session,
             buildChatbotReply({
@@ -491,6 +517,12 @@ async function handleConfirmStep(
 ) {
     const normalized = normalizeText(message);
     if (!isConfirmRequest(normalized)) {
+        const fallback = await handleSchedulingFallbackIntent({
+            session,
+            message,
+            stage,
+        });
+        if (fallback) return fallback;
         return confirmReply(session, stage);
     }
 
@@ -1079,34 +1111,232 @@ function isPositiveAvailabilityResponse(value: string) {
     );
 }
 
-function isNegativeAvailabilityResponse(value: string) {
-    const normalized = normalizeText(value);
-    return (
-        normalized === "schedule:availability:no" ||
-        /^(nao|acho que nao|nao consigo|essa semana nao|semana que vem nao|outra semana|prefiro outra semana)$/.test(
-            normalized,
-        )
-    );
+async function handleSchedulingFallbackIntent({
+    session,
+    message,
+    stage,
+    units,
+}: {
+    session: SchedulingSessionRow;
+    message: string;
+    stage: ChatbotStage;
+    units?: UnitOption[];
+}): Promise<ChatbotSchedulingReply | null> {
+    const classified = await classifySchedulingFallbackIntent({
+        session,
+        message,
+        units,
+    });
+
+    switch (classified.intent) {
+        case "select_unit": {
+            const availableUnits = units ?? (await loadUnits());
+            const unit = classified.unit_id
+                ? availableUnits.find(
+                      (candidate) => candidate.id === classified.unit_id,
+                  )
+                : null;
+            return unit
+                ? offerAvailabilityWindow(session, stage, unit)
+                : null;
+        }
+        case "accept_window": {
+            if (session.step !== "date") return null;
+            const updated = await updateSession(session.session_key, {
+                step: "doctor",
+            });
+            return askDayPeriod(updated, stage);
+        }
+        case "next_window": {
+            if (!session.unit_id || !session.scheduling_date) return null;
+            const unit = await loadUnit(session.unit_id);
+            if (!unit) return restartAtUnit(session, stage);
+            return offerAvailabilityWindow(
+                session,
+                stage,
+                unit,
+                addDays(endOfWeek(session.scheduling_date), 1),
+            );
+        }
+        case "morning":
+        case "afternoon": {
+            if (!session.unit_id || !session.scheduling_date) return null;
+            const updated =
+                session.step === "doctor"
+                    ? session
+                    : await updateSession(session.session_key, {
+                          step: "doctor",
+                      });
+            return handleDoctorStep(
+                updated,
+                classified.intent === "morning"
+                    ? "schedule:period:morning"
+                    : "schedule:period:afternoon",
+                stage,
+            );
+        }
+        case "change_time": {
+            if (!session.unit_id || !session.scheduling_date) return null;
+            const updated = await updateSession(session.session_key, {
+                step: "doctor",
+                doctor_id: null,
+                scheduling_time: null,
+            });
+            return askDayPeriod(updated, stage);
+        }
+        case "change_unit":
+            return restartAtUnit(session, stage);
+        case "cancel":
+            await resetChatbotSchedulingSession(session.session_key);
+            return {
+                ...buildChatbotReply({
+                    action: "show_menu",
+                    route: "ai",
+                    stage,
+                    reply:
+                        "Tudo bem. O agendamento foi cancelado. Como posso ajudar?",
+                    options: [{ id: "common:menu", label: "Voltar ao menu" }],
+                    aiUsed: true,
+                }),
+                scheduling: metadata(session, false),
+            };
+        case "confirm":
+            return session.step === "confirm"
+                ? handleConfirmStep(session, "schedule:confirm", stage)
+                : null;
+        case "question": {
+            const answer = await routeOutOfHoursChatbot({
+                message,
+                stage,
+            });
+            return schedulingReply(session, {
+                ...answer,
+                options: [],
+                has_options: false,
+                blip_menu_content: null,
+            });
+        }
+        case "repeat":
+        case "unknown":
+            return null;
+    }
 }
 
-function isNextAvailabilityWindowRequest(value: string) {
-    const normalized = normalizeText(value);
-    return (
-        isNegativeAvailabilityResponse(normalized) ||
-        /\b(outra semana|proxima semana|semana que vem|mais pra frente|mais adiante|outra data|outro dia|outros dias|outro horario|outros horarios|mais horarios)\b/.test(
-            normalized,
-        )
-    );
-}
+async function classifySchedulingFallbackIntent({
+    session,
+    message,
+    units,
+}: {
+    session: SchedulingSessionRow;
+    message: string;
+    units?: UnitOption[];
+}): Promise<{
+    intent: SchedulingFallbackIntent;
+    unit_id: string | null;
+}> {
+    if (!process.env.OPENAI_API_KEY) {
+        return { intent: "unknown", unit_id: null };
+    }
 
-function isChangeUnitRequest(value: string) {
-    const normalized = normalizeText(value);
-    return (
-        normalized === "schedule:change_unit" ||
-        /\b(outra unidade|trocar unidade|mudar unidade|escolher outra unidade|quero outra unidade)\b/.test(
-            normalized,
-        )
-    );
+    try {
+        schedulingOpenAIClient ??= new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+        });
+
+        const response = await schedulingOpenAIClient.responses.create({
+            model: SCHEDULING_INTENT_MODEL,
+            store: false,
+            reasoning: { effort: "low" },
+            instructions: [
+                "Você é um classificador de intenção para o fluxo de agendamento da Engravida.",
+                "Sua única função é entender o que o cliente quer fazer agora. Nunca escolha, recomende ou invente um horário.",
+                "Entradas válidas que já correspondem diretamente ao passo atual são tratadas fora de você; você recebe somente mensagens que não foram entendidas deterministicamente.",
+                "Use select_unit somente no passo unit e somente quando a mensagem identificar claramente uma unidade da lista fornecida; copie exatamente o unit_id correspondente.",
+                "Use accept_window quando o cliente aceitar a semana/período de datas oferecido.",
+                "Use next_window quando pedir outra semana, outra data, mais opções de dias ou horários mais adiante.",
+                "Use morning ou afternoon quando quiser trocar/escolher o período do dia.",
+                "Use change_time quando quiser voltar à escolha de horário/período sem necessariamente mudar de semana.",
+                "Use change_unit quando quiser trocar de unidade.",
+                "Use cancel quando quiser cancelar/desistir do agendamento.",
+                "Use confirm somente no passo confirm quando estiver confirmando os dados.",
+                "Use question quando estiver fazendo uma pergunta que não seja apenas uma instrução de navegação do agendamento.",
+                "Use repeat quando quiser ver novamente as opções atuais ou quando mencionar um horário específico no passo time sem clicar/selecionar uma opção válida. Você nunca pode selecionar esse horário pelo cliente.",
+                "Use unknown quando não houver intenção segura.",
+                "unit_id deve ser null para qualquer intenção diferente de select_unit.",
+            ].join("\n"),
+            input: [
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        current_step: session.step,
+                        customer_message: message,
+                        current_context: {
+                            unit_id: session.unit_id,
+                            week_start: session.scheduling_date,
+                            selected_time: session.scheduling_time,
+                            patient_name: session.patient_name,
+                        },
+                        available_units:
+                            session.step === "unit"
+                                ? (units ?? []).map((unit) => ({
+                                      id: unit.id,
+                                      name: unit.name,
+                                      city: unit.city,
+                                      state: unit.state,
+                                  }))
+                                : [],
+                    }),
+                },
+            ],
+            max_output_tokens: 120,
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "engravida_scheduling_intent",
+                    strict: true,
+                    schema: {
+                        type: "object",
+                        properties: {
+                            intent: {
+                                type: "string",
+                                enum: [...SCHEDULING_FALLBACK_INTENTS],
+                            },
+                            unit_id: {
+                                type: ["string", "null"],
+                            },
+                        },
+                        required: ["intent", "unit_id"],
+                        additionalProperties: false,
+                    },
+                },
+            },
+        });
+
+        const parsed = schedulingFallbackSchema.safeParse(
+            JSON.parse(response.output_text || "{}"),
+        );
+        if (!parsed.success) {
+            return { intent: "unknown", unit_id: null };
+        }
+
+        if (
+            parsed.data.intent !== "select_unit" &&
+            parsed.data.unit_id !== null
+        ) {
+            return { intent: "unknown", unit_id: null };
+        }
+
+        return {
+            intent: parsed.data.intent,
+            unit_id: parsed.data.unit_id ?? null,
+        };
+    } catch (error) {
+        console.error(
+            "[chatbot-scheduling] intent classification failed",
+            error,
+        );
+        return { intent: "unknown", unit_id: null };
+    }
 }
 
 function availabilityQuestionOptions() {
@@ -1276,8 +1506,7 @@ function isCancelRequest(value: string) {
     return (
         value === "schedule:cancel" ||
         value === "common:menu" ||
-        value === "menu" ||
-        /^(cancelar|cancela|cancelar agendamento|desistir)$/.test(value)
+        value === "menu"
     );
 }
 
