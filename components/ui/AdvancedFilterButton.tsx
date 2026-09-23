@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronDown, SlidersHorizontal } from "lucide-react";
 
 export type AdvancedFilterOption = {
     label: string;
@@ -115,12 +115,20 @@ export default function AdvancedFilterButton({
             <button
                 type="button"
                 onClick={handleToggleOpen}
-                className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${activeCount > 0 ? "!border-brand !bg-brand text-white" : `${open ? "!bg-slate-200 hover:!bg-selection" : ""}`}`}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                style={{
+                    borderColor: "var(--color-border)",
+                    color: "var(--color-muted)",
+                }}
             >
-                <span className="flex shrink-0 items-center text-current">
+                <span className="flex min-w-0 items-center gap-2">
                     {icon}
+                    <span className="truncate">{displayLabel}</span>
                 </span>
-                <span className="min-w-0 truncate">{displayLabel}</span>
+                <ChevronDown
+                    size={16}
+                    className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : "rotate-0"}`}
+                />
             </button>
 
             <div
