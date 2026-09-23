@@ -52,6 +52,12 @@ const schedulingFallbackSchema = z
     })
     .strict();
 
+const schedulingSideQuestionSchema = z
+    .object({
+        answer: z.string().min(1).max(900),
+    })
+    .strict();
+
 let schedulingOpenAIClient: OpenAI | null = null;
 
 type SchedulingStep =
@@ -1209,71 +1215,116 @@ async function answerSchedulingSideQuestion(
     message: string,
     stage: ChatbotStage,
 ) {
-    const schedulingAnswer = await answerSchedulingAvailabilityQuestion(
-        session,
-        message,
-    );
-    const answer = schedulingAnswer
-        ? schedulingAnswer
-        : (
-              await routeOutOfHoursChatbot({
-                  message,
-                  stage,
+    const [unit, doctors, slots, approvedSupport] = await Promise.all([
+        session.unit_id ? loadUnit(session.unit_id) : null,
+        session.unit_id ? loadDoctors(session.unit_id) : [],
+        session.unit_id
+            ? loadUnitAvailableSlots(session.unit_id).catch((error) => {
+                  if (error instanceof ReplicatedAgendaUnavailableError) {
+                      return [];
+                  }
+                  throw error;
               })
-          ).reply;
+            : [],
+        routeOutOfHoursChatbot({
+            message,
+            stage,
+        }),
+    ]);
+
+    let answer = approvedSupport.reply;
+
+    if (process.env.OPENAI_API_KEY) {
+        try {
+            schedulingOpenAIClient ??= new OpenAI({
+                apiKey: process.env.OPENAI_API_KEY,
+            });
+
+            const doctorNames = new Map<string, string>(
+                doctors.map(
+                    (doctor): [string, string] => [
+                        doctor.id,
+                        doctor.name,
+                    ],
+                ),
+            );
+            const response = await schedulingOpenAIClient.responses.create({
+                model: SCHEDULING_INTENT_MODEL,
+                store: false,
+                reasoning: { effort: "low" },
+                instructions: [
+                    "Você responde dúvidas livres feitas durante um fluxo de agendamento da Engravida.",
+                    "Sempre responda você mesmo; não classifique a pergunta e não altere o estado do agendamento.",
+                    "Para perguntas sobre agenda, disponibilidade, dias, horários, médicos ou atendimento da unidade, use somente os dados reais de agenda fornecidos no contexto.",
+                    "Nunca invente disponibilidade e nunca escolha um horário pelo cliente.",
+                    "Para dúvidas fora da agenda, use a resposta aprovada do chatbot fornecida no contexto quando ela realmente responder à pergunta.",
+                    "Se nem a agenda nem a resposta aprovada sustentarem a resposta, diga de forma curta que essa informação precisa ser confirmada com o time.",
+                    "Responda em PT-BR, de forma natural, curta e direta.",
+                    "Não repita as opções do agendamento; o sistema fará isso depois da sua resposta.",
+                ].join("\n"),
+                input: [
+                    {
+                        role: "user",
+                        content: JSON.stringify({
+                            customer_question: message,
+                            scheduling_context: {
+                                current_step: session.step,
+                                unit: unit
+                                    ? {
+                                          id: unit.id,
+                                          name: unit.name,
+                                          city: unit.city,
+                                          state: unit.state,
+                                      }
+                                    : null,
+                                selected_week_start: session.scheduling_date,
+                                selected_doctor_id: session.doctor_id,
+                                selected_time: session.scheduling_time,
+                                available_slots: slots.slice(0, 300).map((slot) => ({
+                                    date: slot.date,
+                                    time: slot.time,
+                                    doctor_id: slot.doctorId,
+                                    doctor_name:
+                                        doctorNames.get(slot.doctorId) ?? null,
+                                })),
+                            },
+                            approved_support_reply: approvedSupport.reply,
+                        }),
+                    },
+                ],
+                max_output_tokens: 220,
+                text: {
+                    format: {
+                        type: "json_schema",
+                        name: "engravida_scheduling_side_question",
+                        strict: true,
+                        schema: {
+                            type: "object",
+                            properties: {
+                                answer: { type: "string" },
+                            },
+                            required: ["answer"],
+                            additionalProperties: false,
+                        },
+                    },
+                },
+            });
+
+            const parsed = schedulingSideQuestionSchema.safeParse(
+                JSON.parse(response.output_text || "{}"),
+            );
+            if (parsed.success) {
+                answer = parsed.data.answer;
+            }
+        } catch (error) {
+            console.error(
+                "[chatbot-scheduling] side question answer failed",
+                error,
+            );
+        }
+    }
 
     return resumeSchedulingAfterQuestion(session, stage, answer);
-}
-
-async function answerSchedulingAvailabilityQuestion(
-    session: SchedulingSessionRow,
-    message: string,
-) {
-    const normalized = normalizeText(message);
-    if (
-        !session.unit_id ||
-        !/\b(fim de semana|final de semana|sabado|domingo)\b/.test(normalized)
-    ) {
-        return null;
-    }
-
-    try {
-        const [unit, slots] = await Promise.all([
-            loadUnit(session.unit_id),
-            loadUnitAvailableSlots(session.unit_id),
-        ]);
-        if (!unit) return null;
-
-        const today = todayInBrazil();
-        const futureWeekendSlots = slots.filter(
-            (slot) =>
-                slot.date >= today &&
-                isWeekendDate(slot.date),
-        );
-        if (futureWeekendSlots.length === 0) {
-            return `No momento, não encontrei horários de sábado ou domingo disponíveis na unidade ${unit.name}.`;
-        }
-
-        const hasSaturday = futureWeekendSlots.some(
-            (slot) => weekdayForDate(slot.date) === 6,
-        );
-        const hasSunday = futureWeekendSlots.some(
-            (slot) => weekdayForDate(slot.date) === 0,
-        );
-        const days =
-            hasSaturday && hasSunday
-                ? "aos sábados e domingos"
-                : hasSaturday
-                  ? "aos sábados"
-                  : "aos domingos";
-
-        return `Sim. No momento, encontrei horários disponíveis ${days} na unidade ${unit.name}.`;
-    } catch (error) {
-        if (error instanceof ReplicatedAgendaUnavailableError) {
-            return null;
-        }
-        throw error;
-    }
 }
 
 async function resumeSchedulingAfterQuestion(
@@ -1424,15 +1475,6 @@ async function resumeSchedulingAfterQuestion(
             aiUsed: true,
         }),
     );
-}
-
-function weekdayForDate(value: string) {
-    return new Date(`${value}T12:00:00Z`).getUTCDay();
-}
-
-function isWeekendDate(value: string) {
-    const weekday = weekdayForDate(value);
-    return weekday === 0 || weekday === 6;
 }
 
 async function classifySchedulingFallbackIntent({
