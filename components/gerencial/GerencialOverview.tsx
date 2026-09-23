@@ -12,6 +12,7 @@ import {
     Area,
     AreaChart,
     ResponsiveContainer,
+    Tooltip,
 } from "recharts";
 
 import { Card, Skeleton } from "@/components";
@@ -728,6 +729,13 @@ function MiniAreaCard({
                             }}
                             onMouseLeave={() => setHoveredPoint(null)}
                         >
+                            <Tooltip
+                                content={() => null}
+                                cursor={{
+                                    stroke: "#cbd5e1",
+                                    strokeDasharray: "3 3",
+                                }}
+                            />
                             <Area
                                 type="monotone"
                                 dataKey={dataKey}
@@ -819,6 +827,13 @@ function PlatformSpendCard({
                             }}
                             onMouseLeave={() => setHoveredPoint(null)}
                         >
+                            <Tooltip
+                                content={() => null}
+                                cursor={{
+                                    stroke: "#cbd5e1",
+                                    strokeDasharray: "3 3",
+                                }}
+                            />
                             <Area
                                 type="monotone"
                                 dataKey="meta_spend"
@@ -987,8 +1002,6 @@ function formatTreatmentProceduresTooltip(
     procedures: FinancialDashboardData["ticket_averages"]["procedures"],
 ) {
     return [
-        "Tratamentos: mesma conta apenas para FIV, congelamento, genética/biópsias, transferências embrionárias e banco/doação.",
-        "",
         "Procedimentos incluídos em Tratamentos:",
         ...procedures.map(
             (procedure) =>
