@@ -34,12 +34,14 @@ export async function processChatbotMessage({
     phone,
     sessionKey,
     signal,
+    onAiStart,
 }: {
     message: string;
     stage?: string | null;
     phone?: string | null;
     sessionKey?: string | null;
     signal?: AbortSignal;
+    onAiStart?: () => Promise<void>;
 }): Promise<ProcessedChatbotReply> {
     const stage = normalizeChatbotStage(rawStage);
     const isInitialPrompt = message === INITIAL_CHATBOT_MESSAGE;
@@ -115,6 +117,7 @@ export async function processChatbotMessage({
         const schedulingResponse = await handleChatbotScheduling({
             sessionKey,
             message,
+            onAiStart,
         });
         if (schedulingResponse) return schedulingResponse;
     }
@@ -147,6 +150,7 @@ export async function processChatbotMessage({
         message: normalizeMessageForRouting(message, stage),
         stage,
         signal,
+        onAiStart,
     });
 
     if (
