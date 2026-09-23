@@ -762,11 +762,13 @@ function MetricCard({
                         <span className="text-xs text-slate-500">
                             {row.label}
                         </span>
-                        <div className="flex shrink-0 items-baseline gap-1.5 text-right">
-                            <div className="text-sm font-bold text-slate-800">
+                        <div className="shrink-0 text-right leading-none">
+                            <div className="text-sm font-bold leading-tight text-slate-800">
                                 {row.value}
                             </div>
-                            <TrendText trend={row.trend} compact />
+                            <div className="mt-0.5">
+                                <TrendText trend={row.trend} compact />
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -966,11 +968,13 @@ function CompactStatsCard({
                                 </InfoTooltip>
                             ) : null}
                         </span>
-                        <div className="flex shrink-0 items-baseline gap-1.5 text-right">
-                            <div className="text-sm font-bold text-slate-800">
+                        <div className="shrink-0 text-right leading-none">
+                            <div className="text-sm font-bold leading-tight text-slate-800">
                                 {row.value}
                             </div>
-                            <TrendText trend={row.trend} compact />
+                            <div className="mt-0.5">
+                                <TrendText trend={row.trend} compact />
+                            </div>
                         </div>
                     </div>
                 ))}
