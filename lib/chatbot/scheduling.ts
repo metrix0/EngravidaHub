@@ -1093,7 +1093,7 @@ function isNextAvailabilityWindowRequest(value: string) {
     const normalized = normalizeText(value);
     return (
         isNegativeAvailabilityResponse(normalized) ||
-        /\b(outra semana|proxima semana|semana que vem|mais pra frente|mais adiante|outra data|outro dia|outros dias|outros horarios|mais horarios)\b/.test(
+        /\b(outra semana|proxima semana|semana que vem|mais pra frente|mais adiante|outra data|outro dia|outros dias|outro horario|outros horarios|mais horarios)\b/.test(
             normalized,
         )
     );
