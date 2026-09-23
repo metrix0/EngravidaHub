@@ -11,6 +11,7 @@ import {
     Area,
     AreaChart,
     ResponsiveContainer,
+    Tooltip,
 } from "recharts";
 
 import { Card, Skeleton } from "@/components";
@@ -79,6 +80,11 @@ type OutcomeRow = {
     label: string;
     value: number;
     color: string;
+};
+
+type MiniTooltipPayloadItem = {
+    value?: number | string;
+    payload?: Record<string, unknown>;
 };
 
 export default function GerencialOverview({
@@ -283,11 +289,19 @@ export default function GerencialOverview({
                                 },
                             ]}
                         />
+                        <ProjectionProgressCard
+                            current={financialTotal}
+                            projection={financialProjection}
+                            formatter={formatCurrency}
+                            accent="var(--color-green)"
+                        />
                         <MiniAreaCard
                             title="Ritmo de faturamento"
                             subtitle="Evolução no período selecionado"
                             data={financial.evolution}
                             dataKey="authorized_revenue"
+                            valueLabel="Faturamento"
+                            valueKind="currency"
                             stroke="var(--color-green)"
                             fill="var(--color-green-soft)"
                         />
@@ -437,6 +451,8 @@ export default function GerencialOverview({
                             subtitle="Consultas previstas por dia"
                             data={executive.schedule_evolution}
                             dataKey="total"
+                            valueLabel="Avaliações"
+                            valueKind="integer"
                             stroke="var(--color-purple)"
                             fill="var(--color-purple-soft)"
                         />
@@ -460,27 +476,35 @@ export default function GerencialOverview({
                         }
                     />
                 ) : (
-                    <MetricCard
-                        eyebrow="Marcações"
-                        label="Total único"
-                        value={formatInteger(
-                            markings.total.unique_markings,
-                        )}
-                        rows={[
-                            {
-                                label: "Ontem",
-                                value: formatInteger(
-                                    yesterdayMarkings,
-                                ),
-                            },
-                            {
-                                label: "Projeção",
-                                value: formatInteger(
-                                    markings.total.unique_projection,
-                                ),
-                            },
-                        ]}
-                    />
+                    <>
+                        <MetricCard
+                            eyebrow="Marcações"
+                            label="Total único"
+                            value={formatInteger(
+                                markings.total.unique_markings,
+                            )}
+                            rows={[
+                                {
+                                    label: "Ontem",
+                                    value: formatInteger(
+                                        yesterdayMarkings,
+                                    ),
+                                },
+                                {
+                                    label: "Projeção",
+                                    value: formatInteger(
+                                        markings.total.unique_projection,
+                                    ),
+                                },
+                            ]}
+                        />
+                        <ProjectionProgressCard
+                            current={markings.total.unique_markings}
+                            projection={markings.total.unique_projection}
+                            formatter={formatInteger}
+                            accent="var(--color-orange)"
+                        />
+                    </>
                 )}
 
                 {atendimentoLoading ? (
@@ -498,6 +522,8 @@ export default function GerencialOverview({
                         subtitle="Ritmo de novas marcações"
                         data={executive.schedule_creation_evolution}
                         dataKey="total"
+                        valueLabel="Marcações"
+                        valueKind="integer"
                         stroke="var(--color-orange)"
                         fill="var(--color-orange-soft)"
                     />
@@ -587,6 +613,8 @@ function MiniAreaCard({
     subtitle,
     data,
     dataKey,
+    valueLabel,
+    valueKind,
     stroke,
     fill,
 }: {
@@ -594,6 +622,8 @@ function MiniAreaCard({
     subtitle: string;
     data: ReadonlyArray<object>;
     dataKey: string;
+    valueLabel: string;
+    valueKind: "currency" | "integer";
     stroke: string;
     fill: string;
 }) {
@@ -620,6 +650,18 @@ function MiniAreaCard({
                                 left: 2,
                             }}
                         >
+                            <Tooltip
+                                content={
+                                    <MiniAreaTooltip
+                                        valueLabel={valueLabel}
+                                        valueKind={valueKind}
+                                    />
+                                }
+                                cursor={{
+                                    stroke: "#cbd5e1",
+                                    strokeDasharray: "3 3",
+                                }}
+                            />
                             <Area
                                 type="monotone"
                                 dataKey={dataKey}
@@ -628,6 +670,7 @@ function MiniAreaCard({
                                 strokeWidth={2}
                                 fillOpacity={0.75}
                                 dot={false}
+                                activeDot={{ r: 3 }}
                                 isAnimationActive={false}
                             />
                         </AreaChart>
@@ -678,6 +721,13 @@ function PlatformSpendCard({
                                 left: 2,
                             }}
                         >
+                            <Tooltip
+                                content={<PlatformSpendTooltip />}
+                                cursor={{
+                                    stroke: "#cbd5e1",
+                                    strokeDasharray: "3 3",
+                                }}
+                            />
                             <Area
                                 type="monotone"
                                 dataKey="meta_spend"
@@ -686,6 +736,7 @@ function PlatformSpendCard({
                                 fill="var(--color-blue-soft)"
                                 strokeWidth={2}
                                 dot={false}
+                                activeDot={{ r: 3 }}
                                 isAnimationActive={false}
                             />
                             <Area
@@ -696,6 +747,7 @@ function PlatformSpendCard({
                                 fill="var(--color-orange-soft)"
                                 strokeWidth={2}
                                 dot={false}
+                                activeDot={{ r: 3 }}
                                 isAnimationActive={false}
                             />
                         </AreaChart>
@@ -705,6 +757,139 @@ function PlatformSpendCard({
                 <MiniEmpty />
             )}
         </Card>
+    );
+}
+
+function ProjectionProgressCard({
+    current,
+    projection,
+    formatter,
+    accent,
+}: {
+    current: number | null | undefined;
+    projection: number | null | undefined;
+    formatter: (value: number | null | undefined) => string;
+    accent: string;
+}) {
+    const validProjection =
+        typeof projection === "number" && projection > 0;
+    const validCurrent = typeof current === "number";
+    const percentage =
+        validProjection && validCurrent
+            ? (current / projection) * 100
+            : null;
+    const remaining =
+        validProjection && validCurrent
+            ? Math.max(projection - current, 0)
+            : null;
+    const progress = Math.max(
+        0,
+        Math.min(100, percentage ?? 0),
+    );
+
+    return (
+        <Card className="min-w-0 p-4 md:p-4">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <div className="text-xs font-bold text-slate-800">
+                        Progresso da projeção
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                        Realizado em relação à projeção
+                    </div>
+                </div>
+                <div className="shrink-0 text-sm font-bold text-slate-800">
+                    {percentage === null
+                        ? "—"
+                        : `${percentage.toLocaleString("pt-BR", {
+                              maximumFractionDigits: 1,
+                          })}%`}
+                </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                    className="h-full rounded-full"
+                    style={{
+                        width: `${progress}%`,
+                        backgroundColor: accent,
+                    }}
+                />
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500">
+                <span>Atual: {formatter(current)}</span>
+                <span>Falta: {formatter(remaining)}</span>
+            </div>
+        </Card>
+    );
+}
+
+function MiniAreaTooltip({
+    active,
+    payload,
+    valueLabel,
+    valueKind,
+}: {
+    active?: boolean;
+    payload?: MiniTooltipPayloadItem[];
+    valueLabel: string;
+    valueKind: "currency" | "integer";
+}) {
+    if (!active || !payload?.length) return null;
+
+    const row = payload[0]?.payload ?? {};
+    const label = String(
+        row.label ?? row.date ?? row.period ?? "",
+    );
+    const value = Number(payload[0]?.value ?? 0);
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            {label ? (
+                <div className="mb-3 text-sm font-semibold text-slate-800">
+                    {label}
+                </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-6 text-sm">
+                <span className="text-slate-600">{valueLabel}</span>
+                <span className="font-semibold text-slate-800">
+                    {valueKind === "currency"
+                        ? formatCurrency(value)
+                        : formatInteger(value)}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+function PlatformSpendTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean;
+    payload?: MiniTooltipPayloadItem[];
+}) {
+    if (!active || !payload?.length) return null;
+
+    const row = payload[0]?.payload ?? {};
+    const label = String(row.label ?? row.period ?? "");
+    const metaSpend = Number(row.meta_spend ?? 0);
+    const googleSpend = Number(row.google_spend ?? 0);
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
+            {label ? (
+                <div className="mb-2 font-bold text-slate-700">
+                    {label}
+                </div>
+            ) : null}
+            <div className="space-y-1 text-slate-600">
+                <div>Meta Ads: {formatCurrency(metaSpend)}</div>
+                <div>Google Ads: {formatCurrency(googleSpend)}</div>
+                <div>
+                    Investimento: {formatCurrency(metaSpend + googleSpend)}
+                </div>
+            </div>
+        </div>
     );
 }
 
