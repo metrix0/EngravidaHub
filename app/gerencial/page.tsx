@@ -48,6 +48,8 @@ import type {
     FinancialDashboardData,
 } from "@/types";
 
+const EMPTY_FILTER_VALUES: string[] = [];
+
 const GERENCIAL_WIDGET_IDS = [
     "financeiro.faturamento_autorizado",
     "financeiro.faturamento_12_meses",
@@ -102,14 +104,14 @@ export default function GerencialPage() {
         period,
         selectedRange,
         unitIds,
-        attendantIds: [],
-        tunnelValues: [],
-        originValues: [],
-        categories: [],
-        eventValues: [],
-        platformValues: [],
-        statusValues: [],
-        eventSourceValues: [],
+        attendantIds: EMPTY_FILTER_VALUES,
+        tunnelValues: EMPTY_FILTER_VALUES,
+        originValues: EMPTY_FILTER_VALUES,
+        categories: EMPTY_FILTER_VALUES,
+        eventValues: EMPTY_FILTER_VALUES,
+        platformValues: EMPTY_FILTER_VALUES,
+        statusValues: EMPTY_FILTER_VALUES,
+        eventSourceValues: EMPTY_FILTER_VALUES,
     });
 
     const dateWindow = useMemo(() => {
@@ -296,7 +298,7 @@ export default function GerencialPage() {
                     <DashboardFilterBarSkeleton widths={["w-[230px]"]} />
                 )}
 
-                <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2 2xl:grid-cols-4">
+                <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-4">
                     <ManagementColumn
                         title="Financeiro"
                         icon={<Banknote size={18} />}
