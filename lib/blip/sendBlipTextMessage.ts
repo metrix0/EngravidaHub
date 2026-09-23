@@ -49,17 +49,7 @@ type BlipMediaMessageBody = {
     };
 };
 
-type BlipJsonMessageBody = {
-    id: string;
-    to: string;
-    type: "application/json";
-    content: Record<string, unknown>;
-};
-
-type BlipMessageBody =
-    | BlipTextMessageBody
-    | BlipMediaMessageBody
-    | BlipJsonMessageBody;
+type BlipMessageBody = BlipTextMessageBody | BlipMediaMessageBody;
 
 export type BlipHttpDebug = {
     request_id: string;
@@ -190,51 +180,12 @@ export async function sendBlipMediaMessage({
     });
 }
 
-export async function sendBlipWhatsAppTypingIndicator({
-    recipientNumber,
-    messageId,
-    requestId,
-}: {
-    recipientNumber: string;
-    messageId: string;
-    requestId?: string;
-}): Promise<SentBlipMessage> {
-    const normalizedMessageId = messageId.trim();
-
-    if (!normalizedMessageId) {
-        throw new Error("Blip WhatsApp message id is required");
-    }
-
-    const to = toBlipWhatsAppIdentity(recipientNumber);
-    const id = randomUUID();
-
-    return sendBlipEnvelope({
-        requestId: requestId ?? id,
-        timeoutMs: 3_000,
-        body: {
-            id,
-            to,
-            type: "application/json",
-            content: {
-                messaging_product: "whatsapp",
-                status: "read",
-                message_id: normalizedMessageId,
-                typing_indicator: {
-                    type: "text",
-                },
-            },
-        },
-    });
-}
-
 async function sendBlipEnvelope({
     requestId,
     body,
-    timeoutMs = BLIP_REQUEST_TIMEOUT_MS,
 }: {
     requestId: string;
     body: BlipMessageBody;
-    timeoutMs?: number;
 }): Promise<SentBlipMessage> {
     const auth = getBlipAuth();
     const endpoint = `https://${BLIP_MESSAGES_CONTRACT_ID}.http.msging.net/messages`;
@@ -270,7 +221,7 @@ async function sendBlipEnvelope({
         auth_key_source: auth.source,
         auth_key_configured: true,
         auth_key_length: auth.key.length,
-        timeout_ms: timeoutMs,
+        timeout_ms: BLIP_REQUEST_TIMEOUT_MS,
     });
 
     let response: Response;
@@ -285,7 +236,7 @@ async function sendBlipEnvelope({
             },
             body: JSON.stringify(body),
             cache: "no-store",
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: AbortSignal.timeout(BLIP_REQUEST_TIMEOUT_MS),
         });
     } catch (error) {
         finishDebug(debug, startedAtMs);

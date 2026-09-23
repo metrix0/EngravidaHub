@@ -192,11 +192,9 @@ export async function startChatbotScheduling({
 export async function handleChatbotScheduling({
     sessionKey,
     message,
-    onAiStart,
 }: {
     sessionKey: string;
     message: string;
-    onAiStart?: () => Promise<void>;
 }): Promise<ChatbotSchedulingReply | null> {
     const session = await loadSession(sessionKey);
     if (!session) return null;
@@ -224,17 +222,17 @@ export async function handleChatbotScheduling({
 
     switch (session.step) {
         case "unit":
-            return handleUnitStep(session, message, stage, onAiStart);
+            return handleUnitStep(session, message, stage);
         case "doctor":
-            return handleDoctorStep(session, message, stage, onAiStart);
+            return handleDoctorStep(session, message, stage);
         case "date":
-            return handleDateStep(session, message, stage, onAiStart);
+            return handleDateStep(session, message, stage);
         case "time":
-            return handleTimeStep(session, message, stage, onAiStart);
+            return handleTimeStep(session, message, stage);
         case "name":
-            return handleNameStep(session, message, stage, onAiStart);
+            return handleNameStep(session, message, stage);
         case "confirm":
-            return handleConfirmStep(session, message, stage, onAiStart);
+            return handleConfirmStep(session, message, stage);
         case "blocked":
             return blockedCreationReply(session, stage);
         case "completed":
@@ -255,7 +253,6 @@ async function handleUnitStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     const units = await loadUnits();
     const selected = selectUnit(message, units);
@@ -266,7 +263,6 @@ async function handleUnitStep(
             message,
             stage,
             units,
-            onAiStart,
         });
         if (fallback) return fallback;
 
@@ -292,7 +288,6 @@ async function handleDoctorStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
@@ -307,7 +302,6 @@ async function handleDoctorStep(
             session,
             message,
             stage,
-            onAiStart,
         });
         if (fallback) return fallback;
         return askDayPeriod(session, stage);
@@ -386,7 +380,6 @@ async function handleDateStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
@@ -403,7 +396,6 @@ async function handleDateStep(
         session,
         message,
         stage,
-        onAiStart,
     });
     if (fallback) return fallback;
 
@@ -423,7 +415,6 @@ async function handleTimeStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     if (!session.unit_id || !session.scheduling_date) {
         return restartAtUnit(session, stage);
@@ -435,7 +426,6 @@ async function handleTimeStep(
             session,
             message,
             stage,
-            onAiStart,
         });
         if (fallback) return fallback;
         return schedulingReply(
@@ -493,7 +483,6 @@ async function handleNameStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     const name = message.trim();
     if (name.length < 5 || name.split(/\s+/).length < 2) {
@@ -501,7 +490,6 @@ async function handleNameStep(
             session,
             message,
             stage,
-            onAiStart,
         });
         if (fallback) return fallback;
 
@@ -528,7 +516,6 @@ async function handleConfirmStep(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     const normalized = normalizeText(message);
     if (!isConfirmRequest(normalized)) {
@@ -536,7 +523,6 @@ async function handleConfirmStep(
             session,
             message,
             stage,
-            onAiStart,
         });
         if (fallback) return fallback;
         return confirmReply(session, stage);
@@ -1127,19 +1113,16 @@ async function handleSchedulingFallbackIntent({
     message,
     stage,
     units,
-    onAiStart,
 }: {
     session: SchedulingSessionRow;
     message: string;
     stage: ChatbotStage;
     units?: UnitOption[];
-    onAiStart?: () => Promise<void>;
 }): Promise<ChatbotSchedulingReply | null> {
     const classified = await classifySchedulingFallbackIntent({
         session,
         message,
         units,
-        onAiStart,
     });
 
     switch (classified.intent) {
@@ -1223,7 +1206,6 @@ async function handleSchedulingFallbackIntent({
                 session,
                 message,
                 stage,
-                onAiStart,
             );
         case "repeat":
         case "unknown":
@@ -1235,7 +1217,6 @@ async function answerSchedulingSideQuestion(
     session: SchedulingSessionRow,
     message: string,
     stage: ChatbotStage,
-    onAiStart?: () => Promise<void>,
 ) {
     const [unit, doctors, slots, approvedSupport] = await Promise.all([
         session.unit_id ? loadUnit(session.unit_id) : null,
@@ -1251,7 +1232,6 @@ async function answerSchedulingSideQuestion(
         routeOutOfHoursChatbot({
             message,
             stage,
-            onAiStart,
         }),
     ]);
 
@@ -1271,7 +1251,6 @@ async function answerSchedulingSideQuestion(
                     ],
                 ),
             );
-            await onAiStart?.();
             const response = await schedulingOpenAIClient.responses.create({
                 model: SCHEDULING_INTENT_MODEL,
                 store: false,
@@ -1505,12 +1484,10 @@ async function classifySchedulingFallbackIntent({
     session,
     message,
     units,
-    onAiStart,
 }: {
     session: SchedulingSessionRow;
     message: string;
     units?: UnitOption[];
-    onAiStart?: () => Promise<void>;
 }): Promise<{
     intent: SchedulingFallbackIntent;
     unit_id: string | null;
@@ -1524,7 +1501,6 @@ async function classifySchedulingFallbackIntent({
             apiKey: process.env.OPENAI_API_KEY,
         });
 
-        await onAiStart?.();
         const response = await schedulingOpenAIClient.responses.create({
             model: SCHEDULING_INTENT_MODEL,
             store: false,
