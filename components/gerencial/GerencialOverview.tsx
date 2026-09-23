@@ -991,7 +991,7 @@ function TrendText({
 
     return (
         <div
-            className={`${compact ? "mt-0.5 text-[10px]" : "mt-2 text-xs"} font-medium leading-tight ${
+            className={`${compact ? "mt-0.5 text-[10px]" : "mt-2 text-xs"} whitespace-nowrap font-medium leading-tight tabular-nums ${
                 value.isPositive ? "text-green" : "text-red"
             }`}
         >
@@ -1033,7 +1033,7 @@ function getTrend(trend?: TrendComparison) {
 
     return {
         isPositive,
-        label: `${arrow} ${formattedChange}% vs. período anterior`,
+        label: `${arrow} ${formattedChange}%`,
     };
 }
 
