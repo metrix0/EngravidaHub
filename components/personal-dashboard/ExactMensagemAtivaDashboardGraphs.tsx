@@ -24,6 +24,7 @@ export type HistoryItem = {
     template_id: string;
     template_name: string;
     sent_count: number;
+    template_message_count?: number;
     response_count: number;
     schedule_count: number;
     created_at: string;
