@@ -210,7 +210,7 @@ export async function listReplicatedClinisysAvailability({
                 for (
                     let minute = startMinutes;
                     minute + duration <= endMinutes;
-                    minute += cadence
+                    minute += 15
                 ) {
                     const startTime = timeFromMinutes(minute);
                     const endTime = timeFromMinutes(minute + duration);
