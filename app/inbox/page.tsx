@@ -23,7 +23,7 @@ import {
     UserRound,
     X,
 } from "lucide-react";
-import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
+import {FaFacebookF, FaFacebookMessenger, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
@@ -1118,7 +1118,7 @@ function ConversationListPanel({
                                 <span>Puxar</span>
                                 <FaInstagram size={15}/>
                                 <span className="font-medium">ou</span>
-                                <FaFacebookF size={14}/>
+                                <FaFacebookMessenger size={15}/>
                             </>
                         )}
                     </button>
