@@ -2,12 +2,14 @@
 export type InboxQueueCountResponse = {
     ok: true;
     count: number;
+    social_count: number;
 };
 
 export type ClaimInboxConversationResponse = {
     ok: true;
     thread_id: string | null;
     count: number;
+    social_count: number;
 };
 
 export async function fetchInboxQueueCount() {
@@ -26,7 +28,15 @@ export async function fetchInboxQueueCount() {
 }
 
 export async function claimNextInboxConversation() {
-    const response = await fetch("/api/inbox/queue", {
+    return claimInboxConversation("/api/inbox/queue");
+}
+
+export async function claimNextSocialInboxConversation() {
+    return claimInboxConversation("/api/inbox/queue?scope=social");
+}
+
+async function claimInboxConversation(url: string) {
+    const response = await fetch(url, {
         method: "POST",
         credentials: "include",
     });

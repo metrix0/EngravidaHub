@@ -11,31 +11,40 @@ export async function GET() {
         return access.response;
     }
 
-    const countResult = await getQueueCount();
+    const [countResult, socialCountResult] = await Promise.all([
+        getQueueCount(),
+        getQueueCount(["Instagram", "Facebook"]),
+    ]);
 
     if (!countResult.ok) {
         return countResult.response;
+    }
+    if (!socialCountResult.ok) {
+        return socialCountResult.response;
     }
 
     return NextResponse.json({
         ok: true,
         count: countResult.count,
+        social_count: socialCountResult.count,
     });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
     const access = await getOnlineAttendant();
 
     if (!access.ok) {
         return access.response;
     }
 
-    const { data: threadId, error } = await supabase.rpc(
-        "claim_next_inbox_thread",
-        {
-            p_attendant_id: access.attendant.id,
-        },
-    );
+    const scope = new URL(request.url).searchParams.get("scope");
+    const rpcName =
+        scope === "social"
+            ? "claim_next_social_inbox_thread"
+            : "claim_next_inbox_thread";
+    const { data: threadId, error } = await supabase.rpc(rpcName, {
+        p_attendant_id: access.attendant.id,
+    });
 
     if (error) {
         return NextResponse.json(
@@ -47,16 +56,23 @@ export async function POST() {
         );
     }
 
-    const countResult = await getQueueCount();
+    const [countResult, socialCountResult] = await Promise.all([
+        getQueueCount(),
+        getQueueCount(["Instagram", "Facebook"]),
+    ]);
 
     if (!countResult.ok) {
         return countResult.response;
+    }
+    if (!socialCountResult.ok) {
+        return socialCountResult.response;
     }
 
     return NextResponse.json({
         ok: true,
         thread_id: typeof threadId === "string" ? threadId : null,
         count: countResult.count,
+        social_count: socialCountResult.count,
     });
 }
 
@@ -95,8 +111,8 @@ async function getOnlineAttendant() {
     };
 }
 
-async function getQueueCount() {
-    const { count, error } = await supabase
+async function getQueueCount(channels?: string[]) {
+    let query = supabase
         .from("thread")
         .select("id", {
             count: "exact",
@@ -104,6 +120,12 @@ async function getQueueCount() {
         })
         .eq("status", "open")
         .is("assigned_attendant_id", null);
+
+    if (channels?.length) {
+        query = query.in("channel", channels);
+    }
+
+    const { count, error } = await query;
 
     if (error) {
         return {
