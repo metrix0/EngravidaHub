@@ -44,6 +44,7 @@ export async function GET(request: Request) {
             doctorIds: [doctorId],
             dateFrom: date,
             dateTo: date,
+            procedureName,
         });
 
         if (availability.missingDoctorIds.includes(doctorId)) {

@@ -88,18 +88,35 @@ export async function deleteClinisysAppointment(externalId: string) {
     );
 }
 
+export async function listClinisysProcedures(agendaId: string) {
+    const params = new URLSearchParams({ agenda: agendaId });
+    const response = await clinisysRequest<ClinisysApiResponse>(
+        "GET",
+        `/Agenda/Procedimentos?${params.toString()}`,
+    );
+    return (response.procedimentos ?? []).flatMap((procedure) => {
+        const id = text(procedure.id);
+        const name = text(procedure.nome);
+        return id && name ? [{ id, name }] : [];
+    });
+}
+
 export async function listClinisysAvailability({
     unitId,
     doctorId,
     unitName,
     doctorName,
     procedureName,
+    dateFrom,
+    dateTo,
 }: {
     unitId: string;
     doctorId: string;
     unitName: string | null;
     doctorName: string | null;
     procedureName: string;
+    dateFrom?: string | null;
+    dateTo?: string | null;
 }) {
     const context = await resolveContext({
         id: "availability",
@@ -120,6 +137,8 @@ export async function listClinisysAvailability({
         agenda: context.agendaId,
         procedimento: context.procedureId,
     });
+    if (dateFrom) params.set("data_inicial", formatQueryDate(dateFrom));
+    if (dateTo) params.set("data_final", formatQueryDate(dateTo));
     const response = await clinisysRequest<ClinisysApiResponse>(
         "GET",
         `/Agenda/Agendas?${params.toString()}`,
@@ -136,13 +155,21 @@ async function resolveContext(appointment: AppointmentForClinisys) {
 async function resolveAgendaId(appointment: AppointmentForClinisys) {
     const { data: saved, error: savedError } = await supabase
         .from("clinisys_agendas")
-        .select("external_id")
+        .select("external_id, procedures")
         .eq("unit_id", appointment.unitId)
         .eq("doctor_id", appointment.doctorId)
         .eq("active", true)
         .limit(2);
     if (savedError) throw savedError;
     if ((saved ?? []).length === 1) return saved![0].external_id;
+
+    const procedureNeedle = normalize(appointment.procedureName);
+    const procedureMatches = (saved ?? []).filter((agenda) =>
+        storedProcedures(agenda.procedures).some(
+            (procedure) => normalize(procedure.name) === procedureNeedle,
+        ),
+    );
+    if (procedureMatches.length === 1) return procedureMatches[0].external_id;
 
     const [{ data: unit, error: unitError }, response] = await Promise.all([
         supabase
@@ -284,6 +311,22 @@ async function clinisysRequest<T>(
     } finally {
         clearTimeout(timeout);
     }
+}
+
+function storedProcedures(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((procedure) => {
+        if (!procedure || typeof procedure !== "object") return [];
+        const row = procedure as { id?: unknown; name?: unknown };
+        const id = text(row.id);
+        const name = text(row.name);
+        return id && name ? [{ id, name }] : [];
+    });
+}
+
+function formatQueryDate(value: string) {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : value;
 }
 
 function formatDateTime(value: string) {

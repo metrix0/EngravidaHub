@@ -47,6 +47,12 @@ type AgendaRow = {
     working_hours: unknown;
     exceptions: unknown;
     blocks: unknown;
+    procedures: unknown;
+};
+
+type StoredProcedure = {
+    id?: string;
+    name?: string;
 };
 
 type AppointmentRow = {
@@ -73,11 +79,13 @@ export async function listReplicatedClinisysAvailability({
     doctorIds,
     dateFrom,
     dateTo,
+    procedureName,
 }: {
     unitId: string;
     doctorIds: string[];
     dateFrom?: string | null;
     dateTo?: string | null;
+    procedureName?: string | null;
 }): Promise<ReplicatedClinisysAvailabilityResult> {
     const requestedDoctorIds = [...new Set(doctorIds.filter(Boolean))];
     if (requestedDoctorIds.length === 0) {
@@ -87,7 +95,7 @@ export async function listReplicatedClinisysAvailability({
     const { data: agendaData, error: agendaError } = await supabase
         .from("clinisys_agendas")
         .select(
-            "doctor_id, timezone, slot_duration_minutes, working_hours, exceptions, blocks",
+            "doctor_id, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures",
         )
         .eq("unit_id", unitId)
         .eq("active", true)
@@ -95,15 +103,31 @@ export async function listReplicatedClinisysAvailability({
 
     if (agendaError) throw agendaError;
 
-    const agendas = (agendaData ?? []) as AgendaRow[];
+    const replicatedAgendas = (agendaData ?? []) as AgendaRow[];
     const coveredDoctorIds = [
-        ...new Set(agendas.map((agenda) => agenda.doctor_id).filter(Boolean)),
+        ...new Set(
+            replicatedAgendas.map((agenda) => agenda.doctor_id).filter(Boolean),
+        ),
     ];
     const coveredSet = new Set(coveredDoctorIds);
     const missingDoctorIds = requestedDoctorIds.filter(
         (doctorId) => !coveredSet.has(doctorId),
     );
 
+    if (replicatedAgendas.length === 0) {
+        return { slots: [], coveredDoctorIds, missingDoctorIds };
+    }
+
+    const procedureNeedle = normalizeProcedureName(procedureName ?? "");
+    const agendas = procedureNeedle
+        ? replicatedAgendas.filter((agenda) =>
+              asArray<StoredProcedure>(agenda.procedures).some(
+                  (procedure) =>
+                      normalizeProcedureName(procedure.name ?? "") ===
+                      procedureNeedle,
+              ),
+          )
+        : replicatedAgendas;
     if (agendas.length === 0) {
         return { slots: [], coveredDoctorIds, missingDoctorIds };
     }
@@ -417,6 +441,16 @@ function mergePeriods(periods: TimePeriod[]) {
 
 function asArray<T>(value: unknown): T[] {
     return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeProcedureName(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
 }
 
 function validateDateRange(from: string, to: string) {

@@ -28,46 +28,97 @@ export async function resolveHubUnitDoctor(
     unitName: string,
     doctorName: string,
 ): Promise<HubMatch> {
-    const { data, error } = await supabase
-        .from("doctor_units")
-        .select(`
-            unit_id,
-            doctor_id,
-            unit:units!inner(id, name, city, state),
-            doctor:doctors!inner(id, name, active)
-        `)
-        .eq("active", true)
-        .eq("doctor.active", true);
-    if (error) throw error;
+    const [{ data: units, error: unitsError }, { data: doctors, error: doctorsError }] =
+        await Promise.all([
+            supabase
+                .from("units")
+                .select("id, name, city, state")
+                .eq("active", true),
+            supabase
+                .from("doctors")
+                .select("id, name, active"),
+        ]);
+    if (unitsError) throw unitsError;
+    if (doctorsError) throw doctorsError;
 
-    const targetDoctor = normalizePerson(doctorName);
     const targetUnit = normalize(unitName);
-    const ranked = (data ?? []).flatMap((row) => {
-        const doctor = relationOne(row.doctor);
-        const unit = relationOne(row.unit);
-        if (!doctor || !unit) return [];
-        const doctorScore = matchScore(normalizePerson(doctor.name), targetDoctor, 100);
-        if (doctorScore === 0) return [];
-        const unitScores = [
-            matchScore(normalize(unit.name), targetUnit, 50),
-            matchScore(normalize(unit.city ?? ""), targetUnit, 40),
-            matchScore(normalize(unit.state ?? ""), targetUnit, 30),
-        ];
-        return [{
-            unitId: row.unit_id,
-            doctorId: row.doctor_id,
-            score: doctorScore + Math.max(...unitScores),
-        }];
-    });
-    if (!ranked.length) return null;
-    ranked.sort((a, b) => b.score - a.score);
-    const best = ranked[0];
-    if (best.score < 100) return null;
-    if (ranked[1] && ranked[1].score === best.score &&
-        (ranked[1].unitId !== best.unitId || ranked[1].doctorId !== best.doctorId)) {
+    const rankedUnits = (units ?? [])
+        .map((unit) => ({
+            id: unit.id,
+            score: Math.max(
+                matchScore(normalize(unit.name), targetUnit, 100),
+                matchScore(normalize(unit.city ?? ""), targetUnit, 90),
+            ),
+        }))
+        .filter((unit) => unit.score > 0)
+        .sort((left, right) => right.score - left.score);
+    const bestUnit = rankedUnits[0];
+    if (
+        !bestUnit ||
+        (rankedUnits[1] &&
+            rankedUnits[1].score === bestUnit.score &&
+            rankedUnits[1].id !== bestUnit.id)
+    ) {
         return null;
     }
-    return { unitId: best.unitId, doctorId: best.doctorId };
+
+    const targetDoctor = normalizePerson(doctorName);
+    const rankedDoctors = (doctors ?? [])
+        .map((doctor) => ({
+            id: doctor.id,
+            active: doctor.active,
+            score: personMatchScore(normalizePerson(doctor.name), targetDoctor),
+        }))
+        .filter((doctor) => doctor.score > 0)
+        .sort((left, right) => right.score - left.score);
+
+    let doctorId: string;
+    const bestDoctor = rankedDoctors[0];
+    if (
+        bestDoctor &&
+        rankedDoctors[1] &&
+        rankedDoctors[1].score === bestDoctor.score &&
+        rankedDoctors[1].id !== bestDoctor.id
+    ) {
+        return null;
+    }
+
+    if (bestDoctor) {
+        doctorId = bestDoctor.id;
+        if (!bestDoctor.active) {
+            const { error } = await supabase
+                .from("doctors")
+                .update({ active: true, updated_at: new Date().toISOString() })
+                .eq("id", doctorId);
+            if (error) throw error;
+        }
+    } else {
+        const { data: created, error } = await supabase
+            .from("doctors")
+            .insert({
+                name: doctorName.trim(),
+                active: true,
+            })
+            .select("id")
+            .single();
+        if (error) throw error;
+        doctorId = created.id;
+    }
+
+    const { error: linkError } = await supabase
+        .from("doctor_units")
+        .upsert(
+            {
+                doctor_id: doctorId,
+                unit_id: bestUnit.id,
+                active: true,
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: "doctor_id,unit_id" },
+        );
+    if (linkError) throw linkError;
+
+    return { unitId: bestUnit.id, doctorId };
 }
 
 export function normalizeWebhookDate(value: string | null | undefined) {
@@ -89,6 +140,21 @@ function matchScore(candidate: string, target: string, weight: number) {
     if (candidate === target) return weight;
     if (candidate.includes(target) || target.includes(candidate)) return Math.round(weight * 0.7);
     return 0;
+}
+
+function personMatchScore(candidate: string, target: string) {
+    if (!candidate || !target) return 0;
+    if (candidate === target) return 100;
+
+    const candidateTokens = candidate.split(" ").filter((token) => token.length >= 3);
+    const targetTokens = target.split(" ").filter((token) => token.length >= 3);
+    if (!candidateTokens.length || !targetTokens.length) return 0;
+
+    const targetSet = new Set(targetTokens);
+    const shared = candidateTokens.filter((token) => targetSet.has(token)).length;
+    const coverage = shared / Math.min(candidateTokens.length, targetTokens.length);
+    if (shared >= 2 && coverage >= 0.66) return Math.round(coverage * 90);
+    return candidate.includes(target) || target.includes(candidate) ? 70 : 0;
 }
 
 function normalizePerson(value: string) {
