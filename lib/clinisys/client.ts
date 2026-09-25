@@ -273,9 +273,8 @@ async function clinisysRequest<T>(
     path: string,
     body?: unknown,
 ): Promise<T> {
-    const baseUrl = process.env.CLINISYS_API_BASE_URL?.trim().replace(/\/$/, "");
+    const baseUrl = "https://api.clinisys.com.br/Engravida";
     const token = process.env.CLINISYS_TOKEN?.trim();
-    if (!baseUrl) throw new Error("CLINISYS_API_BASE_URL não está configurada.");
     if (!token) throw new Error("CLINISYS_TOKEN não está configurado.");
 
     const controller = new AbortController();
