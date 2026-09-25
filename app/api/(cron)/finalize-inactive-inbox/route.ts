@@ -52,6 +52,8 @@ export async function GET(request: Request) {
     const requestId = randomUUID();
     const { searchParams } = new URL(request.url);
     const backfillDays = Number(searchParams.get("backfill_closing_tags_days") ?? 0);
+    const channels = parseChannels(searchParams.get("channels"));
+    const skipLegacy = searchParams.get("skip_legacy") === "1";
 
     if (Number.isFinite(backfillDays) && backfillDays > 0) {
         try {
@@ -104,6 +106,7 @@ export async function GET(request: Request) {
         const inactiveThreads = await loadInactiveThreads({
             inactiveBefore,
             limit: finalizeLimit,
+            channels,
         });
 
         const finalizeResults = await mapWithConcurrency(
@@ -155,19 +158,21 @@ export async function GET(request: Request) {
         let legacyConversationIds: string[] = [];
         let legacyError: string | null = null;
 
-        try {
-            const legacyConversations = await messageToConversations({
-                inactivityHours,
-                limit: legacyMessageLimit,
-            });
-            legacyConversationIds = legacyConversations.map(
-                (conversation) => conversation.conversation_id,
-            );
-        } catch (error) {
-            legacyError =
-                error instanceof Error
-                    ? error.message
-                    : "Failed to convert legacy messages";
+        if (!skipLegacy) {
+            try {
+                const legacyConversations = await messageToConversations({
+                    inactivityHours,
+                    limit: legacyMessageLimit,
+                });
+                legacyConversationIds = legacyConversations.map(
+                    (conversation) => conversation.conversation_id,
+                );
+            } catch (error) {
+                legacyError =
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to convert legacy messages";
+            }
         }
 
         const finalizedConversationIds = finalizeResults
@@ -244,6 +249,7 @@ export async function GET(request: Request) {
             request_id: requestId,
             inactivity_hours: inactivityHours,
             inactive_before: inactiveBefore.toISOString(),
+            channels: channels.length > 0 ? channels : null,
             eligible_threads: inactiveThreads.length,
             finalized_threads: finalizedConversationIds.length,
             skipped_threads: finalizeResults.filter(
@@ -280,14 +286,35 @@ export async function GET(request: Request) {
 async function loadInactiveThreads({
     inactiveBefore,
     limit,
+    channels,
 }: {
     inactiveBefore: Date;
     limit: number;
+    channels: string[];
 }) {
-    const { data, error } = await supabase.rpc("get_inactive_inbox_threads", {
-        p_inactive_before: inactiveBefore.toISOString(),
-        p_limit: limit,
-    });
+    if (channels.length === 0) {
+        const { data, error } = await supabase.rpc("get_inactive_inbox_threads", {
+            p_inactive_before: inactiveBefore.toISOString(),
+            p_limit: limit,
+        });
+
+        if (error) {
+            throw new Error(`Failed to load inactive inbox threads: ${error.message}`);
+        }
+
+        return (data ?? []) as InactiveThreadRow[];
+    }
+
+    const inactiveBeforeIso = inactiveBefore.toISOString();
+    const { data, error } = await supabase
+        .from("thread")
+        .select("id, assigned_attendant_id, status, last_message_at, updated_at")
+        .eq("status", "open")
+        .in("channel", channels)
+        .lte("updated_at", inactiveBeforeIso)
+        .or(`last_message_at.is.null,last_message_at.lte.${inactiveBeforeIso}`)
+        .order("updated_at", { ascending: true })
+        .limit(limit);
 
     if (error) {
         throw new Error(`Failed to load inactive inbox threads: ${error.message}`);
@@ -326,6 +353,19 @@ async function mapWithConcurrency<T, R>(
     );
 
     return results;
+}
+
+function parseChannels(rawValue: string | null) {
+    if (!rawValue) return [];
+
+    return Array.from(
+        new Set(
+            rawValue
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+        ),
+    );
 }
 
 function parsePositiveNumber(rawValue: string | null, fallback: number) {

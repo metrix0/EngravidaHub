@@ -235,7 +235,7 @@ export async function POST(request: Request) {
 
 async function runQueueResetBatch() {
     const cronRequest = new Request(
-        `http://internal/api/finalize-inactive-inbox?inactivity_hours=0.000001&limit=${RESET_BATCH_LIMIT}&legacy_limit=${RESET_BATCH_LIMIT}`,
+        `http://internal/api/finalize-inactive-inbox?inactivity_hours=0.000001&limit=${RESET_BATCH_LIMIT}&legacy_limit=${RESET_BATCH_LIMIT}&channels=Instagram,Facebook&skip_legacy=1`,
     );
     const cronResponse = await runFinalizeInactiveInboxCron(cronRequest);
     const payload = (await cronResponse.json()) as ResetCronResponse;
