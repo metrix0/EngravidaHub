@@ -104,7 +104,14 @@ export function buildAppointmentIntegrationPayload(
 }
 
 export function isInitialConsultation(procedureName: string | null | undefined) {
-    return normalize(procedureName ?? "") === "consulta inicial";
+    const normalized = normalize(procedureName ?? "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+    return (
+        normalized === "consulta inicial" ||
+        normalized === "1 avaliacao de reproducao humana presencial"
+    );
 }
 
 export async function sendAppointmentIntegration(
