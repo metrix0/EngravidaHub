@@ -1018,27 +1018,30 @@ export default function InboxPage() {
                         : selectedListThread?.thread_id ?? null
                 }
                 clientId={selectedClientId}
+                selectClient={!selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onOpenClientProfile={(clientId) => {
                     setSchedulingPanelOpen(false);
                     openClientProfile(clientId);
                 }}
                 client={
-                    selectedThreadMatchesSelection && selectedThread
-                        ? {
-                            name: selectedThread.name,
-                            phone: selectedThread.phone,
-                            city: selectedThread.city,
-                            channel: selectedThread.channel,
-                        }
-                        : selectedListThread
+                    selectedClientId
+                        ? selectedThreadMatchesSelection && selectedThread
                             ? {
-                                name: selectedListThread.name,
-                                phone: selectedListThread.phone,
-                                city: selectedListThread.city,
-                                channel: selectedListThread.channel,
+                                name: selectedThread.name,
+                                phone: selectedThread.phone,
+                                city: selectedThread.city,
+                                channel: selectedThread.channel,
                             }
-                            : null
+                            : selectedListThread
+                                ? {
+                                    name: selectedListThread.name,
+                                    phone: selectedListThread.phone,
+                                    city: selectedListThread.city,
+                                    channel: selectedListThread.channel,
+                                }
+                                : null
+                        : null
                 }
             />
         </main>
@@ -1689,6 +1692,10 @@ function CustomerPanel({
 
     const headerName = headerConversation?.name ?? "Carregando cliente";
     const headerChannel = headerConversation?.channel ?? "WhatsApp";
+    const canSchedule =
+        !!clientId ||
+        headerChannel === "Instagram" ||
+        headerChannel === "Facebook";
 
     async function handleAddNote() {
         const text = noteText.trim();
@@ -1774,17 +1781,20 @@ function CustomerPanel({
             </button>
 
             {conversation ? (
-                clientId ? (
-                    <>
-                    <button
-                        type="button"
-                        onClick={onSchedule}
-                        className="mb-5 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
-                    >
-                        <CalendarCheck size={17}/>
-                        Agendar
-                    </button>
+                <>
+                    {canSchedule ? (
+                        <button
+                            type="button"
+                            onClick={onSchedule}
+                            className="mb-5 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
+                        >
+                            <CalendarCheck size={17}/>
+                            Agendar
+                        </button>
+                    ) : null}
 
+                    {clientId ? (
+                        <>
                     <PanelBlock>
                         <div className="group/funnel relative px-1 py-2">
                             <div
@@ -1909,8 +1919,9 @@ function CustomerPanel({
                             <CrmDataRow icon={<UserRound size={16}/>} label="Último responsável:" value={conversation.responsible}/>
                         </div>
                     </PanelBlock>
-                    </>
-                ) : null
+                        </>
+                    ) : null}
+                </>
             ) : (
                 <CustomerPanelBodySkeleton />
             )}

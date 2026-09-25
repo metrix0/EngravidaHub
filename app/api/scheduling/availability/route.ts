@@ -58,7 +58,6 @@ export async function GET(request: Request) {
             doctorIds: [doctorId],
             dateFrom: date,
             dateTo: date,
-            procedureName,
             durationMinutes,
         });
 
