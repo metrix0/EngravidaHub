@@ -105,9 +105,9 @@ export function DropdownSelect({
                     onClick={() => setOpen((current) => !current)}
                     className={`group flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm outline-none transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60 ${invalid ? "border-red" : "border-border"}`}
                 >
-                    <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left">
                         {icon}
-                        <span className="truncate">{displayLabel}</span>
+                        <span className="min-w-0 flex-1 truncate text-left">{displayLabel}</span>
                     </span>
                     <ChevronDown size={16} className={`shrink-0 cursor-pointer text-slate-400 transition-all group-hover:text-slate-700 ${open ? "rotate-180" : "rotate-0"}`} />
                 </button>
