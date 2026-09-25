@@ -8,6 +8,7 @@ import {
     Check,
     ExternalLink,
     LoaderCircle,
+    RotateCcw,
     Search,
     ShieldAlert,
     UserCheck,
@@ -62,6 +63,17 @@ type AssignmentResponse = {
     error?: string;
 };
 
+type ResetQueueResponse = {
+    ok: boolean;
+    eligible_threads?: number;
+    finalized_threads?: number;
+    skipped_threads?: number;
+    failed_threads?: number;
+    legacy_conversations_created?: number;
+    has_more?: boolean;
+    error?: string;
+};
+
 export default function DevInboxAssignmentPage() {
     const [search, setSearch] = useState("");
     const [submittedSearch, setSubmittedSearch] = useState("");
@@ -69,6 +81,7 @@ export default function DevInboxAssignmentPage() {
     const [currentAttendant, setCurrentAttendant] =
         useState<CurrentAttendant | null>(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [isResettingQueue, setIsResettingQueue] = useState(false);
     const [assigningThreadId, setAssigningThreadId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -110,6 +123,93 @@ export default function DevInboxAssignmentPage() {
             );
         } finally {
             setIsSearching(false);
+        }
+    }
+
+    async function resetQueue() {
+        if (isResettingQueue) return;
+
+        const confirmed = window.confirm(
+            "Resetar a fila agora? As conversas atuais serão processadas imediatamente usando o mesmo fluxo do cron, sem aguardar o período normal de inatividade.",
+        );
+        if (!confirmed) return;
+
+        setIsResettingQueue(true);
+        setError(null);
+        setSuccess(null);
+
+        let finalizedThreads = 0;
+        let skippedThreads = 0;
+        let failedThreads = 0;
+        let legacyConversationsCreated = 0;
+        let hasMore = true;
+        let batches = 0;
+
+        try {
+            while (hasMore && batches < 20) {
+                const response = await fetch("/api/dev/inbox-assignment", {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "reset_queue" }),
+                });
+                const payload = (await response.json()) as ResetQueueResponse;
+
+                if (!response.ok || !payload.ok) {
+                    throw new Error(
+                        payload.error ?? "Não foi possível resetar a fila.",
+                    );
+                }
+
+                const batchFinalized = payload.finalized_threads ?? 0;
+                const batchSkipped = payload.skipped_threads ?? 0;
+                const batchFailed = payload.failed_threads ?? 0;
+                const batchLegacy = payload.legacy_conversations_created ?? 0;
+
+                finalizedThreads += batchFinalized;
+                skippedThreads += batchSkipped;
+                failedThreads += batchFailed;
+                legacyConversationsCreated += batchLegacy;
+                batches += 1;
+                hasMore = payload.has_more === true;
+
+                if (
+                    hasMore &&
+                    batchFinalized + batchSkipped + batchLegacy === 0
+                ) {
+                    throw new Error(
+                        `O reset parou sem progresso; ${batchFailed} thread(s) falharam neste lote.`,
+                    );
+                }
+            }
+
+            if (hasMore) {
+                throw new Error(
+                    "O reset atingiu o limite de lotes antes de esvaziar a fila.",
+                );
+            }
+
+            setItems([]);
+            setSubmittedSearch("");
+
+            if (failedThreads > 0) {
+                setError(
+                    `Fila processada, mas ${failedThreads} thread(s) falharam. ${finalizedThreads} foram finalizadas e ${legacyConversationsCreated} conversas legadas foram criadas.`,
+                );
+                return;
+            }
+
+            setSuccess(
+                `Fila resetada: ${finalizedThreads} thread(s) finalizadas, ${skippedThreads} ignoradas e ${legacyConversationsCreated} conversas legadas processadas.`,
+            );
+        } catch (resetError) {
+            setError(
+                resetError instanceof Error
+                    ? resetError.message
+                    : "Não foi possível resetar a fila.",
+            );
+        } finally {
+            setIsResettingQueue(false);
         }
     }
 
@@ -190,13 +290,29 @@ export default function DevInboxAssignmentPage() {
                         </p>
                     </div>
 
-                    <Link
-                        href="/inbox"
-                        className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-950"
-                    >
-                        <ArrowLeft size={16} />
-                        Voltar ao Inbox
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => void resetQueue()}
+                            disabled={isResettingQueue || !!assigningThreadId}
+                            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                        >
+                            {isResettingQueue ? (
+                                <LoaderCircle size={16} className="animate-spin" />
+                            ) : (
+                                <RotateCcw size={16} />
+                            )}
+                            {isResettingQueue ? "Resetando..." : "Resetar fila"}
+                        </button>
+
+                        <Link
+                            href="/inbox"
+                            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-950"
+                        >
+                            <ArrowLeft size={16} />
+                            Voltar ao Inbox
+                        </Link>
+                    </div>
                 </div>
 
                 <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -215,7 +331,7 @@ export default function DevInboxAssignmentPage() {
 
                             <button
                                 type="submit"
-                                disabled={search.trim().length < 3 || isSearching}
+                                disabled={search.trim().length < 3 || isSearching || isResettingQueue}
                                 className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                             >
                                 {isSearching ? (
@@ -335,7 +451,7 @@ export default function DevInboxAssignmentPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => void assignConversation(item)}
-                                                    disabled={isAssigning || isMine || !!assigningThreadId}
+                                                    disabled={isAssigning || isMine || !!assigningThreadId || isResettingQueue}
                                                     className={`inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed ${
                                                         isMine
                                                             ? "bg-emerald-50 text-emerald-700"

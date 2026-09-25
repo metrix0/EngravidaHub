@@ -1,14 +1,17 @@
 // app/api/dev/inbox-assignment/route.ts
 import { NextResponse } from "next/server";
 
+import { GET as runFinalizeInactiveInboxCron } from "../../(cron)/finalize-inactive-inbox/route";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const MAX_RESULTS = 50;
 const MAX_ID_MATCHES = 200;
+const RESET_BATCH_LIMIT = 250;
 
 const THREAD_SELECT = `
     id,
@@ -42,8 +45,19 @@ const THREAD_SELECT = `
 `;
 
 type AssignmentRequest = {
+    action?: unknown;
     thread_id?: unknown;
     force?: unknown;
+};
+
+type ResetCronResponse = {
+    ok?: boolean;
+    eligible_threads?: number;
+    finalized_threads?: number;
+    skipped_threads?: number;
+    failed_threads?: number;
+    legacy_conversations_created?: number;
+    error?: string;
 };
 
 type SearchIdentityIds = {
@@ -93,7 +107,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
     try {
-        const access = await requireCurrentAttendant(true);
+        const access = await requireCurrentAttendant(false);
         if (!access.ok) return access.response;
 
         let body: AssignmentRequest;
@@ -104,6 +118,20 @@ export async function POST(request: Request) {
             return NextResponse.json(
                 { ok: false, error: "O corpo da requisição não é um JSON válido." },
                 { status: 400 },
+            );
+        }
+
+        if (body.action === "reset_queue") {
+            return runQueueResetBatch();
+        }
+
+        if (!access.attendant.is_online) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    error: "O atendente precisa estar online para atribuir conversas.",
+                },
+                { status: 403 },
             );
         }
 
@@ -203,6 +231,45 @@ export async function POST(request: Request) {
             { status: 500 },
         );
     }
+}
+
+async function runQueueResetBatch() {
+    const cronRequest = new Request(
+        `http://internal/api/finalize-inactive-inbox?inactivity_hours=0.000001&limit=${RESET_BATCH_LIMIT}&legacy_limit=${RESET_BATCH_LIMIT}`,
+    );
+    const cronResponse = await runFinalizeInactiveInboxCron(cronRequest);
+    const payload = (await cronResponse.json()) as ResetCronResponse;
+
+    if (!cronResponse.ok || !payload.ok) {
+        return NextResponse.json(
+            {
+                ok: false,
+                error: payload.error ?? "Não foi possível processar a fila.",
+            },
+            { status: cronResponse.status || 500 },
+        );
+    }
+
+    const eligibleThreads = Number(payload.eligible_threads ?? 0);
+    const finalizedThreads = Number(payload.finalized_threads ?? 0);
+    const skippedThreads = Number(payload.skipped_threads ?? 0);
+    const failedThreads = Number(payload.failed_threads ?? 0);
+    const legacyConversationsCreated = Number(
+        payload.legacy_conversations_created ?? 0,
+    );
+
+    return NextResponse.json({
+        ok: true,
+        action: "reset_queue",
+        eligible_threads: eligibleThreads,
+        finalized_threads: finalizedThreads,
+        skipped_threads: skippedThreads,
+        failed_threads: failedThreads,
+        legacy_conversations_created: legacyConversationsCreated,
+        has_more:
+            eligibleThreads >= RESET_BATCH_LIMIT ||
+            legacyConversationsCreated >= RESET_BATCH_LIMIT,
+    });
 }
 
 async function requireCurrentAttendant(requireOnline: boolean) {
