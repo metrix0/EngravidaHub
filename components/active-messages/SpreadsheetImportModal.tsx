@@ -147,8 +147,7 @@ export function SpreadsheetImportModal({
     const estimatedCost =
         templateMessageCostBrl === null
             ? null
-            : (selectedTemplateCount + selectedNewClientCount) *
-              templateMessageCostBrl;
+            : selectedTargetCount * templateMessageCostBrl;
 
     function reset() {
         setFiles([]);
@@ -452,7 +451,7 @@ export function SpreadsheetImportModal({
                                 Categoria: <strong>{formatTemplateCategory(templateCategory)}</strong>
                                 {templateMessageCostBrl !== null ? (
                                     <>
-                                        {" · "}Tarifa Meta: <strong>{formatUnitPrice(templateMessageCostBrl)}</strong>
+                                        {" · "}Mensagem Ativa: <strong>{formatUnitPrice(templateMessageCostBrl)}</strong>
                                     </>
                                 ) : null}
                                 <br />
@@ -616,7 +615,11 @@ function ImportResults({
                         label="Dentro das 24h"
                         description="Mensagem normal pelo fluxo atual"
                         count={openWindowCount}
-                        cost={0}
+                        cost={
+                            templateMessageCostBrl === null
+                                ? null
+                                : openWindowCount * templateMessageCostBrl
+                        }
                         onToggle={onToggleOpen}
                     />
                     <SelectableGroup
@@ -1212,9 +1215,9 @@ function formatUnitPrice(value: number) {
     return `${new Intl.NumberFormat("pt-BR", {
         style: "currency",
         currency: "BRL",
-        minimumFractionDigits: 4,
-        maximumFractionDigits: 4,
-    }).format(value)} por template`;
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value)} por mensagem ativa`;
 }
 
 function formatEstimatedCost(value: number | null) {
