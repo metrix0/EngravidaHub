@@ -72,7 +72,7 @@ export function DropdownSelect({
     }
 
     return (
-        <div ref={wrapperRef} className={`relative min-w-0 max-w-full ${widthClassName}`}>
+        <div ref={wrapperRef} className={`relative inline-block max-w-full ${widthClassName}`}>
             {searchable ? (
                 <div className={`flex h-11 w-full items-center gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition ${invalid ? "border-red" : "border-border focus-within:border-brand"}`}>
                     {icon}
@@ -103,11 +103,11 @@ export function DropdownSelect({
                     type="button"
                     disabled={disabled}
                     onClick={() => setOpen((current) => !current)}
-                    className={`group flex h-11 min-w-0 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm outline-none transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60 ${invalid ? "border-red" : "border-border"}`}
+                    className={`group flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm outline-none transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60 ${invalid ? "border-red" : "border-border"}`}
                 >
-                    <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                    <span className="flex min-w-0 items-center gap-2">
                         {icon}
-                        <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
+                        <span className="truncate">{displayLabel}</span>
                     </span>
                     <ChevronDown size={16} className={`shrink-0 cursor-pointer text-slate-400 transition-all group-hover:text-slate-700 ${open ? "rotate-180" : "rotate-0"}`} />
                 </button>
