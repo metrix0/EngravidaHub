@@ -19,6 +19,8 @@ export async function GET(request: Request) {
         const unitId = params.get("unit_id")?.trim() ?? "";
         const doctorId = params.get("doctor_id")?.trim() ?? "";
         const procedureName = params.get("procedure_name")?.trim() ?? "";
+        const durationParam = params.get("duration_minutes")?.trim() ?? "";
+        const durationMinutes = durationParam ? Number(durationParam) : null;
         const date = params.get("date")?.trim() || null;
         if (!unitId || !doctorId || !procedureName) {
             return NextResponse.json(
@@ -26,6 +28,18 @@ export async function GET(request: Request) {
                     ok: false,
                     error: "unit_id, doctor_id and procedure_name are required",
                 },
+                { status: 400 },
+            );
+        }
+        if (
+            durationParam &&
+            (!Number.isInteger(durationMinutes) ||
+                durationMinutes === null ||
+                durationMinutes < 15 ||
+                durationMinutes > 480)
+        ) {
+            return NextResponse.json(
+                { ok: false, error: "duration_minutes must be between 15 and 480" },
                 { status: 400 },
             );
         }
@@ -45,6 +59,7 @@ export async function GET(request: Request) {
             dateFrom: date,
             dateTo: date,
             procedureName,
+            durationMinutes,
         });
 
         if (availability.missingDoctorIds.includes(doctorId)) {

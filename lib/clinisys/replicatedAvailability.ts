@@ -80,12 +80,14 @@ export async function listReplicatedClinisysAvailability({
     dateFrom,
     dateTo,
     procedureName,
+    durationMinutes,
 }: {
     unitId: string;
     doctorIds: string[];
     dateFrom?: string | null;
     dateTo?: string | null;
     procedureName?: string | null;
+    durationMinutes?: number | null;
 }): Promise<ReplicatedClinisysAvailabilityResult> {
     const requestedDoctorIds = [...new Set(doctorIds.filter(Boolean))];
     if (requestedDoctorIds.length === 0) {
@@ -158,6 +160,14 @@ export async function listReplicatedClinisysAvailability({
         appointmentsByDoctor.set(appointment.doctor_id, current);
     }
 
+    const requestedDuration = durationMinutes ?? null;
+    if (
+        requestedDuration !== null &&
+        (!Number.isInteger(requestedDuration) || requestedDuration <= 0)
+    ) {
+        throw new Error("Duração do agendamento inválida.");
+    }
+
     const now = Date.now();
     const unique = new Map<string, ReplicatedClinisysAvailabilitySlot>();
 
@@ -165,8 +175,9 @@ export async function listReplicatedClinisysAvailability({
         const timezone = isValidTimezone(agenda.timezone)
             ? agenda.timezone
             : DEFAULT_TIMEZONE;
-        const duration = Number(agenda.slot_duration_minutes);
-        if (!Number.isInteger(duration) || duration <= 0) continue;
+        const cadence = Number(agenda.slot_duration_minutes);
+        if (!Number.isInteger(cadence) || cadence <= 0) continue;
+        const duration = requestedDuration ?? cadence;
 
         const workingHours = asArray<WorkingHours>(agenda.working_hours);
         const exceptions = asArray<AgendaException>(agenda.exceptions);
@@ -199,7 +210,7 @@ export async function listReplicatedClinisysAvailability({
                 for (
                     let minute = startMinutes;
                     minute + duration <= endMinutes;
-                    minute += duration
+                    minute += cadence
                 ) {
                     const startTime = timeFromMinutes(minute);
                     const endTime = timeFromMinutes(minute + duration);
