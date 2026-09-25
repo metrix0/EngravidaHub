@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { z } from "zod";
 
+import { listClinisysAvailability } from "@/lib/clinisys/client";
 import { listReplicatedClinisysAvailability } from "@/lib/clinisys/replicatedAvailability";
 import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 import {
@@ -23,7 +24,7 @@ import {
 export const CHATBOT_APPOINTMENT_CREATION_ENABLED = false;
 
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-const PROCEDURE_NAME = "Consulta";
+const PROCEDURE_NAME = "1ª Avaliação de Reprodução Humana - presencial";
 const APPOINTMENT_DURATION_MINUTES = 45;
 const SCHEDULING_INTENT_MODEL = "gpt-5.6-luna";
 
@@ -460,6 +461,19 @@ async function handleTimeStep(
         return offerAvailabilityWindow(session, stage, unit);
     }
 
+    const unit = await loadUnit(session.unit_id);
+    if (!unit) return restartAtUnit(session, stage);
+    if (
+        !(await liveClinisysSlotStillAvailable(
+            unit,
+            doctor,
+            selected.date,
+            selected.time,
+        ))
+    ) {
+        return offerAvailabilityWindow(session, stage, unit);
+    }
+
     const updated = await updateSession(session.session_key, {
         doctor_id: selected.doctorId,
         scheduling_date: selected.date,
@@ -578,6 +592,16 @@ async function createAppointment(session: SchedulingSessionRow) {
     );
     if (!slots.some((slot) => slot.time === session.scheduling_time)) {
         throw new Error("O horário escolhido não está mais disponível.");
+    }
+    if (
+        !(await liveClinisysSlotStillAvailable(
+            unit,
+            doctor,
+            session.scheduling_date,
+            session.scheduling_time,
+        ))
+    ) {
+        throw new Error("O horário escolhido não está mais disponível no CliniSYS.");
     }
 
     const startsAt = new Date(
@@ -960,6 +984,7 @@ async function loadUnitAvailableSlots(
         doctorIds: doctors.map((doctor) => doctor.id),
         dateFrom: todayInBrazil(),
         dateTo: addDays(todayInBrazil(), 180),
+        procedureName: PROCEDURE_NAME,
     });
 
     if (
@@ -1006,6 +1031,7 @@ async function loadAvailableSlots(
         doctorIds: [doctorId],
         dateFrom: date,
         dateTo: date,
+        procedureName: PROCEDURE_NAME,
     });
 
     if (result.missingDoctorIds.includes(doctorId)) {
@@ -1023,6 +1049,36 @@ async function loadAvailableSlots(
     }
 
     return [...unique.values()].sort((a, b) => a.time.localeCompare(b.time));
+}
+
+async function liveClinisysSlotStillAvailable(
+    unit: UnitOption,
+    doctor: DoctorOption,
+    date: string,
+    time: string,
+) {
+    try {
+        const slots = await listClinisysAvailability({
+            unitId: unit.id,
+            doctorId: doctor.id,
+            unitName: unit.name,
+            doctorName: doctor.name,
+            procedureName: PROCEDURE_NAME,
+            dateFrom: date,
+            dateTo: date,
+        });
+        return slots.some(
+            (slot) =>
+                toIsoDate(slot.data ?? "") === date &&
+                normalizeTime(slot.inicio ?? "") === time,
+        );
+    } catch (error) {
+        console.warn(
+            "[chatbot-scheduling] live CliniSYS availability proof failed; using replicated database",
+            error,
+        );
+        return true;
+    }
 }
 
 async function loadKnownUnitForPhone(phone: string | null) {

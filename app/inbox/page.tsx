@@ -23,7 +23,7 @@ import {
     UserRound,
     X,
 } from "lucide-react";
-import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
+import {FaFacebookF, FaFacebookMessenger, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
 import {Card, Pagination, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
@@ -45,6 +45,7 @@ import {
 } from "@/lib/inbox/inboxApi";
 import {
     claimNextInboxConversation,
+    claimNextSocialInboxConversation,
     fetchInboxQueueCount,
 } from "@/lib/inbox/queueApi";
 import {useInboxRealtime} from "@/lib/inbox/useInboxRealtime";
@@ -167,6 +168,7 @@ export default function InboxPage() {
     const [isSettingOnline, setIsSettingOnline] = useState(false);
 
     const [queueCount, setQueueCount] = useState(0);
+    const [socialQueueCount, setSocialQueueCount] = useState(0);
     const [isPullingConversation, setIsPullingConversation] = useState(false);
     const [isFinalizingConversation, setIsFinalizingConversation] = useState(false);
 
@@ -264,9 +266,11 @@ export default function InboxPage() {
         try {
             const response = await fetchInboxQueueCount();
             setQueueCount(response.count);
+            setSocialQueueCount(response.social_count);
         } catch (error) {
             console.error("[inbox] failed to load queue count", error);
             setQueueCount(0);
+            setSocialQueueCount(0);
         }
     }, []);
 
@@ -429,6 +433,54 @@ export default function InboxPage() {
             const result = await claimNextInboxConversation();
 
             await loadQueueCount();
+
+            if (!result.thread_id) {
+                return;
+            }
+
+            forcedSelectionRef.current = {
+                id: result.thread_id,
+                itemType: "thread",
+            };
+            selectedThreadRequestRef.current += 1;
+
+            setStatus("open");
+            setSearch("");
+            setCurrentPage(1);
+            setSelectedId(result.thread_id);
+            setSelectedItemType("thread");
+            setSelectedThread(null);
+
+            const [threadResponse, listResponse] = await Promise.all([
+                fetchInboxThread(result.thread_id, "thread"),
+                fetchInboxThreads({
+                    status: "open",
+                    search: "",
+                    page: 1,
+                    pageSize: PAGE_SIZE,
+                }),
+            ]);
+
+            setSelectedThread(threadResponse.item);
+            setThreads(listResponse.items);
+            setTotalThreads(listResponse.total);
+        } catch (error) {
+            console.error("[inbox] failed to claim conversation", error);
+        } finally {
+            setIsPullingConversation(false);
+        }
+    }
+
+    async function handlePullSocialConversation() {
+        if (isPullingConversation || socialQueueCount <= 0) return;
+
+        setIsPullingConversation(true);
+
+        try {
+            const result = await claimNextSocialInboxConversation();
+
+            setQueueCount(result.count);
+            setSocialQueueCount(result.social_count);
 
             if (!result.thread_id) {
                 return;
@@ -876,8 +928,10 @@ export default function InboxPage() {
                             status={status}
                             onStatusChange={handleStatusChange}
                             queueCount={queueCount}
+                            socialQueueCount={socialQueueCount}
                             isPullingConversation={isPullingConversation}
                             onPullConversation={handlePullConversation}
+                            onPullSocialConversation={handlePullSocialConversation}
                             search={search}
                             onSearchChange={(value) => {
                                 forcedSelectionRef.current = null;
@@ -995,8 +1049,10 @@ function ConversationListPanel({
                                    status,
                                    onStatusChange,
                                    queueCount,
+                                   socialQueueCount,
                                    isPullingConversation,
                                    onPullConversation,
+                                   onPullSocialConversation,
                                    search,
                                    onSearchChange,
                                    conversations,
@@ -1011,8 +1067,10 @@ function ConversationListPanel({
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
     queueCount: number;
+    socialQueueCount: number;
     isPullingConversation: boolean;
     onPullConversation: () => void;
+    onPullSocialConversation: () => void;
     search: string;
     onSearchChange: (value: string) => void;
     conversations: InboxThreadListItem[];
@@ -1042,13 +1100,31 @@ function ConversationListPanel({
                         type="button"
                         onClick={onPullConversation}
                         disabled={queueCount <= 0 || isPullingConversation}
-                        className="flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none"
+                        className="hidden h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none"
                     >
                         {isPullingConversation ? "Puxando..." : "Puxar conversa"}
                     </button>
+                    <button
+                        type="button"
+                        onClick={onPullSocialConversation}
+                        disabled={socialQueueCount <= 0 || isPullingConversation}
+                        aria-label="Puxar próxima conversa do Instagram ou Facebook"
+                        className="flex h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none"
+                    >
+                        {isPullingConversation ? (
+                            "Puxando..."
+                        ) : (
+                            <>
+                                <span>Puxar</span>
+                                <FaInstagram size={15}/>
+                                <span className="font-medium">ou</span>
+                                <FaFacebookMessenger size={15}/>
+                            </>
+                        )}
+                    </button>
                     <div className="min-w-0">
                         <div className="text-sm text-slate-500">
-                            {queueCount} na fila
+                            {socialQueueCount} na fila
                         </div>
                     </div>
 

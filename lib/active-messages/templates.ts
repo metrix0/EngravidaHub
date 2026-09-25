@@ -6,14 +6,15 @@ export type ActiveMessageTemplateCategory =
     | "utility"
     | "authentication";
 
-// Meta WhatsApp Business Platform list rates for Brazil in BRL, effective 2026-07-01.
+export const ACTIVE_MESSAGE_PRICE_BRL = 0.09;
+
 export const ACTIVE_MESSAGE_TEMPLATE_PRICES_BRL: Record<
     ActiveMessageTemplateCategory,
     number
 > = {
-    marketing: 0.3217,
-    utility: 0.035,
-    authentication: 0.035,
+    marketing: ACTIVE_MESSAGE_PRICE_BRL,
+    utility: ACTIVE_MESSAGE_PRICE_BRL,
+    authentication: ACTIVE_MESSAGE_PRICE_BRL,
 };
 
 export type ActiveMessageTemplateParameter = {

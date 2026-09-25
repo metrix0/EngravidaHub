@@ -25,10 +25,7 @@ import {
     type CalendarPresetValue,
     type DateRange,
 } from "@/components/ui/CalendarButton";
-import {
-    getActiveMessageTemplate,
-    getActiveMessageTemplatePriceBrl,
-} from "@/lib/active-messages/templates";
+import { ACTIVE_MESSAGE_PRICE_BRL } from "@/lib/active-messages/templates";
 import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import { getDashboardWidget } from "@/lib/personal-dashboard/registryExtended";
 import type {
@@ -1285,8 +1282,6 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
     let responses = 0;
     let schedules = 0;
     let sent = 0;
-    let cost = 0;
-    let completePricing = true;
 
     for (const item of history) {
         if (item.automation !== "resgate") continue;
@@ -1294,19 +1289,6 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
         responses += item.response_count;
         schedules += item.schedule_count;
         sent += item.sent_count;
-
-        const templateCount = item.template_message_count ?? 0;
-        if (templateCount <= 0) continue;
-
-        const template = getActiveMessageTemplate(item.template_id);
-        if (!template) {
-            completePricing = false;
-            continue;
-        }
-
-        cost +=
-            templateCount *
-            getActiveMessageTemplatePriceBrl(template.category);
     }
 
     return {
@@ -1314,7 +1296,7 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
         sent,
         responseRate: sent > 0 ? (responses / sent) * 100 : null,
         costPerResgate:
-            schedules > 0 && completePricing ? cost / schedules : null,
+            schedules > 0 ? (sent * ACTIVE_MESSAGE_PRICE_BRL) / schedules : null,
     };
 }
 

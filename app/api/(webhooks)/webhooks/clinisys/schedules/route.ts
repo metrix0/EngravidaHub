@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { listClinisysProcedures } from "@/lib/clinisys/client";
 import { resolveHubUnitDoctor, verifyClinisysWebhook } from "@/lib/clinisys/webhook";
 import { supabase } from "@/lib/supabase/client";
 
@@ -124,7 +125,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true });
         }
 
-        const match = await resolveHubUnitDoctor(body.agenda.unitName, body.agenda.doctorName);
+        const [match, procedures] = await Promise.all([
+            resolveHubUnitDoctor(body.agenda.unitName, body.agenda.doctorName),
+            listClinisysProcedures(body.externalId),
+        ]);
         const { error } = await supabase.from("clinisys_agendas").upsert({
             external_id: body.externalId,
             unit_id: match?.unitId ?? null,
@@ -136,6 +140,7 @@ export async function POST(request: Request) {
             working_hours: body.agenda.workingHours,
             exceptions: body.agenda.exceptions,
             blocks: body.agenda.blocks,
+            procedures,
             active: true,
             updated_at: new Date().toISOString(),
         }, { onConflict: "external_id" });

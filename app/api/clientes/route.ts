@@ -7,8 +7,46 @@ type LatestAttendantRow = {
     attendant_name: string | null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const searchParams = new URL(request.url).searchParams;
+
+        if (searchParams.get("picker") === "1") {
+            const search = (searchParams.get("search") ?? "")
+                .replace(/[,%()]/g, " ")
+                .trim()
+                .slice(0, 120);
+
+            let query = supabase
+                .from("clients")
+                .select("id, name, phone, email")
+                .order("last_interaction_at", {
+                    ascending: false,
+                    nullsFirst: false,
+                })
+                .limit(10);
+
+            if (search) {
+                query = query.or(
+                    `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`,
+                );
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                return NextResponse.json(
+                    {
+                        ok: false,
+                        error: "Failed to search clients",
+                        details: error,
+                    },
+                    { status: 500 },
+                );
+            }
+
+            return NextResponse.json({ clients: data ?? [] });
+        }
         const [
             { data: clientsRaw, error: clientsError },
             { data: latestAttendants, error: attendantsError },
