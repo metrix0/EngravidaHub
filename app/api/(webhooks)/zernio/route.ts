@@ -126,7 +126,8 @@ export async function POST(request: Request) {
         const messageId = randomUUID();
         const { error: messageError } = await supabase.from("messages").insert({
             id: messageId,
-            client_id: instagramUser.client_id,
+            // Social messages keep one contact identity; CRM linkage lives on instagram_users.
+            client_id: null,
             instagram_user_id: instagramUser.id,
             conversation_id: null,
             thread_id: thread.id,
