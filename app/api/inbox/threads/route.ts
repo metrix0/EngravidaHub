@@ -107,8 +107,36 @@ async function loadOpenThreads(attendantId: string) {
             ),
             instagram_user:instagram_users!thread_instagram_user_id_fkey (
                 id,
+                client_id,
                 username,
-                display_name
+                display_name,
+                linked_client:clients!instagram_users_client_id_fkey (
+                    id,
+                    name,
+                    phone,
+                    email,
+                    state,
+                    country,
+                    unit_id,
+                    units (
+                        id,
+                        name
+                    ),
+                    last_origin,
+                    last_tunnel,
+                    utm_campaign,
+                    funnel_stage_id,
+                    funnel_stages (
+                        id,
+                        name,
+                        position,
+                        color,
+                        funnels (
+                            id,
+                            name
+                        )
+                    )
+                )
             ),
             attendants (
                 id,
@@ -197,8 +225,36 @@ async function loadClosedConversations(attendantId: string) {
             ),
             instagram_user:instagram_users!conversations_instagram_user_id_fkey (
                 id,
+                client_id,
                 username,
-                display_name
+                display_name,
+                linked_client:clients!instagram_users_client_id_fkey (
+                    id,
+                    name,
+                    phone,
+                    email,
+                    state,
+                    country,
+                    unit_id,
+                    units (
+                        id,
+                        name
+                    ),
+                    last_origin,
+                    last_tunnel,
+                    utm_campaign,
+                    funnel_stage_id,
+                    funnel_stages (
+                        id,
+                        name,
+                        position,
+                        color,
+                        funnels (
+                            id,
+                            name
+                        )
+                    )
+                )
             ),
             attendants (
                 id,
@@ -235,8 +291,10 @@ async function loadClosedConversations(attendantId: string) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapOpenThread(row: any): InboxThreadListItem {
-    const client = normalizeRelation(row.clients);
     const instagramUser = normalizeRelation(row.instagram_user);
+    const client =
+        normalizeRelation(row.clients) ??
+        normalizeRelation(instagramUser?.linked_client);
     const attendant = row.attendants;
     const latestConversation = normalizeRelation(row.conversations);
     const analysis = normalizeRelation(latestConversation?.analysis);
@@ -250,7 +308,7 @@ function mapOpenThread(row: any): InboxThreadListItem {
         id: row.id,
         item_type: "thread",
         thread_id: row.id,
-        client_id: row.client_id ?? null,
+        client_id: row.client_id ?? instagramUser?.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
         identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
@@ -285,8 +343,10 @@ function mapOpenThread(row: any): InboxThreadListItem {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapClosedConversation(row: any): InboxThreadListItem {
-    const client = normalizeRelation(row.clients);
     const instagramUser = normalizeRelation(row.instagram_user);
+    const client =
+        normalizeRelation(row.clients) ??
+        normalizeRelation(instagramUser?.linked_client);
     const attendant = row.attendants;
     const analysis = row.analysis;
     const stage = normalizeRelation(client?.funnel_stages);
@@ -303,7 +363,7 @@ function mapClosedConversation(row: any): InboxThreadListItem {
         id: row.id,
         item_type: "conversation",
         thread_id: row.thread_id ?? null,
-        client_id: row.client_id ?? null,
+        client_id: row.client_id ?? instagramUser?.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
         identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,

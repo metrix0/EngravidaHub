@@ -125,6 +125,16 @@ type ActiveMessageAnalyticsResponse = {
     history: ActiveMessageAnalyticsHistoryItem[];
 };
 
+type ActiveMessageCadenceResponse = {
+    ok: boolean;
+    cadence_id: string;
+    status: "scheduled";
+    requested_count: number;
+    messages_per_day: number;
+};
+
+type ActiveMessageDeliveryMode = "immediate" | "cadenced";
+
 export default function MensagemAtivaPage() {
     const [data, setData] = useState<ActiveMessagesPageResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -687,9 +697,13 @@ export default function MensagemAtivaPage() {
     async function submitSend({
         clientIds,
         filters,
+        deliveryMode = "immediate",
+        messagesPerDay,
     }: {
         clientIds: string[];
         filters: Record<string, unknown>;
+        deliveryMode?: ActiveMessageDeliveryMode;
+        messagesPerDay?: number;
     }) {
         if (
             !selectedTemplate ||
@@ -718,11 +732,17 @@ export default function MensagemAtivaPage() {
                         filters,
                         dynamic_values: dynamicValues,
                         template_sender: templateSender,
+                        delivery_mode: deliveryMode,
+                        messages_per_day:
+                            deliveryMode === "cadenced"
+                                ? messagesPerDay
+                                : undefined,
                     }),
                 },
             );
             const json = (await response.json()) as
                 | ActiveMessageSendResponse
+                | ActiveMessageCadenceResponse
                 | { error?: string };
 
             if (!response.ok) {
@@ -731,6 +751,16 @@ export default function MensagemAtivaPage() {
                         ? json.error
                         : "Não foi possível concluir o envio",
                 );
+            }
+
+            if ("cadence_id" in json) {
+                const cadence = json as ActiveMessageCadenceResponse;
+                setFeedback({
+                    tone: "success",
+                    title: "Envio cadenciado agendado",
+                    description: `${cadence.requested_count} clientes agendados, com limite de ${cadence.messages_per_day} mensagens por dia, distribuídas entre 11h, 12h, 13h e 14h.`,
+                });
+                return true;
             }
 
             const result = json as ActiveMessageSendResponse;
@@ -768,7 +798,13 @@ export default function MensagemAtivaPage() {
         }
     }
 
-    async function handleSend() {
+    async function handleSend({
+        deliveryMode,
+        messagesPerDay,
+    }: {
+        deliveryMode: ActiveMessageDeliveryMode;
+        messagesPerDay?: number;
+    }) {
         const sent = await submitSend({
             clientIds: [...selectedClientIds],
             filters: {
@@ -782,6 +818,8 @@ export default function MensagemAtivaPage() {
                 whatsapp_window: windowValues,
                 active_send_history: activeSendValues,
             },
+            deliveryMode,
+            messagesPerDay,
         });
 
         setConfirmationOpen(false);
@@ -1161,7 +1199,7 @@ export default function MensagemAtivaPage() {
                         setConfirmationOpen(false);
                     }
                 }}
-                onConfirm={() => void handleSend()}
+                onConfirm={(options) => void handleSend(options)}
             />
 
             <SpreadsheetImportModal
@@ -1435,8 +1473,30 @@ function SendConfirmationModal({
     normalCount: number;
     templateCount: number;
     onClose: () => void;
-    onConfirm: () => void;
+    onConfirm: (options: {
+        deliveryMode: ActiveMessageDeliveryMode;
+        messagesPerDay?: number;
+    }) => void;
 }) {
+    const [deliveryMode, setDeliveryMode] =
+        useState<ActiveMessageDeliveryMode>("immediate");
+    const [messagesPerDay, setMessagesPerDay] = useState("100");
+
+    useEffect(() => {
+        if (!open) return;
+        setDeliveryMode("immediate");
+        setMessagesPerDay(String(Math.min(100, Math.max(1, selectedCount))));
+    }, [open, selectedCount]);
+
+    const parsedMessagesPerDay = Number(messagesPerDay);
+    const cadenceValid =
+        Number.isInteger(parsedMessagesPerDay) &&
+        parsedMessagesPerDay >= 1 &&
+        parsedMessagesPerDay <= MAX_CLIENTS_PER_SEND;
+    const cadenceSlices = cadenceValid
+        ? splitCadenceDailyLimit(parsedMessagesPerDay)
+        : [0, 0, 0, 0];
+
     return (
         <Modal
             open={open}
@@ -1487,6 +1547,59 @@ function SendConfirmationModal({
                     </div>
                 </div>
 
+                <div className="mt-5">
+                    <div className="mb-2 text-xs font-bold text-slate-600">
+                        Tipo de envio
+                    </div>
+                    <ButtonGroup
+                        value={deliveryMode}
+                        onChange={(value) =>
+                            setDeliveryMode(
+                                value as ActiveMessageDeliveryMode,
+                            )
+                        }
+                        options={[
+                            { value: "immediate", label: "Enviar agora" },
+                            { value: "cadenced", label: "Envio cadenciado" },
+                        ]}
+                        className="w-full"
+                    />
+                </div>
+
+                {deliveryMode === "cadenced" ? (
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <label className="block">
+                            <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                                Mensagens por dia
+                            </span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={MAX_CLIENTS_PER_SEND}
+                                step={1}
+                                value={messagesPerDay}
+                                onChange={(event) =>
+                                    setMessagesPerDay(event.target.value)
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            />
+                        </label>
+                        {cadenceValid ? (
+                            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                {parsedMessagesPerDay.toLocaleString("pt-BR")}
+                                /dia → {cadenceSlices[0]} às 11h,{" "}
+                                {cadenceSlices[1]} às 12h,{" "}
+                                {cadenceSlices[2]} às 13h e{" "}
+                                {cadenceSlices[3]} às 14h, até terminar a lista.
+                            </p>
+                        ) : (
+                            <p className="mt-2 text-xs font-semibold text-red">
+                                Informe um valor entre 1 e {MAX_CLIENTS_PER_SEND}.
+                            </p>
+                        )}
+                    </div>
+                ) : null}
+
                 <p className="mt-4 text-xs leading-relaxed text-slate-400">
                     O sistema recalcula a janela de 24 horas para
                     cada cliente no momento do envio.
@@ -1503,8 +1616,19 @@ function SendConfirmationModal({
                     </button>
                     <button
                         type="button"
-                        onClick={onConfirm}
-                        disabled={sending}
+                        onClick={() =>
+                            onConfirm({
+                                deliveryMode,
+                                messagesPerDay:
+                                    deliveryMode === "cadenced"
+                                        ? parsedMessagesPerDay
+                                        : undefined,
+                            })
+                        }
+                        disabled={
+                            sending ||
+                            (deliveryMode === "cadenced" && !cadenceValid)
+                        }
                         className="flex h-11 min-w-[150px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                         {sending ? (
@@ -1516,12 +1640,25 @@ function SendConfirmationModal({
                             <Send size={17} />
                         )}
                         {sending
-                            ? "Enviando..."
-                            : "Confirmar envio"}
+                            ? deliveryMode === "cadenced"
+                                ? "Agendando..."
+                                : "Enviando..."
+                            : deliveryMode === "cadenced"
+                              ? "Iniciar envio cadenciado"
+                              : "Confirmar envio"}
                     </button>
                 </div>
             </div>
         </Modal>
+    );
+}
+
+function splitCadenceDailyLimit(messagesPerDay: number) {
+    const base = Math.floor(messagesPerDay / 4);
+    const remainder = messagesPerDay % 4;
+
+    return [0, 1, 2, 3].map(
+        (slotIndex) => base + (slotIndex < remainder ? 1 : 0),
     );
 }
 

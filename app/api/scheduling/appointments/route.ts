@@ -72,12 +72,21 @@ export async function POST(request: Request) {
         if (!(await validateDoctorForUnit(supabase, body.doctorId, body.unitId))) return NextResponse.json({ ok: false, error: "O médico não pertence à unidade selecionada." }, { status: 400 });
         let clientId = body.clientId ?? null;
         if (body.threadId) {
-            let threadQuery = supabase.from("thread").select("id, client_id").eq("id", body.threadId);
+            let threadQuery = supabase.from("thread").select(`
+                id,
+                client_id,
+                instagram_user:instagram_users!thread_instagram_user_id_fkey (
+                    client_id
+                )
+            `).eq("id", body.threadId);
             if (attendant) threadQuery = threadQuery.eq("assigned_attendant_id", attendant.id);
             const { data: thread, error: threadError } = await threadQuery.maybeSingle();
             if (threadError) throw threadError;
             if (!thread) return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
-            clientId = thread.client_id;
+            const instagramUser = Array.isArray(thread.instagram_user)
+                ? thread.instagram_user[0] ?? null
+                : thread.instagram_user;
+            clientId = thread.client_id ?? instagramUser?.client_id ?? null;
         }
         const startsAt = new Date(body.startsAt);
         if (startsAt.getUTCMinutes() % 15 !== 0) return NextResponse.json({ ok: false, error: "Selecione um horário em intervalos de 15 minutos." }, { status: 400 });

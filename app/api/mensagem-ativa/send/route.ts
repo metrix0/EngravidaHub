@@ -15,6 +15,7 @@ import {
     DEFAULT_ACTIVE_MESSAGE_TEMPLATE_SENDER,
     parseActiveMessageTemplateSender,
 } from "@/lib/active-messages/templateSenders";
+import { supabase } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ type SendBody = {
     filters?: unknown;
     dynamic_values?: unknown;
     template_sender?: unknown;
+    delivery_mode?: unknown;
+    messages_per_day?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -100,6 +103,64 @@ export async function POST(request: Request) {
             },
             { status: 400 },
         );
+    }
+
+    const deliveryMode =
+        body.delivery_mode === "cadenced" ? "cadenced" : "immediate";
+
+    if (deliveryMode === "cadenced") {
+        const messagesPerDay =
+            typeof body.messages_per_day === "number"
+                ? body.messages_per_day
+                : Number(body.messages_per_day);
+
+        if (
+            !Number.isInteger(messagesPerDay) ||
+            messagesPerDay < 1 ||
+            messagesPerDay > MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND
+        ) {
+            return NextResponse.json(
+                {
+                    error: `Informe um limite diário entre 1 e ${MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND} mensagens.`,
+                },
+                { status: 400 },
+            );
+        }
+
+        const { data: cadence, error: cadenceError } = await supabase
+            .from("active_message_cadences")
+            .insert({
+                template_id: template.id,
+                template_name: template.name,
+                client_ids: clientIds,
+                dynamic_values: dynamicValuesResult.values,
+                template_sender: templateSender,
+                filters: isRecord(body.filters) ? body.filters : {},
+                messages_per_day: messagesPerDay,
+                created_by: access.actor.id,
+                created_by_name: access.actor.name,
+            })
+            .select("id")
+            .single();
+
+        if (cadenceError || !cadence) {
+            console.error(
+                "[mensagem-ativa] failed to create cadence",
+                cadenceError,
+            );
+            return NextResponse.json(
+                { error: "Não foi possível agendar o envio cadenciado" },
+                { status: 500 },
+            );
+        }
+
+        return NextResponse.json({
+            ok: true,
+            cadence_id: cadence.id,
+            status: "scheduled",
+            requested_count: clientIds.length,
+            messages_per_day: messagesPerDay,
+        });
     }
 
     try {

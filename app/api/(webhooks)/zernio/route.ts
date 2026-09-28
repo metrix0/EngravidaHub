@@ -8,6 +8,7 @@ import {
     type ParsedZernioAttachment,
     type ParsedZernioMessage,
 } from "@/lib/importers/zernio/parseZernioWebhook";
+import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 import { queueThreadForMessage } from "@/lib/inbox/queueThreadForMessage";
 import { supabase } from "@/lib/supabase/client";
 import { persistConversationAdAttribution } from "@/lib/zernio/conversationAdAttribution";
@@ -44,6 +45,7 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
 
 type ExistingInstagramUser = {
     id: string;
+    client_id: string | null;
     username: string | null;
     display_name: string | null;
     profile_picture_url: string | null;
@@ -102,7 +104,15 @@ export async function POST(request: Request) {
             });
         }
 
-        const instagramUser = await resolveInstagramUser(parsedMessage);
+        const resolvedInstagramUser = await resolveInstagramUser(parsedMessage);
+        const instagramUser =
+            parsedMessage.sender_type === "client"
+                ? await linkInstagramUserToClientFromMessage({
+                      instagramUser: resolvedInstagramUser,
+                      messageText: parsedMessage.text,
+                      requestId,
+                  })
+                : resolvedInstagramUser;
         const thread = await queueThreadForMessage({
             instagramUserId: instagramUser.id,
             source: "zernio",
@@ -116,6 +126,7 @@ export async function POST(request: Request) {
         const messageId = randomUUID();
         const { error: messageError } = await supabase.from("messages").insert({
             id: messageId,
+            // Social messages keep one contact identity; CRM linkage lives on instagram_users.
             client_id: null,
             instagram_user_id: instagramUser.id,
             conversation_id: null,
@@ -278,7 +289,7 @@ async function persistAttachmentAfterResponse({
 
 async function resolveInstagramUser(
     message: ParsedZernioMessage,
-): Promise<{ id: string }> {
+): Promise<{ id: string; client_id: string | null }> {
     const existing = await findInstagramUser(message);
 
     if (existing) {
@@ -294,13 +305,14 @@ async function resolveInstagramUser(
         username: message.participant_username,
         display_name: message.participant_name,
         profile_picture_url: message.participant_picture_url,
+        client_id: null,
         first_seen_at: message.sent_at,
         last_interaction_at: message.sent_at,
         created_at: now,
         updated_at: now,
     });
 
-    if (!error) return { id: instagramUserId };
+    if (!error) return { id: instagramUserId, client_id: null };
     if (error.code !== "23505") throw error;
 
     const winner = await findInstagramUser(message);
@@ -312,7 +324,7 @@ async function findInstagramUser(message: ParsedZernioMessage) {
     const { data, error } = await supabase
         .from("instagram_users")
         .select(
-            "id, username, display_name, profile_picture_url, first_seen_at, last_interaction_at",
+            "id, client_id, username, display_name, profile_picture_url, first_seen_at, last_interaction_at",
         )
         .eq("zernio_account_id", message.external_account_id)
         .eq("zernio_participant_id", message.participant_id)
@@ -365,11 +377,88 @@ async function updateInstagramUser(
         .from("instagram_users")
         .update(updates)
         .eq("id", instagramUser.id)
-        .select("id")
+        .select("id, client_id")
         .single();
 
     if (error) throw error;
     return data;
+}
+
+async function linkInstagramUserToClientFromMessage({
+    instagramUser,
+    messageText,
+    requestId,
+}: {
+    instagramUser: { id: string; client_id: string | null };
+    messageText: string;
+    requestId: string;
+}) {
+    if (instagramUser.client_id) return instagramUser;
+
+    const phoneIdentities = extractBrazilPhoneIdentities(messageText);
+    if (phoneIdentities.length === 0) return instagramUser;
+
+    const { data: clients, error: clientsError } = await supabase
+        .from("clients")
+        .select("id, phone_identity")
+        .in("phone_identity", phoneIdentities);
+
+    if (clientsError) throw clientsError;
+
+    const matchedClientIds = Array.from(
+        new Set((clients ?? []).map((client) => client.id)),
+    );
+
+    if (matchedClientIds.length !== 1) return instagramUser;
+
+    const clientId = matchedClientIds[0];
+    const { data: linked, error: linkError } = await supabase
+        .from("instagram_users")
+        .update({
+            client_id: clientId,
+            updated_at: new Date().toISOString(),
+        })
+        .eq("id", instagramUser.id)
+        .is("client_id", null)
+        .select("id, client_id")
+        .maybeSingle();
+
+    if (linkError) throw linkError;
+
+    if (linked) {
+        console.info(
+            `[zernio-webhook:${requestId}] Social profile linked to CRM client`,
+            {
+                instagram_user_id: instagramUser.id,
+                client_id: clientId,
+            },
+        );
+        return linked;
+    }
+
+    const { data: current, error: currentError } = await supabase
+        .from("instagram_users")
+        .select("id, client_id")
+        .eq("id", instagramUser.id)
+        .maybeSingle();
+
+    if (currentError) throw currentError;
+    return current ?? instagramUser;
+}
+
+function extractBrazilPhoneIdentities(text: string) {
+    const matches =
+        text.match(
+            /(?<!\d)(?:\+?55[\s().-]*)?\(?\d{2}\)?[\s.-]*\d{4,5}[\s.-]*\d{4}(?!\d)/g,
+        ) ?? [];
+
+    return Array.from(
+        new Set(
+            matches
+                .map((value) => normalizePhoneIdentity(value))
+                .filter((value): value is string => Boolean(value)),
+        ),
+    );
 }
 
 async function messageAlreadyExists(externalId: string) {

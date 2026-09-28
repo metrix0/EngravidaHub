@@ -51,6 +51,16 @@ type SchedulingThread = {
     assigned_attendant_id: string | null;
 };
 
+type SchedulingThreadRow = {
+    id: string;
+    client_id: string | null;
+    assigned_attendant_id: string | null;
+    instagram_user:
+        | { client_id: string | null }
+        | Array<{ client_id: string | null }>
+        | null;
+};
+
 export async function loadSchedulingContext(
     supabase: SupabaseClient,
     threadId: string,
@@ -58,7 +68,14 @@ export async function loadSchedulingContext(
 ): Promise<(SchedulingDataResponse & { thread: SchedulingThread }) | null> {
     const { data: thread, error: threadError } = await supabase
         .from("thread")
-        .select("id, client_id, assigned_attendant_id")
+        .select(`
+            id,
+            client_id,
+            assigned_attendant_id,
+            instagram_user:instagram_users!thread_instagram_user_id_fkey (
+                client_id
+            )
+        `)
         .eq("id", threadId)
         .eq("assigned_attendant_id", attendantId)
         .maybeSingle();
@@ -66,15 +83,26 @@ export async function loadSchedulingContext(
     if (threadError) throw threadError;
     if (!thread) return null;
 
+    const typedThread = thread as SchedulingThreadRow;
+    const instagramUser = Array.isArray(typedThread.instagram_user)
+        ? typedThread.instagram_user[0] ?? null
+        : typedThread.instagram_user;
+    const clientId = typedThread.client_id ?? instagramUser?.client_id ?? null;
+    if (!clientId) return null;
+
     const context = await loadSchedulingClientContext(
         supabase,
-        thread.client_id,
+        clientId,
     );
 
     return context
         ? {
               ...context,
-              thread: thread as SchedulingThread,
+              thread: {
+                  id: typedThread.id,
+                  client_id: clientId,
+                  assigned_attendant_id: typedThread.assigned_attendant_id,
+              },
           }
         : null;
 }
