@@ -335,6 +335,35 @@ function analysisFeeling(analysis: UnitMacroAnalysis | null) {
   return { label, icon, badgeClass, tooltip: lines.join("\n") };
 }
 
+function splitPatternSection(content: string) {
+  const heading = /^##\s+Padrões encontrados\s*$/im;
+  const match = heading.exec(content);
+  if (!match) return { main: content, patterns: null };
+
+  const main = content.slice(0, match.index).trim();
+  const patterns = content.slice(match.index + match[0].length).trim();
+  return { main, patterns: patterns || null };
+}
+
+function UnitAnalysisReport({ content }: { content: string }) {
+  const { main, patterns } = splitPatternSection(content);
+
+  return (
+    <div className="space-y-5">
+      <AssistantMarkdown content={main} />
+      {patterns ? (
+        <div className="rounded-2xl border border-purple/20 bg-purple-soft/40 p-4 md:p-5">
+          <div className="mb-2 flex items-center gap-2 text-purple">
+            <Sparkles size={17} />
+            <h3 className="font-bold text-slate-950">Padrões encontrados</h3>
+          </div>
+          <AssistantMarkdown content={patterns} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function UnidadesPage() {
   const { currentUser } = useCurrentUser();
   const canContinue =
@@ -647,7 +676,7 @@ export default function UnidadesPage() {
                           </div>
                         )}
                         {focus?.status === "completed" ? (
-                          <AssistantMarkdown content={focus.report} />
+                          <UnitAnalysisReport content={focus.report} />
                         ) : (
                           <p className="text-sm text-slate-500">
                             Nenhuma análise concluída para esta unidade ainda.
