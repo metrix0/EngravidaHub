@@ -148,8 +148,36 @@ async function loadThreadDetail({
             ),
             instagram_user:instagram_users!thread_instagram_user_id_fkey (
                 id,
+                client_id,
                 username,
-                display_name
+                display_name,
+                linked_client:clients!instagram_users_client_id_fkey (
+                    id,
+                    name,
+                    phone,
+                    email,
+                    state,
+                    country,
+                    unit_id,
+                    units (
+                        id,
+                        name
+                    ),
+                    last_origin,
+                    last_tunnel,
+                    utm_campaign,
+                    funnel_stage_id,
+                    funnel_stages (
+                        id,
+                        name,
+                        position,
+                        color,
+                        funnels (
+                            id,
+                            name
+                        )
+                    )
+                )
             ),
             attendants (
                 id,
@@ -228,7 +256,7 @@ async function loadThreadDetail({
             conversation_id: null,
             status: "open",
             messages: mappedMessages,
-            notes: mapClientNotes(normalizeRelation(thread.clients)?.notes),
+            notes: mapClientNotes(getEffectiveClient(thread)?.notes),
             can_reply: replyState.canReply,
             reply_window_ends_at: replyState.windowEndsAt,
             has_older_conversations: hasOlder,
@@ -291,8 +319,36 @@ async function loadConversationDetail({
             ),
             instagram_user:instagram_users!conversations_instagram_user_id_fkey (
                 id,
+                client_id,
                 username,
-                display_name
+                display_name,
+                linked_client:clients!instagram_users_client_id_fkey (
+                    id,
+                    name,
+                    phone,
+                    email,
+                    state,
+                    country,
+                    unit_id,
+                    units (
+                        id,
+                        name
+                    ),
+                    last_origin,
+                    last_tunnel,
+                    utm_campaign,
+                    funnel_stage_id,
+                    funnel_stages (
+                        id,
+                        name,
+                        position,
+                        color,
+                        funnels (
+                            id,
+                            name
+                        )
+                    )
+                )
             ),
             attendants (
                 id,
@@ -374,7 +430,7 @@ async function loadConversationDetail({
             status: "closed",
             messages: mappedMessages,
             notes: mapClientNotes(
-                normalizeRelation(conversation.clients)?.notes,
+                getEffectiveClient(conversation)?.notes,
             ),
             can_reply: canReply,
             reply_window_ends_at: replyState.windowEndsAt,
@@ -616,8 +672,8 @@ function mapThreadBase(row: any): Omit<
     | "has_older_conversations"
     | "history_before"
 > {
-    const client = normalizeRelation(row.clients);
     const instagramUser = normalizeRelation(row.instagram_user);
+    const client = getEffectiveClient(row);
     const attendant = normalizeRelation(row.attendants);
     const latestConversation = normalizeRelation(row.conversations);
     const analysis = normalizeRelation(latestConversation?.analysis);
@@ -628,7 +684,7 @@ function mapThreadBase(row: any): Omit<
     const name = getIdentityName(client, instagramUser, channel);
 
     return {
-        client_id: row.client_id ?? null,
+        client_id: row.client_id ?? instagramUser?.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
         identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
@@ -678,8 +734,8 @@ function mapConversationBase(
     | "has_older_conversations"
     | "history_before"
 > {
-    const client = normalizeRelation(conversation.clients);
     const instagramUser = normalizeRelation(conversation.instagram_user);
+    const client = getEffectiveClient(conversation);
     const attendant = normalizeRelation(conversation.attendants);
     const analysis = normalizeRelation(conversation.analysis);
     const stage = normalizeRelation(client?.funnel_stages);
@@ -698,7 +754,7 @@ function mapConversationBase(
         conversation.started_at;
 
     return {
-        client_id: conversation.client_id ?? null,
+        client_id: conversation.client_id ?? instagramUser?.client_id ?? null,
         instagram_user_id: conversation.instagram_user_id ?? null,
         identity_type: isSocial ? "instagram" : "client",
         instagram_username: instagramUser?.username ?? null,
@@ -753,6 +809,17 @@ function mapMessage(message: any): InboxMessage {
 
 function normalizeRelation<T>(value: T | T[] | null | undefined) {
     return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getEffectiveClient(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    row: any,
+) {
+    const directClient = normalizeRelation(row.clients);
+    if (directClient) return directClient;
+
+    const instagramUser = normalizeRelation(row.instagram_user);
+    return normalizeRelation(instagramUser?.linked_client);
 }
 
 function getIdentityName(
