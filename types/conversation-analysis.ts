@@ -12,6 +12,7 @@ export type ResolutionReasoningCategory = "customer_got_answer" | "customer_sche
 export type EvidenceIds = string[];
 
 export type ConversationAnalysis = {
+    pattern_signals?: import("@/lib/analysis/patternSignals").PatternSignal[] | null;
     conversation_id: string; client_id: string | null; instagram_user_id: string | null; started_at: string; ended_at: string;
     attendant_id: string | null; unit_id: string | null; service_id: string | null;
     customer_start_intent: CustomerStartIntent; conversation_goal: ConversationGoal;
@@ -26,3 +27,4 @@ export type ConversationAnalysis = {
     short_label: string; notable: boolean; notable_reason?: string | null;
     analysis_provider: "openai" | "groq" | "bedrock" | "google"; analysis_model: string; analysis_prompt_version: string; analysis_message_count: number;
 };
+
