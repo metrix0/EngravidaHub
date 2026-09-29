@@ -1,3 +1,4 @@
+import { PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
 // lib/ai/googleBatchAnalysis.ts
 import { GoogleAuth } from "google-auth-library";
 import { z } from "zod";
@@ -515,7 +516,8 @@ REGRAS ABSOLUTAS
 - Use apenas message_ids existentes em evidence_message_ids.
 - Preserve exatamente IDs e timestamps recebidos nos campos de metadados.
 - short_label deve ser curto, factual e em português do Brasil.
-- Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.`;
+- Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.
+${PATTERN_SIGNALS_PROMPT}`;
 }
 
 async function persistCompletedAnalysis(
@@ -560,6 +562,7 @@ async function persistCompletedAnalysis(
     const effectiveEnd = getConversationEffectiveEndMessage(normalizedMessages);
     const normalizedAnalysis: ConversationAnalysis = {
         ...parsed,
+        pattern_signals: parsed.pattern_signals === null ? null : validatePatternSignals(parsed.pattern_signals, normalizedMessages),
         conversation_id: conversationId,
         client_id: conversation.client_id,
         instagram_user_id: conversation.instagram_user_id,
@@ -580,7 +583,7 @@ async function persistCompletedAnalysis(
         },
         analysis_provider: "google",
         analysis_model: MODEL_ID,
-        analysis_prompt_version: "google-batch-single-pass-v1",
+        analysis_prompt_version: parsed.pattern_signals === null ? "google-batch-single-pass-v1" : "google-batch-single-pass-v2-patterns",
         analysis_message_count: normalizedMessages.length,
     };
 
@@ -1765,3 +1768,4 @@ async function readJsonResponse<T>(response: Response, operation: string): Promi
 function formatError(error: unknown) {
     return error instanceof Error ? error.message : String(error);
 }
+

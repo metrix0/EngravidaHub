@@ -20,6 +20,7 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
                 goal_status: analysis.goal_status,
                 customer_final_state: analysis.customer_final_state,
                 outcome_events: analysis.outcome_events,
+                pattern_signals: analysis.pattern_signals ?? null,
                 objections: analysis.objections,
                 dropoff_happened: analysis.dropoff.happened,
                 dropoff_moment: analysis.dropoff.moment,
@@ -66,3 +67,4 @@ function nullableUuid(value: string | null | undefined) {
     if (!value) return null;
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : null;
 }
+

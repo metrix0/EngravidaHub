@@ -1,5 +1,6 @@
 // lib/ai/analyzeConversation.ts
 import { z } from "zod";
+import { patternSignalsSchema, PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
 
 import { getGroqClient } from "./groq";
 import { conversationAnalysisSchema } from "./conversationAnalysisSchema";
@@ -11,8 +12,8 @@ import type {
 
 const GROQ_MODEL =
     process.env.GROQ_MODEL_ANALYSIS_PRIMARY ?? "openai/gpt-oss-120b";
-const PROMPT_VERSION = "groq-evidence-ledger-v4";
-const EVIDENCE_OUTPUT_TOKENS = 2_400;
+const PROMPT_VERSION = "groq-evidence-ledger-v5-patterns";
+const EVIDENCE_OUTPUT_TOKENS = 3_600;
 const ANALYSIS_OUTPUT_TOKENS = 3_000;
 const TECHNICAL_ATTEMPTS = 2;
 
@@ -69,6 +70,7 @@ const sentimentValues = [
 const evidenceIds = z.array(z.string());
 
 const evidenceLedgerSchema = z.object({
+    pattern_signals: patternSignalsSchema,
     primary_goal: z.object({
         category: z.enum(goalValues),
         summary_pt_br: z.string().min(1),
@@ -129,7 +131,8 @@ const evidenceLedgerSchema = z.object({
 });
 
 type EvidenceLedger = z.infer<typeof evidenceLedgerSchema>;
-type ParsedAnalysis = z.infer<typeof conversationAnalysisSchema>;
+const finalAnalysisSchema = conversationAnalysisSchema.omit({ pattern_signals: true });
+type ParsedAnalysis = z.infer<typeof finalAnalysisSchema>;
 
 type DeterministicFacts = {
     human_attendant_present: boolean;
@@ -145,7 +148,7 @@ const EVIDENCE_JSON_SCHEMA = z.toJSONSchema(evidenceLedgerSchema, {
     target: "draft-7",
     unrepresentable: "any",
 });
-const ANALYSIS_JSON_SCHEMA = z.toJSONSchema(conversationAnalysisSchema, {
+const ANALYSIS_JSON_SCHEMA = z.toJSONSchema(finalAnalysisSchema, {
     target: "draft-7",
     unrepresentable: "any",
 });
@@ -271,6 +274,8 @@ export async function analyzeConversation(
         resolution_score: finalAnalysis.resolution.resolution_score,
     });
 
+    // The final pass never rediscovers signals from the first-pass ledger.
+    finalAnalysis.pattern_signals = validatePatternSignals(ledger.pattern_signals, messages);
     return finalAnalysis;
 }
 
@@ -283,7 +288,7 @@ async function runFinalPass(args: {
     repairIssues?: string[];
 }) {
     return callStructured({
-        schema: conversationAnalysisSchema,
+        schema: finalAnalysisSchema,
         jsonSchema: ANALYSIS_JSON_SCHEMA,
         schemaName: "conversation_analysis",
         system: analysisSystemPrompt(),
@@ -373,7 +378,8 @@ REGRAS ABSOLUTAS
 - Em sentiment_signals, supports_satisfaction_score só pode ser true quando o cliente avalia explicitamente ou de forma inequívoca o atendimento/resultado; emoção geral, respostas factuais e educação não bastam.
 - Use apenas message_ids existentes.
 - summary_pt_br deve ser curto, factual e em português do Brasil.
-- Não invente fatos ausentes.`;
+- Não invente fatos ausentes.
+${PATTERN_SIGNALS_PROMPT}`;
 }
 
 function evidenceUserPrompt(
@@ -525,6 +531,7 @@ function validateLedger(
     const finalEvidence = validIds(raw.final_exchange.evidence_message_ids);
 
     return {
+        pattern_signals: validatePatternSignals(raw.pattern_signals, messages),
         primary_goal: {
             ...raw.primary_goal,
             evidence_message_ids: primaryGoalEvidence,
@@ -1385,3 +1392,4 @@ function formatError(error: unknown) {
         return String(error);
     }
 }
+

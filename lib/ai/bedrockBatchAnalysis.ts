@@ -1,3 +1,4 @@
+import { PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
 // lib/ai/bedrockBatchAnalysis.ts
 import { z } from "zod";
 
@@ -381,7 +382,8 @@ REGRAS ABSOLUTAS
 - Use apenas message_ids existentes em evidence_message_ids.
 - Preserve exatamente IDs e timestamps recebidos nos campos de metadados.
 - short_label deve ser curto, factual e em português do Brasil.
-- Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.`;
+- Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.
+${PATTERN_SIGNALS_PROMPT}`;
 }
 
 async function persistCompletedAnalysis(conversationId: string, rawContent: string) {
@@ -409,6 +411,7 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
     const effectiveEnd = getConversationEffectiveEndMessage(messages);
     const normalizedAnalysis: ConversationAnalysis = {
         ...parsed,
+        pattern_signals: parsed.pattern_signals === null ? null : validatePatternSignals(parsed.pattern_signals, messages),
         conversation_id: conversationId,
         client_id: conversation.client_id,
         instagram_user_id: conversation.instagram_user_id,
@@ -429,7 +432,7 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         },
         analysis_provider: "bedrock",
         analysis_model: MODEL_ID,
-        analysis_prompt_version: "bedrock-batch-single-pass-v1",
+        analysis_prompt_version: parsed.pattern_signals === null ? "bedrock-batch-single-pass-v1" : "bedrock-batch-single-pass-v2-patterns",
         analysis_message_count: messages.length,
     };
 
@@ -1136,3 +1139,4 @@ function decodeXml(value: string) {
 function formatError(error: unknown) {
     return error instanceof Error ? error.message : String(error);
 }
+

@@ -43,5 +43,9 @@ jobs:
       - name: Typecheck
         run: pnpm exec tsc --noEmit
 
+      - name: Pattern signal regression checks
+        run: node --import tsx scripts/test-pattern-signals.ts
+
       - name: Build
         run: pnpm build
+
