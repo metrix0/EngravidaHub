@@ -55,7 +55,8 @@ export async function GET(request: Request) {
             request.signal,
         );
         const rows = await loadMarkingRows(endExclusive, request.signal);
-        const firstRowIds = firstMarkingRowIds(rows);
+        const ambiguousClientIds = findAmbiguousClientIds(rows);
+        const firstRowIds = firstMarkingRowIds(rows, ambiguousClientIds);
         const selectedUnitKeys =
             selectedUnitNames === null
                 ? null
@@ -102,6 +103,7 @@ export async function GET(request: Request) {
                     unitRows[0]?.unit_name?.trim() || "Sem unidade",
                     unitRows,
                     firstRowIds,
+                    ambiguousClientIds,
                     projectionFactor,
                 ),
             )
@@ -118,12 +120,14 @@ export async function GET(request: Request) {
                     "Total geral",
                     currentRows,
                     firstRowIds,
+                    ambiguousClientIds,
                     projectionFactor,
                 ),
                 previous_total: summarizeUnit(
                     "Total geral",
                     previousRows,
                     firstRowIds,
+                    ambiguousClientIds,
                     1,
                 ),
             },
@@ -195,12 +199,36 @@ async function loadMarkingRows(endExclusive: string, signal: AbortSignal) {
     return rows;
 }
 
-function firstMarkingRowIds(rows: MarkingRow[]) {
+function findAmbiguousClientIds(rows: MarkingRow[]) {
+    const phonesByClient = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+        if (!row.client_id) continue;
+
+        const phone = row.normalized_phone?.trim();
+        if (!phone) continue;
+
+        const phones = phonesByClient.get(row.client_id) ?? new Set<string>();
+        phones.add(phone);
+        phonesByClient.set(row.client_id, phones);
+    }
+
+    return new Set(
+        [...phonesByClient.entries()]
+            .filter(([, phones]) => phones.size > 1)
+            .map(([clientId]) => clientId),
+    );
+}
+
+function firstMarkingRowIds(
+    rows: MarkingRow[],
+    ambiguousClientIds: Set<string>,
+) {
     const seen = new Set<string>();
     const firstIds = new Set<string>();
 
     for (const row of rows) {
-        const identity = markingIdentity(row);
+        const identity = markingIdentity(row, ambiguousClientIds);
         if (seen.has(identity)) continue;
 
         seen.add(identity);
@@ -214,9 +242,12 @@ function summarizeUnit(
     unitName: string,
     rows: MarkingRow[],
     firstRowIds: Set<string>,
+    ambiguousClientIds: Set<string>,
     projectionFactor: number,
 ): MarkingUnitRow {
-    const uniqueMarkings = new Set(rows.map(markingIdentity)).size;
+    const uniqueMarkings = new Set(
+        rows.map((row) => markingIdentity(row, ambiguousClientIds)),
+    ).size;
     const firstAppointments = rows.filter((row) => firstRowIds.has(row.id)).length;
     const rescheduled = rows.filter(
         (row) => normalizeScheduleStatus(row.status) === "rescheduled",
@@ -239,13 +270,16 @@ function summarizeUnit(
     };
 }
 
-function markingIdentity(row: MarkingRow) {
-    const patient = normalizePatientName(row.patient_name);
-    if (patient) return `patient:${patient}`;
+function markingIdentity(row: MarkingRow, ambiguousClientIds: Set<string>) {
+    if (row.client_id && !ambiguousClientIds.has(row.client_id)) {
+        return `client:${row.client_id}`;
+    }
 
     const phone = row.normalized_phone?.trim();
     if (phone) return `phone:${phone}`;
-    if (row.client_id) return `client:${row.client_id}`;
+
+    const patient = normalizePatientName(row.patient_name);
+    if (patient) return `patient:${patient}`;
 
     return `schedule:${row.source_hash || row.id}`;
 }
