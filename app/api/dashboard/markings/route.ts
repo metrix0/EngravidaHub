@@ -240,12 +240,13 @@ function summarizeUnit(
 }
 
 function markingIdentity(row: MarkingRow) {
-    const patient = normalizePatientName(row.patient_name);
-    if (patient) return `patient:${patient}`;
+    if (row.client_id) return `client:${row.client_id}`;
 
     const phone = row.normalized_phone?.trim();
     if (phone) return `phone:${phone}`;
-    if (row.client_id) return `client:${row.client_id}`;
+
+    const patient = normalizePatientName(row.patient_name);
+    if (patient) return `patient:${patient}`;
 
     return `schedule:${row.source_hash || row.id}`;
 }
