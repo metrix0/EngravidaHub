@@ -77,6 +77,14 @@ export async function GET(request: Request) {
                             typeof row.filters?.automation === "string"
                                 ? row.filters.automation
                                 : null,
+                        cadence_id:
+                            typeof row.filters?.cadence_id === "string"
+                                ? row.filters.cadence_id
+                                : null,
+                        cadence_label:
+                            typeof row.filters?.cadence_label === "string"
+                                ? row.filters.cadence_label
+                                : null,
                         response_count: metrics?.response_count ?? 0,
                         schedule_count: metrics?.schedule_count ?? 0,
                     };
