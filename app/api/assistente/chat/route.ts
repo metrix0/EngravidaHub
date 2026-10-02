@@ -23,8 +23,6 @@ const MAX_MESSAGES = 24;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
 const MAX_PLAIN_LANGUAGE_RETRIES = 1;
 const MAX_OUTPUT_TOKENS = 6_000;
-const MAX_PRESENTATION_TOOL_ROUNDS = 4;
-const MAX_CUSTOM_CSV_ROWS = 500;
 const MAX_RESPONSE_CARDS = 3;
 const SUPABASE_MCP_SERVER_LABEL = "supabase";
 
@@ -38,11 +36,6 @@ const PRESENTATION_TOOLS = [
         "get_conversation_context",
         "show_conversation_card",
         "Exibe o card clicável de uma conversa já identificada pelo MCP. Use somente depois de confirmar a conversa e obter seu ID pelo MCP.",
-    ),
-    cloneAssistantTool(
-        "create_csv_export",
-        "create_csv_export",
-        "Cria um arquivo CSV real para download nos formatos padrão de clientes, agendamentos ou conversas. Use quando esse formato padrão atender ao pedido.",
     ),
     {
         type: "function",
@@ -65,7 +58,6 @@ const PRESENTATION_TOOLS = [
                 },
                 rows: {
                     type: "array",
-                    maxItems: MAX_CUSTOM_CSV_ROWS,
                     items: {
                         type: "array",
                         items: {
@@ -73,8 +65,13 @@ const PRESENTATION_TOOLS = [
                         },
                     },
                 },
+                confirmed_over_10000: {
+                    type: "boolean",
+                    description:
+                        "Use false normalmente. Use true somente quando o usuário já confirmou explicitamente que deseja exportar mais de 10.000 linhas.",
+                },
             },
-            required: ["file_name", "columns", "rows"],
+            required: ["file_name", "columns", "rows", "confirmed_over_10000"],
             additionalProperties: false,
         },
     },
@@ -197,7 +194,7 @@ export async function POST(request: Request) {
         const toolsUsed = new Set<string>();
         const cards = new Map<string, AssistantCard>();
         let toolRounds = 0;
-        let presentationToolRounds = 0;
+        const usedPresentationTools = new Set<string>();
         const toolContext = {
             authUserId: access.user.id,
             sessionId: body.session_id,
@@ -234,7 +231,12 @@ export async function POST(request: Request) {
                     sessionMemory,
                 ),
                 input,
-                tools: [supabaseMcpTool, ...PRESENTATION_TOOLS],
+                tools: [
+                    supabaseMcpTool,
+                    ...PRESENTATION_TOOLS.filter(
+                        (tool) => !usedPresentationTools.has(tool.name),
+                    ),
+                ],
                 tool_choice: "auto",
                 max_output_tokens: MAX_OUTPUT_TOKENS,
                 prompt_cache_key: `assistente:${access.user.id}`,
@@ -281,19 +283,15 @@ export async function POST(request: Request) {
             }
 
             if (functionCalls.length > 0) {
-                if (presentationToolRounds >= MAX_PRESENTATION_TOOL_ROUNDS) {
-                    throw new Error(
-                        "Limite de etapas de apresentação do Assistente atingido.",
-                    );
-                }
-                presentationToolRounds += 1;
-
                 const names = functionCalls
                     .map((call) =>
                         typeof call.name === "string" ? call.name : "",
                     )
                     .filter(Boolean);
-                for (const name of names) toolsUsed.add(name);
+                for (const name of names) {
+                    toolsUsed.add(name);
+                    usedPresentationTools.add(name);
+                }
 
                 await sendEvent({
                     type: "status",
@@ -516,9 +514,10 @@ FORMATO DA RESPOSTA:
 17. Para comparações, prefira uma tabela Markdown compacta antes da análise textual.
 18. Escreva parágrafos curtos. Use listas apenas para conjuntos genuínos de itens e evite repetir o mesmo dado.
 19. Nunca exponha identificadores internos, nomes de tabelas/colunas, comandos, ferramentas, rotas, fornecedores de infraestrutura ou detalhes técnicos do MCP. Use esses dados silenciosamente e traduza tudo para linguagem de negócio.
-20. O MCP é a fonte de dados. As funções locais show_client_card, show_conversation_card, create_csv_export e create_csv_download servem somente para apresentação/download; não substitua a consulta pelo MCP por essas funções.
+20. O MCP é a fonte de dados. As funções locais show_client_card, show_conversation_card e create_csv_download servem somente para apresentação/download; não substitua a consulta pelo MCP por essas funções.
 20-A. Quando a resposta for sobre uma pessoa específica, depois de confirmar o cliente pelo MCP use show_client_card. Quando uma conversa específica for evidência importante, use show_conversation_card. Use no máximo um card de cliente e um de conversa por resposta.
-20-B. Quando o usuário pedir CSV, planilha, exportação ou download, sempre crie um arquivo real. Use create_csv_export para os formatos padrão de clientes/agendamentos/conversas. Para colunas personalizadas ou cruzamento de fontes, consulte os dados pelo MCP e passe as linhas finais para create_csv_download. Nunca diga que não pode criar o arquivo por ser somente leitura.
+20-B. Quando o usuário pedir CSV, planilha, exportação ou download, sempre crie um arquivo real com create_csv_download. Consulte e cruze os dados pelo MCP primeiro e passe as linhas finais para o arquivo. Nunca diga que não pode criar o arquivo por ser somente leitura.
+20-C. O limite de 10.000 linhas é apenas um ponto de confirmação, não um teto. Se o resultado tiver até 10.000 linhas, exporte imediatamente. Se tiver mais de 10.000, informe a quantidade e pergunte ao usuário se deseja continuar; não crie o arquivo nesse turno. Se o usuário confirmar explicitamente, faça a exportação completa, sem truncar nem impor outro limite, usando confirmed_over_10000=true.
 21. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando somente dados consultados:
 \`\`\`assistant-chart
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
@@ -637,10 +636,6 @@ async function executePresentationTool(
         };
     }
 
-    if (name === "create_csv_export") {
-        return executeAssistantTool(name, args, context);
-    }
-
     if (name === "create_csv_download") {
         return createCustomCsvDownload(args, context);
     }
@@ -660,13 +655,26 @@ async function createCustomCsvDownload(
               .slice(0, 40)
         : [];
     const rows = Array.isArray(args.rows)
-        ? args.rows
-              .filter((row): row is unknown[] => Array.isArray(row))
-              .slice(0, MAX_CUSTOM_CSV_ROWS)
+        ? args.rows.filter((row): row is unknown[] => Array.isArray(row))
         : [];
+    const confirmedOver10000 = args.confirmed_over_10000 === true;
 
     if (columns.length === 0) {
         throw new Error("O CSV precisa ter ao menos uma coluna.");
+    }
+
+    if (rows.length > 10_000 && !confirmedOver10000) {
+        return {
+            output: {
+                ok: false,
+                requires_confirmation: true,
+                row_count: rows.length,
+                confirmation_threshold: 10_000,
+                message:
+                    "A exportação tem mais de 10.000 linhas. Confirme com o usuário antes de gerar o arquivo completo.",
+            },
+            cards: [],
+        };
     }
 
     const normalizedRows = rows.map((row) =>
