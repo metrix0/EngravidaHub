@@ -18,7 +18,7 @@ import {
     useState,
 } from "react";
 
-import ButtonGroup from "@/components/ui/ButtonGroup";
+import { CadencedDeliveryToggle } from "@/components/active-messages/CadencedDeliveryToggle";
 import { Modal } from "@/components/ui/Modal";
 import {
     getActiveMessageTemplateCategoryLabel,
@@ -462,67 +462,55 @@ export function SpreadsheetImportModal({
                 )}
 
                 {result ? (
-                    <div className="mt-5">
-                        <div className="mb-2 text-xs font-bold text-slate-600">
-                            Tipo de envio
+                    <CadencedDeliveryToggle
+                        checked={deliveryMode === "cadenced"}
+                        disabled={sending}
+                        onChange={(checked) =>
+                            setDeliveryMode(
+                                checked ? "cadenced" : "immediate",
+                            )
+                        }
+                        className="mt-5"
+                    >
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <label className="block">
+                                <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                                    Mensagens por dia
+                                </span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={maxClients}
+                                    step={1}
+                                    value={messagesPerDay}
+                                    disabled={
+                                        deliveryMode !== "cadenced" ||
+                                        sending
+                                    }
+                                    onChange={(event) =>
+                                        setMessagesPerDay(
+                                            event.target.value,
+                                        )
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-60"
+                                />
+                            </label>
+                            {cadenceValid ? (
+                                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                    {parsedMessagesPerDay.toLocaleString(
+                                        "pt-BR",
+                                    )}
+                                    /dia, distribuídas entre 11h, 12h,
+                                    13h e 14h, até terminar a lista.
+                                </p>
+                            ) : (
+                                <p className="mt-2 text-xs font-semibold text-red">
+                                    Informe um valor entre 1 e{" "}
+                                    {maxClients}.
+                                </p>
+                            )}
                         </div>
-                        <ButtonGroup
-                            value={deliveryMode}
-                            onChange={(value) =>
-                                setDeliveryMode(
-                                    value as SpreadsheetImportDeliveryMode,
-                                )
-                            }
-                            options={[
-                                {
-                                    value: "immediate",
-                                    label: "Enviar agora",
-                                },
-                                {
-                                    value: "cadenced",
-                                    label: "Envio cadenciado",
-                                },
-                            ]}
-                            className="w-full"
-                        />
-
-                        {deliveryMode === "cadenced" ? (
-                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                <label className="block">
-                                    <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                                        Mensagens por dia
-                                    </span>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={maxClients}
-                                        step={1}
-                                        value={messagesPerDay}
-                                        onChange={(event) =>
-                                            setMessagesPerDay(
-                                                event.target.value,
-                                            )
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
-                                    />
-                                </label>
-                                {cadenceValid ? (
-                                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                                        {parsedMessagesPerDay.toLocaleString(
-                                            "pt-BR",
-                                        )}
-                                        /dia, distribuídas entre 11h, 12h,
-                                        13h e 14h, até terminar a lista.
-                                    </p>
-                                ) : (
-                                    <p className="mt-2 text-xs font-semibold text-red">
-                                        Informe um valor entre 1 e{" "}
-                                        {maxClients}.
-                                    </p>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
+                    </CadencedDeliveryToggle>
                 ) : null}
 
                 {error ? (
@@ -561,9 +549,7 @@ export function SpreadsheetImportModal({
                                 <br />
                                 Custo selecionado: <strong>{formatEstimatedCost(estimatedCost)}</strong>
                             </>
-                        ) : (
-                            "Os arquivos são processados somente no navegador."
-                        )}
+                        ) : null}
                     </div>
 
                     <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">

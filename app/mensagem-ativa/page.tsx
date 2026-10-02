@@ -47,6 +47,7 @@ import {
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import { CadencedDeliveryToggle } from "@/components/active-messages/CadencedDeliveryToggle";
 import {
     SpreadsheetImportModal,
     type SpreadsheetImportSendPayload,
@@ -1545,34 +1546,17 @@ function SendConfirmationModal({
                     </div>
                 </div>
 
-                <div className="mt-5">
-                    <div className="mb-2 text-xs font-bold text-slate-600">
-                        Tipo de envio
-                    </div>
-                    <ButtonGroup
-                        value={deliveryMode}
-                        onChange={(value) =>
-                            setDeliveryMode(
-                                value as ActiveMessageDeliveryMode,
-                            )
-                        }
-                        options={[
-                            { value: "immediate", label: "Enviar agora" },
-                            { value: "cadenced", label: "Envio cadenciado" },
-                        ]}
-                        className="w-full"
-                    />
-                    {selectionTooLarge ? (
-                        <p className="mt-2 text-xs font-semibold text-red">
-                            Envios imediatos aceitam até{" "}
-                            {MAX_CLIENTS_PER_SEND} clientes. Use Envio
-                            cadenciado para esta seleção.
-                        </p>
-                    ) : null}
-                </div>
-
-                {deliveryMode === "cadenced" ? (
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <CadencedDeliveryToggle
+                    checked={deliveryMode === "cadenced"}
+                    disabled={sending}
+                    onChange={(checked) =>
+                        setDeliveryMode(
+                            checked ? "cadenced" : "immediate",
+                        )
+                    }
+                    className="mt-5"
+                >
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <label className="block">
                             <span className="mb-1.5 block text-xs font-bold text-slate-600">
                                 Mensagens por dia
@@ -1583,10 +1567,13 @@ function SendConfirmationModal({
                                 max={MAX_CLIENTS_PER_SEND}
                                 step={1}
                                 value={messagesPerDay}
+                                disabled={
+                                    deliveryMode !== "cadenced" || sending
+                                }
                                 onChange={(event) =>
                                     setMessagesPerDay(event.target.value)
                                 }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                         </label>
                         {cadenceValid ? (
@@ -1603,6 +1590,14 @@ function SendConfirmationModal({
                             </p>
                         )}
                     </div>
+                </CadencedDeliveryToggle>
+
+                {selectionTooLarge ? (
+                    <p className="mt-2 text-xs font-semibold text-red">
+                        Envios imediatos aceitam até{" "}
+                        {MAX_CLIENTS_PER_SEND} clientes. Use Envio
+                        cadenciado para esta seleção.
+                    </p>
                 ) : null}
 
                 <p className="mt-4 text-xs leading-relaxed text-slate-400">
