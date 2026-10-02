@@ -1115,7 +1115,7 @@ export default function MensagemAtivaPage() {
                                         <button
                                             type="button"
                                             disabled
-                                            className="flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-300 shadow-none"
+                                            className="flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 text-sm font-semibold text-slate-400 shadow-none"
                                         >
                                             <FileUp size={17} />
                                             Importar planilha
@@ -1146,7 +1146,7 @@ export default function MensagemAtivaPage() {
                                         <button
                                             type="button"
                                             disabled
-                                            className="flex h-11 min-w-[120px] cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                                            className="flex h-11 min-w-[120px] cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 text-sm font-bold text-slate-400 shadow-none"
                                         >
                                             <Send size={17} />
                                             Enviar
