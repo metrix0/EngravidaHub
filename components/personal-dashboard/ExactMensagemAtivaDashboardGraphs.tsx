@@ -123,6 +123,7 @@ export function CadencedMessagesCard({ history, loading = false }: { history: Hi
             title="Mensagens Ativas Cadenciadas"
             infoText="Mostra, por dia, apenas os envios cadenciados e seus resultados. O filtro separa cada cadência pelo tamanho original da lista, limite diário e template."
             groupBy="cadence"
+            sentColor="#e29229"
         />
     );
 }
@@ -154,6 +155,7 @@ export function VolumeResultsCard({
     infoText = "Mostra, por dia, quantos Envios Ativos foram enviados e quantos geraram respostas e agendamentos, com filtro por template.",
     showTemplateFilter = true,
     groupBy = "template",
+    sentColor = "#06b6d4",
 }: {
     history: HistoryItem[];
     loading?: boolean;
@@ -161,6 +163,7 @@ export function VolumeResultsCard({
     infoText?: string;
     showTemplateFilter?: boolean;
     groupBy?: "template" | "cadence";
+    sentColor?: string;
 }) {
     const templateData = useMemo(
         () =>
@@ -252,7 +255,7 @@ export function VolumeResultsCard({
                     </div>
                 ) : null}
             </div>
-            {templateData.length > 0 ? <div className="mt-5 grid grid-cols-3 gap-3"><ActiveMessageTotal label="Enviados" value={chartTotals.sent} color="#06b6d4" /><ActiveMessageTotal label="Respostas" value={chartTotals.responses} color="#10b981" /><ActiveMessageTotal label="Agendamentos" value={chartTotals.schedules} color="#8b5cf6" /></div> : null}
+            {templateData.length > 0 ? <div className="mt-5 grid grid-cols-3 gap-3"><ActiveMessageTotal label="Enviados" value={chartTotals.sent} color={sentColor} /><ActiveMessageTotal label="Respostas" value={chartTotals.responses} color="#10b981" /><ActiveMessageTotal label="Agendamentos" value={chartTotals.schedules} color="#8b5cf6" /></div> : null}
             {loading ? <Skeleton className="mt-5 h-[280px] rounded-xl" /> : dailyData.length > 0 ? (
                 <div className="mt-5 h-[320px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -261,7 +264,7 @@ export function VolumeResultsCard({
                             <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" minTickGap={18} />
                             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" width={42} />
                             <Tooltip />
-                            <Bar dataKey="sent" name="Envios" fill="#06b6d4" radius={[5, 5, 0, 0]} />
+                            <Bar dataKey="sent" name="Envios" fill={sentColor} radius={[5, 5, 0, 0]} />
                             <Line type="monotone" dataKey="responses" name="Respostas" stroke="#10b981" strokeWidth={3} />
                             <Line type="monotone" dataKey="schedules" name="Agendamentos" stroke="#8b5cf6" strokeWidth={3} />
                         </ComposedChart>
