@@ -36,6 +36,7 @@ import {
     DataTable,
     DropdownSelect,
     HoverBadgeList,
+    InfoTooltip,
     Modal,
     Pagination,
     SearchFilter,
@@ -47,6 +48,7 @@ import {
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
+import { CadencedDeliveryToggle } from "@/components/active-messages/CadencedDeliveryToggle";
 import {
     SpreadsheetImportModal,
     type SpreadsheetImportSendPayload,
@@ -56,6 +58,7 @@ import ButtonGroup from "@/components/ui/ButtonGroup";
 import {
     TemplatesUsedCard as SharedTemplatesUsedCard,
     VolumeResultsCard as SharedVolumeResultsCard,
+    CadencedMessagesCard as SharedCadencedMessagesCard,
     ResgateLeadsCard as SharedResgateLeadsCard,
     HistoryTable as SharedHistoryTable,
 } from "@/components/personal-dashboard/ExactMensagemAtivaDashboardGraphs";
@@ -119,6 +122,8 @@ type ActiveMessageAnalyticsHistoryItem = {
     schedule_count: number;
     created_at: string;
     automation: string | null;
+    cadence_id: string | null;
+    cadence_label: string | null;
 };
 
 type ActiveMessageAnalyticsResponse = {
@@ -888,6 +893,8 @@ export default function MensagemAtivaPage() {
                             importedClientIds.length,
                     },
                 },
+                deliveryMode: payload.deliveryMode,
+                messagesPerDay: payload.messagesPerDay,
             });
 
             if (sent) setSpreadsheetImportOpen(false);
@@ -1097,51 +1104,79 @@ export default function MensagemAtivaPage() {
                                 onClear={clearSelection}
                             />
 
-                            <button
-                                type="button"
-                                onClick={() => setSpreadsheetImportOpen(true)}
-                                className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-                            >
-                                <FileUp size={17} />
-                                Importar planilha
-                            </button>
+                            {!selectedTemplate ||
+                            !templateFieldsComplete ? (
+                                <InfoTooltip
+                                    text="Selecione um template e preencha os campos obrigatórios para importar uma planilha."
+                                    portal
+                                    fitContent
+                                >
+                                    <span className="inline-flex">
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 text-sm font-semibold text-slate-400 shadow-none"
+                                        >
+                                            <FileUp size={17} />
+                                            Importar planilha
+                                        </button>
+                                    </span>
+                                </InfoTooltip>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setSpreadsheetImportOpen(true)
+                                    }
+                                    className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                >
+                                    <FileUp size={17} />
+                                    Importar planilha
+                                </button>
+                            )}
 
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    setConfirmationOpen(true)
-                                }
-                                disabled={
-                                    !selectedTemplate ||
-                                    !templateFieldsComplete ||
-                                    selectedCount === 0 ||
-                                    selectedCount >
-                                        MAX_CLIENTS_PER_SEND ||
-                                    sending
-                                }
-                                className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                            >
-                                {sending ? (
-                                    <LoaderCircle
-                                        size={17}
-                                        className="animate-spin"
-                                    />
-                                ) : (
-                                    <Send size={17} />
-                                )}
-                                {sending ? "Enviando..." : "Enviar"}
-                            </button>
+                            {!selectedTemplate ||
+                            !templateFieldsComplete ? (
+                                <InfoTooltip
+                                    text="Selecione um template e preencha os campos obrigatórios para enviar."
+                                    portal
+                                    fitContent
+                                >
+                                    <span className="inline-flex">
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="flex h-11 min-w-[120px] cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 text-sm font-bold text-slate-400 shadow-none"
+                                        >
+                                            <Send size={17} />
+                                            Enviar
+                                        </button>
+                                    </span>
+                                </InfoTooltip>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setConfirmationOpen(true)
+                                    }
+                                    disabled={
+                                        selectedCount === 0 || sending
+                                    }
+                                    className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                                >
+                                    {sending ? (
+                                        <LoaderCircle
+                                            size={17}
+                                            className="animate-spin"
+                                        />
+                                    ) : (
+                                        <Send size={17} />
+                                    )}
+                                    {sending ? "Enviando..." : "Enviar"}
+                                </button>
+                            )}
                         </div>
                     </div>
-
-                    {selectedCount > MAX_CLIENTS_PER_SEND ? (
-                        <div className="border-b border-red/15 bg-red-soft px-6 py-3 text-sm font-bold text-red">
-                            O limite é de{" "}
-                            {MAX_CLIENTS_PER_SEND} clientes por
-                            envio. Refine a seleção ou desmarque
-                            alguns clientes.
-                        </div>
-                    ) : null}
 
                     <DataTable
                         columns={columns}
@@ -1408,7 +1443,7 @@ function ActiveMessageAnalytics({ history }: { history: ActiveMessageSendHistory
             <div className="mb-4 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand"><ChartNoAxesCombined size={19} /></div><div><h2 className="font-bold text-slate-950">Desempenho dos envios</h2><p className="mt-1 text-sm text-slate-500">Uso dos templates, volume enviado e resultados.</p></div></div>
             <div aria-hidden={!dateFilterReady} className={`mb-6 flex flex-wrap items-center justify-end gap-2 ${dateFilterReady ? "" : "invisible pointer-events-none select-none"}`}><ButtonGroup value={period} onChange={(value) => { setPeriod(value); setSelectedRange({ start: null, end: null }); }} options={DEFAULT_CALENDAR_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}><CalendarButton value={selectedRange} onChange={setSelectedRange} onApply={(range) => { if (range.start) { setPeriod(null); return; } setPeriod(DEFAULT_CALENDAR_PRESETS[0]?.value ?? "yesterday"); }} /></ButtonGroup></div>
             {analyticsError ? <div className="mb-6 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-bold text-red">{analyticsError}</div> : null}
-            <div className="grid items-start gap-6 xl:grid-cols-2"><SharedTemplatesUsedCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedVolumeResultsCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedResgateLeadsCard history={analyticsHistory} loading={initialAnalyticsLoading} /></div>
+            <div className="grid items-start gap-6 xl:grid-cols-2"><SharedTemplatesUsedCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedVolumeResultsCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedResgateLeadsCard history={analyticsHistory} loading={initialAnalyticsLoading} /><SharedCadencedMessagesCard history={analyticsHistory} loading={initialAnalyticsLoading} /></div>
         </section>
     );
 }
@@ -1484,7 +1519,11 @@ function SendConfirmationModal({
 
     useEffect(() => {
         if (!open) return;
-        setDeliveryMode("immediate");
+        setDeliveryMode(
+            selectedCount > MAX_CLIENTS_PER_SEND
+                ? "cadenced"
+                : "immediate",
+        );
         setMessagesPerDay(String(Math.min(100, Math.max(1, selectedCount))));
     }, [open, selectedCount]);
 
@@ -1496,6 +1535,9 @@ function SendConfirmationModal({
     const cadenceSlices = cadenceValid
         ? splitCadenceDailyLimit(parsedMessagesPerDay)
         : [0, 0, 0, 0];
+    const selectionTooLarge =
+        deliveryMode === "immediate" &&
+        selectedCount > MAX_CLIENTS_PER_SEND;
 
     return (
         <Modal
@@ -1547,27 +1589,17 @@ function SendConfirmationModal({
                     </div>
                 </div>
 
-                <div className="mt-5">
-                    <div className="mb-2 text-xs font-bold text-slate-600">
-                        Tipo de envio
-                    </div>
-                    <ButtonGroup
-                        value={deliveryMode}
-                        onChange={(value) =>
-                            setDeliveryMode(
-                                value as ActiveMessageDeliveryMode,
-                            )
-                        }
-                        options={[
-                            { value: "immediate", label: "Enviar agora" },
-                            { value: "cadenced", label: "Envio cadenciado" },
-                        ]}
-                        className="w-full"
-                    />
-                </div>
-
-                {deliveryMode === "cadenced" ? (
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <CadencedDeliveryToggle
+                    checked={deliveryMode === "cadenced"}
+                    disabled={sending}
+                    onChange={(checked) =>
+                        setDeliveryMode(
+                            checked ? "cadenced" : "immediate",
+                        )
+                    }
+                    className="mt-5"
+                >
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <label className="block">
                             <span className="mb-1.5 block text-xs font-bold text-slate-600">
                                 Mensagens por dia
@@ -1578,10 +1610,13 @@ function SendConfirmationModal({
                                 max={MAX_CLIENTS_PER_SEND}
                                 step={1}
                                 value={messagesPerDay}
+                                disabled={
+                                    deliveryMode !== "cadenced" || sending
+                                }
                                 onChange={(event) =>
                                     setMessagesPerDay(event.target.value)
                                 }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                         </label>
                         {cadenceValid ? (
@@ -1598,6 +1633,14 @@ function SendConfirmationModal({
                             </p>
                         )}
                     </div>
+                </CadencedDeliveryToggle>
+
+                {selectionTooLarge ? (
+                    <p className="mt-2 text-xs font-semibold text-red">
+                        Envios imediatos aceitam até{" "}
+                        {MAX_CLIENTS_PER_SEND} clientes. Use Envio
+                        cadenciado para esta seleção.
+                    </p>
                 ) : null}
 
                 <p className="mt-4 text-xs leading-relaxed text-slate-400">
@@ -1627,6 +1670,7 @@ function SendConfirmationModal({
                         }
                         disabled={
                             sending ||
+                            selectionTooLarge ||
                             (deliveryMode === "cadenced" && !cadenceValid)
                         }
                         className="flex h-11 min-w-[150px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"

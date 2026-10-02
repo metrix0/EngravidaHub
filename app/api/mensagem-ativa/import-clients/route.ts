@@ -11,7 +11,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MAX_CLIENTS_PER_IMPORT = 500;
 const QUERY_BATCH_SIZE = 100;
 const CREATE_CONCURRENCY = 8;
 
@@ -63,15 +62,6 @@ export async function POST(request: Request) {
     if (inputs.length === 0) {
         return NextResponse.json(
             { error: "Nenhum novo cliente com telefone válido foi informado" },
-            { status: 400 },
-        );
-    }
-
-    if (inputs.length > MAX_CLIENTS_PER_IMPORT) {
-        return NextResponse.json(
-            {
-                error: `Cada importação aceita até ${MAX_CLIENTS_PER_IMPORT} novos clientes.`,
-            },
             { status: 400 },
         );
     }

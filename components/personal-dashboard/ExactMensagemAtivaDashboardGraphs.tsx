@@ -29,6 +29,8 @@ export type HistoryItem = {
     schedule_count: number;
     created_at: string;
     automation: string | null;
+    cadence_id: string | null;
+    cadence_label: string | null;
 };
 
 type Props = { widgetId: string; data: { history: HistoryItem[] } };
@@ -39,6 +41,9 @@ export default function ExactMensagemAtivaDashboardGraphs({ widgetId, data }: Pr
     }
     if (widgetId === "mensagem_ativa.volume_resultados") {
         return <VolumeResultsCard history={data.history} />;
+    }
+    if (widgetId === "mensagem_ativa.mensagens_cadenciadas") {
+        return <CadencedMessagesCard history={data.history} />;
     }
     if (widgetId === "mensagem_ativa.fluxo_resgate_leads") {
         return <ResgateLeadsCard history={data.history} />;
@@ -58,6 +63,25 @@ function buildTemplateData(history: HistoryItem[]) {
         current.responses += send.response_count;
         current.schedules += send.schedule_count;
         totals.set(key, current);
+    }
+    return [...totals.values()].sort((first, second) => second.sent - first.sent);
+}
+
+function buildCadenceData(history: HistoryItem[]) {
+    const totals = new Map<string, { key: string; name: string; sent: number; responses: number; schedules: number }>();
+    for (const send of history) {
+        if (!send.cadence_id || !send.cadence_label) continue;
+        const current = totals.get(send.cadence_id) ?? {
+            key: send.cadence_id,
+            name: send.cadence_label,
+            sent: 0,
+            responses: 0,
+            schedules: 0,
+        };
+        current.sent += send.sent_count;
+        current.responses += send.response_count;
+        current.schedules += send.schedule_count;
+        totals.set(send.cadence_id, current);
     }
     return [...totals.values()].sort((first, second) => second.sent - first.sent);
 }
@@ -86,9 +110,30 @@ export function TemplatesUsedCard({ history, loading = false, title = "Templates
     );
 }
 
+export function CadencedMessagesCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
+    const cadenceHistory = useMemo(
+        () => history.filter((item) => Boolean(item.cadence_id)),
+        [history],
+    );
+
+    return (
+        <VolumeResultsCard
+            history={cadenceHistory}
+            loading={loading}
+            title="Mensagens Ativas Cadenciadas"
+            infoText="Mostra, por dia, apenas os envios cadenciados e seus resultados. O filtro separa cada cadência pelo tamanho original da lista, limite diário e template."
+            groupBy="cadence"
+            sentColor="#e29229"
+        />
+    );
+}
+
 export function ResgateLeadsCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
     const resgateHistory = useMemo(
-        () => history.filter((item) => item.automation === "resgate"),
+        () =>
+            history.filter(
+                (item) => item.automation === "resgate" && !item.cadence_id,
+            ),
         [history],
     );
 
@@ -109,14 +154,24 @@ export function VolumeResultsCard({
     title = "Volume Mensagens Ativas",
     infoText = "Mostra, por dia, quantos Envios Ativos foram enviados e quantos geraram respostas e agendamentos, com filtro por template.",
     showTemplateFilter = true,
+    groupBy = "template",
+    sentColor = "#06b6d4",
 }: {
     history: HistoryItem[];
     loading?: boolean;
     title?: string;
     infoText?: string;
     showTemplateFilter?: boolean;
+    groupBy?: "template" | "cadence";
+    sentColor?: string;
 }) {
-    const templateData = useMemo(() => buildTemplateData(history), [history]);
+    const templateData = useMemo(
+        () =>
+            groupBy === "cadence"
+                ? buildCadenceData(history)
+                : buildTemplateData(history),
+        [groupBy, history],
+    );
     const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<Set<string> | null>(null);
     const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
     const templateMenuRef = useRef<HTMLDivElement | null>(null);
@@ -128,8 +183,11 @@ export function VolumeResultsCard({
     const dailyData = useMemo(() => {
         const totals = new Map<string, { date: string; sent: number; responses: number; schedules: number }>();
         for (const send of history) {
-            const templateKey = send.template_id || send.template_name;
-            if (!visibleTemplateKeys.has(templateKey)) continue;
+            const templateKey =
+                groupBy === "cadence"
+                    ? send.cadence_id
+                    : send.template_id || send.template_name;
+            if (!templateKey || !visibleTemplateKeys.has(templateKey)) continue;
             const timestamp = new Date(send.created_at);
             if (!Number.isFinite(timestamp.getTime())) continue;
             const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(timestamp);
@@ -140,7 +198,7 @@ export function VolumeResultsCard({
             totals.set(date, current);
         }
         return [...totals.values()].sort((first, second) => first.date.localeCompare(second.date)).map((item) => ({ ...item, label: formatChartDate(item.date) }));
-    }, [history, visibleTemplateKeys]);
+    }, [groupBy, history, visibleTemplateKeys]);
     const chartTotals = useMemo(() => dailyData.reduce((totals, item) => ({ sent: totals.sent + item.sent, responses: totals.responses + item.responses, schedules: totals.schedules + item.schedules }), { sent: 0, responses: 0, schedules: 0 }), [dailyData]);
 
     useEffect(() => {
@@ -153,7 +211,11 @@ export function VolumeResultsCard({
     }, [templateMenuOpen]);
 
     const allTemplatesSelected = templateData.length > 0 && visibleTemplateKeys.size === templateData.length;
-    const templateSelectionLabel = allTemplatesSelected ? "Todos os templates" : `${visibleTemplateKeys.size} de ${templateData.length}`;
+    const allOptionsLabel =
+        groupBy === "cadence" ? "Todas as cadências" : "Todos os templates";
+    const templateSelectionLabel = allTemplatesSelected
+        ? allOptionsLabel
+        : `${visibleTemplateKeys.size} de ${templateData.length}`;
     function toggleTemplate(templateKey: string) {
         setSelectedTemplateKeys((current) => {
             const next = new Set(current ?? templateData.map((item) => item.key));
@@ -179,13 +241,13 @@ export function VolumeResultsCard({
                             <ChevronDown size={14} className={`shrink-0 text-slate-400 transition-transform ${templateMenuOpen ? "rotate-180" : ""}`} />
                         </button>
                         {templateMenuOpen ? (
-                            <div className="absolute right-0 z-50 mt-2 w-[280px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Templates exibidos no gráfico" aria-multiselectable="true">
-                                <button type="button" onClick={toggleAllTemplates} className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${allTemplatesSelected ? "bg-cyan-50 font-semibold text-cyan-700" : "text-slate-600 hover:bg-slate-50"}`} role="option" aria-selected={allTemplatesSelected}><span>Todos os templates</span>{allTemplatesSelected ? <Check size={15} /> : null}</button>
+                            <div className="absolute right-0 z-50 mt-2 w-[280px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label={groupBy === "cadence" ? "Cadências exibidas no gráfico" : "Templates exibidos no gráfico"} aria-multiselectable="true">
+                                <button type="button" onClick={toggleAllTemplates} className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${allTemplatesSelected ? "bg-cyan-50 font-semibold text-cyan-700" : "text-slate-600 hover:bg-slate-50"}`} role="option" aria-selected={allTemplatesSelected}><span>{allOptionsLabel}</span>{allTemplatesSelected ? <Check size={15} /> : null}</button>
                                 <div className="my-1 border-t border-slate-100" />
                                 <div className="max-h-[286px] overflow-y-auto pr-1">
                                     {templateData.map((template) => {
                                         const selected = visibleTemplateKeys.has(template.key);
-                                        return <button key={template.key} type="button" title={template.name} onClick={() => toggleTemplate(template.key)} className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${selected ? "bg-cyan-50 font-semibold text-cyan-700" : "text-slate-600 hover:bg-slate-50"}`} role="option" aria-selected={selected}><span className="truncate" title={template.name}>{shortTemplateSelectorLabel(template.name)}</span>{selected ? <Check size={15} className="shrink-0" /> : null}</button>;
+                                        return <button key={template.key} type="button" title={template.name} onClick={() => toggleTemplate(template.key)} className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${selected ? "bg-cyan-50 font-semibold text-cyan-700" : "text-slate-600 hover:bg-slate-50"}`} role="option" aria-selected={selected}><span className="truncate" title={template.name}>{groupBy === "cadence" ? template.name : shortTemplateSelectorLabel(template.name)}</span>{selected ? <Check size={15} className="shrink-0" /> : null}</button>;
                                     })}
                                 </div>
                             </div>
@@ -193,7 +255,7 @@ export function VolumeResultsCard({
                     </div>
                 ) : null}
             </div>
-            {templateData.length > 0 ? <div className="mt-5 grid grid-cols-3 gap-3"><ActiveMessageTotal label="Enviados" value={chartTotals.sent} color="#06b6d4" /><ActiveMessageTotal label="Respostas" value={chartTotals.responses} color="#10b981" /><ActiveMessageTotal label="Agendamentos" value={chartTotals.schedules} color="#8b5cf6" /></div> : null}
+            {templateData.length > 0 ? <div className="mt-5 grid grid-cols-3 gap-3"><ActiveMessageTotal label="Enviados" value={chartTotals.sent} color={sentColor} /><ActiveMessageTotal label="Respostas" value={chartTotals.responses} color="#10b981" /><ActiveMessageTotal label="Agendamentos" value={chartTotals.schedules} color="#8b5cf6" /></div> : null}
             {loading ? <Skeleton className="mt-5 h-[280px] rounded-xl" /> : dailyData.length > 0 ? (
                 <div className="mt-5 h-[320px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -202,13 +264,13 @@ export function VolumeResultsCard({
                             <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" minTickGap={18} />
                             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" width={42} />
                             <Tooltip />
-                            <Bar dataKey="sent" name="Envios" fill="#06b6d4" radius={[5, 5, 0, 0]} />
+                            <Bar dataKey="sent" name="Envios" fill={sentColor} radius={[5, 5, 0, 0]} />
                             <Line type="monotone" dataKey="responses" name="Respostas" stroke="#10b981" strokeWidth={3} />
                             <Line type="monotone" dataKey="schedules" name="Agendamentos" stroke="#8b5cf6" strokeWidth={3} />
                         </ComposedChart>
                     </ResponsiveContainer>
                 </div>
-            ) : showTemplateFilter && templateData.length > 0 ? <div className="mt-5 flex h-[280px] items-center justify-center rounded-xl bg-slate-50 px-6 text-center text-sm text-slate-500">Selecione ao menos um template.</div> : <ActiveMessageChartEmpty />}
+            ) : showTemplateFilter && templateData.length > 0 ? <div className="mt-5 flex h-[280px] items-center justify-center rounded-xl bg-slate-50 px-6 text-center text-sm text-slate-500">{groupBy === "cadence" ? "Selecione ao menos uma cadência." : "Selecione ao menos um template."}</div> : <ActiveMessageChartEmpty />}
         </section>
     );
 }

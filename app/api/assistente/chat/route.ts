@@ -1,13 +1,8 @@
 // app/api/assistente/chat/route.ts
 import { NextResponse } from "next/server";
-import { ASSISTANT_TOOLS as TOOLS } from "@/lib/ai/assistantTools";
-
 import { supabase } from "@/lib";
-import { executeAssistantTool } from "@/lib/ai/executeAssistantTool";
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
-import { selectAssistantToolNames } from "@/lib/ai/assistantToolRouting";
-import { ASSISTANT_ANALYTICS_GUIDE } from "@/lib/ai/assistantAnalyticsQuery";
 import {
     ASSISTANT_HUB_KNOWLEDGE_BASE,
     ASSISTANT_PLAIN_LANGUAGE_RULE,
@@ -15,10 +10,7 @@ import {
     replaceInternalTechnicalTerms,
 } from "@/lib/ai/assistantHubKnowledge";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
-import type {
-    AssistantCard,
-    AssistantChatRequest,
-} from "@/types/assistant";
+import type { AssistantChatRequest } from "@/types/assistant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,16 +18,10 @@ export const maxDuration = 300;
 
 const MODEL = "gpt-5.6-luna";
 const MAX_MESSAGES = 24;
-const MAX_TOOL_ROUNDS = 8;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
 const MAX_PLAIN_LANGUAGE_RETRIES = 1;
 const MAX_OUTPUT_TOKENS = 6_000;
-const MAX_RESPONSE_CARDS = 3;
-const MAX_CONVERSATION_CARDS = 1;
-const MAX_CLIENT_CARDS = 1;
-const MAX_EXPORT_CARDS = 1;
-const MAX_CARD_CANDIDATES = 12;
-
+const SUPABASE_MCP_SERVER_LABEL = "supabase";
 
 export async function POST(request: Request) {
     const access = await getServerTabAccess("assistente");
@@ -52,6 +38,45 @@ export async function POST(request: Request) {
             {
                 ok: false,
                 error: "OPENAI_API_KEY não está configurada.",
+            },
+            { status: 500 },
+        );
+    }
+
+    const supabaseAccessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
+
+    if (!supabaseAccessToken) {
+        return NextResponse.json(
+            {
+                ok: false,
+                error: "SUPABASE_ACCESS_TOKEN não está configurado para o MCP do Assistente.",
+            },
+            { status: 500 },
+        );
+    }
+
+    if (access.permission.unit_lock) {
+        return NextResponse.json(
+            {
+                ok: false,
+                error: "O Assistente MCP não está disponível para acessos restritos a uma unidade.",
+            },
+            { status: 403 },
+        );
+    }
+
+    let supabaseMcpTool: Record<string, unknown>;
+
+    try {
+        supabaseMcpTool = buildSupabaseMcpTool(supabaseAccessToken);
+    } catch (error) {
+        return NextResponse.json(
+            {
+                ok: false,
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Não foi possível configurar o MCP do Assistente.",
             },
             { status: 500 },
         );
@@ -114,40 +139,26 @@ export async function POST(request: Request) {
         const usage = emptyUsage();
         const toolsUsed = new Set<string>();
         let toolRounds = 0;
-        const toolContext = {
-            authUserId: access.user.id,
-            sessionId: body.session_id,
-            unitLock: access.permission.unit_lock ?? null,
-        };
 
         try {
         await sendEvent({
             type: "status",
             status: "Entendendo a pergunta...",
         });
-        const cards = new Map<string, AssistantCard>();
         let emptyResponseRetries = 0;
         let plainLanguageRetries = 0;
-        const selectedToolNames = new Set<string>(
-            selectAssistantToolNames(messages),
-        );
-        const availableTools = TOOLS.filter(
-            (tool) =>
-                selectedToolNames.has(tool.name) &&
-                (!access.permission.unit_lock || tool.name !== "query_hub_data"),
-        );
         let input: unknown[] = messages.map((message) => ({
             role: message.role,
             content: message.content,
         }));
 
-        for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+        while (true) {
             await sendEvent({
                 type: "status",
                 status:
-                    round === 0
-                        ? "Analisando a solicitação..."
-                        : "Cruzando os resultados...",
+                    emptyResponseRetries > 0 || plainLanguageRetries > 0
+                        ? "Refinando a resposta..."
+                        : "Consultando os dados do Hub...",
             });
             const response = await openai.responses.create({
                 model: MODEL,
@@ -157,10 +168,9 @@ export async function POST(request: Request) {
                 instructions: buildInstructions(
                     access.user.name,
                     sessionMemory,
-                    access.permission.unit_lock?.name ?? null,
                 ),
                 input,
-                tools: availableTools,
+                tools: [supabaseMcpTool],
                 tool_choice: "auto",
                 max_output_tokens: MAX_OUTPUT_TOKENS,
                 prompt_cache_key: `assistente:${access.user.id}`,
@@ -170,187 +180,124 @@ export async function POST(request: Request) {
             const output = (response.output ?? []) as unknown as Array<
                 Record<string, unknown>
             >;
-            const functionCalls = output.filter(
-                (item) => item.type === "function_call",
+            const mcpCalls = output.filter(
+                (item) => item.type === "mcp_call",
             );
 
-            if (functionCalls.length === 0) {
-                const content =
-                    typeof response.output_text === "string"
-                        ? sanitizeAssistantMarkdown(response.output_text)
-                        : "";
-
-                if (
-                    !content &&
-                    emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
-                ) {
-                    emptyResponseRetries += 1;
-                    console.error("[assistente] empty model response", {
-                        model: response.model,
-                        status: response.status,
-                        incompleteReason:
-                            response.incomplete_details?.reason ?? null,
-                        outputTypes: output.map((item) => item.type),
-                        outputTokens: response.usage?.output_tokens ?? null,
-                    });
-
-                    input = [
-                        ...input,
-                        ...toStatelessContinuationItems(output),
-                        {
-                            role: "user",
-                            content:
-                                "A tentativa anterior terminou sem texto. Conclua a resposta agora. Se faltarem dados, use a ferramenta adequada; se os dados realmente não existirem, explique exatamente qual cobertura está ausente.",
-                        },
-                    ];
-                    continue;
-                }
-
-                const internalTechnicalTerms = content
-                    ? findInternalTechnicalTerms(content)
-                    : [];
-                if (
-                    content &&
-                    internalTechnicalTerms.length > 0 &&
-                    plainLanguageRetries < MAX_PLAIN_LANGUAGE_RETRIES
-                ) {
-                    plainLanguageRetries += 1;
-                    console.error("[assistente] technical language rewritten", {
-                        terms: internalTechnicalTerms,
-                    });
-                    await sendEvent({
-                        type: "status",
-                        status: "Simplificando a resposta...",
-                    });
-                    input = [
-                        ...input,
-                        ...toStatelessContinuationItems(output),
-                        {
-                            role: "user",
-                            content:
-                                "Reescreva a resposta inteira em linguagem comum. Preserve todos os fatos e números, mas remova nomes internos do código, infraestrutura, fornecedores, campos, funções e siglas de programação.",
-                        },
-                    ];
-                    continue;
-                }
-
-                const finalContent =
-                    (content
-                        ? replaceInternalTechnicalTerms(content)
-                        : "") ||
-                    "## Não foi possível concluir a consulta\n\nO assistente não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o problema.";
-                const runId = await recordAssistantRun({
-                    authUserId: access.user.id,
-                    sessionId: body.session_id,
-                    status: content ? "completed" : "incomplete",
-                    usage,
-                    toolsUsed,
-                    toolRounds,
-                    durationMs: Date.now() - startedAt,
-                    errorMessage: content
-                        ? null
-                        : "Modelo sem resposta textual após nova tentativa.",
-                });
-
-                await sendEvent({
-                    type: "message",
-                    message: {
-                        role: "assistant",
-                        content: finalContent,
-                        cards: selectResponseCards(cards),
-                        run_id: runId,
-                    },
-                });
-                return;
-            }
-
-            toolRounds = round + 1;
-            await sendEvent({
-                type: "status",
-                status: "Consultando os dados do Hub...",
-                tools: functionCalls
+            if (mcpCalls.length > 0) {
+                toolRounds += 1;
+                const names = mcpCalls
                     .map((call) =>
                         typeof call.name === "string" ? call.name : "",
                     )
-                    .filter(Boolean),
-            });
-            const executions = await Promise.all(functionCalls.map(async (call) => {
-                const callId =
-                    typeof call.call_id === "string" ? call.call_id : "";
-                const name =
-                    typeof call.name === "string" ? call.name : "";
-                const parsedArguments = parseToolArguments(call.arguments);
-                let execution: {
-                    output: unknown;
-                    cards: AssistantCard[];
-                };
-                toolsUsed.add(name);
+                    .filter(Boolean);
 
-                try {
-                    execution = await executeAssistantTool(name, parsedArguments, toolContext);
-                } catch (error) {
-                    console.error("[assistente] tool execution failed", {
-                        tool: name,
-                        error,
-                    });
-
-                    execution = {
-                        output: {
-                            ok: false,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : "Falha inesperada ao consultar os dados.",
-                        },
-                        cards: [],
-                    };
+                for (const name of names) {
+                    toolsUsed.add(name);
                 }
 
-                return {
-                    callId,
-                    execution,
-                    toolOutput: {
-                        type: "function_call_output",
-                        call_id: callId,
-                        output: JSON.stringify(execution.output),
-                    } as Record<string, unknown>,
-                };
-            }));
-            const toolOutputs: Array<Record<string, unknown>> = [];
+                const failedCalls = mcpCalls.filter((call) => call.error);
+                if (failedCalls.length > 0) {
+                    console.error("[assistente] MCP tool call failed", {
+                        tools: failedCalls.map((call) => call.name),
+                    });
+                }
 
-            for (const result of executions) {
-                addRelevantCards(cards, result.execution.cards);
-                toolOutputs.push(result.toolOutput);
+                await sendEvent({
+                    type: "status",
+                    status: "Cruzando os resultados...",
+                    tools: names,
+                });
             }
 
-            input = [
-                ...input,
-                ...toStatelessContinuationItems(output),
-                ...toolOutputs,
-            ];
+            const content =
+                typeof response.output_text === "string"
+                    ? sanitizeAssistantMarkdown(response.output_text)
+                    : "";
+
+            if (
+                !content &&
+                emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
+            ) {
+                emptyResponseRetries += 1;
+                console.error("[assistente] empty model response", {
+                    model: response.model,
+                    status: response.status,
+                    incompleteReason:
+                        response.incomplete_details?.reason ?? null,
+                    outputTypes: output.map((item) => item.type),
+                    outputTokens: response.usage?.output_tokens ?? null,
+                });
+
+                input = [
+                    ...input,
+                    ...toStatelessContinuationItems(output),
+                    {
+                        role: "user",
+                        content:
+                            "A tentativa anterior terminou sem texto. Conclua a resposta agora. Se faltarem dados, consulte o MCP novamente; se os dados realmente não existirem, explique exatamente qual cobertura está ausente.",
+                    },
+                ];
+                continue;
+            }
+
+            const internalTechnicalTerms = content
+                ? findInternalTechnicalTerms(content)
+                : [];
+            if (
+                content &&
+                internalTechnicalTerms.length > 0 &&
+                plainLanguageRetries < MAX_PLAIN_LANGUAGE_RETRIES
+            ) {
+                plainLanguageRetries += 1;
+                console.error("[assistente] technical language rewritten", {
+                    terms: internalTechnicalTerms,
+                });
+                await sendEvent({
+                    type: "status",
+                    status: "Simplificando a resposta...",
+                });
+                input = [
+                    ...input,
+                    ...toStatelessContinuationItems(output),
+                    {
+                        role: "user",
+                        content:
+                            "Reescreva a resposta inteira em linguagem comum. Preserve todos os fatos e números, mas remova nomes internos do código, infraestrutura, fornecedores, campos, funções e siglas de programação.",
+                    },
+                ];
+                continue;
+            }
+
+            const finalContent =
+                (content
+                    ? replaceInternalTechnicalTerms(content)
+                    : "") ||
+                "## Não foi possível concluir a consulta\n\nO assistente não produziu uma resposta final mesmo após uma nova tentativa. Tente novamente; se persistir, informe o horário da consulta para verificarmos o problema.";
+            const runId = await recordAssistantRun({
+                authUserId: access.user.id,
+                sessionId: body.session_id,
+                status: content ? "completed" : "incomplete",
+                usage,
+                toolsUsed,
+                toolRounds,
+                durationMs: Date.now() - startedAt,
+                errorMessage: content
+                    ? null
+                    : "Modelo sem resposta textual após nova tentativa.",
+            });
+
+            await sendEvent({
+                type: "message",
+                message: {
+                    role: "assistant",
+                    content: finalContent,
+                    cards: [],
+                    run_id: runId,
+                },
+            });
+            return;
         }
-
-        const runId = await recordAssistantRun({
-            authUserId: access.user.id,
-            sessionId: body.session_id,
-            status: "incomplete",
-            usage,
-            toolsUsed,
-            toolRounds,
-            durationMs: Date.now() - startedAt,
-            errorMessage: "Limite de etapas de ferramentas atingido.",
-        });
-
-        await sendEvent({
-            type: "message",
-            message: {
-                role: "assistant",
-                content:
-                    "## Consulta incompleta\n\nA análise atingiu o limite seguro de etapas. Refinar o período ou o foco da pergunta permite concluir sem misturar resultados parciais.",
-                cards: selectResponseCards(cards),
-                run_id: runId,
-            },
-        });
     } catch (error) {
         console.error("[assistente] chat failed", error);
         const errorMessage =
@@ -390,7 +337,6 @@ export async function POST(request: Request) {
 function buildInstructions(
     userName: string,
     sessionMemory: string,
-    unitName: string | null,
 ) {
     const now = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
@@ -403,66 +349,92 @@ Você é o Assistente IA interno do Engravida Hub.
 
 ${ASSISTANT_HUB_KNOWLEDGE_BASE}
 
-${ASSISTANT_ANALYTICS_GUIDE}
-
 ${ASSISTANT_PLAIN_LANGUAGE_RULE}
 
-REGRAS:
-1. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
-2. Consulte ferramentas para qualquer fato sobre clientes, agenda, médicos, unidades, conversas, conversão, faturamento, Instagram, Facebook, funil, Mensagem Ativa, resgate, eventos de conversão, equipe interna ou operação. Nunca invente dados.
-2-A. Quando a pergunta exigir cruzar as mesmas pessoas/registros ao longo do tempo, combinar domínios ou fazer uma coorte que as ferramentas agregadas não entregam, use query_hub_data. Não conclua que o vínculo “não existe” antes de tentar essa consulta analítica. Continue usando as ferramentas dedicadas quando elas forem necessárias para cards de cliente/conversa, evidências, exportações ou métricas já normalizadas.
-3. Para uma pessoa específica do CRM/WhatsApp, use search_clients e depois get_client_context antes da resposta final. Para pessoas ou conversas do Instagram/Facebook, use search_social_conversations e depois get_social_conversation_context; nesses canais a identidade vem do perfil social e pode não existir em clients.
-4. Para totais, taxas, cancelamentos ou comparecimento da agenda, use get_schedule_overview; para uma consulta específica, use search_appointments. Cada linha de schedules é um agendamento e o período usa a data marcada. No mês atual, encerre o período em hoje e use include_future=false, salvo se o usuário pedir explicitamente próximos, futuros ou o mês completo incluindo datas futuras. Nunca trate agendamentos futuros como falta de desfecho. Interprete agenda_chegou assim: Não = pendente/sem desfecho, Sim = chegou, Em Atendimento = compareceu e está em atendimento, Atendido = atendimento concluído, Faltou = não compareceu, Desmarcou = cancelado e Remarcou = remarcado. "Não" nunca significa automaticamente falta. "Compareceu" inclui Sim, Em Atendimento e Atendido. Use datas absolutas.
-5. Para uma análise geral de conversas do WhatsApp, objeções, motivos de não agendamento ou explicação de conversas sem análise, use get_conversation_analysis_overview. Em pedidos de “últimos N dias”, envie relative_days=N para que hoje conte como o primeiro dia; não calcule date_from manualmente. Para Instagram/Facebook, use somente as ferramentas sociais disponíveis e informe quando elas não oferecerem uma análise agregada. Em perguntas de baixa conversão de uma unidade, use analyze_unit_performance e compare taxas com o benchmark geral. Considere abandono, motivos, objeções, satisfação, qualidade e velocidade.
-6. Informe limites de cobertura quando existirem. Quando a cobertura de análise for menor que 100% ou o usuário perguntar por que faltam análises, explique os grupos retornados: conversas ainda abertas, na fila, em análise e sem conteúdo suficiente/com falha. Nunca suponha que todas são apenas conversas recentes. Uma conversa marcada como em análise, especialmente por muito tempo, não prova sozinha que o serviço responsável continua trabalhando nela.
-7. Este assistente é somente leitura. Nunca diga que alterou, cancelou, marcou ou reatribuiu algo.
-8. Para perguntas financeiras do CliniSys, use get_financial_overview. Para Google Ads, Meta Ads, investimento, CTR, CPC, campanhas, ROAS, resultados atribuídos ou o pipeline de mídia até faturamento, use get_paid_media_overview. Combine as duas quando a pergunta cruzar faturamento geral e mídia paga. Trate "faturamento autorizado" como soma das NFS-e autorizadas: não chame isso de recebimento, caixa, pagamento ou lucro. Diferencie sempre conversões reportadas pelas plataformas de agendamentos, pacientes e NFS-e reais do Hub. Clique → WhatsApp é aproximado porque compara cliques agregados com clientes únicos por Origem.
-9. Sempre que usar “1ª resposta humana” ou “1º contato humano”, siga exatamente o Dashboard: a média principal inclui somente tempos observados de até 2 horas (7.200 segundos). Valores maiores não entram na média principal; informe quantos foram excluídos quando esse dado estiver disponível. Mediana e P90 podem incluir todos os tempos observados. Nunca apresente a média bruta como a métrica principal, salvo se o usuário pedir explicitamente.
-10. Para buscar uma palavra, frase ou fala dentro das mensagens, use search_conversation_content. Para motivos de cancelamento/remarcação cruzados com conversas, use get_cancellation_analysis e diferencie motivo comprovado em texto de motivo desconhecido. Para campanhas, conjuntos e cidade de origem social, use get_meta_attribution_overview.
-11. Quando o usuário pedir CSV, planilha, exportação ou download, use create_csv_export. Nunca prometa um arquivo sem criar o card de download.
-12. Informe o período consultado, a fonte e qualquer limite relevante. Se não houver cobertura suficiente, diga objetivamente qual dado está ausente; nunca responda apenas que “não conseguiu produzir uma resposta”.
-12-A. Objeções, abandono, sentimento, satisfação e qualidade vindos da análise de conversas são classificações automáticas. Identifique-as assim, priorize sinais de alta confiança e separe ou ressalve sinais de baixa confiança.
+ACESSO A DADOS:
+1. Você tem acesso direto ao projeto Engravida por um servidor MCP completo, limitado pelo servidor e pela credencial a operações de leitura.
+2. Para qualquer fato atual sobre clientes, agenda, médicos, unidades, conversas, análises, funil, faturamento, mídia, Instagram, Facebook, Mensagem Ativa, eventos ou operação interna, consulte o MCP. Nunca invente números ou estados atuais.
+3. Não existe mais uma lista de consultas internas pré-selecionadas para este chat. Descubra e use livremente as ferramentas de leitura oferecidas pelo MCP. Quando precisar de dados do banco, prefira consultas SQL de leitura e inspecione o esquema quando necessário.
+4. O assistente é estritamente somente leitura. Nunca tente INSERT, UPDATE, DELETE, MERGE, DDL, migrações, deploys, criação/remoção de branches, alteração de configuração, segredos ou qualquer outra operação que mude o projeto. Nunca diga que alterou, cancelou, marcou, reatribuiu ou criou algo.
+5. Consulte apenas o necessário. Agregue no banco quando possível, use filtros de período e LIMIT para linhas brutas, e evite carregar grandes volumes quando uma soma, contagem ou agrupamento responder à pergunta.
+6. Quando cruzar pessoas ou eventos entre fontes, só conclua que existe vínculo quando houver chave confiável nos dados. Não una registros por aproximação de nome se houver possibilidade de homônimos.
 
-FERRAMENTAS OPERACIONAIS RECENTES:
-- Para quantidade atual de clientes por etapa do Funil ou KPIs de avaliação/procedimento, use get_funnel_overview. As contagens de etapa são posição atual; o período se aplica aos KPIs de jornada.
-- Para Mensagem Ativa, recaptacao e resgate, use get_active_message_overview. Diferencie lotes de mensagens efetivamente enviadas, respostas e agendamentos atribuídos.
-- Para a tela Eventos, falhas de envio, fbclid/gclid ou eventos lead/schedule enviados pelo Hub, use get_tracking_events_overview. Isso é entrega de eventos; não confunda com investimento, campanhas, CTR, CPC ou ROAS de get_paid_media_overview.
-- Para saber quem está online/offline ou em qual fila interna, use get_internal_team_overview. Não diga que enviou mensagens ou mudou status: o assistente continua somente leitura.
+REGRAS DE NEGÓCIO IMPORTANTES:
+7. Agenda: cada registro representa um agendamento na data marcada. "Não" = pendente/sem desfecho; "Sim", "Em Atendimento" e "Atendido" contam como compareceu; "Faltou" = não compareceu; "Desmarcou" = cancelado; "Remarcou" = remarcado. Agendamentos futuros não são faltas.
+8. Conversas: objeções, abandono, sentimento, satisfação e qualidade provenientes de análise de conversa são classificações automáticas. Informe cobertura/confiança quando isso mudar a conclusão.
+9. Financeiro: faturamento autorizado é a soma das NFS-e autorizadas. Não chame isso de recebimento, caixa, pagamento confirmado ou lucro.
+10. Mídia: conversões reportadas pelas plataformas não são automaticamente agendamentos, pacientes ou faturamento reais do Hub. Diferencie essas fontes.
+11. Primeira resposta humana: a média principal do Dashboard inclui somente tempos observados de até 2 horas (7.200 segundos). Valores maiores ficam fora da média principal; mediana e P90 podem considerar todos os tempos.
+12. Em pedidos de "últimos N dias", considere hoje como o primeiro dia. Use datas absolutas na resposta quando houver risco de ambiguidade.
+13. Informe período, fonte, cobertura e qualquer limitação relevante. Se não houver dados suficientes, diga exatamente o que falta.
 
 FORMATO DA RESPOSTA:
-13. Sempre comece com um título Markdown descritivo usando ##.
-14. Em respostas com várias unidades, cada unidade deve aparecer obrigatoriamente como subtítulo ### Nome da unidade. Nunca escreva o nome da unidade como uma linha solta.
-15. Para comparar unidade e benchmark, use uma tabela Markdown compacta antes da análise textual.
-16. Depois da tabela, escreva parágrafos curtos com rótulos em negrito, como **Ponto forte:** e **Principal pressão:**.
-17. Use listas apenas para conjuntos genuínos de itens. Nunca transforme cada frase ou cada métrica em bullet. Use no máximo 3 bullets consecutivos.
-18. Evite repetir o mesmo dado na tabela e no texto.
-19. Nunca mostre identificadores internos, nomes de colunas, tabelas, funções, ferramentas, rotas, arquivos, fornecedores de infraestrutura, modelos de IA, estados escritos como no código ou listas de identificadores. Identifique pessoas, unidades, médicos e conversas apenas por nomes, datas e contexto humano. Explique o funcionamento do sistema somente pelo fluxo e pelo efeito no trabalho, sempre em linguagem comum.
-20. Quando uma ferramenta retornar IDs para permitir outra consulta, use-os silenciosamente apenas nas chamadas de ferramenta. Eles jamais devem aparecer na resposta ao usuário.
-
-CARDS:
-21. Cards são evidência, não decoração. Use normalmente um card quando houver uma entidade ou conversa diretamente relevante.
-22. Em análises de desempenho de uma ou várias unidades, use analyze_unit_performance com include_examples=true. O servidor escolherá somente a conversa mais forte entre todas as candidatas.
-23. Nunca tente gerar um card para cada unidade. O resultado final terá no máximo uma conversa.
-24. A conversa escolhida deve sustentar diretamente a principal conclusão, especialmente abandono, baixa qualidade, baixa satisfação ou problema de resolução.
-25. Para perguntas sobre uma pessoa específica, inclua o card do cliente quando houver um cliente CRM associado.
-26. Não chame get_conversation_context repetidamente para aumentar o número de cards.
-27. Evidências visuais têm limite de um cliente e uma conversa; um arquivo de exportação solicitado pode aparecer adicionalmente.
-28. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando os dados reais da ferramenta:
+14. Responda em português do Brasil, exceto quando o usuário escrever claramente em outro idioma.
+15. Sempre comece com um título Markdown descritivo usando ##.
+16. Em respostas com várias unidades, use ### Nome da unidade para cada uma.
+17. Para comparações, prefira uma tabela Markdown compacta antes da análise textual.
+18. Escreva parágrafos curtos. Use listas apenas para conjuntos genuínos de itens e evite repetir o mesmo dado.
+19. Nunca exponha identificadores internos, nomes de tabelas/colunas, comandos, ferramentas, rotas, fornecedores de infraestrutura ou detalhes técnicos do MCP. Use esses dados silenciosamente e traduza tudo para linguagem de negócio.
+20. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando somente dados consultados:
 \`\`\`assistant-chart
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
 \`\`\`
-Use \`line\` para evolução por dia, \`bar\` para comparação e \`pie\` para composição. Nunca escreva \`assistant-chart\` e o JSON fora do bloco.
+Use line para evolução temporal, bar para comparação e pie para composição.
+21. Como este acesso é somente leitura, pedidos de exportação podem ser respondidos com os dados em tabela ou bloco CSV, mas não prometa um arquivo de download que não foi criado.
 
 CONTEXTO DINÂMICO DESTA SOLICITAÇÃO:
 Usuário atual: ${userName}
 Data e hora atuais em America/Sao_Paulo: ${now}
-Escopo de unidade: ${unitName ?? "todas as unidades permitidas"}
+Escopo de unidade: todas as unidades permitidas
 ${
     sessionMemory
-        ? `\nCONTEXTO PERSISTENTE DE MENSAGENS ANTERIORES DESTE CHAT:\n<session_memory>\n${sessionMemory.slice(0, 12_000)}\n</session_memory>\nUse esse contexto apenas para continuidade. Para qualquer dado atual do Hub, consulte novamente a ferramenta correta.`
+        ? `\nCONTEXTO PERSISTENTE DE MENSAGENS ANTERIORES DESTE CHAT:\n<session_memory>\n${sessionMemory.slice(0, 12_000)}\n</session_memory>\nUse esse contexto apenas para continuidade. Para qualquer dado atual do Hub, consulte novamente o MCP.`
         : ""
 }
 `.trim();
+}
+
+function buildSupabaseMcpTool(authorization: string) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+
+    if (!supabaseUrl) {
+        throw new Error("NEXT_PUBLIC_SUPABASE_URL não está configurada.");
+    }
+
+    let hostname: string;
+    try {
+        hostname = new URL(supabaseUrl).hostname.toLowerCase();
+    } catch {
+        throw new Error("NEXT_PUBLIC_SUPABASE_URL é inválida.");
+    }
+
+    const suffix = ".supabase.co";
+    if (!hostname.endsWith(suffix)) {
+        throw new Error(
+            "Não foi possível identificar o projeto Supabase para o MCP.",
+        );
+    }
+
+    const projectRef = hostname.slice(0, -suffix.length);
+    if (!projectRef || projectRef.includes(".")) {
+        throw new Error(
+            "Não foi possível identificar o projeto Supabase para o MCP.",
+        );
+    }
+
+    const serverUrl = new URL("https://mcp.supabase.com/mcp");
+    serverUrl.searchParams.set("project_ref", projectRef);
+    serverUrl.searchParams.set("read_only", "true");
+
+    return {
+        type: "mcp",
+        server_label: SUPABASE_MCP_SERVER_LABEL,
+        server_description:
+            "Projeto Supabase do Engravida Hub em modo completo e somente leitura. Consulte livremente os dados necessários sem executar alterações.",
+        server_url: serverUrl.toString(),
+        authorization,
+        require_approval: "never",
+    };
 }
 
 type AssistantUsageTotals = {
@@ -841,106 +813,6 @@ function findNextContentLine(lines: string[], startIndex: number) {
     return -1;
 }
 
-function addRelevantCards(
-    target: Map<string, AssistantCard>,
-    candidates: AssistantCard[],
-) {
-    for (const card of candidates) {
-        if (target.size >= MAX_CARD_CANDIDATES) return;
-
-        const key = cardKey(card);
-
-        if (!target.has(key)) {
-            target.set(key, card);
-        }
-    }
-}
-
-function selectResponseCards(
-    candidates: Map<string, AssistantCard>,
-): AssistantCard[] {
-    const allCards = [...candidates.values()];
-    const clientCards = allCards.filter(
-        (card): card is Extract<AssistantCard, { type: "client" }> =>
-            card.type === "client",
-    );
-    const conversationCards = allCards
-        .filter(
-            (
-                card,
-            ): card is Extract<AssistantCard, { type: "conversation" }> =>
-                card.type === "conversation",
-        )
-        .sort(
-            (first, second) =>
-                conversationEvidenceScore(second) -
-                conversationEvidenceScore(first),
-        );
-    const exportCards = allCards.filter(
-        (card): card is Extract<AssistantCard, { type: "export" }> =>
-            card.type === "export",
-    );
-
-    const selected: AssistantCard[] = [];
-
-    if (clientCards.length > 0 && selected.length < MAX_CLIENT_CARDS) {
-        selected.push(clientCards[0]);
-    }
-
-    if (
-        conversationCards.length > 0 &&
-        selected.filter((card) => card.type === "conversation").length <
-            MAX_CONVERSATION_CARDS &&
-        selected.length < MAX_RESPONSE_CARDS
-    ) {
-        selected.push(conversationCards[0]);
-    }
-
-    if (
-        exportCards.length > 0 &&
-        selected.filter((card) => card.type === "export").length <
-            MAX_EXPORT_CARDS &&
-        selected.length < MAX_RESPONSE_CARDS
-    ) {
-        selected.push(exportCards[0]);
-    }
-
-    return selected.slice(0, MAX_RESPONSE_CARDS);
-}
-
-function conversationEvidenceScore(
-    card: Extract<AssistantCard, { type: "conversation" }>,
-) {
-    const conversation = card.data;
-    let score = 0;
-
-    if (conversation.dropoff_happened) score += 60;
-    if (conversation.notable) score += 25;
-    if (conversation.dropoff_moment) score += 12;
-    if (conversation.notable_reason) score += 10;
-    if (conversation.resolution_result === "unresolved") score += 18;
-    if (conversation.goal_status === "not_achieved") score += 18;
-
-    if (typeof conversation.attendant_quality_score === "number") {
-        score += Math.max(
-            0,
-            (100 - conversation.attendant_quality_score) / 4,
-        );
-    }
-
-    if (typeof conversation.satisfaction_score === "number") {
-        score += Math.max(
-            0,
-            (100 - conversation.satisfaction_score) / 4,
-        );
-    }
-
-    if (conversation.preview) score += 2;
-    if ((conversation.messages?.length ?? 0) > 0) score += 5;
-
-    return score;
-}
-
 function normalizeMessages(
     value: AssistantChatRequest["messages"] | undefined,
 ) {
@@ -961,17 +833,3 @@ function normalizeMessages(
         }));
 }
 
-function parseToolArguments(value: unknown) {
-    if (typeof value !== "string") return {};
-
-    try {
-        const parsed = JSON.parse(value);
-        return typeof parsed === "object" && parsed !== null ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function cardKey(card: AssistantCard) {
-    return `${card.type}:${card.data.id}`;
-}

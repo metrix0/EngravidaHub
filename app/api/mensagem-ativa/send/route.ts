@@ -96,17 +96,20 @@ export async function POST(request: Request) {
         );
     }
 
-    if (clientIds.length > MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND) {
+    const deliveryMode =
+        body.delivery_mode === "cadenced" ? "cadenced" : "immediate";
+
+    if (
+        deliveryMode === "immediate" &&
+        clientIds.length > MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND
+    ) {
         return NextResponse.json(
             {
-                error: `Cada envio aceita até ${MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND} clientes. Divida a seleção em mais de um envio.`,
+                error: `Envios imediatos aceitam até ${MAX_ACTIVE_MESSAGE_CLIENTS_PER_SEND} clientes. Use o envio cadenciado para listas maiores.`,
             },
             { status: 400 },
         );
     }
-
-    const deliveryMode =
-        body.delivery_mode === "cadenced" ? "cadenced" : "immediate";
 
     if (deliveryMode === "cadenced") {
         const messagesPerDay =
@@ -135,7 +138,14 @@ export async function POST(request: Request) {
                 client_ids: clientIds,
                 dynamic_values: dynamicValuesResult.values,
                 template_sender: templateSender,
-                filters: isRecord(body.filters) ? body.filters : {},
+                filters: {
+                    ...(isRecord(body.filters) ? body.filters : {}),
+                    cadence_label: buildCadenceLabel({
+                        total: clientIds.length,
+                        messagesPerDay,
+                        templateName: template.name,
+                    }),
+                },
                 messages_per_day: messagesPerDay,
                 created_by: access.actor.id,
                 created_by_name: access.actor.name,
@@ -231,6 +241,25 @@ function resolveDynamicValues({
     }
 
     return { ok: true, values };
+}
+
+function buildCadenceLabel({
+    total,
+    messagesPerDay,
+    templateName,
+}: {
+    total: number;
+    messagesPerDay: number;
+    templateName: string;
+}) {
+    const totalLabel =
+        total >= 1_000
+            ? `${new Intl.NumberFormat("pt-BR", {
+                  maximumFractionDigits: 1,
+              }).format(total / 1_000)}k`
+            : total.toLocaleString("pt-BR");
+
+    return `(${totalLabel} ${messagesPerDay}/dia) ${templateName}`;
 }
 
 function normalizeClientIds(value: unknown) {
