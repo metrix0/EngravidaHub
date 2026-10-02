@@ -40,7 +40,7 @@ export default function ExactMensagemAtivaDashboardGraphs({ widgetId, data }: Pr
         return <TemplatesUsedCard history={data.history} />;
     }
     if (widgetId === "mensagem_ativa.volume_resultados") {
-        return <ActiveMessagesVolumeCard history={data.history} />;
+        return <VolumeResultsCard history={data.history} />;
     }
     if (widgetId === "mensagem_ativa.mensagens_cadenciadas") {
         return <CadencedMessagesCard history={data.history} />;
@@ -108,15 +108,6 @@ export function TemplatesUsedCard({ history, loading = false, title = "Templates
             ) : <ActiveMessageChartEmpty />}
         </section>
     );
-}
-
-export function ActiveMessagesVolumeCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
-    const activeHistory = useMemo(
-        () => history.filter((item) => item.automation !== "resgate"),
-        [history],
-    );
-
-    return <VolumeResultsCard history={activeHistory} loading={loading} />;
 }
 
 export function CadencedMessagesCard({ history, loading = false }: { history: HistoryItem[]; loading?: boolean }) {
