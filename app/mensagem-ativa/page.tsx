@@ -36,6 +36,7 @@ import {
     DataTable,
     DropdownSelect,
     HoverBadgeList,
+    InfoTooltip,
     Modal,
     Pagination,
     SearchFilter,
@@ -1103,41 +1104,65 @@ export default function MensagemAtivaPage() {
                                 onClear={clearSelection}
                             />
 
-                            <button
-                                type="button"
-                                onClick={() => setSpreadsheetImportOpen(true)}
-                                className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-                            >
-                                <FileUp size={17} />
-                                Importar planilha
-                            </button>
+                            {!selectedTemplate ||
+                            !templateFieldsComplete ? (
+                                <InfoTooltip
+                                    text="Selecione um template e preencha os campos obrigatórios para importar uma planilha."
+                                    portal
+                                    fitContent
+                                >
+                                    <span className="inline-flex">
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="flex h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-300 shadow-none"
+                                        >
+                                            <FileUp size={17} />
+                                            Importar planilha
+                                        </button>
+                                    </span>
+                                </InfoTooltip>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setSpreadsheetImportOpen(true)
+                                    }
+                                    className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                >
+                                    <FileUp size={17} />
+                                    Importar planilha
+                                </button>
+                            )}
 
-                            <span
-                                className="inline-flex"
-                                title={
-                                    !selectedTemplate ||
-                                    !templateFieldsComplete
-                                        ? "Selecione um template e preencha os campos obrigatórios para enviar."
-                                        : undefined
-                                }
-                            >
+                            {!selectedTemplate ||
+                            !templateFieldsComplete ? (
+                                <InfoTooltip
+                                    text="Selecione um template e preencha os campos obrigatórios para enviar."
+                                    portal
+                                    fitContent
+                                >
+                                    <span className="inline-flex">
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="flex h-11 min-w-[120px] cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                                        >
+                                            <Send size={17} />
+                                            Enviar
+                                        </button>
+                                    </span>
+                                </InfoTooltip>
+                            ) : (
                                 <button
                                     type="button"
                                     onClick={() =>
                                         setConfirmationOpen(true)
                                     }
                                     disabled={
-                                        !selectedTemplate ||
-                                        !templateFieldsComplete ||
-                                        selectedCount === 0 ||
-                                        sending
+                                        selectedCount === 0 || sending
                                     }
-                                    className={`flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold transition disabled:cursor-not-allowed ${
-                                        !selectedTemplate ||
-                                        !templateFieldsComplete
-                                            ? "pointer-events-none bg-slate-100 text-slate-300 shadow-none"
-                                            : "cursor-pointer bg-brand text-white shadow-sm hover:bg-brand/90 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                                    }`}
+                                    className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                                 >
                                     {sending ? (
                                         <LoaderCircle
@@ -1149,7 +1174,7 @@ export default function MensagemAtivaPage() {
                                     )}
                                     {sending ? "Enviando..." : "Enviar"}
                                 </button>
-                            </span>
+                            )}
                         </div>
                     </div>
 

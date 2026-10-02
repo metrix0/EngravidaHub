@@ -576,53 +576,40 @@ export function SpreadsheetImportModal({
                             </button>
                         )}
 
-                        <span
-                            className="inline-flex"
-                            title={
-                                result && !templateReady
-                                    ? "Selecione um template e preencha os campos obrigatórios para enviar."
-                                    : undefined
+                        <button
+                            type="button"
+                            onClick={() =>
+                                result ? void handleSend() : void analyzeFiles()
                             }
+                            disabled={
+                                result
+                                    ? sending ||
+                                      selectedTargetCount === 0 ||
+                                      selectionTooLarge ||
+                                      (deliveryMode === "cadenced" &&
+                                          !cadenceValid) ||
+                                      !templateReady
+                                    : analyzing || files.length === 0
+                            }
+                            className="flex h-11 min-w-[170px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                         >
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    result ? void handleSend() : void analyzeFiles()
-                                }
-                                disabled={
-                                    result
-                                        ? sending ||
-                                          selectedTargetCount === 0 ||
-                                          selectionTooLarge ||
-                                          (deliveryMode === "cadenced" &&
-                                              !cadenceValid) ||
-                                          !templateReady
-                                        : analyzing || files.length === 0
-                                }
-                                className={`flex h-11 min-w-[170px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold transition disabled:cursor-not-allowed ${
-                                    result && !templateReady
-                                        ? "pointer-events-none bg-slate-100 text-slate-300 shadow-none"
-                                        : "cursor-pointer bg-brand text-white shadow-sm hover:bg-brand/90 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                                }`}
-                            >
-                                {analyzing || sending ? (
-                                    <LoaderCircle size={17} className="animate-spin" />
-                                ) : result ? (
-                                    <Check size={17} />
-                                ) : (
-                                    <FileSpreadsheet size={17} />
-                                )}
-                                {analyzing
-                                    ? "Analisando..."
-                                    : sending
-                                      ? "Enviando..."
-                                      : result
-                                        ? deliveryMode === "cadenced"
-                                            ? `Agendar ${selectedTargetCount} clientes`
-                                            : `Enviar ${selectedTargetCount} clientes`
-                                        : "Analisar planilhas"}
-                            </button>
-                        </span>
+                            {analyzing || sending ? (
+                                <LoaderCircle size={17} className="animate-spin" />
+                            ) : result ? (
+                                <Check size={17} />
+                            ) : (
+                                <FileSpreadsheet size={17} />
+                            )}
+                            {analyzing
+                                ? "Analisando..."
+                                : sending
+                                  ? "Enviando..."
+                                  : result
+                                    ? deliveryMode === "cadenced"
+                                        ? `Agendar ${selectedTargetCount} clientes`
+                                        : `Enviar ${selectedTargetCount} clientes`
+                                    : "Analisar planilhas"}
+                        </button>
                     </div>
                 </div>
             </div>
