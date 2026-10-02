@@ -1,6 +1,8 @@
 // app/api/assistente/chat/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
+import { ASSISTANT_TOOLS } from "@/lib/ai/assistantTools";
+import { executeAssistantTool } from "@/lib/ai/executeAssistantTool";
 import { openai } from "@/lib/ai/openai";
 import { toStatelessContinuationItems } from "@/lib/ai/assistantResponseState";
 import {
@@ -10,7 +12,7 @@ import {
     replaceInternalTechnicalTerms,
 } from "@/lib/ai/assistantHubKnowledge";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
-import type { AssistantChatRequest } from "@/types/assistant";
+import type { AssistantCard, AssistantChatRequest } from "@/types/assistant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +23,62 @@ const MAX_MESSAGES = 24;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
 const MAX_PLAIN_LANGUAGE_RETRIES = 1;
 const MAX_OUTPUT_TOKENS = 6_000;
+const MAX_PRESENTATION_TOOL_ROUNDS = 4;
+const MAX_CUSTOM_CSV_ROWS = 500;
+const MAX_RESPONSE_CARDS = 3;
 const SUPABASE_MCP_SERVER_LABEL = "supabase";
+
+const PRESENTATION_TOOLS = [
+    cloneAssistantTool(
+        "get_client_context",
+        "show_client_card",
+        "Exibe o card clicável de um cliente já identificado pelo MCP. Use somente depois de confirmar o cliente e obter seu ID pelo MCP.",
+    ),
+    cloneAssistantTool(
+        "get_conversation_context",
+        "show_conversation_card",
+        "Exibe o card clicável de uma conversa já identificada pelo MCP. Use somente depois de confirmar a conversa e obter seu ID pelo MCP.",
+    ),
+    cloneAssistantTool(
+        "create_csv_export",
+        "create_csv_export",
+        "Cria um arquivo CSV real para download nos formatos padrão de clientes, agendamentos ou conversas. Use quando esse formato padrão atender ao pedido.",
+    ),
+    {
+        type: "function",
+        name: "create_csv_download",
+        description:
+            "Cria um arquivo CSV real para download a partir de linhas já consultadas pelo MCP. Use para planilhas personalizadas ou que cruzem fontes.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                file_name: {
+                    type: "string",
+                    description: "Nome curto do arquivo, terminando ou não em .csv.",
+                },
+                columns: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 40,
+                    items: { type: "string" },
+                },
+                rows: {
+                    type: "array",
+                    maxItems: MAX_CUSTOM_CSV_ROWS,
+                    items: {
+                        type: "array",
+                        items: {
+                            type: ["string", "number", "boolean", "null"],
+                        },
+                    },
+                },
+            },
+            required: ["file_name", "columns", "rows"],
+            additionalProperties: false,
+        },
+    },
+] as const;
 
 export async function POST(request: Request) {
     const access = await getServerTabAccess("assistente");
@@ -138,7 +195,14 @@ export async function POST(request: Request) {
         const startedAt = Date.now();
         const usage = emptyUsage();
         const toolsUsed = new Set<string>();
+        const cards = new Map<string, AssistantCard>();
         let toolRounds = 0;
+        let presentationToolRounds = 0;
+        const toolContext = {
+            authUserId: access.user.id,
+            sessionId: body.session_id,
+            unitLock: access.permission.unit_lock ?? null,
+        };
 
         try {
         await sendEvent({
@@ -170,7 +234,7 @@ export async function POST(request: Request) {
                     sessionMemory,
                 ),
                 input,
-                tools: [supabaseMcpTool],
+                tools: [supabaseMcpTool, ...PRESENTATION_TOOLS],
                 tool_choice: "auto",
                 max_output_tokens: MAX_OUTPUT_TOKENS,
                 prompt_cache_key: `assistente:${access.user.id}`,
@@ -183,9 +247,15 @@ export async function POST(request: Request) {
             const mcpCalls = output.filter(
                 (item) => item.type === "mcp_call",
             );
+            const functionCalls = output.filter(
+                (item) => item.type === "function_call",
+            );
+
+            if (mcpCalls.length > 0 || functionCalls.length > 0) {
+                toolRounds += 1;
+            }
 
             if (mcpCalls.length > 0) {
-                toolRounds += 1;
                 const names = mcpCalls
                     .map((call) =>
                         typeof call.name === "string" ? call.name : "",
@@ -208,6 +278,77 @@ export async function POST(request: Request) {
                     status: "Cruzando os resultados...",
                     tools: names,
                 });
+            }
+
+            if (functionCalls.length > 0) {
+                if (presentationToolRounds >= MAX_PRESENTATION_TOOL_ROUNDS) {
+                    throw new Error(
+                        "Limite de etapas de apresentação do Assistente atingido.",
+                    );
+                }
+                presentationToolRounds += 1;
+
+                const names = functionCalls
+                    .map((call) =>
+                        typeof call.name === "string" ? call.name : "",
+                    )
+                    .filter(Boolean);
+                for (const name of names) toolsUsed.add(name);
+
+                await sendEvent({
+                    type: "status",
+                    status: names.some((name) => name.includes("csv"))
+                        ? "Preparando o arquivo..."
+                        : "Preparando os resultados...",
+                    tools: names,
+                });
+
+                const toolOutputs: Array<Record<string, unknown>> = [];
+
+                for (const call of functionCalls) {
+                    const callId =
+                        typeof call.call_id === "string" ? call.call_id : "";
+                    const name =
+                        typeof call.name === "string" ? call.name : "";
+                    const args = parseToolArguments(call.arguments);
+
+                    try {
+                        const execution = await executePresentationTool(
+                            name,
+                            args,
+                            toolContext,
+                        );
+                        addRelevantCards(cards, execution.cards);
+                        toolOutputs.push({
+                            type: "function_call_output",
+                            call_id: callId,
+                            output: JSON.stringify(execution.output),
+                        });
+                    } catch (error) {
+                        console.error(
+                            "[assistente] presentation tool failed",
+                            { tool: name, error },
+                        );
+                        toolOutputs.push({
+                            type: "function_call_output",
+                            call_id: callId,
+                            output: JSON.stringify({
+                                ok: false,
+                                error:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Falha ao preparar o resultado.",
+                            }),
+                        });
+                    }
+                }
+
+                input = [
+                    ...input,
+                    ...toStatelessContinuationItems(output),
+                    ...toolOutputs,
+                ];
+                continue;
             }
 
             const content =
@@ -292,7 +433,7 @@ export async function POST(request: Request) {
                 message: {
                     role: "assistant",
                     content: finalContent,
-                    cards: [],
+                    cards: selectResponseCards(cards),
                     run_id: runId,
                 },
             });
@@ -375,12 +516,14 @@ FORMATO DA RESPOSTA:
 17. Para comparações, prefira uma tabela Markdown compacta antes da análise textual.
 18. Escreva parágrafos curtos. Use listas apenas para conjuntos genuínos de itens e evite repetir o mesmo dado.
 19. Nunca exponha identificadores internos, nomes de tabelas/colunas, comandos, ferramentas, rotas, fornecedores de infraestrutura ou detalhes técnicos do MCP. Use esses dados silenciosamente e traduza tudo para linguagem de negócio.
-20. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando somente dados consultados:
+20. O MCP é a fonte de dados. As funções locais show_client_card, show_conversation_card, create_csv_export e create_csv_download servem somente para apresentação/download; não substitua a consulta pelo MCP por essas funções.
+20-A. Quando a resposta for sobre uma pessoa específica, depois de confirmar o cliente pelo MCP use show_client_card. Quando uma conversa específica for evidência importante, use show_conversation_card. Use no máximo um card de cliente e um de conversa por resposta.
+20-B. Quando o usuário pedir CSV, planilha, exportação ou download, sempre crie um arquivo real. Use create_csv_export para os formatos padrão de clientes/agendamentos/conversas. Para colunas personalizadas ou cruzamento de fontes, consulte os dados pelo MCP e passe as linhas finais para create_csv_download. Nunca diga que não pode criar o arquivo por ser somente leitura.
+21. Quando o usuário pedir um gráfico, inclua o gráfico em um bloco exatamente neste formato, usando somente dados consultados:
 \`\`\`assistant-chart
 {"type":"line","title":"Título","data":[{"label":"11/07/2026","value":0}],"valueSuffix":""}
 \`\`\`
 Use line para evolução temporal, bar para comparação e pie para composição.
-21. Como este acesso é somente leitura, pedidos de exportação podem ser respondidos com os dados em tabela ou bloco CSV, mas não prometa um arquivo de download que não foi criado.
 
 CONTEXTO DINÂMICO DESTA SOLICITAÇÃO:
 Usuário atual: ${userName}
@@ -435,6 +578,168 @@ function buildSupabaseMcpTool(authorization: string) {
         authorization,
         require_approval: "never",
     };
+}
+
+function cloneAssistantTool(
+    sourceName: string,
+    name: string,
+    description: string,
+) {
+    const source = ASSISTANT_TOOLS.find((tool) => tool.name === sourceName);
+    if (!source) {
+        throw new Error(`Ferramenta de apresentação ausente: ${sourceName}`);
+    }
+    return { ...source, name, description };
+}
+
+async function executePresentationTool(
+    name: string,
+    args: Record<string, unknown>,
+    context: {
+        authUserId: string;
+        sessionId: string;
+        unitLock: {
+            id: string;
+            name: string;
+            city: string;
+        } | null;
+    },
+) {
+    if (name === "show_client_card") {
+        const execution = await executeAssistantTool(
+            "get_client_context",
+            args,
+            context,
+        );
+        return {
+            output: {
+                ok: execution.cards.some((card) => card.type === "client"),
+                card_ready: true,
+            },
+            cards: execution.cards,
+        };
+    }
+
+    if (name === "show_conversation_card") {
+        const execution = await executeAssistantTool(
+            "get_conversation_context",
+            args,
+            context,
+        );
+        return {
+            output: {
+                ok: execution.cards.some(
+                    (card) => card.type === "conversation",
+                ),
+                card_ready: true,
+            },
+            cards: execution.cards,
+        };
+    }
+
+    if (name === "create_csv_export") {
+        return executeAssistantTool(name, args, context);
+    }
+
+    if (name === "create_csv_download") {
+        return createCustomCsvDownload(args, context);
+    }
+
+    throw new Error(`Ferramenta de apresentação desconhecida: ${name}`);
+}
+
+async function createCustomCsvDownload(
+    args: Record<string, unknown>,
+    context: { authUserId: string; sessionId: string },
+) {
+    const columns = Array.isArray(args.columns)
+        ? args.columns
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim())
+              .filter(Boolean)
+              .slice(0, 40)
+        : [];
+    const rows = Array.isArray(args.rows)
+        ? args.rows
+              .filter((row): row is unknown[] => Array.isArray(row))
+              .slice(0, MAX_CUSTOM_CSV_ROWS)
+        : [];
+
+    if (columns.length === 0) {
+        throw new Error("O CSV precisa ter ao menos uma coluna.");
+    }
+
+    const normalizedRows = rows.map((row) =>
+        columns.map((_, index) => normalizeCsvValue(row[index])),
+    );
+    const requestedName =
+        typeof args.file_name === "string" ? args.file_name.trim() : "";
+    const safeBase =
+        requestedName
+            .replace(/\.csv$/i, "")
+            .replace(/[^a-zA-Z0-9._-]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 80) || "assistente-export";
+    const fileName = `${safeBase}.csv`;
+    const csv = [
+        columns.map(csvCell).join(";"),
+        ...normalizedRows.map((row) => row.map(csvCell).join(";")),
+    ].join("\r\n");
+    const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const { data, error } = await supabase
+        .from("assistant_exports")
+        .insert({
+            auth_user_id: context.authUserId,
+            session_id: context.sessionId,
+            file_name: fileName,
+            mime_type: "text/csv; charset=utf-8",
+            content: `\uFEFF${csv}`,
+            row_count: normalizedRows.length,
+            expires_at: expiresAt,
+        })
+        .select("id")
+        .single();
+
+    if (error || !data) {
+        throw new Error(
+            `Falha ao preparar o CSV: ${error?.message ?? "arquivo não criado"}`,
+        );
+    }
+
+    const card: AssistantCard = {
+        type: "export",
+        data: {
+            id: data.id,
+            file_name: fileName,
+            row_count: normalizedRows.length,
+            expires_at: expiresAt,
+        },
+    };
+
+    return {
+        output: {
+            ok: true,
+            download_ready: true,
+            file_name: fileName,
+            row_count: normalizedRows.length,
+            expires_at: expiresAt,
+        },
+        cards: [card],
+    };
+}
+
+function normalizeCsvValue(value: unknown) {
+    return value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+        ? value
+        : "";
+}
+
+function csvCell(value: unknown) {
+    const text = value === null || value === undefined ? "" : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
 }
 
 type AssistantUsageTotals = {
@@ -811,6 +1116,43 @@ function findNextContentLine(lines: string[], startIndex: number) {
     }
 
     return -1;
+}
+
+function addRelevantCards(
+    target: Map<string, AssistantCard>,
+    candidates: AssistantCard[],
+) {
+    for (const card of candidates) {
+        const key = `${card.type}:${card.data.id}`;
+        if (!target.has(key)) target.set(key, card);
+    }
+}
+
+function selectResponseCards(
+    candidates: Map<string, AssistantCard>,
+): AssistantCard[] {
+    const selected: AssistantCard[] = [];
+    for (const type of ["client", "conversation", "export"] as const) {
+        const card = [...candidates.values()].find(
+            (candidate) => candidate.type === type,
+        );
+        if (card && selected.length < MAX_RESPONSE_CARDS) selected.push(card);
+    }
+    return selected;
+}
+
+function parseToolArguments(value: unknown): Record<string, unknown> {
+    if (typeof value !== "string") return {};
+    try {
+        const parsed = JSON.parse(value);
+        return typeof parsed === "object" &&
+            parsed !== null &&
+            !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {};
+    } catch {
+        return {};
+    }
 }
 
 function normalizeMessages(
