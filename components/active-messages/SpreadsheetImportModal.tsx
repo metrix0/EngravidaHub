@@ -18,6 +18,7 @@ import {
     useState,
 } from "react";
 
+import ButtonGroup from "@/components/ui/ButtonGroup";
 import { Modal } from "@/components/ui/Modal";
 import {
     getActiveMessageTemplateCategoryLabel,
@@ -28,6 +29,8 @@ import type { ActiveMessageClient } from "@/types/activeMessages";
 
 const ACCEPTED_FILE_TYPES = ".csv,text/csv,application/csv";
 const MODEL_SPREADSHEET_PATH = "/modelos/mensagem-ativa-clientes.csv";
+
+type SpreadsheetImportDeliveryMode = "immediate" | "cadenced";
 
 type ImportedPerson = {
     name: string | null;
@@ -64,6 +67,8 @@ export type SpreadsheetImportSendPayload = {
     matchedCount: number;
     openWindowCount: number;
     templateWindowCount: number;
+    deliveryMode: SpreadsheetImportDeliveryMode;
+    messagesPerDay?: number;
 };
 
 type SpreadsheetImportModalProps = {
@@ -98,6 +103,9 @@ export function SpreadsheetImportModal({
     const [includeOpenWindow, setIncludeOpenWindow] = useState(true);
     const [includeTemplateWindow, setIncludeTemplateWindow] = useState(true);
     const [includeNewClients, setIncludeNewClients] = useState(true);
+    const [deliveryMode, setDeliveryMode] =
+        useState<SpreadsheetImportDeliveryMode>("immediate");
+    const [messagesPerDay, setMessagesPerDay] = useState("100");
 
     const templateMessageCostBrl = templateCategory
         ? getActiveMessageTemplatePriceBrl(templateCategory)
@@ -148,6 +156,11 @@ export function SpreadsheetImportModal({
         templateMessageCostBrl === null
             ? null
             : selectedTargetCount * templateMessageCostBrl;
+    const parsedMessagesPerDay = Number(messagesPerDay);
+    const cadenceValid =
+        Number.isInteger(parsedMessagesPerDay) &&
+        parsedMessagesPerDay >= 1 &&
+        parsedMessagesPerDay <= maxClients;
 
     function reset() {
         setFiles([]);
@@ -158,6 +171,8 @@ export function SpreadsheetImportModal({
         setIncludeOpenWindow(true);
         setIncludeTemplateWindow(true);
         setIncludeNewClients(true);
+        setDeliveryMode("immediate");
+        setMessagesPerDay("100");
     }
 
     function addFiles(nextFiles: File[]) {
@@ -230,6 +245,17 @@ export function SpreadsheetImportModal({
             setIncludeOpenWindow(true);
             setIncludeTemplateWindow(true);
             setIncludeNewClients(true);
+            const defaultTargetCount =
+                analysis.matchedClients.length +
+                analysis.creatableClients.length;
+            setDeliveryMode(
+                defaultTargetCount > maxClients
+                    ? "cadenced"
+                    : "immediate",
+            );
+            setMessagesPerDay(
+                String(Math.min(100, Math.max(1, defaultTargetCount))),
+            );
         } catch (caught) {
             setResult(null);
             setError(
@@ -243,7 +269,14 @@ export function SpreadsheetImportModal({
     }
 
     async function handleSend() {
-        if (!result || selectedTargetCount === 0 || sending) return;
+        if (
+            !result ||
+            selectedTargetCount === 0 ||
+            sending ||
+            (deliveryMode === "cadenced" && !cadenceValid)
+        ) {
+            return;
+        }
 
         const sent = await onSend({
             clientIds: selectedClientIds,
@@ -255,6 +288,11 @@ export function SpreadsheetImportModal({
             templateWindowCount: includeTemplateWindow
                 ? templateWindowClients.length
                 : 0,
+            deliveryMode,
+            messagesPerDay:
+                deliveryMode === "cadenced"
+                    ? parsedMessagesPerDay
+                    : undefined,
         });
 
         if (!sent) {
@@ -264,7 +302,9 @@ export function SpreadsheetImportModal({
         }
     }
 
-    const selectionTooLarge = selectedTargetCount > maxClients;
+    const selectionTooLarge =
+        deliveryMode === "immediate" &&
+        selectedTargetCount > maxClients;
 
     return (
         <Modal
@@ -421,6 +461,70 @@ export function SpreadsheetImportModal({
                     />
                 )}
 
+                {result ? (
+                    <div className="mt-5">
+                        <div className="mb-2 text-xs font-bold text-slate-600">
+                            Tipo de envio
+                        </div>
+                        <ButtonGroup
+                            value={deliveryMode}
+                            onChange={(value) =>
+                                setDeliveryMode(
+                                    value as SpreadsheetImportDeliveryMode,
+                                )
+                            }
+                            options={[
+                                {
+                                    value: "immediate",
+                                    label: "Enviar agora",
+                                },
+                                {
+                                    value: "cadenced",
+                                    label: "Envio cadenciado",
+                                },
+                            ]}
+                            className="w-full"
+                        />
+
+                        {deliveryMode === "cadenced" ? (
+                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                <label className="block">
+                                    <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                                        Mensagens por dia
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={maxClients}
+                                        step={1}
+                                        value={messagesPerDay}
+                                        onChange={(event) =>
+                                            setMessagesPerDay(
+                                                event.target.value,
+                                            )
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                                    />
+                                </label>
+                                {cadenceValid ? (
+                                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {parsedMessagesPerDay.toLocaleString(
+                                            "pt-BR",
+                                        )}
+                                        /dia, distribuídas entre 11h, 12h,
+                                        13h e 14h, até terminar a lista.
+                                    </p>
+                                ) : (
+                                    <p className="mt-2 text-xs font-semibold text-red">
+                                        Informe um valor entre 1 e{" "}
+                                        {maxClients}.
+                                    </p>
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
+
                 {error ? (
                     <div className="mt-4 flex items-start gap-2 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-semibold text-red">
                         <AlertCircle size={16} className="mt-0.5 shrink-0" />
@@ -438,7 +542,7 @@ export function SpreadsheetImportModal({
                 {selectionTooLarge ? (
                     <div className="mt-4 flex items-start gap-2 rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-semibold text-red">
                         <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                        O limite é de {maxClients} clientes por envio. Desmarque um dos grupos ou divida o envio.
+                        Envios imediatos aceitam até {maxClients} clientes. Use Envio cadenciado para esta seleção.
                     </div>
                 ) : null}
 
@@ -496,6 +600,8 @@ export function SpreadsheetImportModal({
                                     ? sending ||
                                       selectedTargetCount === 0 ||
                                       selectionTooLarge ||
+                                      (deliveryMode === "cadenced" &&
+                                          !cadenceValid) ||
                                       !templateReady
                                     : analyzing || files.length === 0
                             }
@@ -513,7 +619,9 @@ export function SpreadsheetImportModal({
                                 : sending
                                   ? "Enviando..."
                                   : result
-                                    ? `Enviar ${selectedTargetCount} clientes`
+                                    ? deliveryMode === "cadenced"
+                                        ? `Agendar ${selectedTargetCount} clientes`
+                                        : `Enviar ${selectedTargetCount} clientes`
                                     : "Analisar planilhas"}
                         </button>
                     </div>

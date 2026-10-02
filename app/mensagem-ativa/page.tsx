@@ -888,6 +888,8 @@ export default function MensagemAtivaPage() {
                             importedClientIds.length,
                     },
                 },
+                deliveryMode: payload.deliveryMode,
+                messagesPerDay: payload.messagesPerDay,
             });
 
             if (sent) setSpreadsheetImportOpen(false);
@@ -1115,8 +1117,6 @@ export default function MensagemAtivaPage() {
                                     !selectedTemplate ||
                                     !templateFieldsComplete ||
                                     selectedCount === 0 ||
-                                    selectedCount >
-                                        MAX_CLIENTS_PER_SEND ||
                                     sending
                                 }
                                 className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
@@ -1133,15 +1133,6 @@ export default function MensagemAtivaPage() {
                             </button>
                         </div>
                     </div>
-
-                    {selectedCount > MAX_CLIENTS_PER_SEND ? (
-                        <div className="border-b border-red/15 bg-red-soft px-6 py-3 text-sm font-bold text-red">
-                            O limite é de{" "}
-                            {MAX_CLIENTS_PER_SEND} clientes por
-                            envio. Refine a seleção ou desmarque
-                            alguns clientes.
-                        </div>
-                    ) : null}
 
                     <DataTable
                         columns={columns}
@@ -1484,7 +1475,11 @@ function SendConfirmationModal({
 
     useEffect(() => {
         if (!open) return;
-        setDeliveryMode("immediate");
+        setDeliveryMode(
+            selectedCount > MAX_CLIENTS_PER_SEND
+                ? "cadenced"
+                : "immediate",
+        );
         setMessagesPerDay(String(Math.min(100, Math.max(1, selectedCount))));
     }, [open, selectedCount]);
 
@@ -1496,6 +1491,9 @@ function SendConfirmationModal({
     const cadenceSlices = cadenceValid
         ? splitCadenceDailyLimit(parsedMessagesPerDay)
         : [0, 0, 0, 0];
+    const selectionTooLarge =
+        deliveryMode === "immediate" &&
+        selectedCount > MAX_CLIENTS_PER_SEND;
 
     return (
         <Modal
@@ -1564,6 +1562,13 @@ function SendConfirmationModal({
                         ]}
                         className="w-full"
                     />
+                    {selectionTooLarge ? (
+                        <p className="mt-2 text-xs font-semibold text-red">
+                            Envios imediatos aceitam até{" "}
+                            {MAX_CLIENTS_PER_SEND} clientes. Use Envio
+                            cadenciado para esta seleção.
+                        </p>
+                    ) : null}
                 </div>
 
                 {deliveryMode === "cadenced" ? (
@@ -1627,6 +1632,7 @@ function SendConfirmationModal({
                         }
                         disabled={
                             sending ||
+                            selectionTooLarge ||
                             (deliveryMode === "cadenced" && !cadenceValid)
                         }
                         className="flex h-11 min-w-[150px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
