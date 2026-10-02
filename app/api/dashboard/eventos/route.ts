@@ -21,6 +21,10 @@ type UniqueEventConversation = {
     origin: string | null;
 };
 
+type UniqueEventSchedule = {
+    created_in_source_at: string | null;
+};
+
 type UniqueEventRow = {
     id: string;
     conversation_id: string | null;
@@ -30,6 +34,7 @@ type UniqueEventRow = {
     platform: string;
     status: string;
     conversations: UniqueEventConversation | UniqueEventConversation[] | null;
+    schedules?: UniqueEventSchedule | UniqueEventSchedule[] | null;
 };
 
 type UniqueEventFilters = {
@@ -172,62 +177,138 @@ async function loadUniqueEventCounts(
     const previous = new Set<string>();
     const currentStart = new Date(range.startAt).getTime();
 
-    for (let offset = 0; ; offset += UNIQUE_EVENT_PAGE_SIZE) {
-        const result = await withSupabaseRetry(
-            () => {
-                let query = supabase
-                    .from("ad_events")
-                    .select(
-                        `
-                        id,
-                        conversation_id,
-                        schedule_id,
-                        event_type,
-                        event_date,
-                        platform,
-                        status,
-                        conversations (
-                            unit_id,
-                            service_id,
-                            tunnel,
-                            origin
+    if (filters.sources.length === 0 || filters.sources.includes("ai")) {
+        for (let offset = 0; ; offset += UNIQUE_EVENT_PAGE_SIZE) {
+            const result = await withSupabaseRetry(
+                () => {
+                    let query = supabase
+                        .from("ad_events")
+                        .select(
+                            `
+                            id,
+                            conversation_id,
+                            schedule_id,
+                            event_type,
+                            event_date,
+                            platform,
+                            status,
+                            conversations (
+                                unit_id,
+                                service_id,
+                                tunnel,
+                                origin
+                            )
+                        `,
                         )
-                    `,
-                    )
-                    .gte("event_date", range.previousStartAt)
-                    .lt("event_date", range.endAt)
-                    .order("event_date", { ascending: true })
-                    .order("id", { ascending: true })
-                    .range(offset, offset + UNIQUE_EVENT_PAGE_SIZE - 1);
+                        .gte("event_date", range.previousStartAt)
+                        .lt("event_date", range.endAt)
+                        .order("event_date", { ascending: true })
+                        .order("id", { ascending: true })
+                        .range(offset, offset + UNIQUE_EVENT_PAGE_SIZE - 1);
 
-                if (filters.platforms.length > 0)
-                    query = query.in("platform", filters.platforms);
-                if (filters.eventTypes.length > 0)
-                    query = query.in("event_type", filters.eventTypes);
-                if (filters.statuses.length > 0)
-                    query = query.in("status", filters.statuses);
+                    if (filters.platforms.length > 0)
+                        query = query.in("platform", filters.platforms);
+                    if (filters.eventTypes.length > 0)
+                        query = query.in("event_type", filters.eventTypes);
+                    if (filters.statuses.length > 0)
+                        query = query.in("status", filters.statuses);
 
-                return query;
-            },
-            {
-                attempts: 2,
-                label: "dashboard/eventos unique events",
-                signal,
-            },
-        );
+                    return query;
+                },
+                {
+                    attempts: 2,
+                    label: "dashboard/eventos unique AI events",
+                    signal,
+                },
+            );
 
-        if (result.error) throw result.error;
-        const rows = (result.data ?? []) as unknown as UniqueEventRow[];
+            if (result.error) throw result.error;
+            const rows = (result.data ?? []) as unknown as UniqueEventRow[];
 
-        for (const row of rows) {
-            if (!matchesUniqueEventFilters(row, filters)) continue;
+            for (const row of rows) {
+                if (uniqueEventSource(row) !== "ai") continue;
+                if (!matchesUniqueEventFilters(row, filters)) continue;
 
-            const key = uniqueEventKey(row);
-            if (new Date(row.event_date).getTime() >= currentStart) current.add(key);
-            else previous.add(key);
+                const key = uniqueEventKey(row);
+                if (new Date(row.event_date).getTime() >= currentStart)
+                    current.add(key);
+                else previous.add(key);
+            }
+
+            if (rows.length < UNIQUE_EVENT_PAGE_SIZE) break;
         }
+    }
 
-        if (rows.length < UNIQUE_EVENT_PAGE_SIZE) break;
+    if (filters.sources.length === 0 || filters.sources.includes("clinisys")) {
+        for (let offset = 0; ; offset += UNIQUE_EVENT_PAGE_SIZE) {
+            const result = await withSupabaseRetry(
+                () => {
+                    let query = supabase
+                        .from("ad_events")
+                        .select(
+                            `
+                            id,
+                            conversation_id,
+                            schedule_id,
+                            event_type,
+                            event_date,
+                            platform,
+                            status,
+                            conversations (
+                                unit_id,
+                                service_id,
+                                tunnel,
+                                origin
+                            ),
+                            schedules!inner (
+                                created_in_source_at
+                            )
+                        `,
+                        )
+                        .is("conversation_id", null)
+                        .not("schedule_id", "is", null)
+                        .gte(
+                            "schedules.created_in_source_at",
+                            range.previousStartAt,
+                        )
+                        .lt("schedules.created_in_source_at", range.endAt)
+                        .order("id", { ascending: true })
+                        .range(offset, offset + UNIQUE_EVENT_PAGE_SIZE - 1);
+
+                    if (filters.platforms.length > 0)
+                        query = query.in("platform", filters.platforms);
+                    if (filters.eventTypes.length > 0)
+                        query = query.in("event_type", filters.eventTypes);
+                    if (filters.statuses.length > 0)
+                        query = query.in("status", filters.statuses);
+
+                    return query;
+                },
+                {
+                    attempts: 2,
+                    label: "dashboard/eventos unique Clinisys events",
+                    signal,
+                },
+            );
+
+            if (result.error) throw result.error;
+            const rows = (result.data ?? []) as unknown as UniqueEventRow[];
+
+            for (const row of rows) {
+                if (!matchesUniqueEventFilters(row, filters)) continue;
+
+                const schedule = relationOne(row.schedules ?? null);
+                const createdInSourceAt = schedule?.created_in_source_at;
+                if (!createdInSourceAt) continue;
+
+                const key = uniqueEventKey(row);
+                if (new Date(createdInSourceAt).getTime() >= currentStart)
+                    current.add(key);
+                else previous.add(key);
+            }
+
+            if (rows.length < UNIQUE_EVENT_PAGE_SIZE) break;
+        }
     }
 
     return { current: current.size, previous: previous.size };
@@ -238,11 +319,7 @@ function matchesUniqueEventFilters(
     filters: UniqueEventFilters,
 ) {
     const conversation = relationOne(row.conversations);
-    const source = row.conversation_id
-        ? "ai"
-        : row.schedule_id
-          ? "clinisys"
-          : null;
+    const source = uniqueEventSource(row);
 
     if (filters.sources.length > 0 && (!source || !filters.sources.includes(source)))
         return false;
@@ -263,6 +340,14 @@ function matchesUniqueEventFilters(
         return false;
 
     return true;
+}
+
+function uniqueEventSource(row: UniqueEventRow) {
+    return row.conversation_id
+        ? "ai"
+        : row.schedule_id
+          ? "clinisys"
+          : null;
 }
 
 function uniqueEventKey(row: UniqueEventRow) {
