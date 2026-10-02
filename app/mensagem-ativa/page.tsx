@@ -1112,29 +1112,44 @@ export default function MensagemAtivaPage() {
                                 Importar planilha
                             </button>
 
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    setConfirmationOpen(true)
-                                }
-                                disabled={
+                            <span
+                                className="inline-flex"
+                                title={
                                     !selectedTemplate ||
-                                    !templateFieldsComplete ||
-                                    selectedCount === 0 ||
-                                    sending
+                                    !templateFieldsComplete
+                                        ? "Selecione um template e preencha os campos obrigatórios para enviar."
+                                        : undefined
                                 }
-                                className="flex h-11 min-w-[120px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                             >
-                                {sending ? (
-                                    <LoaderCircle
-                                        size={17}
-                                        className="animate-spin"
-                                    />
-                                ) : (
-                                    <Send size={17} />
-                                )}
-                                {sending ? "Enviando..." : "Enviar"}
-                            </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setConfirmationOpen(true)
+                                    }
+                                    disabled={
+                                        !selectedTemplate ||
+                                        !templateFieldsComplete ||
+                                        selectedCount === 0 ||
+                                        sending
+                                    }
+                                    className={`flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold transition disabled:cursor-not-allowed ${
+                                        !selectedTemplate ||
+                                        !templateFieldsComplete
+                                            ? "pointer-events-none bg-slate-100 text-slate-300 shadow-none"
+                                            : "cursor-pointer bg-brand text-white shadow-sm hover:bg-brand/90 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                                    }`}
+                                >
+                                    {sending ? (
+                                        <LoaderCircle
+                                            size={17}
+                                            className="animate-spin"
+                                        />
+                                    ) : (
+                                        <Send size={17} />
+                                    )}
+                                    {sending ? "Enviando..." : "Enviar"}
+                                </button>
+                            </span>
                         </div>
                     </div>
 
