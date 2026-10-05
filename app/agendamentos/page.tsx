@@ -591,6 +591,7 @@ export default function AppointmentsPage() {
                                 onChange={handleUnitFilterChange}
                                 widthClassName="w-[220px]"
                                 disabled={Boolean(lockedUnitId)}
+                                allowSelectOnly
                             />
                             <FilterButton
                                 icon={<Stethoscope size={16} />}
