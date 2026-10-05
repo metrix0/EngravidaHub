@@ -98,7 +98,7 @@ export function buildAgendaIntelligence(input: {
         groups.set(key, [...(groups.get(key) ?? []), agenda]);
     }
     const heatmap = new Map<string, { weekday: number; hour: number; capacityMinutes: number; occupiedMinutes: number }>();
-    const freeWindows: Array<Interval & { unitId: string; timezone: string; duration: number }> = [];
+    const freeWindows: Array<Interval & { unitId: string; doctorName: string; timezone: string; duration: number }> = [];
     const doctors = [];
     for (const [key, agendas] of groups) {
         const agenda = agendas[0];
@@ -138,7 +138,7 @@ export function buildAgendaIntelligence(input: {
                 for (let cursor = first; cursor + cadence * MINUTE <= interval.end; cursor += cadence * MINUTE) {
                     freeSlots++;
                 }
-                freeWindows.push({ ...interval, start: first, unitId: agenda.unit_id, timezone: agenda.timezone, duration: cadence * MINUTE });
+                freeWindows.push({ ...interval, start: first, unitId: agenda.unit_id, doctorName: agenda.doctor_name, timezone: agenda.timezone, duration: cadence * MINUTE });
             }
         }
         doctors.push({ unitId: agenda.unit_id, unitName: agenda.unit_name, doctorId: agenda.doctor_id, doctorName: agenda.doctor_name,
@@ -175,9 +175,19 @@ export function buildAgendaIntelligence(input: {
     const preferences = [...demand.values()].map(group => ({ unitId: group.unitId,
         unitName: input.agendas.find(agenda => agenda.unit_id === group.unitId)?.unit_name ?? "Unidade sem agenda",
         value: group.value, label: group.label, conversations: group.conversations.size, examples: [...group.examples],
-        availableSlots: compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
+        ...compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
         coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
     })).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
+    const opportunities = preferences.filter(item => item.conversations >= 3 && (item.coverageComplete || item.availableSlots >= item.conversations)).map(item => ({
+        unitId: item.unitId, unitName: item.unitName, value: item.value, label: item.label,
+        conversations: item.conversations, availableSlots: item.availableSlots, coverageComplete: item.coverageComplete,
+        firstCompatibleSlot: item.firstCompatibleSlot,
+        action: item.availableSlots >= item.conversations ? "fill" as const : "expand" as const,
+        gap: Math.max(0, item.conversations - item.availableSlots),
+    })).sort((a, b) => {
+        const order = { expand: 0, fill: 1 };
+        return order[a.action] - order[b.action] || (a.action === "expand" ? b.gap - a.gap : 0) || b.conversations - a.conversations || a.label.localeCompare(b.label);
+    }).slice(0, 3);
     const past = input.appointments.filter(item => Date.parse(item.starts_at) < Math.min(now, Date.parse(resultsEnd)) && Date.parse(item.starts_at) >= Date.parse(resultsStart));
     const noShows = past.filter(item => item.status === "no_show").length;
     const resolved = past.filter(item => ["completed", "no_show"].includes(item.status)).length;
@@ -201,23 +211,25 @@ export function buildAgendaIntelligence(input: {
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
         doctors: doctors.sort((a, b) => b.freeSlots - a.freeSlots), missingDoctors,
         heatmap: [...heatmap.values()].sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
-        preferences, recommendations, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
+        preferences, opportunities, recommendations, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
         history: { startedAt: input.historyStartedAt, observedFrom: historyAvailable ? observedFrom : null, ...historyMetrics },
         coverage: { analyzedConversations: allConversations.size, signalsProcessed: processed.size, signalsPending: allConversations.size - processed.size } };
 }
 
-function compatibleSlots(windows: Array<Interval & { timezone: string; duration: number }>, preference: string) {
+function compatibleSlots(windows: Array<Interval & { doctorName: string; timezone: string; duration: number }>, preference: string) {
     let count = 0;
+    let firstSlot: { startsAt: string; doctorName: string } | null = null;
     for (const window of windows) {
         for (let cursor = window.start; cursor + window.duration <= window.end;) {
             const local = localParts(cursor, window.timezone);
             if (matchesSchedulingPreference(preference, local.date, local.minute)) {
                 count++;
+                if (!firstSlot || cursor < Date.parse(firstSlot.startsAt)) firstSlot = { startsAt: new Date(cursor).toISOString(), doctorName: window.doctorName };
                 cursor += window.duration;
             } else cursor += 15 * MINUTE;
         }
     }
-    return count;
+    return { availableSlots: count, firstCompatibleSlot: firstSlot };
 }
 
 export function releasedSlotMetrics(history: ScheduleHistory[], now: number, period?: Interval) {

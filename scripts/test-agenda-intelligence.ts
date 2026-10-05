@@ -84,7 +84,19 @@ assert.equal(buildAgendaIntelligence({ ...base, resultsStart: rangeStart, result
 assert.equal(formatDoctorName("  DR.  ANA CAROLINA DE SOUZA  "), "Dr. Ana Carolina de Souza");
 assert.equal(formatDoctorName("DRA. BÁRBARA D'ÁVILA"), "Dra. Bárbara D'Ávila");
 const widgetIds = AGENDA_INTELLIGENCE_WIDGETS.map(widget => widget.id);
-assert.equal(widgetIds.length, 9);
+assert.equal(widgetIds.length, 10);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
+// Interest is actionable only with enough conversations; partial capacity must not imply a shortage.
+const interested = Array.from({ length: 4 }, (_, index) => ({ ...analysis, conversation_id: `interest-${index}` }));
+report = buildAgendaIntelligence({ ...base, analyses: interested });
+assert.equal(report.opportunities[0].action, "expand");
+assert.equal(report.opportunities[0].gap, 3);
+assert.equal(report.opportunities[0].firstCompatibleSlot?.startsAt, "2026-10-05T12:30:00.000Z");
+assert.equal(report.opportunities[0].firstCompatibleSlot?.doctorName, "Médico");
+report = buildAgendaIntelligence({ ...base, analyses: interested, doctors: [...base.doctors, { id: "unsynced", unit_id: "unit", name: "Sem agenda" }] });
+assert.equal(report.opportunities.length, 0);
+report = buildAgendaIntelligence({ ...base, analyses: interested.map(item => ({ ...item, pattern_signals: [{ ...consultation, value: "morning" }] })) });
+assert.equal(report.opportunities[0].action, "fill");
+assert.equal(buildAgendaIntelligence({ ...base, analyses: [analysis] }).opportunities.length, 0);
 console.log("Agenda intelligence regression checks passed.");

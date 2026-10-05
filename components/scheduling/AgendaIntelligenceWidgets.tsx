@@ -11,6 +11,7 @@ import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { HoverBadgeList } from "@/components/ui/HoverBadgeList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
+import AgendaDemandOpportunities from "@/components/scheduling/AgendaDemandOpportunities";
 import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -30,6 +31,7 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
         case "inteligencia_agenda.espera": return <KpiCard icon={<Clock3 size={22} />} label="Espera mediana" currentValue={report.medianWaitDays} formatter={value => `${number(value)} dias`} color="orange" tooltipText={`${future} Mediana do tempo até a primeira vaga por médico/unidade. Médicos sem vaga ficam fora do cálculo.`} />;
         case "inteligencia_agenda.nao_comparecimento": return <KpiCard icon={<Users size={22} />} label="Não comparecimento" currentValue={report.noShowRate} formatter={value => `${number(value)}%`} color="purple" tooltipText={`${results} ${report.noShows} não comparecimentos ÷ consultas concluídas ou registradas como não compareceu.`} />;
         case "inteligencia_agenda.mapa": return <Card><h3 className="mb-4 text-lg font-bold">Ocupação por dia e horário</h3><OccupancyHeatmap report={report} /></Card>;
+        case "inteligencia_agenda.oportunidades": return <AgendaDemandOpportunities report={report} />;
         case "inteligencia_agenda.recomendacoes": return <Card><h3 className="mb-3 text-lg font-bold">Recomendações de Inteligência de Agenda</h3>{report.recommendations.length ? <ul className="space-y-3 text-sm text-slate-700">{report.recommendations.map(item => <li key={item}>{item}</li>)}</ul> : <p className="text-sm text-muted">Nenhuma recomendação para os filtros selecionados.</p>}</Card>;
         case "inteligencia_agenda.preferencias": return <PreferencesCard report={report} doctorFiltered={doctorFiltered} />;
         case "inteligencia_agenda.medicos": return <DoctorsCard report={report} />;
