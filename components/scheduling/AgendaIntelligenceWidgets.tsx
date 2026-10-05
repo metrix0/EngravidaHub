@@ -50,7 +50,7 @@ function PreferencesCard({ report, doctorFiltered }: { report: AgendaIntelligenc
         { id: "evidence", label: "Evidências", width: "45%", render: item => <HoverBadgeList items={item.examples.map(id => {
             const evidence = report.evidenceDetails[id];
             return { key: id, label: evidence?.name ?? "Ver conversa", className: "bg-blue-soft text-blue", title: `${evidence?.name ?? "Ver conversa"}${evidence?.startedAt ? ` · ${dateTime(evidence.startedAt)}` : ""}`, ariaLabel: `Abrir conversa de ${evidence?.name ?? "cliente"}`, onClick: () => openFloatingConversation({ type: "conversation", id }) };
-        })} className="[&>div:first-child]:flex-wrap" badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="" /> },
+        })} badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="" /> },
     ];
     return <Card className="!p-0">
         <div className="px-4 py-5 md:px-6"><h3 className="text-lg font-bold">Horários pedidos nas conversas</h3><p className="mt-1 text-xs text-muted">Conversas distintas por preferência. {doctorFiltered ? "O filtro de médico afeta as vagas; os pedidos são da unidade." : "Preferências podem se sobrepor."}</p></div>
