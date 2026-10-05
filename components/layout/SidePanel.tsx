@@ -132,6 +132,12 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "agendamentos",
     },
     {
+        label: "Inteligência de Agenda",
+        href: "/inteligencia-agenda",
+        icon: <ChartNoAxesCombined size={18} />,
+        tabId: "inteligencia_agenda",
+    },
+    {
         label: "Clientes",
         href: "/clientes",
         icon: <Users size={18} />,
@@ -678,7 +684,7 @@ function PersistentSidePanel({
                                                 {item.icon}
                                             </span>
                                             <span
-                                                className={`ml-4 min-w-0 w-[200px] translate-x-0 whitespace-nowrap leading-none opacity-100 transition-[width,margin,opacity,transform] duration-150 ${
+                                                className={`ml-4 min-w-0 w-[200px] translate-x-0 whitespace-nowrap leading-none opacity-100 transition-[width,margin,opacity,transform] duration-150 ${item.tabId === "inteligencia_agenda" ? "text-xs" : ""} ${
                                                     isExpanded
                                                         ? "md:ml-4 md:w-[160px] md:translate-x-0 md:opacity-100"
                                                         : "md:ml-0 md:w-0 md:-translate-x-1 md:opacity-0"
