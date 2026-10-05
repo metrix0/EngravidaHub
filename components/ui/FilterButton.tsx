@@ -17,7 +17,6 @@ type FilterButtonProps = {
     onChange?: (values: string[]) => void;
     widthClassName?: string;
     disabled?: boolean;
-    allowSelectOnly?: boolean;
 };
 
 export default function FilterButton({
@@ -28,7 +27,6 @@ export default function FilterButton({
                                          onChange,
                                          widthClassName = "w-[220px]",
                                          disabled = false,
-                                         allowSelectOnly = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -200,17 +198,15 @@ export default function FilterButton({
                                     <span className="truncate">{option.label}</span>
                                 </button>
 
-                                {allowSelectOnly && (
-                                    <button
-                                        type="button"
-                                        onClick={() => selectOnlyDraft(option.value)}
-                                        className="mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                                        title="Selecionar apenas esta"
-                                        aria-label={`Selecionar apenas ${option.label}`}
-                                    >
-                                        <Crosshair size={14} />
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => selectOnlyDraft(option.value)}
+                                    className="mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                                    title="Selecionar apenas esta"
+                                    aria-label={`Selecionar apenas ${option.label}`}
+                                >
+                                    <Crosshair size={14} />
+                                </button>
                             </div>
                         );
                     })}

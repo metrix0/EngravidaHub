@@ -89,7 +89,6 @@ export function MainFilters({
                     options={units}
                     widthClassName={widths?.units ?? "w-[230px]"}
                     disabled={Boolean(lockedUnitId)}
-                    allowSelectOnly
                 />
             )}
 
