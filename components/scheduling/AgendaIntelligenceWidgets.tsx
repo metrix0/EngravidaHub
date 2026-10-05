@@ -63,16 +63,17 @@ function PreferencesCard({ report, doctorFiltered }: { report: AgendaIntelligenc
     const [page, setPage] = useState(1);
     const pages = Math.max(1, Math.ceil(report.preferences.length / PAGE_SIZE)), currentPage = Math.min(page, pages);
     const columns: DataTableColumn<AgendaIntelligenceReport["preferences"][number]>[] = [
-        { id: "preference", label: "Unidade / preferência", width: "25%", render: item => <><div className="font-semibold">{item.unitName}</div><div className="text-xs text-muted">{item.label}</div></> },
-        { id: "conversations", label: "Conversas", width: "10%", render: item => <><div>{number(item.conversations)}</div><p className="mt-1 text-xs text-muted">{number(item.casesToReview)} a revisar</p></> },
-        { id: "available", label: <span className="inline-flex items-center gap-1.5">Vagas compatíveis<Info text={`Vagas livres nos próximos ${report.days} dias que atendem ao dia ou horário pedido. Usa a duração de cada agenda e não conta horários sobrepostos como vagas extras. Preferências distintas podem compartilhar vagas.`} /></span>, width: "20%", render: item => number(item.availableSlots) },
-        { id: "evidence", label: "Evidências", width: "45%", render: item => <HoverBadgeList items={item.examples.map(id => {
+        { id: "preference", label: "Unidade / preferência", width: "17%", render: item => <><div className="font-semibold">{item.unitName}</div><div className="text-xs text-muted">{item.label}</div></> },
+        { id: "conversations", label: <span className="inline-flex items-center gap-1.5">Conversas<Info text="Conversas distintas no período selecionado que mencionaram essa preferência. Inclui quem já agendou." /></span>, width: "12%", headerClassName: "!whitespace-normal", render: item => number(item.conversations) },
+        { id: "unbooked", label: <span className="inline-flex items-center gap-1.5">Sem agendamento<Info text="Clientes únicos sem consulta válida identificada após o pedido. Exclui casos incertos e não qualificados; confirme o interesse antes de oferecer vagas." /></span>, width: "15%", headerClassName: "!whitespace-normal", render: item => number(item.casesToReview) },
+        { id: "available", label: <span className="inline-flex items-center gap-1.5">Vagas compatíveis<Info text={`Vagas livres nos próximos ${report.days} dias que atendem ao dia ou horário pedido. Usa a duração de cada agenda e não conta horários sobrepostos como vagas extras. Preferências distintas podem compartilhar vagas.`} /></span>, width: "17%", headerClassName: "!whitespace-normal", render: item => number(item.availableSlots) },
+        { id: "evidence", label: "Evidências", width: "39%", render: item => <HoverBadgeList items={item.examples.map(id => {
             const evidence = report.evidenceDetails[id];
             return { key: id, label: evidence?.name ?? "Ver conversa", className: "bg-blue-soft text-blue", title: `${evidence?.name ?? "Ver conversa"}${evidence?.startedAt ? ` · ${dateTime(evidence.startedAt)}` : ""}`, ariaLabel: `Abrir conversa de ${evidence?.name ?? "cliente"}`, onClick: () => openFloatingConversation({ type: "conversation", id }) };
-        })} badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="" /> },
+        })} className="[&>div:first-child]:flex-wrap" badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="" /> },
     ];
     return <Card className="!p-0">
-        <div className="px-4 py-5 md:px-6"><h3 className="text-lg font-bold">Horários pedidos nas conversas</h3><p className="mt-1 text-xs text-muted">Total de conversas por preferência e casos sem agendamento para revisar. {doctorFiltered ? "O filtro de médico afeta as vagas; os pedidos são da unidade." : "Preferências podem se sobrepor."}</p></div>
+        <div className="px-4 py-5 md:px-6"><h3 className="text-lg font-bold">Horários pedidos nas conversas</h3><p className="mt-1 text-xs text-muted">Conversas e clientes sem agendamento por preferência. {doctorFiltered ? "O filtro de médico afeta as vagas; os pedidos são da unidade." : "Preferências podem se sobrepor."}</p></div>
         <DataTable columns={columns} rows={report.preferences.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)} getRowKey={item => `${item.unitId}:${item.value}`} emptyMessage="Nenhuma preferência de consulta identificada no período." />
         <TablePagination count={report.preferences.length} page={currentPage} pages={pages} setPage={setPage} />
     </Card>;
