@@ -215,9 +215,17 @@ export function buildAgendaIntelligence(input: {
             demand.set(key, group);
         }
     }
+    const reviewContacts = new Map<string, string[]>();
     const preferences = [...demand.values()].map(group => {
         const cases = [...group.cases.values()];
         const reviewCases = [...group.cases].filter(([, item]) => item.result === "withoutBooking" && item.reviewable);
+        const contactConversations = new Map<string, string>();
+        for (const [id, item] of reviewCases) {
+            if (!item.clientId) continue;
+            const previous = contactConversations.get(item.clientId);
+            if (!previous || Date.parse(evidenceDetails[id].startedAt ?? "") > Date.parse(evidenceDetails[previous].startedAt ?? "")) contactConversations.set(item.clientId, id);
+        }
+        reviewContacts.set(`${group.unitId}:${group.value}`, [...contactConversations.values()]);
         return { unitId: group.unitId,
         unitName: input.agendas.find(agenda => agenda.unit_id === group.unitId)?.unit_name ?? "Unidade sem agenda",
         value: group.value, label: group.label, conversations: group.cases.size,
@@ -225,24 +233,25 @@ export function buildAgendaIntelligence(input: {
         bookedOther: cases.filter(item => item.result === "bookedOther").length,
         bookingUnverified: cases.filter(item => item.result === "bookingUnverified").length,
         withoutBooking: cases.filter(item => item.result === "withoutBooking").length,
-        casesToReview: new Set(reviewCases.map(([, item]) => item.clientId)).size,
+        casesToReview: contactConversations.size,
         examples: [...reviewCases.map(([id]) => id), ...[...group.cases.keys()].filter(id => !reviewCases.some(([reviewId]) => reviewId === id))].slice(0, 3),
         ...compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
         coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
     }; }).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
     const actionable = preferences.filter(item => item.conversations >= 3 && item.casesToReview > 0 && (item.coverageComplete || item.availableSlots >= item.casesToReview));
-    const displayedEvidence = new Set(preferences.flatMap(item => item.examples));
-    for (const id of Object.keys(evidenceDetails)) if (!displayedEvidence.has(id)) delete evidenceDetails[id];
     const opportunities = actionable.map(item => ({
         unitId: item.unitId, unitName: item.unitName, value: item.value, label: item.label,
         conversations: item.casesToReview, totalConversations: item.conversations, availableSlots: item.availableSlots, coverageComplete: item.coverageComplete,
         firstCompatibleSlot: item.firstCompatibleSlot,
+        contacts: reviewContacts.get(`${item.unitId}:${item.value}`) ?? [],
         action: item.availableSlots >= item.casesToReview ? "fill" as const : "expand" as const,
         gap: Math.max(0, item.casesToReview - item.availableSlots),
     })).sort((a, b) => {
         const order = { expand: 0, fill: 1 };
         return order[a.action] - order[b.action] || (a.action === "expand" ? b.gap - a.gap : 0) || b.conversations - a.conversations || a.label.localeCompare(b.label);
     }).slice(0, 3);
+    const displayedEvidence = new Set([...preferences.flatMap(item => item.examples), ...opportunities.flatMap(item => item.contacts)]);
+    for (const id of Object.keys(evidenceDetails)) if (!displayedEvidence.has(id)) delete evidenceDetails[id];
     const past = input.appointments.filter(item => Date.parse(item.starts_at) < Math.min(now, Date.parse(resultsEnd)) && Date.parse(item.starts_at) >= Date.parse(resultsStart));
     const noShows = past.filter(item => item.status === "no_show").length;
     const resolved = past.filter(item => ["completed", "no_show"].includes(item.status)).length;
@@ -255,15 +264,12 @@ export function buildAgendaIntelligence(input: {
     const waits = doctors.flatMap(doctor => doctor.waitDays === null ? [] : [doctor.waitDays]).sort((a, b) => a - b);
     const mid = Math.floor(waits.length / 2);
     const medianWaitDays = !waits.length ? null : waits.length % 2 ? waits[mid] : (waits[mid - 1] + waits[mid]) / 2;
-    const recommendations = actionable.slice(0, 4).map(item => ({ unitId: item.unitId, value: item.value, unitName: item.unitName,
-        label: item.label, casesToReview: item.casesToReview, availableSlots: item.availableSlots,
-        action: item.availableSlots >= item.casesToReview ? "fill" as const : "expand" as const }));
     return { days: input.days, start, end, resultsStart, resultsEnd, evidenceDetails, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
         occupancy: capacityMinutes ? occupiedMinutes / capacityMinutes * 100 : null,
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
         doctors: doctors.sort((a, b) => b.freeSlots - a.freeSlots), missingDoctors,
         heatmap: [...heatmap.values()].sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
-        preferences, opportunities, recommendations, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
+        preferences, opportunities, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
         history: { startedAt: input.historyStartedAt, observedFrom: historyAvailable ? observedFrom : null, ...historyMetrics },
         coverage: { analyzedConversations: allConversations.size, signalsProcessed: processed.size, signalsPending: allConversations.size - processed.size } };
 }

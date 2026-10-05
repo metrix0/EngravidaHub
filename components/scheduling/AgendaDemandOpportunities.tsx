@@ -3,6 +3,8 @@
 import { ArrowUpRight, CalendarCheck, HelpCircle } from "lucide-react";
 import Card from "@/components/ui/Card";
 import InfoTooltip from "@/components/ui/InfoTooltip";
+import { HoverBadgeList } from "@/components/ui/HoverBadgeList";
+import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
 
@@ -35,6 +37,13 @@ export default function AgendaDemandOpportunities({ report }: { report: AgendaIn
                     <div className="mt-auto border-t border-slate-100 pt-3 text-sm">
                         <p className="font-semibold">{item.action === "expand" ? "Confirme o interesse antes de abrir horários." : "Revise as conversas antes de oferecer uma vaga."}</p>
                         {first ? <div className="mt-2 text-xs text-muted"><p>Primeira vaga: <span className="font-semibold text-slate-700">{new Date(first.startsAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span></p><p className="mt-1">{formatDoctorName(first.doctorName)}</p></div> : null}
+                        {item.contacts.length ? <div className="mt-3 border-t border-slate-100 pt-3">
+                            <p className="mb-2 text-xs font-semibold text-muted">Sem agendamento</p>
+                            <HoverBadgeList items={item.contacts.map(id => {
+                                const contact = report.evidenceDetails[id];
+                                return { key: id, label: contact?.name ?? "Ver conversa", className: "bg-blue-soft text-blue", title: contact?.name ?? "Ver conversa", ariaLabel: `Abrir conversa de ${contact?.name ?? "cliente"}`, onClick: () => openFloatingConversation({ type: "conversation", id }) };
+                            })} className="[&>div:first-child]:flex-wrap" badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="max-w-full" />
+                        </div> : null}
                     </div>
                 </article>;
             })}

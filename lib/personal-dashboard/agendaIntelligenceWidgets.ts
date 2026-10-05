@@ -8,7 +8,6 @@ const definitions = [
     ["nao_comparecimento", "Não comparecimento", "kpi"],
     ["mapa", "Ocupação por dia e horário", "chart"],
     ["oportunidades", "Demanda × disponibilidade", "chart"],
-    ["recomendacoes", "Recomendações de Inteligência de Agenda", "table"],
     ["preferencias", "Horários pedidos nas conversas", "table"],
     ["medicos", "Capacidade por médico", "table"],
     ["recuperacao", "Cancelamentos e recuperação de vagas", "chart"],

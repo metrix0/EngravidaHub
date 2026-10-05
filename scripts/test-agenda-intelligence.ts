@@ -85,7 +85,8 @@ assert.equal(formatDoctorName("  DR.  ANA CAROLINA DE SOUZA  "), "Dr. Ana Caroli
 assert.equal(formatDoctorName("DRA. BÁRBARA D'ÁVILA"), "Dra. Bárbara D'Ávila");
 assert.equal(formatDoctorName("Kelma Luana Abreu de Siqueira"), "Dr. Kelma Luana Abreu de Siqueira");
 const widgetIds = AGENDA_INTELLIGENCE_WIDGETS.map(widget => widget.id);
-assert.equal(widgetIds.length, 10);
+assert.equal(widgetIds.length, 9);
+assert.equal(widgetIds.includes("inteligencia_agenda.recomendacoes"), false);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
 // Interest is actionable only with enough conversations; partial capacity must not imply a shortage.
@@ -112,7 +113,7 @@ assert.equal(report.preferences[0].bookedOther, 2);
 assert.equal(report.preferences[0].withoutBooking, 2);
 assert.equal(report.opportunities[0].conversations, 2);
 assert.equal(report.opportunities[0].action, "fill");
-assert.equal(report.recommendations[0].casesToReview, 2);
+assert.deepEqual(report.opportunities[0].contacts, ["request-10", "request-11"]);
 assert.deepEqual(report.preferences[0].examples.slice(0, 2), ["request-10", "request-11"]);
 assert.equal(Object.keys(report.evidenceDetails).length, 3);
 
@@ -120,7 +121,6 @@ assert.equal(Object.keys(report.evidenceDetails).length, 3);
 report = buildAgendaIntelligence({ ...base, analyses: twelveRequests.map(item => ({ ...item, customer_final_state: "scheduled" })) });
 assert.equal(report.preferences[0].bookingUnverified, 12);
 assert.equal(report.opportunities.length, 0);
-assert.equal(report.recommendations.length, 0);
 report = buildAgendaIntelligence({ ...base, analyses: [{ ...twelveRequests[0], outcome_events: [{ type: "appointment_scheduled", confidence: 0.95, occurred_at: "2026-10-04T13:00:00-03:00" }] }] });
 assert.equal(report.preferences[0].bookingUnverified, 1);
 report = buildAgendaIntelligence({ ...base, analyses: [{ ...twelveRequests[0], outcome_events: [{ type: "appointment_scheduled", confidence: 0.95, occurred_at: "2026-10-03T13:00:00-03:00" }] }] });
@@ -147,5 +147,9 @@ report = buildAgendaIntelligence({ ...base, analyses: interested.map(item => ({ 
 assert.equal(report.preferences[0].withoutBooking, 4);
 assert.equal(report.preferences[0].casesToReview, 1);
 assert.equal(report.opportunities[0].conversations, 1);
+assert.equal(report.opportunities[0].contacts.length, 1);
+report = buildAgendaIntelligence({ ...base, analyses: twelveRequests });
+assert.equal(report.opportunities[0].contacts.length, 12); // All eligible contacts, not just the table's three examples.
+assert.equal(Object.keys(report.evidenceDetails).length, 12);
 assert.equal(buildAgendaIntelligence({ ...base, analyses: [{ ...analysis, customer_final_state: "not_qualified" }] }).preferences[0].casesToReview, 0);
 console.log("Agenda intelligence regression checks passed.");

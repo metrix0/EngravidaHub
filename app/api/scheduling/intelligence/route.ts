@@ -26,6 +26,7 @@ export async function GET(request: Request) {
             doctorIds: parsed.data.doctorIds });
         if (!access.permission.allowed_tabs.includes("conversas")) {
             report.preferences.forEach(item => { item.examples = []; });
+            report.opportunities.forEach(item => { item.contacts = []; });
             report.evidenceDetails = {};
         }
         return NextResponse.json({ ok: true, report }, { headers: { "Cache-Control": "private, no-store" } });
