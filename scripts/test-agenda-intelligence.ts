@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { buildAgendaIntelligence, matchesSchedulingPreference, releasedSlotMetrics, type IntelligenceAgenda, type IntelligenceAppointment, type ScheduleHistory } from "../lib/scheduling/agendaIntelligence";
 import { replicatedAgendaCapacity } from "../lib/clinisys/replicatedAvailability";
 import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "../lib/auth/userAccess";
+import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
+import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
+import { filterDashboardWidgetIds } from "../lib/personal-dashboard/registryExtended";
 
 // The separate page requires its own grant, even when appointments are allowed.
 assert.equal(getTabIdForPathname("/inteligencia-agenda"), "inteligencia_agenda");
@@ -64,4 +67,24 @@ assert.deepEqual(releasedSlotMetrics(history, Date.parse("2026-10-05T09:00:00-03
 assert.equal(releasedSlotMetrics(history, now).settled, 0);
 history.push({ entity_id: "new", entity_type: "appointment", operation: "UPDATE", recorded_at: "2026-10-04T20:00:00-03:00", before_state: appointment("new", "08:00", "08:45"), after_state: appointment("new", "08:00", "08:45", "cancelled") });
 assert.equal(releasedSlotMetrics(history, Date.parse("2026-10-05T09:00:00-03:00")).recovered, 0);
+
+// Calendar ranges select the cancellation/demand cohort; replacements may be recorded later.
+const rangeStart = "2026-10-04T00:00:00-03:00", rangeEnd = "2026-10-05T00:00:00-03:00";
+const replacementLater: ScheduleHistory[] = [history[0], { ...history[1], recorded_at: "2026-10-05T07:00:00-03:00" }];
+assert.equal(releasedSlotMetrics(replacementLater, Date.parse("2026-10-06T09:00:00-03:00"), { start: Date.parse(rangeStart), end: Date.parse(rangeEnd) }).recovered, 1);
+report = buildAgendaIntelligence({ ...base, now: Date.parse("2026-10-06T09:00:00-03:00"), resultsStart: rangeStart, resultsEnd: rangeEnd,
+    appointments: [appointment("outside", "08:00", "08:45", "cancelled"), { ...appointment("inside", "08:00", "08:45", "cancelled"), starts_at: "2026-10-04T08:00:00-03:00" }],
+    analyses: [{ ...analysis, started_at: "2026-10-04T12:00:00-03:00", clients: { unit_id: "unit", name: "Ana Silva" } }, { ...analysis, conversation_id: "outside", started_at: "2026-10-03T12:00:00-03:00" }],
+    history: replacementLater, historyStartedAt: "2026-10-04T00:00:00-03:00" });
+assert.equal(report.cancellations, 1);
+assert.equal(report.preferences[0].conversations, 1);
+assert.equal(report.evidenceDetails.conversation.name, "Ana Silva");
+assert.equal(report.history.recovered, 1);
+assert.equal(buildAgendaIntelligence({ ...base, resultsStart: rangeStart, resultsEnd: rangeEnd, historyStartedAt: "2026-10-05T12:00:00-03:00" }).history.observedFrom, null);
+assert.equal(formatDoctorName("  DR.  ANA CAROLINA DE SOUZA  "), "Dr. Ana Carolina de Souza");
+assert.equal(formatDoctorName("DRA. BÁRBARA D'ÁVILA"), "Dra. Bárbara D'Ávila");
+const widgetIds = AGENDA_INTELLIGENCE_WIDGETS.map(widget => widget.id);
+assert.equal(widgetIds.length, 9);
+assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
+assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
 console.log("Agenda intelligence regression checks passed.");

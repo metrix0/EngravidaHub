@@ -20,7 +20,8 @@ export type DashboardWidgetSource =
     | "clientes"
     | "funil"
     | "mensagem_ativa"
-    | "gerencial";
+    | "gerencial"
+    | "inteligencia_agenda";
 
 export type DashboardWidgetDefinition = {
     id: string;

@@ -17,9 +17,10 @@ async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: 
     return rows;
 }
 
-export async function loadAgendaIntelligence({ days, unitIds, doctorIds }: { days: number; unitIds: string[]; doctorIds: string[] }) {
+export async function loadAgendaIntelligence({ days, unitIds, doctorIds, resultsStart, resultsEnd }: { days: number; unitIds: string[]; doctorIds: string[]; resultsStart?: string; resultsEnd?: string }) {
     const now = Date.now();
-    const from = new Date(now - days * 86_400_000).toISOString();
+    const from = resultsStart ?? new Date(now - days * 86_400_000).toISOString();
+    const until = new Date(Math.min(now, resultsEnd ? Date.parse(resultsEnd) : now)).toISOString();
     const to = new Date(now + (days + 1) * 86_400_000).toISOString();
     const [agendas, appointments, analyses, history, baseline, doctorResult] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
@@ -32,7 +33,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds }: { day
         }),
         readAll<IntelligenceAppointment>(cursor => {
             let query = supabase.from("appointments").select("id, unit_id, doctor_id, starts_at, ends_at, status")
-                .gt("ends_at", from).lt("starts_at", to).order("id").limit(500);
+                .gt("ends_at", new Date(Math.min(now, Date.parse(from))).toISOString()).lt("starts_at", to).order("id").limit(500);
             if (unitIds.length) query = query.in("unit_id", unitIds);
             if (doctorIds.length) query = query.in("doctor_id", doctorIds);
             if (cursor) query = query.gt("id", cursor);
@@ -40,15 +41,15 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds }: { day
         }),
         readAll<IntelligenceAnalysis>(cursor => {
             let query = supabase.from("conversation_analysis")
-                .select("id, conversation_id, pattern_signals, clients!inner(unit_id), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
-                .gte("started_at", from).lt("started_at", new Date(now).toISOString()).eq("conversations.channel", "WhatsApp").order("id").limit(500);
+                .select("id, conversation_id, pattern_signals, started_at, clients!inner(unit_id, name), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
+                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp").order("id").limit(500);
             if (unitIds.length) query = query.in("clients.unit_id", unitIds);
             if (cursor) query = query.gt("id", cursor);
             return query;
         }),
         readAll<ScheduleHistory>(cursor => {
             let query = supabase.from("schedule_history").select("id, entity_id, entity_type, operation, recorded_at, before_state, after_state")
-                .eq("entity_type", "appointment").neq("operation", "snapshot").gte("recorded_at", from).lte("recorded_at", new Date(now).toISOString()).order("id").limit(500);
+                .eq("entity_type", "appointment").neq("operation", "snapshot").gte("recorded_at", from).lt("recorded_at", new Date(now).toISOString()).order("id").limit(500);
             // Scope both sides of moves; the calculator also filters each snapshot below.
             const current = [], previous = [];
             if (unitIds.length) { current.push(`unit_id.in.(${unitIds.join(",")})`); previous.push(`previous_unit_id.in.(${unitIds.join(",")})`); }
@@ -72,7 +73,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds }: { day
         return doctor ? [{ id: doctor.id, name: doctor.name, unit_id: row.unit_id }] : [];
     });
     const scoped = (item: IntelligenceAppointment | null) => item && (!unitIds.length || unitIds.includes(item.unit_id)) && (!doctorIds.length || doctorIds.includes(item.doctor_id)) ? item : null;
-    return buildAgendaIntelligence({ days, now, agendas, appointments, analyses, doctors,
+    return buildAgendaIntelligence({ days, now, resultsStart: from, resultsEnd: until, agendas, appointments, analyses, doctors,
         history: history.map(row => ({ ...row, before_state: scoped(row.before_state), after_state: scoped(row.after_state) })),
         historyStartedAt: baseline.data?.recorded_at ?? null });
 }

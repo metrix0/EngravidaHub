@@ -1,5 +1,6 @@
 "use client";
 
+import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -28,6 +29,7 @@ export type SourceData = {
     clientes: unknown;
     funil: unknown;
     mensagem_ativa: unknown;
+    inteligencia_agenda: AgendaIntelligenceReport | null;
 };
 
 type Props = {
@@ -67,6 +69,7 @@ const EMPTY_DATA: SourceData = {
     clientes: null,
     funil: null,
     mensagem_ativa: null,
+    inteligencia_agenda: null,
 };
 
 const FINANCIAL_SUMMARY_WIDGETS = new Set([
@@ -136,6 +139,13 @@ export function usePersonalDashboardSources({
             );
             const supports = (key: DashboardWidgetFilterKey) =>
                 filters.has(key);
+
+            if (source === "inteligencia_agenda") {
+                const params = new URLSearchParams(dateParams);
+                applyArrayParams(params, { unit_ids: supports("units") ? unitIds : [] });
+                next.push(sourceRequest(source, `/api/scheduling/intelligence?${params.toString()}`));
+                continue;
+            }
 
             if (source === "atendimento") {
                 const params = new URLSearchParams(dateParams);
@@ -362,6 +372,11 @@ async function loadSource(
     request: SourceRequest,
     signal: AbortSignal,
 ): Promise<Partial<SourceData>> {
+    if (request.source === "inteligencia_agenda") {
+        const payload = await fetchJson<{ report: AgendaIntelligenceReport }>(request.url, signal);
+        return { inteligencia_agenda: payload.report };
+    }
+
     if (request.source === "atendimento") {
         return {
             atendimento: await fetchJson<ExecutiveDashboardData>(

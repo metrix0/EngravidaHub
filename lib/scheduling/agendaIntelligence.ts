@@ -8,8 +8,8 @@ export type IntelligenceAppointment = {
     id: string; unit_id: string; doctor_id: string; starts_at: string; ends_at: string; status: string;
 };
 export type IntelligenceAnalysis = {
-    conversation_id: string; pattern_signals: unknown;
-    clients: { unit_id: string | null } | Array<{ unit_id: string | null }>;
+    conversation_id: string; pattern_signals: unknown; started_at?: string;
+    clients: { unit_id: string | null; name?: string | null } | Array<{ unit_id: string | null; name?: string | null }>;
 };
 export type ScheduleHistory = {
     entity_id: string; entity_type: string; recorded_at: string; operation: string;
@@ -84,9 +84,12 @@ export function matchesSchedulingPreference(value: string, date: string, minute:
 export function buildAgendaIntelligence(input: {
     agendas: IntelligenceAgenda[]; appointments: IntelligenceAppointment[]; analyses: IntelligenceAnalysis[];
     history: ScheduleHistory[]; historyStartedAt: string | null; days: number; now?: number;
+    resultsStart?: string; resultsEnd?: string;
     doctors: Array<{ id: string; unit_id: string; name: string }>;
 }) {
     const now = input.now ?? Date.now();
+    const resultsStart = input.resultsStart ?? new Date(now - input.days * DAY).toISOString();
+    const resultsEnd = input.resultsEnd ?? new Date(now).toISOString();
     const start = localParts(now, "America/Sao_Paulo").date;
     const end = new Date(Date.parse(`${start}T12:00:00Z`) + input.days * DAY).toISOString().slice(0, 10);
     const groups = new Map<string, IntelligenceAgenda[]>();
@@ -147,7 +150,9 @@ export function buildAgendaIntelligence(input: {
     const missingDoctors = input.doctors.filter(doctor => !covered.has(`${doctor.unit_id}:${doctor.id}`));
     const demand = new Map<string, { unitId: string; value: string; label: string; conversations: Set<string>; examples: Set<string> }>();
     const allConversations = new Set<string>(), processed = new Set<string>();
+    const evidenceDetails: Record<string, { name: string; startedAt: string | null }> = {};
     for (const analysis of input.analyses) {
+        if (analysis.started_at && (Date.parse(analysis.started_at) < Date.parse(resultsStart) || Date.parse(analysis.started_at) >= Math.min(now, Date.parse(resultsEnd)))) continue;
         allConversations.add(analysis.conversation_id);
         if (!Array.isArray(analysis.pattern_signals)) continue;
         processed.add(analysis.conversation_id);
@@ -159,7 +164,11 @@ export function buildAgendaIntelligence(input: {
             const signal = parsed.data, key = `${unitId}:${signal.value}`;
             const group = demand.get(key) ?? { unitId, value: signal.value, label: signal.label, conversations: new Set<string>(), examples: new Set<string>() };
             group.conversations.add(analysis.conversation_id);
-            if (group.examples.size < 3) group.examples.add(analysis.conversation_id);
+            if (group.examples.size < 3) {
+                group.examples.add(analysis.conversation_id);
+                const client = Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients;
+                evidenceDetails[analysis.conversation_id] = { name: client?.name?.trim() || "Ver conversa", startedAt: analysis.started_at ?? null };
+            }
             demand.set(key, group);
         }
     }
@@ -169,11 +178,13 @@ export function buildAgendaIntelligence(input: {
         availableSlots: compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
         coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
     })).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
-    const past = input.appointments.filter(item => Date.parse(item.starts_at) < now && Date.parse(item.starts_at) >= now - input.days * DAY);
+    const past = input.appointments.filter(item => Date.parse(item.starts_at) < Math.min(now, Date.parse(resultsEnd)) && Date.parse(item.starts_at) >= Date.parse(resultsStart));
     const noShows = past.filter(item => item.status === "no_show").length;
     const resolved = past.filter(item => ["completed", "no_show"].includes(item.status)).length;
     const cancellations = past.filter(item => item.status === "cancelled").length;
-    const historyMetrics = releasedSlotMetrics(input.history, now);
+    const historyMetrics = releasedSlotMetrics(input.history, now, { start: Date.parse(resultsStart), end: Math.min(now, Date.parse(resultsEnd)) });
+    const observedFrom = input.historyStartedAt ? new Date(Math.max(Date.parse(resultsStart), Date.parse(input.historyStartedAt))).toISOString() : null;
+    const historyAvailable = observedFrom !== null && Date.parse(observedFrom) < Math.min(now, Date.parse(resultsEnd));
     const capacityMinutes = doctors.reduce((total, doctor) => total + doctor.capacityMinutes, 0);
     const occupiedMinutes = doctors.reduce((total, doctor) => total + doctor.occupiedMinutes, 0);
     const waits = doctors.flatMap(doctor => doctor.waitDays === null ? [] : [doctor.waitDays]).sort((a, b) => a - b);
@@ -185,13 +196,13 @@ export function buildAgendaIntelligence(input: {
         else if (preference.availableSlots >= preference.conversations) recommendations.push(`${preference.unitName}: há ${preference.availableSlots} vagas compatíveis com ${preference.label.toLocaleLowerCase("pt-BR")}. Direcione os pedidos para esses horários antes de ampliar a agenda.`);
         if (recommendations.length >= 4) break;
     }
-    return { days: input.days, start, end, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
+    return { days: input.days, start, end, resultsStart, resultsEnd, evidenceDetails, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
         occupancy: capacityMinutes ? occupiedMinutes / capacityMinutes * 100 : null,
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
         doctors: doctors.sort((a, b) => b.freeSlots - a.freeSlots), missingDoctors,
         heatmap: [...heatmap.values()].sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
         preferences, recommendations, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
-        history: { startedAt: input.historyStartedAt, ...historyMetrics },
+        history: { startedAt: input.historyStartedAt, observedFrom: historyAvailable ? observedFrom : null, ...historyMetrics },
         coverage: { analyzedConversations: allConversations.size, signalsProcessed: processed.size, signalsPending: allConversations.size - processed.size } };
 }
 
@@ -209,10 +220,11 @@ function compatibleSlots(windows: Array<Interval & { timezone: string; duration:
     return count;
 }
 
-export function releasedSlotMetrics(history: ScheduleHistory[], now: number) {
+export function releasedSlotMetrics(history: ScheduleHistory[], now: number, period?: Interval) {
     const releases = new Map<string, { row: ScheduleHistory; before: IntelligenceAppointment }>();
     let reschedules = 0;
     for (const row of history) {
+        if (period && (Date.parse(row.recorded_at) < period.start || Date.parse(row.recorded_at) >= period.end)) continue;
         const before = row.before_state, after = row.after_state;
         if (row.entity_type !== "appointment" || !before || !["scheduled", "confirmed"].includes(before.status)) continue;
         const moved = after && (before.starts_at !== after.starts_at || before.ends_at !== after.ends_at || before.doctor_id !== after.doctor_id || before.unit_id !== after.unit_id);

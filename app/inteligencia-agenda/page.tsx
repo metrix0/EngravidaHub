@@ -2,14 +2,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import { DashboardFilterBar, DashboardFilterBarSkeleton } from "@/components/dashboard/DashboardFilterBar";
+import { DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
+import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import { MapPin, Stethoscope } from "lucide-react";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AgendaIntelligencePanel from "@/components/scheduling/AgendaIntelligencePanel";
 import FilterButton from "@/components/ui/FilterButton";
-import Skeleton from "@/components/ui/Skeleton";
 import type { SchedulingDoctorOption, SchedulingUnitOption } from "@/types/scheduling";
 
+const PERIOD_PRESETS = DEFAULT_CALENDAR_PRESETS.filter(preset => ["7", "30"].includes(preset.value));
+
 export default function AgendaIntelligencePage() {
+    const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("30", PERIOD_PRESETS);
     const { currentUser } = useCurrentUser();
     const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
     const [unitIds, setUnitIds] = useState<string[]>([]);
@@ -45,17 +51,17 @@ export default function AgendaIntelligencePage() {
     }, []);
 
     return <main className="h-full overflow-y-auto bg-white px-3 py-5 text-slate-900 sm:px-5 md:px-7 md:py-7">
-        {optionsError ? <p role="alert" className="mx-auto mb-4 max-w-[1500px] rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</p> : null}
-        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} filters={loading ? <>
-            <Skeleton className="h-11 w-[220px] rounded-xl" />
-            <Skeleton className="h-11 w-[220px] rounded-xl" />
-        </> : <>
+        <section className="mx-auto max-w-[1500px]">
+        <DashboardHeader title="Inteligência Agenda" description="Ocupação, demanda e oportunidades para otimizar as agendas." period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={PERIOD_PRESETS} storageManaged storageReady={ready} />
+        {loading ? <DashboardFilterBarSkeleton widths={["w-[220px]", "w-[220px]"]} /> : <DashboardFilterBar>
             <FilterButton icon={<MapPin size={16} />} label="Todas as unidades"
                 options={units.filter(unit => !lockedUnitId || unit.id === lockedUnitId).map(unit => ({ label: unit.name, value: unit.id }))}
                 values={scopedUnitIds} onChange={values => { setUnitIds(values); setDoctorIds([]); }} disabled={Boolean(lockedUnitId)} />
             <FilterButton icon={<Stethoscope size={16} />} label="Todos os médicos"
-                options={visibleDoctors.map(doctor => ({ label: doctor.name, value: doctor.id }))}
+                options={visibleDoctors.map(doctor => ({ label: formatDoctorName(doctor.name), value: doctor.id }))}
                 values={doctorIds} onChange={setDoctorIds} />
-        </>} />
+        </DashboardFilterBar>}
+        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready} optionsError={optionsError} />
+        </section>
     </main>;
 }
