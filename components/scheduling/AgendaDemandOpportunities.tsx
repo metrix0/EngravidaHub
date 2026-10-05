@@ -15,8 +15,8 @@ const actions = {
 export default function AgendaDemandOpportunities({ report }: { report: AgendaIntelligenceReport }) {
     return <Card className="@container">
         <div className="mb-5">
-            <h3 className="flex items-center gap-2 text-lg font-bold">Demanda × disponibilidade<InfoTooltip portal text={`Compara conversas distintas no período selecionado com vagas compatíveis nos próximos ${report.days} dias. Destaca até 3 preferências com pelo menos 3 conversas, priorizando a maior diferença entre interesse e vagas. Agendas incompletas não geram sugestões de expansão. Conversas podem já ter sido atendidas; isto não prevê novos agendamentos. Preferências podem compartilhar vagas.`}><HelpCircle size={14} className="shrink-0 text-slate-400" /></InfoTooltip></h3>
-            <p className="mt-1 text-sm text-muted">Onde abrir horários e onde aproveitar as vagas que já existem.</p>
+            <h3 className="flex items-center gap-2 text-lg font-bold">Demanda × disponibilidade<InfoTooltip portal text={`Compara clientes sem agendamento identificado com vagas compatíveis nos próximos ${report.days} dias. Usa a análise existente e consultas posteriores ao pedido. Exclui quem já agendou, inclusive em outro horário, e casos incertos. Cada cliente conta uma vez por preferência. Mostra até 3 preferências registradas em pelo menos 3 conversas. Confirme o interesse antes de oferecer vagas ou ampliar a agenda. Agendas incompletas não geram sugestões de expansão. Preferências podem compartilhar vagas.`}><HelpCircle size={14} className="shrink-0 text-slate-400" /></InfoTooltip></h3>
+            <p className="mt-1 text-sm text-muted">Casos para revisar e vagas nos horários pedidos.</p>
         </div>
         {report.opportunities.length ? <div className="grid gap-4 @3xl:grid-cols-3">
             {report.opportunities.map(item => {
@@ -29,11 +29,11 @@ export default function AgendaDemandOpportunities({ report }: { report: AgendaIn
                     <h4 className="font-bold">{item.unitName}</h4>
                     <p className="mt-1 min-h-8 text-sm text-muted">{item.label}</p>
                     <div className="my-5 space-y-3">
-                        <ComparisonBar label="Conversas que pediram" value={item.conversations} scale={scale} color="bg-brand" />
-                        <ComparisonBar label={`Vagas compatíveis${item.coverageComplete ? "" : " (parcial)"}`} value={item.availableSlots} scale={scale} color="bg-blue" />
+                        <ComparisonBar label="Casos sem agendamento" value={item.conversations} scale={scale} color="bg-brand" />
+                        <ComparisonBar label="Vagas compatíveis" value={item.availableSlots} scale={scale} color="bg-blue" />
                     </div>
                     <div className="mt-auto border-t border-slate-100 pt-3 text-sm">
-                        <p className="font-semibold">{item.action === "expand" ? item.availableSlots === 0 ? "Nenhuma vaga nesse horário." : "Menos vagas que conversas interessadas." : "Há vagas para esse interesse registrado."}</p>
+                        <p className="font-semibold">{item.action === "expand" ? "Confirme o interesse antes de abrir horários." : "Revise as conversas antes de oferecer uma vaga."}</p>
                         {first ? <div className="mt-2 text-xs text-muted"><p>Primeira vaga: <span className="font-semibold text-slate-700">{new Date(first.startsAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span></p><p className="mt-1">{formatDoctorName(first.doctorName)}</p></div> : null}
                     </div>
                 </article>;

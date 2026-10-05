@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarCheck, Clock3, HelpCircle, LayoutGrid, Users } from "lucide-react";
+import { CalendarCheck, Clock3, HelpCircle, LayoutGrid, Sparkles, Users } from "lucide-react";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
 import InfoTooltip from "@/components/ui/InfoTooltip";
@@ -32,7 +32,7 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
         case "inteligencia_agenda.nao_comparecimento": return <KpiCard icon={<Users size={22} />} label="Não comparecimento" currentValue={report.noShowRate} formatter={value => `${number(value)}%`} color="purple" tooltipText={`${results} ${report.noShows} não comparecimentos ÷ consultas concluídas ou registradas como não compareceu.`} />;
         case "inteligencia_agenda.mapa": return <Card><h3 className="mb-4 text-lg font-bold">Ocupação por dia e horário</h3><OccupancyHeatmap report={report} /></Card>;
         case "inteligencia_agenda.oportunidades": return <AgendaDemandOpportunities report={report} />;
-        case "inteligencia_agenda.recomendacoes": return <Card><h3 className="mb-3 text-lg font-bold">Recomendações de Inteligência de Agenda</h3>{report.recommendations.length ? <ul className="space-y-3 text-sm text-slate-700">{report.recommendations.map(item => <li key={item}>{item}</li>)}</ul> : <p className="text-sm text-muted">Nenhuma recomendação para os filtros selecionados.</p>}</Card>;
+        case "inteligencia_agenda.recomendacoes": return <RecommendationsCard report={report} />;
         case "inteligencia_agenda.preferencias": return <PreferencesCard report={report} doctorFiltered={doctorFiltered} />;
         case "inteligencia_agenda.medicos": return <DoctorsCard report={report} />;
         case "inteligencia_agenda.recuperacao": return <RecoveryCard report={report} />;
@@ -40,20 +40,39 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
     }
 }
 
+function RecommendationsCard({ report }: { report: AgendaIntelligenceReport }) {
+    return <Card>
+        <h3 className="mb-4 text-lg font-bold">Recomendações de Inteligência de Agenda</h3>
+        {report.recommendations.length ? <ul className="space-y-3">
+            {report.recommendations.map(item => {
+                return <li key={`${item.unitId}:${item.value}`} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span aria-hidden="true" className="rounded-lg bg-brand/10 p-2 text-brand"><Sparkles size={16} /></span>
+                    <div className="min-w-0">
+                        <p className="font-bold">{item.unitName}</p>
+                        <p className="mb-2 text-xs text-muted">{item.label}</p>
+                        <p className="text-sm leading-relaxed text-slate-700"><strong>{number(item.casesToReview)} {item.casesToReview === 1 ? "caso sem agendamento identificado" : "casos sem agendamento identificado"}</strong> · <strong>{number(item.availableSlots)} {item.availableSlots === 1 ? "vaga compatível" : "vagas compatíveis"}</strong>.</p>
+                        <p className="mt-1 text-sm text-slate-700">{item.action === "fill" ? "Revise as conversas e confirme o interesse antes de oferecer esses horários." : "Confirme o interesse desses casos antes de avaliar novos horários."}</p>
+                    </div>
+                </li>;
+            })}
+        </ul> : <p className="text-sm text-muted">Nenhuma recomendação para os filtros selecionados.</p>}
+    </Card>;
+}
+
 function PreferencesCard({ report, doctorFiltered }: { report: AgendaIntelligenceReport; doctorFiltered: boolean }) {
     const [page, setPage] = useState(1);
     const pages = Math.max(1, Math.ceil(report.preferences.length / PAGE_SIZE)), currentPage = Math.min(page, pages);
     const columns: DataTableColumn<AgendaIntelligenceReport["preferences"][number]>[] = [
         { id: "preference", label: "Unidade / preferência", width: "25%", render: item => <><div className="font-semibold">{item.unitName}</div><div className="text-xs text-muted">{item.label}</div></> },
-        { id: "conversations", label: "Conversas", width: "10%", render: item => number(item.conversations) },
-        { id: "available", label: <span className="inline-flex items-center gap-1.5">Vagas compatíveis<Info text={`Vagas livres nos próximos ${report.days} dias que atendem ao dia ou horário pedido. Usa a duração de cada agenda e não conta horários sobrepostos como vagas extras. Preferências distintas podem compartilhar vagas.`} /></span>, width: "20%", render: item => <>{number(item.availableSlots)}{!item.coverageComplete ? <span className="ml-1 text-xs text-muted">(parcial)</span> : null}</> },
+        { id: "conversations", label: "Conversas", width: "10%", render: item => <><div className="flex items-center gap-1.5">{number(item.conversations)}<Info text={`${item.bookedMatching} com consulta no horário pedido; ${item.bookedOther} com consulta em outro horário; ${item.withoutBooking} sem agendamento identificado; ${item.bookingUnverified} sem confirmação suficiente. ${item.casesToReview} clientes para revisar, sem duplicar o mesmo cliente nesta preferência. Clientes classificados como não qualificados não entram nas sugestões. Consultas anteriores ao pedido não contam.`} /></div><p className="mt-1 text-xs text-muted">{number(item.casesToReview)} a revisar</p></> },
+        { id: "available", label: <span className="inline-flex items-center gap-1.5">Vagas compatíveis<Info text={`Vagas livres nos próximos ${report.days} dias que atendem ao dia ou horário pedido. Usa a duração de cada agenda e não conta horários sobrepostos como vagas extras. Preferências distintas podem compartilhar vagas.`} /></span>, width: "20%", render: item => number(item.availableSlots) },
         { id: "evidence", label: "Evidências", width: "45%", render: item => <HoverBadgeList items={item.examples.map(id => {
             const evidence = report.evidenceDetails[id];
             return { key: id, label: evidence?.name ?? "Ver conversa", className: "bg-blue-soft text-blue", title: `${evidence?.name ?? "Ver conversa"}${evidence?.startedAt ? ` · ${dateTime(evidence.startedAt)}` : ""}`, ariaLabel: `Abrir conversa de ${evidence?.name ?? "cliente"}`, onClick: () => openFloatingConversation({ type: "conversation", id }) };
         })} badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="" /> },
     ];
     return <Card className="!p-0">
-        <div className="px-4 py-5 md:px-6"><h3 className="text-lg font-bold">Horários pedidos nas conversas</h3><p className="mt-1 text-xs text-muted">Conversas distintas por preferência. {doctorFiltered ? "O filtro de médico afeta as vagas; os pedidos são da unidade." : "Preferências podem se sobrepor."}</p></div>
+        <div className="px-4 py-5 md:px-6"><h3 className="text-lg font-bold">Horários pedidos nas conversas</h3><p className="mt-1 text-xs text-muted">Total de conversas por preferência e casos sem agendamento para revisar. {doctorFiltered ? "O filtro de médico afeta as vagas; os pedidos são da unidade." : "Preferências podem se sobrepor."}</p></div>
         <DataTable columns={columns} rows={report.preferences.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)} getRowKey={item => `${item.unitId}:${item.value}`} emptyMessage="Nenhuma preferência de consulta identificada no período." />
         <TablePagination count={report.preferences.length} page={currentPage} pages={pages} setPage={setPage} />
     </Card>;
@@ -65,7 +84,7 @@ function DoctorsCard({ report }: { report: AgendaIntelligenceReport }) {
     const columns: DataTableColumn<AgendaIntelligenceReport["doctors"][number]>[] = [
         { id: "doctor", label: "Médico / unidade", width: "35%", render: item => <><div className="font-semibold">{formatDoctorName(item.doctorName)}</div><div className="text-xs text-muted">{item.unitName} · {item.durationMinutes} min</div></> },
         { id: "capacity", label: "Capacidade", width: "15%", render: item => `${number(item.capacityMinutes / 60)}h` },
-        { id: "occupancy", label: "Ocupação", width: "15%", render: item => item.occupancy === null ? "—" : `${number(item.occupancy)}%` },
+        { id: "occupancy", label: <span className="inline-flex items-center gap-1.5">Ocupação<Info text={`Nos próximos ${report.days} dias, a partir de hoje. Minutos ocupados ÷ minutos disponíveis na agenda, descontando bloqueios. O filtro de datas define a duração dessa janela futura.`} /></span>, width: "15%", render: item => item.occupancy === null ? "—" : `${number(item.occupancy)}%` },
         { id: "free", label: "Vagas livres", width: "15%", render: item => number(item.freeSlots) },
         { id: "first", label: "Primeira vaga", width: "20%", render: item => item.firstAvailable ? dateTime(item.firstAvailable) : "Sem vaga no período" },
     ];

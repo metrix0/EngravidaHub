@@ -49,19 +49,8 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
                 {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind === "kpi").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} /></DashboardWidget>)}
             </div>
             {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind !== "kpi").map(widget => <DashboardWidget key={`${widget.id}:${report.generatedAt}`} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>)}
-            <AgendaIntelligenceWarnings report={report} />
         </> : null}
         {optionsError ? <div role="alert" className="rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</div> : null}
         {error ? <div role="alert" className="rounded-xl border border-red/20 bg-red-soft p-4 text-sm text-red">{error}</div> : null}
     </div>;
-}
-
-function AgendaIntelligenceWarnings({ report }: { report: AgendaIntelligenceReport }) {
-    const historyPartial = report.history.startedAt && Date.parse(report.history.startedAt) > Date.parse(report.resultsStart);
-    const date = (value: string) => new Date(value).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    return <aside aria-label="Avisos sobre os dados" className="space-y-3 text-sm">
-        {report.missingDoctors.length ? <p className="rounded-xl border border-orange/20 bg-orange-soft p-3 text-orange">{report.missingDoctors.length} médico(s) sem agenda sincronizada. A capacidade exibida é parcial.</p> : null}
-        {report.coverage.signalsPending ? <p className="rounded-xl bg-slate-50 p-3 text-muted">{report.coverage.signalsProcessed} de {report.coverage.analyzedConversations} conversas com sinais processados · {report.coverage.signalsPending} pendentes.</p> : null}
-        {!report.history.observedFrom ? <p className="rounded-xl bg-slate-50 p-3 text-muted">Sem histórico de alterações para o período selecionado.</p> : historyPartial ? <p className="rounded-xl bg-slate-50 p-3 text-muted">Histórico de remarcações e recuperação disponível desde {date(report.history.startedAt!)}. Os cancelamentos usam as datas das consultas no período selecionado.</p> : null}
-    </aside>;
 }

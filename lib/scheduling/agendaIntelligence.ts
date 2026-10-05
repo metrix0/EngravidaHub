@@ -1,16 +1,22 @@
 // lib/scheduling/agendaIntelligence.ts
 import { patternSignalSchema } from "@/lib/analysis/patternSignals";
 import { replicatedAgendaCapacity, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
+import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 
 type Interval = { start: number; end: number };
 export type IntelligenceAgenda = AgendaRow & { unit_id: string; unit_name: string; doctor_name: string };
 export type IntelligenceAppointment = {
     id: string; unit_id: string; doctor_id: string; starts_at: string; ends_at: string; status: string;
+    client_id?: string | null; patient_phone?: string | null;
 };
+type IntelligenceClient = { id?: string; unit_id: string | null; name?: string | null; phone?: string | null; phone_identity?: string | null };
 export type IntelligenceAnalysis = {
-    conversation_id: string; pattern_signals: unknown; started_at?: string;
-    clients: { unit_id: string | null; name?: string | null } | Array<{ unit_id: string | null; name?: string | null }>;
+    conversation_id: string; client_id?: string | null; pattern_signals: unknown; started_at?: string;
+    customer_final_state?: string | null; outcome_events?: unknown;
+    clients: IntelligenceClient | IntelligenceClient[];
 };
+export type IntelligenceEvidenceMessage = { id: string; conversation_id: string; sent_at: string };
+type BookingResult = "bookedMatching" | "bookedOther" | "bookingUnverified" | "withoutBooking";
 export type ScheduleHistory = {
     entity_id: string; entity_type: string; recorded_at: string; operation: string;
     before_state: IntelligenceAppointment | null; after_state: IntelligenceAppointment | null;
@@ -83,6 +89,7 @@ export function matchesSchedulingPreference(value: string, date: string, minute:
 
 export function buildAgendaIntelligence(input: {
     agendas: IntelligenceAgenda[]; appointments: IntelligenceAppointment[]; analyses: IntelligenceAnalysis[];
+    demandAppointments?: IntelligenceAppointment[]; evidenceMessages?: IntelligenceEvidenceMessage[];
     history: ScheduleHistory[]; historyStartedAt: string | null; days: number; now?: number;
     resultsStart?: string; resultsEnd?: string;
     doctors: Array<{ id: string; unit_id: string; name: string }>;
@@ -148,42 +155,90 @@ export function buildAgendaIntelligence(input: {
     }
     const covered = new Set(groups.keys());
     const missingDoctors = input.doctors.filter(doctor => !covered.has(`${doctor.unit_id}:${doctor.id}`));
-    const demand = new Map<string, { unitId: string; value: string; label: string; conversations: Set<string>; examples: Set<string> }>();
+    const demand = new Map<string, { unitId: string; value: string; label: string; cases: Map<string, { result: BookingResult; clientId: string | null; reviewable: boolean }> }>();
     const allConversations = new Set<string>(), processed = new Set<string>();
     const evidenceDetails: Record<string, { name: string; startedAt: string | null }> = {};
+    const messages = new Map((input.evidenceMessages ?? []).map(message => [message.id, message]));
+    const appointmentsByClient = new Map<string, IntelligenceAppointment[]>(), appointmentsByPhone = new Map<string, IntelligenceAppointment[]>();
+    const clientsByPhone = new Map<string, Set<string>>();
+    for (const analysis of input.analyses) {
+        const client = Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients;
+        const clientId = analysis.client_id ?? client?.id;
+        const phone = normalizePhoneIdentity(client?.phone_identity ?? client?.phone);
+        if (phone && clientId) clientsByPhone.set(phone, new Set([...(clientsByPhone.get(phone) ?? []), clientId]));
+    }
+    for (const appointment of input.demandAppointments ?? input.appointments) {
+        if (appointment.client_id) appointmentsByClient.set(appointment.client_id, [...(appointmentsByClient.get(appointment.client_id) ?? []), appointment]);
+        else {
+            const phone = normalizePhoneIdentity(appointment.patient_phone);
+            if (phone) appointmentsByPhone.set(phone, [...(appointmentsByPhone.get(phone) ?? []), appointment]);
+        }
+    }
     for (const analysis of input.analyses) {
         if (analysis.started_at && (Date.parse(analysis.started_at) < Date.parse(resultsStart) || Date.parse(analysis.started_at) >= Math.min(now, Date.parse(resultsEnd)))) continue;
         allConversations.add(analysis.conversation_id);
         if (!Array.isArray(analysis.pattern_signals)) continue;
         processed.add(analysis.conversation_id);
-        const unitId = (Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients)?.unit_id;
+        const client = Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients;
+        const unitId = client?.unit_id;
         if (!unitId) continue;
         for (const raw of analysis.pattern_signals) {
             const parsed = patternSignalSchema.safeParse(raw);
             if (!parsed.success || parsed.data.category !== "consultation_preference" || parsed.data.confidence < 0.85) continue;
             const signal = parsed.data, key = `${unitId}:${signal.value}`;
-            const group = demand.get(key) ?? { unitId, value: signal.value, label: signal.label, conversations: new Set<string>(), examples: new Set<string>() };
-            group.conversations.add(analysis.conversation_id);
-            if (group.examples.size < 3) {
-                group.examples.add(analysis.conversation_id);
-                const client = Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients;
-                evidenceDetails[analysis.conversation_id] = { name: client?.name?.trim() || "Ver conversa", startedAt: analysis.started_at ?? null };
-            }
+            const group = demand.get(key) ?? { unitId, value: signal.value, label: signal.label, cases: new Map() };
+            const clientId = analysis.client_id ?? client?.id ?? null;
+            const phone = normalizePhoneIdentity(client?.phone_identity ?? client?.phone);
+            const evidenceTimes = signal.evidence.flatMap(item => {
+                const message = messages.get(item.message_id);
+                return message?.conversation_id === analysis.conversation_id && Number.isFinite(Date.parse(message.sent_at)) ? [Date.parse(message.sent_at)] : [];
+            });
+            const requestedAt = evidenceTimes.length ? Math.max(...evidenceTimes)
+                : input.evidenceMessages ? NaN : Date.parse(analysis.started_at ?? "");
+            const candidates = [...(clientId ? appointmentsByClient.get(clientId) ?? [] : []),
+                ...(phone && clientsByPhone.get(phone)?.size === 1 ? appointmentsByPhone.get(phone) ?? [] : [])]
+                .filter(item => item.unit_id === unitId && Date.parse(item.starts_at) >= requestedAt && ["scheduled", "confirmed", "completed"].includes(item.status));
+            const matching = candidates.some(item => {
+                const timezone = input.agendas.find(agenda => agenda.unit_id === item.unit_id && agenda.doctor_id === item.doctor_id)?.timezone
+                    ?? input.agendas.find(agenda => agenda.unit_id === item.unit_id)?.timezone ?? "America/Sao_Paulo";
+                const local = localParts(Date.parse(item.starts_at), timezone);
+                return matchesSchedulingPreference(signal.value, local.date, local.minute);
+            });
+            const bookingReported = ["scheduled", "rescheduled", "confirmed_attendance"].includes(analysis.customer_final_state ?? "") ||
+                Array.isArray(analysis.outcome_events) && analysis.outcome_events.some(event => event &&
+                    ["appointment_scheduled", "appointment_rescheduled", "attendance_confirmed"].includes(event.type) && event.confidence >= 0.85 &&
+                    (!event.occurred_at || Date.parse(event.occurred_at) >= requestedAt));
+            const result: BookingResult = matching ? "bookedMatching" : candidates.length ? "bookedOther"
+                : !clientId || !Number.isFinite(requestedAt) || phone && (clientsByPhone.get(phone)?.size ?? 0) > 1 || bookingReported ? "bookingUnverified" : "withoutBooking";
+            group.cases.set(analysis.conversation_id, { result, clientId, reviewable: analysis.customer_final_state !== "not_qualified" });
+            evidenceDetails[analysis.conversation_id] = { name: client?.name?.trim() || "Ver conversa", startedAt: analysis.started_at ?? null };
             demand.set(key, group);
         }
     }
-    const preferences = [...demand.values()].map(group => ({ unitId: group.unitId,
+    const preferences = [...demand.values()].map(group => {
+        const cases = [...group.cases.values()];
+        const reviewCases = [...group.cases].filter(([, item]) => item.result === "withoutBooking" && item.reviewable);
+        return { unitId: group.unitId,
         unitName: input.agendas.find(agenda => agenda.unit_id === group.unitId)?.unit_name ?? "Unidade sem agenda",
-        value: group.value, label: group.label, conversations: group.conversations.size, examples: [...group.examples],
+        value: group.value, label: group.label, conversations: group.cases.size,
+        bookedMatching: cases.filter(item => item.result === "bookedMatching").length,
+        bookedOther: cases.filter(item => item.result === "bookedOther").length,
+        bookingUnverified: cases.filter(item => item.result === "bookingUnverified").length,
+        withoutBooking: cases.filter(item => item.result === "withoutBooking").length,
+        casesToReview: new Set(reviewCases.map(([, item]) => item.clientId)).size,
+        examples: [...reviewCases.map(([id]) => id), ...[...group.cases.keys()].filter(id => !reviewCases.some(([reviewId]) => reviewId === id))].slice(0, 3),
         ...compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
         coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
-    })).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
-    const opportunities = preferences.filter(item => item.conversations >= 3 && (item.coverageComplete || item.availableSlots >= item.conversations)).map(item => ({
+    }; }).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
+    const actionable = preferences.filter(item => item.conversations >= 3 && item.casesToReview > 0 && (item.coverageComplete || item.availableSlots >= item.casesToReview));
+    const displayedEvidence = new Set(preferences.flatMap(item => item.examples));
+    for (const id of Object.keys(evidenceDetails)) if (!displayedEvidence.has(id)) delete evidenceDetails[id];
+    const opportunities = actionable.map(item => ({
         unitId: item.unitId, unitName: item.unitName, value: item.value, label: item.label,
-        conversations: item.conversations, availableSlots: item.availableSlots, coverageComplete: item.coverageComplete,
+        conversations: item.casesToReview, totalConversations: item.conversations, availableSlots: item.availableSlots, coverageComplete: item.coverageComplete,
         firstCompatibleSlot: item.firstCompatibleSlot,
-        action: item.availableSlots >= item.conversations ? "fill" as const : "expand" as const,
-        gap: Math.max(0, item.conversations - item.availableSlots),
+        action: item.availableSlots >= item.casesToReview ? "fill" as const : "expand" as const,
+        gap: Math.max(0, item.casesToReview - item.availableSlots),
     })).sort((a, b) => {
         const order = { expand: 0, fill: 1 };
         return order[a.action] - order[b.action] || (a.action === "expand" ? b.gap - a.gap : 0) || b.conversations - a.conversations || a.label.localeCompare(b.label);
@@ -200,12 +255,9 @@ export function buildAgendaIntelligence(input: {
     const waits = doctors.flatMap(doctor => doctor.waitDays === null ? [] : [doctor.waitDays]).sort((a, b) => a - b);
     const mid = Math.floor(waits.length / 2);
     const medianWaitDays = !waits.length ? null : waits.length % 2 ? waits[mid] : (waits[mid - 1] + waits[mid]) / 2;
-    const recommendations: string[] = [];
-    for (const preference of preferences.filter(item => item.conversations >= 3 && (item.coverageComplete || item.availableSlots >= item.conversations))) {
-        if (preference.availableSlots === 0) recommendations.push(`${preference.unitName}: ${preference.conversations} conversas com ${preference.label.toLocaleLowerCase("pt-BR")}, sem vagas compatíveis nos próximos ${input.days} dias. Avalie abrir um bloco nesse período.`);
-        else if (preference.availableSlots >= preference.conversations) recommendations.push(`${preference.unitName}: há ${preference.availableSlots} vagas compatíveis com ${preference.label.toLocaleLowerCase("pt-BR")}. Direcione os pedidos para esses horários antes de ampliar a agenda.`);
-        if (recommendations.length >= 4) break;
-    }
+    const recommendations = actionable.slice(0, 4).map(item => ({ unitId: item.unitId, value: item.value, unitName: item.unitName,
+        label: item.label, casesToReview: item.casesToReview, availableSlots: item.availableSlots,
+        action: item.availableSlots >= item.casesToReview ? "fill" as const : "expand" as const }));
     return { days: input.days, start, end, resultsStart, resultsEnd, evidenceDetails, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
         occupancy: capacityMinutes ? occupiedMinutes / capacityMinutes * 100 : null,
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
