@@ -163,7 +163,7 @@ type UserView = {
 
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
-    { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "purple", position: 12 },
+    { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "blue", position: 12 },
     { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
     { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
