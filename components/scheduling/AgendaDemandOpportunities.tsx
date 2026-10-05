@@ -42,7 +42,7 @@ export default function AgendaDemandOpportunities({ report }: { report: AgendaIn
                             <HoverBadgeList items={item.contacts.map(id => {
                                 const contact = report.evidenceDetails[id];
                                 return { key: id, label: contact?.name ?? "Ver conversa", className: "bg-blue-soft text-blue", title: contact?.name ?? "Ver conversa", ariaLabel: `Abrir conversa de ${contact?.name ?? "cliente"}`, onClick: () => openFloatingConversation({ type: "conversation", id }) };
-                            })} className="[&>div:first-child]:flex-wrap" badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="max-w-full" />
+                            })} badgeClassName="rounded-md px-2.5 py-1 text-xs font-bold" maxBadgeWidthClassName="max-w-full" />
                         </div> : null}
                     </div>
                 </article>;
