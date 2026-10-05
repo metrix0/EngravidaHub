@@ -173,7 +173,7 @@ const TABS: PermissionTab[] = [
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
-    { id: "inteligencia_agenda", label: "Inteligência de Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
+    { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },

@@ -48,7 +48,7 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, filters }:
 
     return <section className="mx-auto w-full max-w-[1500px] space-y-5">
         <header>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Inteligência de Agenda</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Inteligência Agenda</h1>
             <div className="mt-4 flex flex-wrap items-center gap-3">
                 {filters}
                 <ButtonGroup<"7" | "30"> options={[{ value: "7", label: "7 dias" }, { value: "30", label: "30 dias" }]} value={days} onChange={setDays} />
