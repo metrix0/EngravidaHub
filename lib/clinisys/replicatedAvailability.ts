@@ -40,7 +40,7 @@ type RecurringBlock = TimePeriod & {
     validUntil: string | null;
 };
 
-type AgendaRow = {
+export type AgendaRow = {
     doctor_id: string;
     timezone: string;
     slot_duration_minutes: number;
@@ -324,6 +324,58 @@ function availabilityPeriodsForDate(
     }
 
     return mergePeriods(periods);
+}
+
+// Capacity uses the same working hours, exception and block rules as booking.
+// Return disjoint intervals, rather than overlapping alternative start times.
+export function replicatedAgendaCapacity(agenda: AgendaRow, date: string) {
+    const timezone = isValidTimezone(agenda.timezone) ? agenda.timezone : DEFAULT_TIMEZONE;
+    const exceptions = asArray<AgendaException>(agenda.exceptions);
+    const blocks = asArray<OneTimeBlock | RecurringBlock>(agenda.blocks);
+    const result: Array<{ start: number; end: number }> = [];
+    for (const period of availabilityPeriodsForDate(date, asArray<WorkingHours>(agenda.working_hours), exceptions)) {
+        const start = minutesFromTime(period.startsAt);
+        const end = minutesFromTime(period.endsAt);
+        if (start === null || end === null || end <= start) continue;
+        const boundaries = new Set([start, end]);
+        for (const exception of exceptions) {
+            if (exception.available || !exceptionApplies(exception, date, isoWeekday(date))) continue;
+            for (const blocked of exception.periods) {
+                for (const time of [blocked.startsAt, blocked.endsAt]) {
+                    const minute = minutesFromTime(time);
+                    if (minute !== null && minute > start && minute < end) boundaries.add(minute);
+                }
+            }
+        }
+        for (const block of blocks) {
+            if (block.type === "recurring") {
+                for (const time of [block.startsAt, block.endsAt]) {
+                    const minute = minutesFromTime(time);
+                    if (minute !== null && minute > start && minute < end) boundaries.add(minute);
+                }
+            } else {
+                for (const time of [block.startsAt, block.endsAt]) {
+                    const epoch = Date.parse(time);
+                    const local = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(epoch));
+                    if (local !== date) continue;
+                    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(epoch));
+                    const minute = minutesFromTime(parts);
+                    if (minute !== null && minute > start && minute < end) boundaries.add(minute);
+                }
+            }
+        }
+        const sorted = [...boundaries].sort((a, b) => a - b);
+        for (let index = 0; index < sorted.length - 1; index++) {
+            const a = sorted[index], b = sorted[index + 1];
+            const slotStart = zonedDateTimeToEpoch(date, timeFromMinutes(a), timezone);
+            const slotEnd = zonedDateTimeToEpoch(date, timeFromMinutes(b), timezone);
+            if (unavailableByException(date, a, b, exceptions) || blockedByAgenda(date, a, b, slotStart, slotEnd, blocks)) continue;
+            const previous = result[result.length - 1];
+            if (previous?.end === slotStart) previous.end = slotEnd;
+            else result.push({ start: slotStart, end: slotEnd });
+        }
+    }
+    return result;
 }
 
 function unavailableByException(

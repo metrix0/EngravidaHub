@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
     BriefcaseBusiness,
     CalendarDays,
+    CalendarSearch,
     ChartNoAxesCombined,
     ChevronRight,
     CircleDollarSign,
@@ -130,6 +131,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/agendamentos",
         icon: <CalendarDays size={18} />,
         tabId: "agendamentos",
+    },
+    {
+        label: "Inteligência Agenda",
+        href: "/inteligencia-agenda",
+        icon: <CalendarSearch size={18} />,
+        tabId: "inteligencia_agenda",
     },
     {
         label: "Clientes",

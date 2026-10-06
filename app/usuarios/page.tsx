@@ -43,6 +43,7 @@ type TabId =
     | "usuarios"
     | "inbox"
     | "agendamentos"
+    | "inteligencia_agenda"
     | "mensagem_ativa"
     | "internos"
     | "clientes"
@@ -163,7 +164,7 @@ type UserView = {
 
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
-    { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "purple", position: 12 },
+    { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "blue", position: 12 },
     { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
     { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
@@ -172,6 +173,7 @@ const TABS: PermissionTab[] = [
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
+    { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
     { id: "clientes", label: "Clientes", href: "/clientes", color: "green", position: 80 },
@@ -195,6 +197,7 @@ const PRESETS: PermissionPreset[] = [
             "usuarios",
             "inbox",
             "agendamentos",
+            "inteligencia_agenda",
             "mensagem_ativa",
             "internos",
             "clientes",

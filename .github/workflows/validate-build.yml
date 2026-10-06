@@ -46,6 +46,8 @@ jobs:
       - name: Pattern signal regression checks
         run: node --import tsx scripts/test-pattern-signals.ts
 
+      - name: Agenda intelligence regression checks
+        run: node --import tsx scripts/test-agenda-intelligence.ts
+
       - name: Build
         run: pnpm build
-

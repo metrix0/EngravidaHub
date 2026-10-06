@@ -1,3 +1,4 @@
+import { AGENDA_INTELLIGENCE_WIDGETS } from "@/lib/personal-dashboard/agendaIntelligenceWidgets";
 import type { AppTabId } from "@/lib/auth/userAccess";
 import { CHANNEL_DASHBOARD_WIDGETS } from "@/lib/personal-dashboard/channelWidgets";
 import {
@@ -10,6 +11,7 @@ import {
 export const ALL_DASHBOARD_WIDGETS: DashboardWidgetDefinition[] = [
     ...DASHBOARD_WIDGETS,
     ...CHANNEL_DASHBOARD_WIDGETS,
+    ...AGENDA_INTELLIGENCE_WIDGETS,
 ];
 
 const widgetById = new Map(

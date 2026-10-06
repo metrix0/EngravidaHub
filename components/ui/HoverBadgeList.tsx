@@ -1,7 +1,7 @@
 // components/ui/HoverBadgeList.tsx
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 export type HoverBadgeListItem = {
     key: string;
@@ -37,29 +37,67 @@ export function HoverBadgeList({
     popupAlignContainerSelector,
     previewCount = 2,
     overflowIndicatorThreshold = Number.POSITIVE_INFINITY,
-    overflowLabel = "…",
+    overflowLabel,
 }: HoverBadgeListProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const measurementRef = useRef<HTMLDivElement | null>(null);
+    const indicatorRef = useRef<HTMLSpanElement | null>(null);
     const [side, setSide] = useState<"left" | "right">("left");
+    const [fittingCount, setFittingCount] = useState<number | null>(null);
+    const previewLimit = items.length > overflowIndicatorThreshold
+        ? Math.min(items.length, Math.max(0, Math.floor(previewCount)))
+        : items.length;
+
+    useLayoutEffect(() => {
+        const row = rowRef.current, measurement = measurementRef.current, indicator = indicatorRef.current;
+        if (!row || !measurement || !indicator) return;
+
+        function measure() {
+            if (!row || !measurement || !indicator) return;
+            const width = row.clientWidth;
+            const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+            const widths = Array.from(measurement.children).map(badge => badge.getBoundingClientRect().width);
+            const prefixWidths = [0];
+            for (const badgeWidth of widths) prefixWidths.push(prefixWidths[prefixWidths.length - 1] + badgeWidth);
+            if (previewLimit === items.length && prefixWidths[previewLimit] + gap * Math.max(0, previewLimit - 1) <= width) {
+                setFittingCount(previewLimit);
+                return;
+            }
+
+            const indicatorWidths = new Map<number, number>();
+            for (let count = Math.min(previewLimit, items.length - 1); count >= 0; count--) {
+                const digits = String(items.length - count).length;
+                if (!indicatorWidths.has(digits)) {
+                    indicator.textContent = overflowLabel ?? `+${"9".repeat(digits)}`;
+                    indicatorWidths.set(digits, indicator.getBoundingClientRect().width);
+                }
+                if (count === 0 || prefixWidths[count] + gap * count + indicatorWidths.get(digits)! <= width) {
+                    setFittingCount(count);
+                    return;
+                }
+            }
+        }
+
+        measure();
+        let frame = 0;
+        const observer = new ResizeObserver(() => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(measure);
+        });
+        observer.observe(row);
+        for (const badge of measurement.children) observer.observe(badge);
+        return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+    }, [items, previewLimit, badgeClassName, maxBadgeWidthClassName, overflowLabel]);
 
     if (items.length === 0) {
         return <span className="text-xs font-medium text-slate-400">{emptyLabel}</span>;
     }
 
-    const normalizedPreviewCount = Math.max(0, previewCount);
-    const hiddenCount = Math.max(0, items.length - normalizedPreviewCount);
-    const previewItems: HoverBadgeListItem[] =
-        items.length > overflowIndicatorThreshold
-            ? [
-                  ...items.slice(0, normalizedPreviewCount),
-                  {
-                      key: "__overflow-indicator__",
-                      label: overflowLabel,
-                      title: `Mais ${hiddenCount} clientes. Passe o mouse para ver todos.`,
-                      className: "bg-slate-100 text-slate-600",
-                  },
-              ]
-            : items;
+    const visibleCount = Math.min(fittingCount ?? previewLimit, previewLimit);
+    const hiddenCount = items.length - visibleCount;
+    const indicatorClassName = `inline-flex shrink-0 tabular-nums ${badgeClassName} bg-slate-100 text-slate-600`;
+    const overflowTitle = `${hiddenCount} ${hiddenCount === 1 ? "item oculto" : "itens ocultos"}. Passe o mouse para ver todos.`;
 
     function handleMouseEnter() {
         const wrapper = wrapperRef.current;
@@ -90,8 +128,8 @@ export function HoverBadgeList({
             onMouseEnter={handleMouseEnter}
             className={`group/badge-list relative min-w-0 max-w-full ${className}`}
         >
-            <div className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
-                {previewItems.map((item) => (
+            <div ref={rowRef} className="flex min-w-0 max-w-full flex-nowrap gap-1.5 overflow-hidden">
+                {items.slice(0, visibleCount).map((item) => (
                     <Badge
                         key={item.key}
                         item={item}
@@ -99,6 +137,14 @@ export function HoverBadgeList({
                         extraClassName={maxBadgeWidthClassName}
                     />
                 ))}
+                {hiddenCount > 0 ? <span className={indicatorClassName} title={overflowTitle} aria-label={overflowTitle}>{overflowLabel ?? `+${hiddenCount}`}</span> : null}
+            </div>
+
+            <div aria-hidden="true" inert className="pointer-events-none invisible absolute inset-x-0 top-0 overflow-hidden">
+                <div ref={measurementRef} className="flex min-w-0 max-w-full flex-nowrap gap-1.5">
+                    {items.slice(0, previewLimit).map(item => <Badge key={item.key} item={item} badgeClassName={badgeClassName} extraClassName={maxBadgeWidthClassName} />)}
+                </div>
+                <span ref={indicatorRef} className={indicatorClassName}>{overflowLabel ?? `+${items.length}`}</span>
             </div>
 
             <div

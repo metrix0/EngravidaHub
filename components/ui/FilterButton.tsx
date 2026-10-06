@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, MapPin } from "lucide-react";
+import { Check, ChevronDown, Crosshair, MapPin } from "lucide-react";
 
 export type FilterOption = {
     label: string;
@@ -109,6 +109,10 @@ export default function FilterButton({
         setDraftValues(allOptionValues);
     }
 
+    function selectOnlyDraft(value: string) {
+        setDraftValues([value]);
+    }
+
     function applySelection() {
         if (draftValues.length === 0 || draftValues.length === allOptionValues.length) {
             updateAppliedValues([]);
@@ -165,31 +169,45 @@ export default function FilterButton({
                         const selected = allDraftSelected || draftValues.includes(option.value);
 
                         return (
-                            <button
+                            <div
                                 key={option.value}
-                                type="button"
-                                onClick={() => toggleOption(option.value)}
-                                className="flex w-full cursor-pointer items-center gap-3 px-4 py-2 text-left text-sm transition hover:bg-slate-50"
-                                style={{
-                                    color: selected ? "var(--color-brand)" : "var(--color-muted)",
-                                }}
+                                className="group flex items-center transition hover:bg-slate-50"
                             >
-                <span
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-                    style={{
-                        borderColor: selected
-                            ? "var(--color-brand)"
-                            : "var(--color-border)",
-                        backgroundColor: selected
-                            ? "var(--color-brand)"
-                            : "transparent",
-                    }}
-                >
-                  {selected && <Check size={12} className="text-white" />}
-                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleOption(option.value)}
+                                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-4 py-2 text-left text-sm"
+                                    style={{
+                                        color: selected ? "var(--color-brand)" : "var(--color-muted)",
+                                    }}
+                                >
+                                    <span
+                                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                                        style={{
+                                            borderColor: selected
+                                                ? "var(--color-brand)"
+                                                : "var(--color-border)",
+                                            backgroundColor: selected
+                                                ? "var(--color-brand)"
+                                                : "transparent",
+                                        }}
+                                    >
+                                        {selected && <Check size={12} className="text-white" />}
+                                    </span>
 
-                                <span className="truncate">{option.label}</span>
-                            </button>
+                                    <span className="truncate">{option.label}</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => selectOnlyDraft(option.value)}
+                                    className="mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                                    title="Selecionar apenas esta"
+                                    aria-label={`Selecionar apenas ${option.label}`}
+                                >
+                                    <Crosshair size={14} />
+                                </button>
+                            </div>
                         );
                     })}
                 </div>

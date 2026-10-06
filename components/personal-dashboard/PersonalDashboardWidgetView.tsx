@@ -1,5 +1,7 @@
 "use client";
 
+import { AgendaIntelligenceWidget } from "@/components/scheduling/AgendaIntelligenceWidgets";
+import Skeleton from "@/components/ui/Skeleton";
 import GerencialOverview from "@/components/gerencial/GerencialOverview";
 import ChannelDashboardWidgetRenderer from "@/components/personal-dashboard/ChannelDashboardWidgetRenderer";
 import ExactDashboardGraphRenderer from "@/components/personal-dashboard/ExactDashboardGraphRenderer";
@@ -62,6 +64,10 @@ export default function PersonalDashboardWidgetView(props: Props) {
         props.errors[props.widget.source]
     ) {
         return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
+    }
+
+    if (props.widget.source === "inteligencia_agenda") {
+        return props.sources.inteligencia_agenda ? <AgendaIntelligenceWidget widgetId={props.widget.id} report={props.sources.inteligencia_agenda} /> : <Skeleton className="h-40 rounded-2xl" />;
     }
 
     if (props.widget.kind !== "kpi") {
