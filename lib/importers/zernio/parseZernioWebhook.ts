@@ -87,11 +87,17 @@ export function parseZernioMessageWebhook(
     const participantId =
         stringValue(conversation?.participantId) ??
         (direction === "incoming" ? stringValue(sender?.id) : null);
+    const platformMessageId = stringValue(message?.platformMessageId);
     const messageId =
-        stringValue(message?.id) ??
-        stringValue(message?._id) ??
-        stringValue(message?.platformMessageId) ??
-        stringValue(root?.id);
+        direction === "outgoing"
+            ? platformMessageId ??
+              stringValue(message?.id) ??
+              stringValue(message?._id) ??
+              stringValue(root?.id)
+            : stringValue(message?.id) ??
+              stringValue(message?._id) ??
+              platformMessageId ??
+              stringValue(root?.id);
 
     if (!accountId || !conversationId || !participantId || !messageId) {
         return null;
