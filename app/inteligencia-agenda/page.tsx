@@ -16,7 +16,7 @@ const PERIOD_PRESETS = DEFAULT_CALENDAR_PRESETS.filter(preset => ["7", "30"].inc
 
 export default function AgendaIntelligencePage() {
     const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("30", PERIOD_PRESETS);
-    const { currentUser } = useCurrentUser();
+    const { currentUser, isLoadingCurrentUser } = useCurrentUser();
     const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
     const [unitIds, setUnitIds] = useState<string[]>([]);
     const [doctorIds, setDoctorIds] = useState<string[]>([]);
@@ -61,7 +61,7 @@ export default function AgendaIntelligencePage() {
                 options={visibleDoctors.map(doctor => ({ label: formatDoctorName(doctor.name), value: doctor.id }))}
                 values={doctorIds} onChange={setDoctorIds} />
         </DashboardFilterBar>}
-        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready} optionsError={optionsError} />
+        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
         </section>
     </main>;
 }
