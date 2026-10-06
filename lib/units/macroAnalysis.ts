@@ -744,6 +744,13 @@ export async function collectUnitAnalysis(input: Input) {
   const row = data as UnitMacroAnalysis;
   if (row.status === "completed") return { ok: true, id: row.id, status: row.status, usage: row.usage };
 
+  // A collector from an older deployment must not regenerate a newer prompt.
+  const storedVersion = /^unit-macro-v(\d+)-/.exec(row.prompt_version)?.[1];
+  const collectorVersion = /^unit-macro-v(\d+)-/.exec(PROMPT_VERSION)?.[1];
+  if (storedVersion && collectorVersion && Number(storedVersion) > Number(collectorVersion))
+    return { ok: true, id: row.id, status: row.status, skipped: true,
+      reason: "newer_prompt_version", prompt_version: row.prompt_version };
+
   const promptRefreshNeeded = row.prompt_version !== PROMPT_VERSION;
   const batchId = record(row.context).batch_id;
   const batch = promptRefreshNeeded

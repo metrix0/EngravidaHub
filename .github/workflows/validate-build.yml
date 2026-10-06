@@ -49,5 +49,8 @@ jobs:
       - name: Agenda intelligence regression checks
         run: node --import tsx scripts/test-agenda-intelligence.ts
 
+      - name: Cadence and analysis collector regression checks
+        run: node scripts/test-cadence-repair.cjs
+
       - name: Build
         run: pnpm build

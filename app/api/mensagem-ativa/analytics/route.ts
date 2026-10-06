@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireActiveMessageAccess } from "@/lib/active-messages/access";
+import { SYNTHETIC_ACTIVE_MESSAGE_SEND_ID } from "@/lib/active-messages/history";
 import { supabase } from "@/lib/supabase/client";
 
 export const dynamic = "force-dynamic";
@@ -115,6 +116,7 @@ async function loadSends(startDate: string, endDate: string) {
         const { data, error } = await supabase
             .from("active_message_sends")
             .select("id, template_id, template_name, sent_count, template_message_count, created_at, filters")
+            .neq("id", SYNTHETIC_ACTIVE_MESSAGE_SEND_ID)
             .gte("created_at", `${startDate}T00:00:00-03:00`)
             .lt("created_at", `${endExclusive}T00:00:00-03:00`)
             .order("created_at", { ascending: true })

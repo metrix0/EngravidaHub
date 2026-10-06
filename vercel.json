@@ -21,7 +21,7 @@
       "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/cron/mensagem-ativa-cadence",
+      "path": "/api/mensagem-ativa-cadence",
       "schedule": "0 14-17 * * *"
     }
   ]
