@@ -40,6 +40,28 @@ function record(value: unknown): Json {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
 }
 
+export function formatAnalysisError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    const parts = [
+      typeof value.message === "string" ? value.message : null,
+      typeof value.code === "string" ? `code=${value.code}` : null,
+      typeof value.details === "string" ? value.details : null,
+      typeof value.hint === "string" ? `hint=${value.hint}` : null,
+      typeof value.status === "number" ? `status=${value.status}` : null,
+    ].filter((part): part is string => Boolean(part));
+    if (parts.length > 0) return parts.join(" | ");
+    try {
+      return JSON.stringify(error) ?? Object.prototype.toString.call(error);
+    } catch {
+      return Object.prototype.toString.call(error);
+    }
+  }
+  return String(error);
+}
+
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -350,17 +372,27 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
   ];
   const metrics: Json = {};
   const timings: Json = {};
-  for (const [name, args] of requests) {
+  let stage = "ferramentas da análise";
+  try {
+    for (const [name, args] of requests) {
+      stage = name;
     const before = performance.now();
     const result = await executeAssistantTool(name, args, {
       authUserId: "", sessionId: row.id, unitLock: null,
     });
-    if (record(result.output).ok !== true)
-      throw new Error("Não foi possível preparar " + name);
+    if (record(result.output).ok !== true) {
+      const detail = record(result.output).error;
+      throw new Error(
+        typeof detail === "string" && detail.trim()
+          ? detail
+          : "Não foi possível preparar " + name,
+      );
+    }
     metrics[name] = result.output;
     timings[name] = Math.round(performance.now() - before);
   }
 
+  stage = "compare_unit_performance";
   const benchmarkBefore = performance.now();
   const benchmark = await executeAssistantTool(
     "compare_unit_performance",
@@ -372,6 +404,8 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
   metrics.network_benchmark = buildNetworkBenchmark(benchmark.output, unit.name);
   timings.network_benchmark = Math.round(performance.now() - benchmarkBefore);
 
+  stage = "marcações";
+
   const { count: markings, error: markingsError } = await supabase
     .from("schedules")
     .select("id", { count: "exact", head: true })
@@ -380,6 +414,8 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
     .lt("created_in_source_at", row.period_end);
   if (markingsError) throw markingsError;
   metrics.deterministic_stats = { markings: markings ?? 0 };
+
+  stage = "histórico semanal";
 
   const { data: history, error: historyError } = await supabase
     .from("unit_macro_analyses")
@@ -393,6 +429,8 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
     .order("period_end", { ascending: false })
     .limit(6);
   if (historyError) throw historyError;
+  stage = "histórico mensal";
+
   const { data: monthly, error: monthlyError } = await supabase
     .from("unit_macro_analyses")
     .select(
@@ -418,11 +456,15 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
   );
   const previousAnalysisIds = historyRows.map((item) => item.id);
 
+  stage = "padrões";
+
   const patternData = row.analysis_type === "weekly"
     ? await loadUnitPatternAggregates(unit.id, row.period_start, row.period_end)
     : { patterns: [], coverage: null };
   metrics.patterns = patternData.patterns;
   metrics.pattern_coverage = patternData.coverage;
+
+  stage = "evidências";
 
   // Keep generation bounded: use structured prior analyses as candidate evidence.
   // Real messages are loaded only for the final evidence cards after the model selects them.
@@ -513,6 +555,9 @@ async function prepare(row: UnitMacroAnalysis, unit: MacroUnit) {
   const input = JSON.stringify(payload);
   if (input.length > 180000) throw new Error("Contexto agregado excedeu 180 mil caracteres; refine os agregados antes de gerar.");
   return { metrics, examples, cards, previousAnalysisIds, input };
+  } catch (error) {
+    throw new Error(`Falha na preparação (${stage}): ${formatAnalysisError(error)}`);
+  }
 }
 
 function requestBody(input: string, evidenceCorrection?: Json) {
@@ -727,7 +772,7 @@ export async function submitUnitAnalysis(input: Input) {
     return { ok: true, id, status: "processing", batch_id: batch.id };
   } catch (error) {
     const { error: saveError } = await supabase.from("unit_macro_analyses").update({
-      status: "failed", error_message: error instanceof Error ? error.message : String(error),
+      status: "failed", error_message: formatAnalysisError(error),
       updated_at: new Date().toISOString(),
     }).eq("id", id);
     if (saveError) throw new Error("Falha ao registrar erro da análise " + id + ": " + saveError.message);
@@ -889,7 +934,7 @@ export async function collectUnitAnalysis(input: Input) {
     };
     const { error: saveError } = await supabase.from("unit_macro_analyses").update({
       status: "failed", context,
-      error_message: error instanceof Error ? error.message : String(error),
+      error_message: formatAnalysisError(error),
       updated_at: new Date().toISOString(),
     }).eq("id", row.id).neq("status", "completed");
     if (saveError) throw saveError;
