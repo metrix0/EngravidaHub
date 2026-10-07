@@ -22,7 +22,16 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
     const now = Date.now();
     const from = resultsStart ?? new Date(now - days * 86_400_000).toISOString();
     const until = new Date(Math.min(now, resultsEnd ? Date.parse(resultsEnd) : now)).toISOString();
-    const [agendas, appointments, analyses, history, baseline, doctorResult] = await Promise.all([
+    const analysisRequest = readAll<IntelligenceAnalysis>(cursor => {
+            let query = supabase.from("conversation_analysis")
+                .select("id, conversation_id, client_id, pattern_signals, started_at, customer_final_state, outcome_events, clients!inner(id, unit_id, name, phone, phone_identity), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
+                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp").order("id").limit(500);
+            if (unitIds.length) query = query.in("clients.unit_id", unitIds);
+            if (cursor) query = query.gt("id", cursor);
+            return query;
+        });
+    const evidenceRequest = analysisRequest.then(loadEvidenceMessages);
+    const [agendas, appointments, analyses, history, baseline, doctorResult, evidenceMessages] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
             let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures")
                 .eq("active", true).not("doctor_id", "is", null).not("unit_id", "is", null).order("id").limit(500);
@@ -39,14 +48,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
             if (cursor) query = query.gt("id", cursor);
             return query;
         }),
-        readAll<IntelligenceAnalysis>(cursor => {
-            let query = supabase.from("conversation_analysis")
-                .select("id, conversation_id, client_id, pattern_signals, started_at, customer_final_state, outcome_events, clients!inner(id, unit_id, name, phone, phone_identity), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
-                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp").order("id").limit(500);
-            if (unitIds.length) query = query.in("clients.unit_id", unitIds);
-            if (cursor) query = query.gt("id", cursor);
-            return query;
-        }),
+        analysisRequest,
         readAll<ScheduleHistory>(cursor => {
             let query = supabase.from("schedule_history").select("id, entity_id, entity_type, operation, recorded_at, before_state, after_state")
                 .eq("entity_type", "appointment").neq("operation", "snapshot").gte("recorded_at", from).lt("recorded_at", new Date(now).toISOString()).order("id").limit(500);
@@ -65,20 +67,10 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
             if (doctorIds.length) query = query.in("doctor.id", doctorIds);
             return query;
         })(),
+        evidenceRequest,
     ]);
     if (baseline.error) throw baseline.error;
     if (doctorResult.error) throw doctorResult.error;
-    const evidenceIds = [...new Set(analyses.flatMap(analysis => Array.isArray(analysis.pattern_signals) ? analysis.pattern_signals.flatMap(raw => {
-        const signal = patternSignalSchema.safeParse(raw);
-        return signal.success && signal.data.category === "consultation_preference" && signal.data.confidence >= 0.85
-            ? signal.data.evidence.map(item => item.message_id).filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) : [];
-    }) : []))];
-    const batches = Array.from({ length: Math.ceil(evidenceIds.length / 200) }, (_, index) => evidenceIds.slice(index * 200, (index + 1) * 200));
-    const evidenceMessages = (await Promise.all(batches.map(async ids => {
-        const { data, error } = await supabase.from("messages").select("id, conversation_id, sent_at").in("id", ids);
-        if (error) throw error;
-        return (data ?? []) as IntelligenceEvidenceMessage[];
-    }))).flat();
     const doctors = (doctorResult.data ?? []).flatMap(row => {
         const doctor = Array.isArray(row.doctor) ? row.doctor[0] : row.doctor;
         return doctor ? [{ id: doctor.id, name: doctor.name, unit_id: row.unit_id }] : [];
@@ -89,4 +81,18 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
         analyses, evidenceMessages, doctors,
         history: history.map(row => ({ ...row, before_state: scoped(row.before_state), after_state: scoped(row.after_state) })),
         historyStartedAt: baseline.data?.recorded_at ?? null });
+}
+
+async function loadEvidenceMessages(analyses: IntelligenceAnalysis[]) {
+    const evidenceIds = [...new Set(analyses.flatMap(analysis => Array.isArray(analysis.pattern_signals) ? analysis.pattern_signals.flatMap(raw => {
+        const signal = patternSignalSchema.safeParse(raw);
+        return signal.success && signal.data.category === "consultation_preference" && signal.data.confidence >= 0.85
+            ? signal.data.evidence.map(item => item.message_id).filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) : [];
+    }) : []))];
+    const batches = Array.from({ length: Math.ceil(evidenceIds.length / 200) }, (_, index) => evidenceIds.slice(index * 200, (index + 1) * 200));
+    return (await Promise.all(batches.map(async ids => {
+        const { data, error } = await supabase.from("messages").select("id, conversation_id, sent_at").in("id", ids);
+        if (error) throw error;
+        return (data ?? []) as IntelligenceEvidenceMessage[];
+    }))).flat();
 }

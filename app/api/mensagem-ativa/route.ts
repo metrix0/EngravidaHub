@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 
 import { requireActiveMessageAccess } from "@/lib/active-messages/access";
+import { SYNTHETIC_ACTIVE_MESSAGE_SEND_ID } from "@/lib/active-messages/history";
 import { ACTIVE_MESSAGE_TEMPLATES } from "@/lib/active-messages/templates";
 import { getActiveMessageTemplateSenderOptions } from "@/lib/active-messages/templateSenders";
 import { supabase } from "@/lib/supabase/client";
@@ -194,6 +195,7 @@ async function buildActiveMessagesPage(): Promise<ActiveMessagesPageResponse> {
                         client_ids,
                         results
                     `)
+                    .neq("id", SYNTHETIC_ACTIVE_MESSAGE_SEND_ID)
                     .order("created_at", { ascending: false })
                     .limit(50),
             ]);
