@@ -67,10 +67,7 @@ import {
     DEFAULT_CALENDAR_PRESETS,
     applyCalendarDateParams,
 } from "@/components/ui/CalendarButton";
-import {
-    ACTIVE_MESSAGE_PRICE_BRL,
-    type ActiveMessageTemplate,
-} from "@/lib/active-messages/templates";
+import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 import type {
     ActiveMessageClient,
     ActiveMessageFunnelStage,
@@ -1297,16 +1294,6 @@ function TemplateCard({
                         </h2>
                         <p className="mt-1 text-sm leading-relaxed text-slate-500">
                             Selecione e customize o template.
-                        </p>
-                        <p className="mt-1 text-xs font-semibold text-slate-400">
-                            Mensagem Ativa:{" "}
-                            {ACTIVE_MESSAGE_PRICE_BRL.toLocaleString("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}{" "}
-                            por envio, em todos os tipos.
                         </p>
                     </div>
                 </div>
