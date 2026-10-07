@@ -122,6 +122,19 @@ async function checkNewerPromptGuard() {
     pipeline.formatAnalysisError({ code: 'PGRST123', message: 'Falha no banco', details: 'detalhes', hint: 'tente novamente' }),
     'Falha no banco | code=PGRST123 | detalhes | hint=tente novamente',
   );
+  const enrichedError = Object.assign(new Error('Falha no banco'), {
+    code: 'PGRST123',
+    details: 'detalhes',
+    hint: 'tente novamente',
+    status: 503,
+  });
+  assert.equal(
+    pipeline.formatAnalysisError(enrichedError),
+    'Falha no banco | code=PGRST123 | detalhes | hint=tente novamente | status=503',
+  );
+  const circularError = {};
+  circularError.self = circularError;
+  assert.notEqual(pipeline.formatAnalysisError(circularError), '[object Object]');
   assert.notEqual(pipeline.formatAnalysisError({ code: 'PGRST123' }), '[object Object]');
   const result = await pipeline.collectUnitAnalysis({ unit: 'unit', type: 'weekly', periodEnd: '2026-10-04' });
   assert.equal(result.reason, 'newer_prompt_version');

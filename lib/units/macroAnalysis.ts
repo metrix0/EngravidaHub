@@ -41,23 +41,30 @@ function record(value: unknown): Json {
 }
 
 export function formatAnalysisError(error: unknown): string {
-  if (error instanceof Error) return error.message || error.name;
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
     const value = error as Record<string, unknown>;
     const parts = [
-      typeof value.message === "string" ? value.message : null,
+      typeof value.message === "string" && value.message.trim()
+        ? value.message
+        : error instanceof Error
+          ? error.name
+          : null,
       typeof value.code === "string" ? `code=${value.code}` : null,
       typeof value.details === "string" ? value.details : null,
       typeof value.hint === "string" ? `hint=${value.hint}` : null,
-      typeof value.status === "number" ? `status=${value.status}` : null,
+      typeof value.status === "number" || typeof value.status === "string"
+        ? `status=${value.status}`
+        : null,
     ].filter((part): part is string => Boolean(part));
     if (parts.length > 0) return parts.join(" | ");
     try {
-      return JSON.stringify(error) ?? Object.prototype.toString.call(error);
+      const serialized = JSON.stringify(error);
+      if (serialized) return serialized;
     } catch {
-      return Object.prototype.toString.call(error);
+      // Fall through to a stable message instead of "[object Object]".
     }
+    return error instanceof Error ? error.name : "Erro não serializável";
   }
   return String(error);
 }
