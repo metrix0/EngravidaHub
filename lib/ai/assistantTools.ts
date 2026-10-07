@@ -163,6 +163,43 @@ export const ASSISTANT_TOOLS = [
     },
     {
         type: "function",
+        name: "get_agenda_intelligence",
+        description:
+            "Consulta a mesma Inteligência Agenda exibida no Hub: ocupação e capacidade por médico, vagas livres, preferências detectadas nas conversas, demanda × disponibilidade, oportunidades, cobertura parcial, médicos sem agenda sincronizada, remarcações e recuperação de vagas. Use para perguntas sobre onde faltam/sobram horários, vagas compatíveis, demanda por manhã/tarde/sábado e capacidade. Para simples totais de agendamentos e status, prefira get_schedule_overview.",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                date_from: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa os últimos 30 dias.",
+                },
+                date_to: {
+                    type: ["string", "null"],
+                    description: "YYYY-MM-DD; null usa hoje.",
+                },
+                unit_name: { type: ["string", "null"] },
+                doctor_name: { type: ["string", "null"] },
+                days_ahead: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 60,
+                    description:
+                        "Horizonte futuro em dias para calcular capacidade e vagas compatíveis. Use 30 por padrão.",
+                },
+            },
+            required: [
+                "date_from",
+                "date_to",
+                "unit_name",
+                "doctor_name",
+                "days_ahead",
+            ],
+            additionalProperties: false,
+        },
+    },
+    {
+        type: "function",
         name: "search_conversations",
         description:
             "Localiza conversas por cliente, unidade, período e resultado da análise.",

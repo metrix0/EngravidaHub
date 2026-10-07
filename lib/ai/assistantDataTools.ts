@@ -9,6 +9,7 @@ import {
     type DoctorReference,
 } from "@/lib/invoices/matchDoctor";
 import { getPaidMediaOverview } from "@/lib/ai/assistantPaidMediaTool";
+import { loadAgendaIntelligence } from "@/lib/scheduling/agendaIntelligenceServer";
 import { summarizeFirstHumanResponseTimes } from "@/lib/ai/assistantMetrics";
 import {
     summarizeConversationAnalysisPipeline,
@@ -103,6 +104,8 @@ export async function executeAssistantDataTool(
             return searchAppointments(args, context.unitLock?.id ?? null);
         case "get_schedule_overview":
             return getScheduleOverview(args);
+        case "get_agenda_intelligence":
+            return getAgendaIntelligence(args);
         case "search_conversations":
             return searchConversations(args);
         case "get_conversation_context":
@@ -598,6 +601,166 @@ async function getScheduleOverview(
                     "Desfechos divididos somente pelos agendamentos não futuros; datas futuras ficam fora.",
             },
             truncated: rows.length >= MAX_ANALYTICS_ROWS,
+        },
+        cards: [],
+    };
+}
+
+async function getAgendaIntelligence(
+    args: JsonRecord,
+): Promise<ToolExecution> {
+    const requestedFrom = validDateArg(args, "date_from") ?? dateDaysAgo(30);
+    const requestedTo = validDateArg(args, "date_to") ?? todayInBrazil();
+    const dateFrom = requestedFrom <= requestedTo ? requestedFrom : requestedTo;
+    const dateTo = requestedFrom <= requestedTo ? requestedTo : requestedFrom;
+    const daysAhead = integerArg(args, "days_ahead", 30, 1, 60);
+    const requestedUnitName = stringArg(args, "unit_name");
+    const requestedDoctorName = stringArg(args, "doctor_name");
+    const [unit, doctors] = await Promise.all([
+        requestedUnitName
+            ? resolveSingleUnit(requestedUnitName)
+            : Promise.resolve(null),
+        requestedDoctorName ? loadFinancialDoctors() : Promise.resolve([]),
+    ]);
+
+    if (requestedUnitName && !unit) {
+        return {
+            output: {
+                ok: true,
+                note: `Unidade “${requestedUnitName}” não encontrada.`,
+            },
+            cards: [],
+        };
+    }
+
+    const doctor = requestedDoctorName
+        ? resolveRequestedDoctor(requestedDoctorName, doctors)
+        : null;
+
+    if (requestedDoctorName && !doctor) {
+        return {
+            output: {
+                ok: true,
+                note: `Médico “${requestedDoctorName}” não encontrado de forma única.`,
+            },
+            cards: [],
+        };
+    }
+
+    const report = await loadAgendaIntelligence({
+        days: daysAhead,
+        unitIds: unit ? [unit.id] : [],
+        doctorIds: doctor ? [doctor.id] : [],
+        resultsStart: brazilDayBoundary(dateFrom),
+        resultsEnd: brazilDayBoundary(addDays(dateTo, 1)),
+    });
+
+    return {
+        output: {
+            ok: true,
+            source: "Inteligência Agenda",
+            period: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                days_ahead: daysAhead,
+                availability_start: report.start,
+                availability_end: report.end,
+                timezone: TIME_ZONE,
+            },
+            filters: {
+                unit_name: unit?.name ?? null,
+                doctor_name: doctor?.name ?? null,
+            },
+            capacity: {
+                capacity_minutes: report.capacityMinutes,
+                occupied_minutes: report.occupiedMinutes,
+                occupancy_percentage:
+                    report.occupancy === null
+                        ? null
+                        : Math.round(report.occupancy * 100) / 100,
+                free_slots: report.freeSlots,
+                median_wait_days: report.medianWaitDays,
+                no_shows: report.noShows,
+                no_show_rate_percentage:
+                    report.noShowRate === null
+                        ? null
+                        : Math.round(report.noShowRate * 100) / 100,
+                cancellations: report.cancellations,
+            },
+            doctor_capacity: report.doctors.map((item) => ({
+                unit_name: item.unitName,
+                doctor_name: item.doctorName,
+                duration_minutes: item.durationMinutes,
+                capacity_minutes: item.capacityMinutes,
+                occupied_minutes: item.occupiedMinutes,
+                occupancy_percentage:
+                    item.occupancy === null
+                        ? null
+                        : Math.round(item.occupancy * 100) / 100,
+                free_slots: item.freeSlots,
+                first_available: item.firstAvailable,
+                wait_days: item.waitDays,
+            })),
+            demand_preferences: report.preferences.map((item) => ({
+                unit_name: item.unitName,
+                preference: item.label,
+                preference_key: item.value,
+                conversations: item.conversations,
+                booked_matching: item.bookedMatching,
+                booked_other: item.bookedOther,
+                booking_unverified: item.bookingUnverified,
+                without_booking: item.withoutBooking,
+                cases_to_review: item.casesToReview,
+                compatible_slots: item.availableSlots,
+                coverage_complete: item.coverageComplete,
+                first_compatible_slot: item.firstCompatibleSlot,
+            })),
+            opportunities: report.opportunities.map((item) => ({
+                unit_name: item.unitName,
+                preference: item.label,
+                preference_key: item.value,
+                conversations_to_review: item.conversations,
+                total_conversations: item.totalConversations,
+                compatible_slots: item.availableSlots,
+                coverage_complete: item.coverageComplete,
+                first_compatible_slot: item.firstCompatibleSlot,
+                action: item.action,
+                gap: item.gap,
+            })),
+            missing_doctors: report.missingDoctors.map((item) => ({
+                unit_id: item.unit_id,
+                doctor_id: item.id,
+                doctor_name: item.name,
+            })),
+            heatmap: report.heatmap.map((item) => ({
+                weekday: item.weekday,
+                hour: item.hour,
+                capacity_minutes: item.capacityMinutes,
+                occupied_minutes: item.occupiedMinutes,
+            })),
+            history: {
+                started_at: report.history.startedAt,
+                observed_from: report.history.observedFrom,
+                released_slots: report.history.released,
+                late_releases: report.history.lateReleases,
+                settled_releases: report.history.settled,
+                recovered_slots: report.history.recovered,
+                reschedules: report.history.reschedules,
+            },
+            coverage: {
+                analyzed_conversations: report.coverage.analyzedConversations,
+                signals_processed: report.coverage.signalsProcessed,
+                signals_pending: report.coverage.signalsPending,
+            },
+            generated_at: report.generatedAt,
+            metric_definitions: {
+                partial_coverage:
+                    "coverage_complete=false significa que há médico ativo sem agenda sincronizada na unidade; as vagas compatíveis exibidas são um mínimo conhecido.",
+                compatible_slots:
+                    "Vagas livres que atendem à preferência detectada nas conversas, usando a mesma lógica da tela Inteligência Agenda.",
+                cases_to_review:
+                    "Conversas com preferência detectada, sem agendamento compatível confirmado e ainda revisáveis.",
+            },
         },
         cards: [],
     };

@@ -6,6 +6,7 @@ export const ASSISTANT_TOOL_NAMES = [
     "get_client_context",
     "search_appointments",
     "get_schedule_overview",
+    "get_agenda_intelligence",
     "search_conversations",
     "get_conversation_context",
     "get_conversation_analysis_overview",
@@ -44,10 +45,11 @@ const GROUPS: Array<{
     },
     {
         pattern:
-            /\b(agenda|agendamento|agendamentos|agendar|consulta|consultas|compareceu|comparecimento|faltou|falta|cancelad|cancelamento|desmarc|remarc|m[eé]dic[oa]|doutor[ae]?|dra\.?|procedimento)\w*/i,
+            /\b(agenda|agendamento|agendamentos|agendar|consulta|consultas|compareceu|comparecimento|faltou|falta|cancelad|cancelamento|desmarc|remarc|m[eé]dic[oa]|doutor[ae]?|dra\.?|procedimento|vaga|vagas|disponibilidade|ocupa[cç][aã]o|capacidade|demanda|hor[aá]rio|hor[aá]rios|s[aá]bado|manh[aã]|tarde)\w*/i,
         tools: [
             "search_appointments",
             "get_schedule_overview",
+            "get_agenda_intelligence",
             "get_cancellation_analysis",
         ],
     },
