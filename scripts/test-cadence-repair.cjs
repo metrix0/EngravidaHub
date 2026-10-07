@@ -118,6 +118,11 @@ async function checkNewerPromptGuard() {
     '@/lib/ai/assistantHubKnowledge': {}, '@/lib/units/macroEvidence': {},
     '@/lib/units/macroPeriods': periods,
   });
+  assert.equal(
+    pipeline.formatAnalysisError({ code: 'PGRST123', message: 'Falha no banco', details: 'detalhes', hint: 'tente novamente' }),
+    'Falha no banco | code=PGRST123 | detalhes | hint=tente novamente',
+  );
+  assert.notEqual(pipeline.formatAnalysisError({ code: 'PGRST123' }), '[object Object]');
   const result = await pipeline.collectUnitAnalysis({ unit: 'unit', type: 'weekly', periodEnd: '2026-10-04' });
   assert.equal(result.reason, 'newer_prompt_version');
   assert.equal(result.status, 'processing');
