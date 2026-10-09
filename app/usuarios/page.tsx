@@ -10,10 +10,13 @@ import {
     Crown,
     Headphones,
     LockKeyhole,
+    LoaderCircle,
+    Mail,
     Megaphone,
     Search,
     ShieldCheck,
     UsersRound,
+    UserPlus,
 } from "lucide-react";
 
 import {
@@ -79,6 +82,8 @@ type ApiUser = {
     name: string;
     created_at: string;
     last_sign_in_at: string | null;
+    invited_at: string | null;
+    email_confirmed_at: string | null;
 };
 
 type UserPermission = {
@@ -145,6 +150,8 @@ type UserView = {
     id: string;
     email: string | null;
     name: string;
+    can_invite: boolean;
+    invited_at: string | null;
     preset: PermissionPreset | null;
     permission: UserPermission | null;
     allowed_tabs: TabId[];
@@ -273,6 +280,7 @@ const presetIcons = {
 };
 
 const EMPTY_VALUE = "—";
+const INVITATION_DRAFT_ID = "__invitation_draft__";
 
 const TAB_COLOR_ORDER: Record<ColorName, number> = {
     blue: 10,
@@ -293,6 +301,11 @@ export default function UsuariosPage() {
     const [presetValues, setPresetValues] = useState<string[]>([]);
     const [statusValues, setStatusValues] = useState<string[]>([]);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+    const [invitationDraft, setInvitationDraft] = useState<ApiResponse | null>(null);
+    const [invitationAuthUserId, setInvitationAuthUserId] = useState<string | null>(null);
+    const [sendingInvitation, setSendingInvitation] = useState(false);
+    const [invitationError, setInvitationError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
 
     async function loadUsers() {
         setLoading(true);
@@ -340,90 +353,10 @@ export default function UsuariosPage() {
         void loadUsers();
     }, []);
 
-    const users = useMemo<UserView[]>(() => {
-        if (!data) return [];
-
-        const permissionsByUserId = new Map(
-            data.permissions.map((permission) => [
-                permission.auth_user_id,
-                permission,
-            ]),
-        );
-        const unitsById = new Map(units.map((unit) => [unit.id, unit]));
-        const attendantsById = new Map(
-            data.attendants.map((attendant) => [attendant.id, attendant]),
-        );
-        const attendantsByAuthUserId = new Map<string, Attendant>();
-        const groupsById = new Map(
-            data.groups.map((group) => [group.id, group]),
-        );
-        const membershipsByUserId = new Map<string, GroupMembership[]>();
-
-        for (const membership of data.group_memberships) {
-            const current = membershipsByUserId.get(membership.auth_user_id) ?? [];
-            current.push(membership);
-            membershipsByUserId.set(membership.auth_user_id, current);
-        }
-
-        for (const attendant of data.attendants) {
-            if (attendant.auth_user_id) {
-                attendantsByAuthUserId.set(attendant.auth_user_id, attendant);
-            }
-        }
-
-        return data.users.map((user) => {
-            const permission = permissionsByUserId.get(user.id) ?? null;
-            const preset =
-                permission?.preset === NO_PRESET_ID
-                    ? null
-                    : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-            const allowedTabs = normalizeAllowedTabs(
-                permission?.allowed_tabs,
-                permission ? [] : preset?.default_tabs ?? [],
-            );
-            const attendant = permission
-                ? permission.attendant_id
-                    ? attendantsById.get(permission.attendant_id) ?? null
-                    : null
-                : attendantsByAuthUserId.get(user.id) ?? null;
-            const unitId = permission?.unit_id ?? null;
-            const unit = unitId ? unitsById.get(unitId) ?? null : null;
-            const memberships = membershipsByUserId.get(user.id) ?? [];
-            const groupIds = memberships.map((membership) => membership.group_id);
-            const manualGroupIds = memberships
-                .filter((membership) => membership.manual)
-                .map((membership) => membership.group_id);
-            const automaticGroupIds = memberships
-                .filter((membership) => membership.automatic)
-                .map((membership) => membership.group_id);
-            const groupNames = groupIds
-                .map((groupId) => groupsById.get(groupId)?.name)
-                .filter((name): name is string => Boolean(name));
-
-            return {
-                id: user.id,
-                email: user.email,
-                name: attendant?.name ?? user.name,
-                preset,
-                permission,
-                allowed_tabs: allowedTabs,
-                tabs: tabsFromIds(allowedTabs),
-                attendant,
-                attendant_id: permission
-                    ? permission.attendant_id
-                    : attendant?.id ?? null,
-                unit_id: unitId,
-                unit_name: unit?.name ?? "Todas",
-                queue_id: attendant?.queue_id ?? null,
-                queue_name: attendant?.queue_name ?? "Nenhum",
-                group_ids: groupIds,
-                manual_group_ids: manualGroupIds,
-                automatic_group_ids: automaticGroupIds,
-                group_names: groupNames,
-                active: permission?.active ?? true,
-            };
-        });
-    }, [data, units]);
+    const users = useMemo<UserView[]>(
+        () => data ? buildUserViews(data, units) : [],
+        [data, units],
+    );
 
     const filteredUsers = useMemo(() => {
         const term = search.trim().toLowerCase();
@@ -460,11 +393,90 @@ export default function UsuariosPage() {
     }, [users, search, presetValues, statusValues]);
 
     const selectedUser = useMemo(() => {
+        if (invitationDraft) return buildUserViews(invitationDraft, units)[0] ?? null;
         if (!selectedUserId) return null;
         return users.find((user) => user.id === selectedUserId) ?? null;
-    }, [users, selectedUserId]);
+    }, [users, selectedUserId, invitationDraft, units]);
+
+    function startInvitation() {
+        if (!data) return;
+        if (invitationAuthUserId) void loadUsers();
+        setSelectedUserId(null);
+        setInvitationAuthUserId(null);
+        setInvitationError(null);
+        setNotice(null);
+        setInvitationDraft({
+            ...data,
+            users: [{
+                id: INVITATION_DRAFT_ID, name: "", email: "",
+                created_at: new Date().toISOString(), last_sign_in_at: null,
+                invited_at: null, email_confirmed_at: null,
+            }],
+            permissions: [{
+                auth_user_id: INVITATION_DRAFT_ID, preset: NO_PRESET_ID,
+                allowed_tabs: [], attendant_id: null, unit_id: null, active: true,
+            }],
+            group_memberships: [],
+        });
+    }
+
+    function closeUserPanel() {
+        if (sendingInvitation) return;
+        if (invitationAuthUserId) void loadUsers();
+        setSelectedUserId(null);
+        setInvitationDraft(null);
+        setInvitationAuthUserId(null);
+        setInvitationError(null);
+    }
+
+    async function sendInvitation(user: UserView) {
+        if (sendingInvitation || savingUserId) return;
+        setSendingInvitation(true);
+        setInvitationError(null);
+        setNotice(null);
+        try {
+            const identity = invitationDraft?.users[0];
+            const response = await fetch("/api/usuarios", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: identity?.name ?? user.name,
+                    email: identity?.email ?? user.email,
+                    auth_user_id: identity ? invitationAuthUserId : user.id,
+                    preset: user.permission?.preset ?? NO_PRESET_ID,
+                    allowed_tabs: user.allowed_tabs,
+                    unit_id: user.unit_id,
+                    attendant_id: user.attendant_id,
+                    queue_id: user.queue_id,
+                    manual_group_ids: user.manual_group_ids,
+                    active: user.active,
+                }),
+            });
+            const json = await response.json();
+            if (identity && typeof json.auth_user_id === "string") {
+                setInvitationAuthUserId(json.auth_user_id);
+            }
+            if (!response.ok) throw new Error(json.error ?? "Não foi possível enviar o convite");
+            setInvitationDraft(null);
+            setInvitationAuthUserId(null);
+            setSelectedUserId(json.auth_user_id);
+            setNotice("Convite enviado. O usuário já está com o acesso configurado.");
+            await loadUsers();
+        } catch (inviteError) {
+            setInvitationError(inviteError instanceof Error ? inviteError.message : "Não foi possível enviar o convite");
+        } finally {
+            setSendingInvitation(false);
+        }
+    }
 
     async function saveUserUnit(user: UserView, unitId: string | null) {
+        if (user.id === INVITATION_DRAFT_ID) {
+            setInvitationDraft((current) => current ? {
+                ...current,
+                permissions: current.permissions.map((permission) => ({ ...permission, unit_id: unitId })),
+            } : current);
+            return;
+        }
         if (!data || !user.permission) return;
 
         const previousData = data;
@@ -521,7 +533,8 @@ export default function UsuariosPage() {
             active: boolean;
         }>,
     ) {
-        if (!data) return;
+        const currentData = user.id === INVITATION_DRAFT_ID ? invitationDraft : data;
+        if (!currentData) return;
 
         const patchHasPreset = patch.preset !== undefined;
         const nextPresetId = patchHasPreset
@@ -541,7 +554,7 @@ export default function UsuariosPage() {
                 ? patch.attendant_id
                 : user.attendant_id;
         const selectedAttendant = nextAttendantId
-            ? data.attendants.find((attendant) => attendant.id === nextAttendantId) ?? null
+            ? currentData.attendants.find((attendant) => attendant.id === nextAttendantId) ?? null
             : null;
         const nextQueueId = !nextAttendantId
             ? null
@@ -562,6 +575,13 @@ export default function UsuariosPage() {
             unit_id: user.unit_id,
             active: nextActive,
         };
+
+        if (user.id === INVITATION_DRAFT_ID) {
+            setInvitationDraft((current) => current ? applyPermissionUpdate({
+                current, userId: user.id, nextPermission, nextQueueId, nextManualGroupIds,
+            }) : current);
+            return;
+        }
 
         const previousData = data;
 
@@ -773,15 +793,31 @@ export default function UsuariosPage() {
             <SidePanel />
 
             <section className="min-w-0 flex-1 px-4 py-5 pb-16 md:px-8 md:py-8">
-                <header className="mb-8">
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
-                        Usuários
-                    </h1>
-                    <p className="mt-2 text-sm text-slate-500">
-                        Gerencie presets de acesso, abas, atendentes e filas
-                    </p>
+                <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+                            Usuários
+                        </h1>
+                        <p className="mt-2 text-sm text-slate-500">
+                            Gerencie presets de acesso, abas, atendentes e filas
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={startInvitation}
+                        disabled={!data || sendingInvitation}
+                        className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <UserPlus size={16} />
+                        Adicionar usuário
+                    </button>
                 </header>
 
+                {notice && (
+                    <div role="status" className="mb-6 rounded-2xl border border-green/20 bg-green-soft px-5 py-4 text-sm font-bold text-green">
+                        {notice}
+                    </div>
+                )}
                 {error && (
                     <div className="mb-6 rounded-2xl border border-red/20 bg-red-soft px-5 py-4 text-sm font-bold text-red">
                         {error}
@@ -845,7 +881,11 @@ export default function UsuariosPage() {
                         columns={userColumns}
                         rows={filteredUsers}
                         getRowKey={(user) => user.id}
-                        onRowClick={(user) => setSelectedUserId(user.id)}
+                        onRowClick={(user) => {
+                            if (sendingInvitation) return;
+                            closeUserPanel();
+                            setSelectedUserId(user.id);
+                        }}
                     />
                 </section>
                 <div className={"pt-16"}></div>
@@ -858,14 +898,110 @@ export default function UsuariosPage() {
                 attendants={data?.attendants ?? []}
                 queues={data?.queues ?? []}
                 groups={data?.groups ?? []}
-                saving={selectedUser ? savingUserId === selectedUser.id : false}
-                onClose={() => setSelectedUserId(null)}
+                saving={sendingInvitation || (selectedUser ? savingUserId === selectedUser.id : false)}
+                inviting={sendingInvitation}
+                onClose={closeUserPanel}
                 onSave={saveUserPermission}
                 onSaveUnit={saveUserUnit}
                 onToggleTab={toggleUserTab}
+                invitation={invitationDraft ? {
+                    name: invitationDraft.users[0].name,
+                    email: invitationDraft.users[0].email ?? "",
+                    identityLocked: Boolean(invitationAuthUserId),
+                    onChange: (key, value) => setInvitationDraft((current) => current ? {
+                        ...current, users: current.users.map((user) => ({ ...user, [key]: value })),
+                    } : current),
+                } : undefined}
+                invitationError={invitationError}
+                onInvite={selectedUser ? () => void sendInvitation(selectedUser) : undefined}
             />
         </main>
     );
+}
+
+function buildUserViews(data: ApiResponse, units: Unit[]): UserView[] {
+    const permissionsByUserId = new Map(
+        data.permissions.map((permission) => [
+            permission.auth_user_id,
+            permission,
+        ]),
+    );
+    const unitsById = new Map(units.map((unit) => [unit.id, unit]));
+    const attendantsById = new Map(
+        data.attendants.map((attendant) => [attendant.id, attendant]),
+    );
+    const attendantsByAuthUserId = new Map<string, Attendant>();
+    const groupsById = new Map(
+        data.groups.map((group) => [group.id, group]),
+    );
+    const membershipsByUserId = new Map<string, GroupMembership[]>();
+
+    for (const membership of data.group_memberships) {
+        const current = membershipsByUserId.get(membership.auth_user_id) ?? [];
+        current.push(membership);
+        membershipsByUserId.set(membership.auth_user_id, current);
+    }
+
+    for (const attendant of data.attendants) {
+        if (attendant.auth_user_id) {
+            attendantsByAuthUserId.set(attendant.auth_user_id, attendant);
+        }
+    }
+
+    return data.users.map((user) => {
+        const permission = permissionsByUserId.get(user.id) ?? null;
+        const preset =
+            permission?.preset === NO_PRESET_ID
+                ? null
+                : PRESETS.find((item) => item.id === permission?.preset) ?? null;
+        const allowedTabs = normalizeAllowedTabs(
+            permission?.allowed_tabs,
+            permission ? [] : preset?.default_tabs ?? [],
+        );
+        const attendant = permission
+            ? permission.attendant_id
+                ? attendantsById.get(permission.attendant_id) ?? null
+                : null
+            : attendantsByAuthUserId.get(user.id) ?? null;
+        const unitId = permission?.unit_id ?? null;
+        const unit = unitId ? unitsById.get(unitId) ?? null : null;
+        const memberships = membershipsByUserId.get(user.id) ?? [];
+        const groupIds = memberships.map((membership) => membership.group_id);
+        const manualGroupIds = memberships
+            .filter((membership) => membership.manual)
+            .map((membership) => membership.group_id);
+        const automaticGroupIds = memberships
+            .filter((membership) => membership.automatic)
+            .map((membership) => membership.group_id);
+        const groupNames = groupIds
+            .map((groupId) => groupsById.get(groupId)?.name)
+            .filter((name): name is string => Boolean(name));
+
+        return {
+            id: user.id,
+            email: user.email,
+            name: attendant?.name ?? user.name,
+            can_invite: !user.email_confirmed_at && !user.last_sign_in_at,
+            invited_at: user.invited_at ?? null,
+            preset,
+            permission,
+            allowed_tabs: allowedTabs,
+            tabs: tabsFromIds(allowedTabs),
+            attendant,
+            attendant_id: permission
+                ? permission.attendant_id
+                : attendant?.id ?? null,
+            unit_id: unitId,
+            unit_name: unit?.name ?? "Todas",
+            queue_id: attendant?.queue_id ?? null,
+            queue_name: attendant?.queue_name ?? "Nenhum",
+            group_ids: groupIds,
+            manual_group_ids: manualGroupIds,
+            automatic_group_ids: automaticGroupIds,
+            group_names: groupNames,
+            active: permission?.active ?? true,
+        };
+    });
 }
 
 function applyPermissionUpdate({
@@ -977,10 +1113,14 @@ function UserDetailsPanel({
     queues,
     groups,
     saving,
+    inviting,
     onClose,
     onSave,
     onSaveUnit,
     onToggleTab,
+    invitation,
+    invitationError,
+    onInvite,
 }: {
     open: boolean;
     user: UserView | null;
@@ -989,6 +1129,7 @@ function UserDetailsPanel({
     queues: Queue[];
     groups: InternalGroup[];
     saving: boolean;
+    inviting: boolean;
     onClose: () => void;
     onSave: (
         user: UserView,
@@ -1003,6 +1144,14 @@ function UserDetailsPanel({
     ) => Promise<void>;
     onSaveUnit: (user: UserView, unitId: string | null) => Promise<void>;
     onToggleTab: (user: UserView, tabId: TabId) => void;
+    invitation?: {
+        name: string;
+        email: string;
+        identityLocked: boolean;
+        onChange: (key: "name" | "email", value: string) => void;
+    };
+    invitationError?: string | null;
+    onInvite?: () => void;
 }) {
     if (!user) return null;
 
@@ -1040,8 +1189,9 @@ function UserDetailsPanel({
     return (
         <DetailsSidePanel
             open={open}
-            title="Detalhes do usuário"
+            title={invitation ? "Adicionar usuário" : "Detalhes do usuário"}
             onClose={onClose}
+            closeDisabled={inviting}
             headerContent={(
                 <div className="flex min-w-0 items-center gap-4">
                     <InitialsAvatar name={user.name} />
@@ -1057,6 +1207,41 @@ function UserDetailsPanel({
             )}
         >
             <div className="space-y-5">
+                {invitation && (
+                    <PanelSection>
+                        <form id="user-invitation-form" className="space-y-4" onSubmit={(event) => {
+                            event.preventDefault();
+                            onInvite?.();
+                        }}>
+                            <label className="block text-sm font-semibold text-slate-700">
+                                Nome
+                                <input
+                                    value={invitation.name}
+                                    onChange={(event) => invitation.onChange("name", event.target.value)}
+                                    disabled={saving || invitation.identityLocked}
+                                    autoComplete="name"
+                                    autoFocus
+                                    required
+                                    maxLength={180}
+                                    className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none transition focus:border-brand disabled:opacity-60"
+                                />
+                            </label>
+                            <label className="block text-sm font-semibold text-slate-700">
+                                Email
+                                <input
+                                    type="email"
+                                    value={invitation.email}
+                                    onChange={(event) => invitation.onChange("email", event.target.value)}
+                                    disabled={saving || invitation.identityLocked}
+                                    autoComplete="email"
+                                    required
+                                    maxLength={254}
+                                    className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none transition focus:border-brand disabled:opacity-60"
+                                />
+                            </label>
+                        </form>
+                    </PanelSection>
+                )}
                 <PanelSection>
                     <div className="space-y-4">
                         <PanelControlRow label="Acesso">
@@ -1202,6 +1387,23 @@ function UserDetailsPanel({
                         })}
                     </div>
                 </PanelSection>
+                {invitationError && (
+                    <div role="alert" className="rounded-xl border border-red/20 bg-red-soft px-4 py-3 text-sm font-medium text-red">
+                        {invitationError}
+                    </div>
+                )}
+                {user.can_invite && onInvite && (
+                    <button
+                        type={invitation ? "submit" : "button"}
+                        form={invitation ? "user-invitation-form" : undefined}
+                        onClick={invitation ? undefined : onInvite}
+                        disabled={saving}
+                        className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {saving ? <LoaderCircle size={16} className="animate-spin" /> : <Mail size={16} />}
+                        {saving ? "Enviando..." : user.invited_at ? "Reenviar convite" : "Enviar convite"}
+                    </button>
+                )}
             </div>
         </DetailsSidePanel>
     );

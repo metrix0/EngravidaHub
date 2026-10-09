@@ -58,5 +58,8 @@ jobs:
       - name: Inbox scheduling regression checks
         run: node scripts/test-inbox-scheduling.cjs
 
+      - name: User invitation regression checks
+        run: node scripts/test-user-invitations.cjs
+
       - name: Build
         run: pnpm build
