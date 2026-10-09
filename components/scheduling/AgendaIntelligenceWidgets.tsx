@@ -111,10 +111,7 @@ function OccupancyHeatmap({ report }: { report: AgendaIntelligenceReport }) {
     const hours = [...new Set(report.heatmap.map(cell => cell.hour))].sort((a, b) => a - b);
     const cells = new Map(report.heatmap.map(cell => [`${cell.weekday}:${cell.hour}`, cell]));
     if (!hours.length) {
-        const missing = report.missingDoctors.length;
-        return <p className="py-5 text-center text-sm text-muted">{missing
-            ? `Cobertura parcial da agenda: ${missing} médico${missing === 1 ? "" : "s"} sem agenda sincronizada.`
-            : "Sem disponibilidade no período."}</p>;
+        return <p className="py-5 text-center text-sm text-muted">Sem disponibilidade no período.</p>;
     }
     return <>
         <div className="overflow-x-auto"><table className="w-full text-center text-xs"><thead><tr><th className="p-2 text-muted">Dia</th>{hours.map(hour => <th key={hour} className="p-2 text-muted">{hour}h</th>)}</tr></thead>

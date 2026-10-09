@@ -237,7 +237,7 @@ export function buildAgendaIntelligence(input: {
         casesToReview: contactConversations.size,
         examples: [...reviewCases.map(([id]) => id), ...[...group.cases.keys()].filter(id => !reviewCases.some(([reviewId]) => reviewId === id))].slice(0, 3),
         ...compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
-        coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
+        coverageComplete: input.agendas.some(agenda => agenda.unit_id === group.unitId),
     }; }).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
     const actionable = preferences.filter(item => item.conversations >= 3 && item.casesToReview > 0 && (item.coverageComplete || item.availableSlots >= item.casesToReview));
     const opportunities = actionable.map(item => ({
