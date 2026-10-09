@@ -133,6 +133,7 @@ type InboxSendResult = {
     thread_id: string;
     reopened: boolean;
     message?: PersistedSentMessage | null;
+    messages?: PersistedSentMessage[];
 };
 
 type PreparedAttachment = {
@@ -668,6 +669,32 @@ export default function InboxPage() {
             setSelectedThread(threadResponse.item);
             setThreads(listResponse.items);
             setTotalThreads(listResponse.total);
+            return;
+        }
+
+        if ((result.messages?.length ?? 0) > 1) {
+            const lastMessage = result.messages?.[result.messages.length - 1] ?? null;
+            const preview = getMessagePreview(lastMessage?.text ?? "");
+
+            await loadSelectedThread();
+
+            if (preview) {
+                setThreads((currentThreads) =>
+                    currentThreads.map((thread) =>
+                        thread.id === result.thread_id ||
+                        thread.thread_id === result.thread_id
+                            ? {
+                                  ...thread,
+                                  preview,
+                                  time: "agora",
+                                  lastContact: "agora",
+                                  unread: 0,
+                              }
+                            : thread,
+                    ),
+                );
+            }
+
             return;
         }
 

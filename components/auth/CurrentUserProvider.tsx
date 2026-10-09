@@ -121,7 +121,14 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
         if (publicPath) return;
 
         function refreshPermissions() {
-            void refreshCurrentUser(true);
+            void fetchCurrentUser({ force: true })
+                .then(() => setCurrentUserError(null))
+                .catch((error) => {
+                    console.error(
+                        "[CurrentUserProvider] silent permission refresh failed",
+                        error,
+                    );
+                });
         }
 
         function handleVisibilityChange() {
@@ -140,7 +147,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
                 handleVisibilityChange,
             );
         };
-    }, [publicPath, refreshCurrentUser]);
+    }, [publicPath]);
 
     const value = useMemo<CurrentUserContextValue>(
         () => ({
