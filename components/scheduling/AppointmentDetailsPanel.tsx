@@ -500,7 +500,7 @@ export default function AppointmentDetailsPanel({
                         <div className="flex flex-wrap gap-5">
                             <FormatOption
                                 active={format === "congelamento"}
-                                label="Congelamento"
+                                label="Individual"
                                 onClick={() => setFormat("congelamento")}
                             />
                             <FormatOption
