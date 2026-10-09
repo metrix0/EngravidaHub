@@ -176,6 +176,12 @@ async function loadUniqueEventCounts(
     const current = new Set<string>();
     const previous = new Set<string>();
     const currentStart = new Date(range.startAt).getTime();
+    const clinisysCurrentStartDate =
+        range.startDate ?? saoPauloDate(range.startAt);
+    const clinisysPreviousStartDate = saoPauloDate(range.previousStartAt);
+    const clinisysEndExclusiveDate = addCalendarDay(
+        range.endDate ?? saoPauloDate(range.endAt),
+    );
 
     if (filters.sources.length === 0 || filters.sources.includes("ai")) {
         for (let offset = 0; ; offset += UNIQUE_EVENT_PAGE_SIZE) {
@@ -269,9 +275,12 @@ async function loadUniqueEventCounts(
                         .not("schedule_id", "is", null)
                         .gte(
                             "schedules.created_in_source_at",
-                            range.previousStartAt,
+                            clinisysPreviousStartDate,
                         )
-                        .lt("schedules.created_in_source_at", range.endAt)
+                        .lt(
+                            "schedules.created_in_source_at",
+                            clinisysEndExclusiveDate,
+                        )
                         .order("id", { ascending: true })
                         .range(offset, offset + UNIQUE_EVENT_PAGE_SIZE - 1);
 
@@ -302,7 +311,7 @@ async function loadUniqueEventCounts(
                 if (!createdInSourceAt) continue;
 
                 const key = uniqueEventKey(row);
-                if (new Date(createdInSourceAt).getTime() >= currentStart)
+                if (createdInSourceAt >= clinisysCurrentStartDate)
                     current.add(key);
                 else previous.add(key);
             }
@@ -364,6 +373,21 @@ function matchesNullableText(values: string[], value: string | null) {
     if (values.length === 0) return true;
     const normalized = value?.trim() || NULL_FILTER_VALUE;
     return values.includes(normalized);
+}
+
+function saoPauloDate(value: string) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date(value));
+}
+
+function addCalendarDay(value: string) {
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day + 1));
+    return date.toISOString().slice(0, 10);
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {
