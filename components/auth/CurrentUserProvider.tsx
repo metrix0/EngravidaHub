@@ -117,6 +117,31 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
         void refreshCurrentUser(false);
     }, [publicPath, refreshCurrentUser]);
 
+    useEffect(() => {
+        if (publicPath) return;
+
+        function refreshPermissions() {
+            void refreshCurrentUser(true);
+        }
+
+        function handleVisibilityChange() {
+            if (document.visibilityState === "visible") {
+                refreshPermissions();
+            }
+        }
+
+        window.addEventListener("focus", refreshPermissions);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener("focus", refreshPermissions);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [publicPath, refreshCurrentUser]);
+
     const value = useMemo<CurrentUserContextValue>(
         () => ({
             currentUser,
