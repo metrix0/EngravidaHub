@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
 import { autofillSchedulingForm } from "@/lib/ai/schedulingAutofill";
+import { AiGenerationError } from "@/lib/ai/generateValidatedJson";
 import { loadSchedulingContext } from "@/lib/inbox/schedulingData";
 import { loadSchedulingMessages } from "@/lib/inbox/schedulingMessages";
 
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
                         ? error.message
                         : "Failed to autofill scheduling data",
             },
-            { status: 500 },
+            { status: error instanceof AiGenerationError ? 502 : 500 },
         );
     }
 }

@@ -11,7 +11,7 @@ function load(file, mocks = {}, suffix = '', globals = {}) {
   }).outputText;
   vm.runInNewContext(source + suffix, {
     exports, require: name => name in mocks ? mocks[name] : require(name),
-    console, Date, Intl, URL, performance, ...globals,
+    console, Date, Intl, URL, performance, process, ...globals,
   }, { filename: file });
   return exports;
 }
@@ -84,6 +84,58 @@ const route = load('app/api/scheduling/appointments/route.ts', {
 });
 async function create(extra = {}) {
   return route.POST({ json: async () => ({ threadId: id(1), unitId: form.unitId, doctorId: form.doctorId, startsAt: '2026-10-09T14:30:00-03:00', durationMinutes: 60, format: 'congelamento', procedureName: 'Consulta', primary: person, spouse: emptyPerson, notes: '', ...extra }) });
+}
+
+async function testAiGeneration() {
+  const {z}=require('zod');
+  const validator=z.object({value:z.string()}).strict();
+  const jsonSchema=z.toJSONSchema(validator,{io:'input',target:'draft-7'});
+  const calls=[],logs=[];
+  let respond;
+  const ai=load('lib/ai/generateValidatedJson.ts',{
+    '@/lib/ai/groq':{getGroqClient:()=>({chat:{completions:{create:async request=>{calls.push(request);return respond(request);}}}})},
+  },'',{Error,console:{error:(...values)=>logs.push(values)}});
+  const options={schema:validator,jsonSchema,systemPrompt:'Return JSON.',userPrompt:'Extract the value.',models:['openai/gpt-oss-120b','openai/gpt-oss-20b']};
+  respond=request=>{
+    if(request.model==='openai/gpt-oss-120b')throw Object.assign(new Error('Model unavailable'),{status:404});
+    return {choices:[{message:{content:'{"value":"ok"}'}}]};
+  };
+  assert.equal((await ai.generateValidatedJson(options)).value,'ok');
+  assert.equal(calls.length,2,'try the supported fallback after a missing model');
+  assert.equal(calls[1].model,'openai/gpt-oss-20b');
+  assert.equal(calls[0].response_format.type,'json_schema');
+  assert.equal(calls[0].response_format.json_schema.strict,true);
+  assert.equal(calls[0].max_completion_tokens,2048,'reserve bounded output within the account token limit');
+  assert.ok(!calls[1].messages[1].content.includes('Corrija o JSON'),'provider failures are not JSON failures');
+
+  calls.length=0;
+  respond=()=>({choices:[{message:{content:calls.length===1?'{}':'{"value":"repaired"}'}}]});
+  assert.equal((await ai.generateValidatedJson(options)).value,'repaired');
+  assert.ok(calls[1].messages[1].content.includes('Corrija o JSON'),'retry actual schema failures with validation feedback');
+
+  respond=()=>{throw Object.assign(new Error('Rate limit'),{status:429});};
+  await assert.rejects(ai.generateValidatedJson({...options,maxAttempts:1}),error=>error instanceof ai.AiGenerationError&&error.reason==='provider'&&error.providerStatus===429&&error.message.includes('limite de uso'));
+  respond=()=>{throw Object.assign(new Error('Model unavailable'),{status:404});};
+  calls.length=0;
+  await assert.rejects(ai.generateValidatedJson(options),error=>error.reason==='provider'&&error.providerStatus===404);
+  assert.equal(calls.length,2,'do not repeat models already returning 404');
+
+  respond=()=>({choices:[{message:{content:'Private patient text without JSON'}}]});
+  await assert.rejects(ai.generateValidatedJson({...options,maxAttempts:1}),error=>error.reason==='validation'&&error.providerStatus===undefined);
+  assert.ok(!JSON.stringify(logs).includes('Private patient text'),'never log patient response content');
+
+  const autofillRoute=load('app/api/inbox/scheduling-autofill/route.ts',{
+    'next/server':next,
+    '@/lib/attendants/getCurrentAttendantFromRequest':{getCurrentAttendantFromRequest:async()=>({attendant:{id:id(5),is_online:true}})},
+    '@/lib/supabase/client':{supabase},
+    '@/lib/inbox/schedulingData':{loadSchedulingContext:async()=>({thread:{id:id(1)},client:null,spouse:null,units:[],doctors:[]})},
+    '@/lib/inbox/schedulingMessages':{loadSchedulingMessages:async()=>[]},
+    '@/lib/ai/generateValidatedJson':ai,
+    '@/lib/ai/schedulingAutofill':{autofillSchedulingForm:async()=>{throw new ai.AiGenerationError('provider',404);}},
+  },'',{Error,console:{error:()=>{}}});
+  const failedRoute=await autofillRoute.POST({json:async()=>({threadId:id(1),format:'casal',form})});
+  assert.equal(failedRoute.status,502,'provider failure has an upstream error status');
+  assert.ok(failedRoute.body.error.includes('modelos de IA'));
 }
 
 // Run the actual panel with controlled hooks and network responses; inspect its rendered props.
@@ -207,6 +259,7 @@ async function testPanelSelection() {
 }
 
 (async () => {
+  await testAiGeneration();
   reset();
   const unlinked = await contextHelper.loadSchedulingContext(supabase, id(1), id(5));
   assert.equal(unlinked.client, null);
@@ -277,7 +330,9 @@ async function testPanelSelection() {
   let prompts = [], seen = [];
   const extraction = load('lib/ai/schedulingAutofill.ts', {
     '@/lib/ai/schedulingAutofillSchema': schema,
-    '@/lib/ai/generateValidatedJson': { generateValidatedJson: async ({schema:validator,systemPrompt,userPrompt}) => {
+    '@/lib/ai/generateValidatedJson': { generateValidatedJson: async ({schema:validator,jsonSchema,models,systemPrompt,userPrompt}) => {
+      assert.equal(jsonSchema.additionalProperties,false,'send a closed JSON schema');
+      assert.ok(models.every(model=>model.startsWith('openai/gpt-oss-')),'do not inherit inaccessible Llama models');
       const prompt = JSON.parse(userPrompt); prompts.push(prompt);
       assert.ok(systemPrompt.includes('CPF, nascimento, e-mail e telefone'));
       assert.equal(prompt.database_client, null);
@@ -310,5 +365,5 @@ async function testPanelSelection() {
   assert.equal(filled.schedulingTime, '14:30');
   assert.equal(filled.durationMinutes,60,'missing AI duration preserves the form');
   assert.equal(filled.notes,'Preferência por consulta presencial');
-  console.log('PASS: rendered client selection, X, clearing, conversation switching and request races; optional address; unlinked social scheduling and profile linkage; selected/existing clients; authorization; rollback; complete paginated history and extraction merge.');
+  console.log('PASS: AI model fallback, strict JSON, bounded output, provider/validation errors and privacy; rendered client selection, X, clearing and request races; optional address; social scheduling and profile linkage; authorization; rollback; complete history and extraction merge.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

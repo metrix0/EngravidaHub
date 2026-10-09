@@ -3,6 +3,7 @@ import { generateValidatedJson } from "@/lib/ai/generateValidatedJson";
 import type { SchedulingMessage } from "@/lib/inbox/schedulingMessages";
 import {
     schedulingAutofillSchema,
+    schedulingAutofillJsonSchema,
     type SchedulingAutofillAiResult,
 } from "@/lib/ai/schedulingAutofillSchema";
 import type {
@@ -44,6 +45,16 @@ export async function autofillSchedulingForm({
     for (const batch of messageBatches(messages)) {
         const aiResult = await generateValidatedJson({
             schema: schedulingAutofillSchema,
+            jsonSchema: schedulingAutofillJsonSchema,
+            // The general analysis settings can refer to inaccessible legacy models.
+            // Use configured GPT-OSS models, with supported extraction fallbacks.
+            models: [
+                process.env.GROQ_MODEL_EXTRACTION,
+                process.env.GROQ_MODEL_ANALYSIS_3,
+                process.env.GROQ_MODEL_ANALYSIS_4,
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+            ].filter((model) => model === "openai/gpt-oss-120b" || model === "openai/gpt-oss-20b"),
             systemPrompt: buildSystemPrompt(),
             userPrompt: buildUserPrompt({
                 format,
@@ -71,10 +82,10 @@ function messageBatches(messages: SchedulingMessage[]) {
     for (const message of messages) {
         const text = message.text ?? "";
         // Keep even the tail of long messages (often CPF/address after a greeting).
-        for (let offset = 0; offset < Math.max(1, text.length); offset += 6000) {
-            const part = { ...message, text: text.slice(offset, offset + 6000) };
+        for (let offset = 0; offset < Math.max(1, text.length); offset += 4000) {
+            const part = { ...message, text: text.slice(offset, offset + 4000) };
             const size = JSON.stringify(part).length;
-            if (batch.length && (batch.length >= 80 || length + size > 24000)) {
+            if (batch.length && (batch.length >= 40 || length + size > 8000)) {
                 batches.push(batch); batch = []; length = 0;
             }
             batch.push(part); length += size;
@@ -172,13 +183,11 @@ function buildUserPrompt(input: AutofillSchedulingInput) {
             database_client: input.client,
             database_spouse: input.spouse,
             social_contact: input.contact ?? null,
-            available_units: input.units,
-            available_doctors: input.doctors,
+            available_units: input.units.map(({ id, name, city, state, cep }) => ({ id, name, city, state, cep })),
+            available_doctors: input.doctors.map(({ id, unit_id, name }) => ({ id, unit_id, name })),
             chat_messages: safeMessages,
             preceding_chat_messages: input.precedingMessages ?? [],
         },
-        null,
-        2,
     );
 }
 

@@ -56,6 +56,12 @@ export const schedulingAutofillSchema = z
     })
     .strict();
 
+// Describe model input before the null/string normalization transforms run.
+export const schedulingAutofillJsonSchema = z.toJSONSchema(
+    schedulingAutofillSchema,
+    { io: "input", target: "draft-7" },
+);
+
 export type SchedulingAutofillAiResult = z.infer<
     typeof schedulingAutofillSchema
 >;
