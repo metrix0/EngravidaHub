@@ -8,6 +8,7 @@ type DetailsSidePanelProps = {
     open: boolean;
     title: ReactNode;
     onClose: () => void;
+    closeDisabled?: boolean;
     children: ReactNode;
     headerContent?: ReactNode;
     width?: number | string;
@@ -34,6 +35,7 @@ export function DetailsSidePanel({
     open,
     title,
     onClose,
+    closeDisabled = false,
     children,
     headerContent,
     width = DEFAULT_DETAILS_SIDE_PANEL_WIDTH,
@@ -83,7 +85,7 @@ export function DetailsSidePanel({
         return () => {
             window.removeEventListener(DETAILS_SIDE_PANEL_OPENED_EVENT, handleOtherPanelOpened);
         };
-    }, [mounted]);
+    }, [mounted, closeDisabled]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -106,6 +108,7 @@ export function DetailsSidePanel({
     if (!mounted) return null;
 
     function handleClose() {
+        if (closeDisabled) return;
         setVisible(false);
 
         window.setTimeout(() => {
@@ -135,7 +138,9 @@ export function DetailsSidePanel({
                             <button
                                 type="button"
                                 onClick={handleClose}
-                                className="ml-4 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                                disabled={closeDisabled}
+                                aria-label="Fechar painel"
+                                className="ml-4 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <X size={18} />
                             </button>

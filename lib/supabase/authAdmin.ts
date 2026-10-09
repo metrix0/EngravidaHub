@@ -14,19 +14,28 @@ const authUsersCache = new Map<
     { users: User[]; expiresAt: number }
 >();
 const authUsersRequests = new Map<string, Promise<User[]>>();
+let authUsersCacheVersion = 0;
+
+export function invalidateAuthUsersCache() {
+    authUsersCacheVersion += 1;
+    authUsersCache.clear();
+}
 
 export async function listAuthUsers({
     page = 1,
     perPage = 1_000,
+    forceRefresh = false,
 }: {
     page?: number;
     perPage?: number;
+    forceRefresh?: boolean;
 } = {}): Promise<User[]> {
     if (typeof window !== "undefined") {
         throw new Error("Auth Admin can only run on the server");
     }
 
-    const cacheKey = `${page}:${perPage}`;
+    if (forceRefresh) invalidateAuthUsersCache();
+    const cacheKey = `${authUsersCacheVersion}:${page}:${perPage}`;
     const cached = authUsersCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.users;
 

@@ -57,16 +57,17 @@ export async function GET(request: Request) {
         const selectedUnit =
             context.units.find((unit) => unit.id === context.form.unitId) ?? null;
         const resolvedClientCity =
-            context.client.city?.trim() ||
+            context.client?.city?.trim() ||
             context.form.address.city?.trim() ||
             selectedUnit?.city?.trim() ||
             null;
 
         return NextResponse.json({
-            client: {
+            client: context.client ? {
                 ...context.client,
                 city: resolvedClientCity,
-            },
+            } : null,
+            contact: context.contact ?? null,
             spouse: context.spouse,
             units: context.units,
             doctors: context.doctors,

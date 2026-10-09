@@ -5,7 +5,11 @@ import { z } from "zod";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
 import { autofillSchedulingForm } from "@/lib/ai/schedulingAutofill";
+import { AiGenerationError } from "@/lib/ai/generateValidatedJson";
 import { loadSchedulingContext } from "@/lib/inbox/schedulingData";
+import { loadSchedulingMessages } from "@/lib/inbox/schedulingMessages";
+
+export const maxDuration = 300;
 
 const personSchema = z.object({
     fullName: z.string().max(180),
@@ -80,25 +84,14 @@ export async function POST(request: Request) {
             );
         }
 
-        const { data: messages, error: messagesError } = await supabase
-            .from("messages")
-            .select(
-                "sender_type, sender_name, text, sent_at, sequence_index",
-            )
-            .eq("thread_id", parsed.data.threadId)
-            .order("sent_at", { ascending: false })
-            .order("sequence_index", { ascending: false })
-            .limit(100);
-
-        if (messagesError) throw messagesError;
-
-        const orderedMessages = [...(messages ?? [])].reverse();
+        const orderedMessages = await loadSchedulingMessages(supabase, context.thread);
 
         const form = await autofillSchedulingForm({
             format: parsed.data.format,
             currentForm: parsed.data.form,
             client: context.client,
             spouse: context.spouse,
+            contact: context.contact ?? null,
             units: context.units,
             doctors: context.doctors,
             messages: orderedMessages,
@@ -120,7 +113,7 @@ export async function POST(request: Request) {
                         ? error.message
                         : "Failed to autofill scheduling data",
             },
-            { status: 500 },
+            { status: error instanceof AiGenerationError ? 502 : 500 },
         );
     }
 }

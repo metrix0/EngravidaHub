@@ -213,6 +213,12 @@ function consolidateLatestInvoiceRows(rows: BigQueryRow[]) {
 }
 
 function compareInvoiceVersions(first: BigQueryRow, second: BigQueryRow) {
+    // A cancelled NFS-e does not cancel another valid NFS-e for the same invoice.
+    const authorizedDifference =
+        Number(isAuthorizedInvoiceRow(first)) -
+        Number(isAuthorizedInvoiceRow(second));
+    if (authorizedDifference !== 0) return authorizedDifference;
+
     const issuedAtDifference =
         timestampValue(first.data_emissao) - timestampValue(second.data_emissao);
     if (issuedAtDifference !== 0) return issuedAtDifference;
@@ -220,6 +226,15 @@ function compareInvoiceVersions(first: BigQueryRow, second: BigQueryRow) {
     return (
         (integerValue(first.nfe_numero) ?? 0) -
         (integerValue(second.nfe_numero) ?? 0)
+    );
+}
+
+function isAuthorizedInvoiceRow(row: BigQueryRow) {
+    const status = normalizedText(row.status).replace(/\s+/g, "");
+    return (
+        status.startsWith("autorizada") ||
+        status.includes("cancelamentonegado") ||
+        status.includes("cancelamentorejeitado")
     );
 }
 

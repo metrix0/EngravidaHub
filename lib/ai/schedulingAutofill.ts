@@ -1,7 +1,9 @@
 // lib/ai/schedulingAutofill.ts
 import { generateValidatedJson } from "@/lib/ai/generateValidatedJson";
+import type { SchedulingMessage } from "@/lib/inbox/schedulingMessages";
 import {
     schedulingAutofillSchema,
+    schedulingAutofillJsonSchema,
     type SchedulingAutofillAiResult,
 } from "@/lib/ai/schedulingAutofillSchema";
 import type {
@@ -14,21 +16,16 @@ import type {
     SchedulingUnitOption,
 } from "@/types/scheduling";
 
-type SchedulingMessage = {
-    sender_type: string | null;
-    sender_name: string | null;
-    text: string | null;
-    sent_at: string | null;
-};
-
 type AutofillSchedulingInput = {
     format: SchedulingFormat;
     currentForm: SchedulingForm;
-    client: SchedulingClientProfile;
+    client: SchedulingClientProfile | null;
     spouse: SchedulingClientProfile | null;
+    contact?: { name: string | null; location: string | null } | null;
     units: SchedulingUnitOption[];
     doctors: SchedulingDoctorOption[];
     messages: SchedulingMessage[];
+    precedingMessages?: SchedulingMessage[];
 };
 
 export async function autofillSchedulingForm({
@@ -36,25 +33,66 @@ export async function autofillSchedulingForm({
     currentForm,
     client,
     spouse,
+    contact,
     units,
     doctors,
     messages,
 }: AutofillSchedulingInput): Promise<SchedulingForm> {
-    const aiResult = await generateValidatedJson({
-        schema: schedulingAutofillSchema,
-        systemPrompt: buildSystemPrompt(),
-        userPrompt: buildUserPrompt({
-            format,
-            currentForm,
-            client,
-            spouse,
-            units,
-            doctors,
-            messages,
-        }),
-    });
+    let form = currentForm;
+    let precedingMessages: SchedulingMessage[] = [];
+    // Extract the whole history in chronological chunks, carrying earlier facts
+    // forward so long conversations do not hide registration data from the model.
+    for (const batch of messageBatches(messages)) {
+        const aiResult = await generateValidatedJson({
+            schema: schedulingAutofillSchema,
+            jsonSchema: schedulingAutofillJsonSchema,
+            // The general analysis settings can refer to inaccessible legacy models.
+            // Use configured GPT-OSS models, with supported extraction fallbacks.
+            models: [
+                process.env.GROQ_MODEL_EXTRACTION,
+                process.env.GROQ_MODEL_ANALYSIS_3,
+                process.env.GROQ_MODEL_ANALYSIS_4,
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+            ].filter((model) => model === "openai/gpt-oss-120b" || model === "openai/gpt-oss-20b"),
+            systemPrompt: buildSystemPrompt(),
+            userPrompt: buildUserPrompt({
+                format,
+                currentForm: form,
+                client,
+                spouse,
+                contact,
+                units,
+                doctors,
+                messages: batch,
+                precedingMessages,
+            }),
+        });
 
-    return normalizeResult(currentForm, aiResult, format, units, doctors);
+        form = normalizeResult(form, aiResult, units, doctors);
+        precedingMessages = batch.slice(-3);
+    }
+    return form;
+}
+
+function messageBatches(messages: SchedulingMessage[]) {
+    const batches: SchedulingMessage[][] = [];
+    let batch: SchedulingMessage[] = [];
+    let length = 0;
+    for (const message of messages) {
+        const text = message.text ?? "";
+        // Keep even the tail of long messages (often CPF/address after a greeting).
+        for (let offset = 0; offset < Math.max(1, text.length); offset += 4000) {
+            const part = { ...message, text: text.slice(offset, offset + 4000) };
+            const size = JSON.stringify(part).length;
+            if (batch.length && (batch.length >= 40 || length + size > 8000)) {
+                batches.push(batch); batch = []; length = 0;
+            }
+            batch.push(part); length += size;
+        }
+    }
+    if (batch.length || !batches.length) batches.push(batch);
+    return batches;
 }
 
 function buildSystemPrompt() {
@@ -69,19 +107,24 @@ Regras absolutas:
 - Nunca invente CPF, data, horário, telefone, e-mail, endereço, nome, unidade ou médico.
 - unitId e doctorId só podem conter IDs existentes nas listas fornecidas.
 - O médico selecionado precisa pertencer à unidade selecionada.
-- Leia todo o histórico fornecido e extraia endereço, cidade, estado ou CEP do cliente.
+- Leia todas as mensagens, inclusive respostas curtas a perguntas do atendente em mensagens anteriores.
+- Revise TODOS os campos: nome completo, CPF, nascimento, e-mail e telefone da pessoa principal; os mesmos dados do cônjuge; rua, número, complemento, bairro, cidade, estado, CEP e país; unidade, médico, procedimento, data, horário, duração e observações relevantes.
+- Extraia cada informação disponível independentemente: não espere um cadastro ou endereço completo para preencher telefone, CPF, e-mail ou qualquer outro campo.
+- Distinga os dados do paciente dos dados da clínica/médico/atendente. Não use o endereço ou telefone da clínica como se fossem do paciente.
+- Dados de blocos anteriores estão no formulário atual. Preserve-os salvo correção explícita mais recente. Se houver uma correção, use o último valor confirmado, mesmo quando o nome corrigido for mais curto.
 - Para escolher unidade, priorize uma unidade explicitamente citada. Caso contrário, escolha a unidade geograficamente mais próxima usando endereço, cidade, estado ou CEP.
 - Não escolha unidade pelo médico, exceto quando a conversa pedir explicitamente esse médico.
 - Quando não houver evidência suficiente, retorne string vazia.
 - Preserve um valor já preenchido quando não houver alternativa claramente melhor.
 - CPF deve estar no formato 000.000.000-00.
 - Datas devem estar no formato DD/MM/AAAA.
+- Interprete "hoje", "amanhã" e dias da semana usando sent_at da mensagem em America/Sao_Paulo. Não deduza o ano de nascimento a partir da idade.
 - Horário deve estar no formato HH:MM e em intervalos de 15 minutos (00, 15, 30 ou 45).
-- durationMinutes deve ficar entre 15 e 480.
+- durationMinutes deve ficar entre 15 e 480, ou null se não for informado. Não substitua uma duração já preenchida por 45 sem evidência.
 - Telefone deve estar em formato brasileiro.
 - Separe o endereço entre rua, número, complemento, bairro, cidade, estado, CEP e país.
 - O CEP deve estar no formato 00000-000 quando essa informação existir.
-- Para formato "congelamento", spouse continua presente no JSON, mas pode ficar vazio.
+- Preencha spouse se a conversa informar dados do cônjuge, mesmo no formato "congelamento". Não transfira esses dados para a pessoa principal.
 - Para formato "casal", separe corretamente os dados da pessoa principal e do cônjuge.
 - Não confunda data de nascimento com data do agendamento.
 
@@ -91,8 +134,8 @@ Formato obrigatório:
   "doctorId": "",
   "schedulingDate": "",
   "schedulingTime": "",
-  "durationMinutes": 45,
-  "procedureName": "Consulta",
+  "durationMinutes": null,
+  "procedureName": "",
   "primary": {
     "fullName": "",
     "cpf": "",
@@ -123,33 +166,34 @@ Formato obrigatório:
 }
 
 function buildUserPrompt(input: AutofillSchedulingInput) {
-    const safeMessages = input.messages.slice(-100).map((message) => ({
+    const safeMessages = input.messages.map((message) => ({
         sender_type: message.sender_type,
         sender_name: message.sender_name,
         sent_at: message.sent_at,
-        text: (message.text ?? "").slice(0, 2000),
+        text: message.text ?? "",
     }));
 
     return JSON.stringify(
         {
-            task: "Preencha o formulário com os dados mais completos e confiáveis.",
+            task: "Revise campo por campo e preencha TODOS os dados encontrados. Preserve os dados extraídos em blocos anteriores. Não limite a extração ao nome.",
+            current_datetime: new Date().toISOString(),
+            timezone: "America/Sao_Paulo",
             scheduling_format: input.format,
             current_form: input.currentForm,
             database_client: input.client,
             database_spouse: input.spouse,
-            available_units: input.units,
-            available_doctors: input.doctors,
+            social_contact: input.contact ?? null,
+            available_units: input.units.map(({ id, name, city, state, cep }) => ({ id, name, city, state, cep })),
+            available_doctors: input.doctors.map(({ id, unit_id, name }) => ({ id, unit_id, name })),
             chat_messages: safeMessages,
+            preceding_chat_messages: input.precedingMessages ?? [],
         },
-        null,
-        2,
     );
 }
 
 function normalizeResult(
     current: SchedulingForm,
     ai: SchedulingAutofillAiResult,
-    format: SchedulingFormat,
     units: SchedulingUnitOption[],
     doctors: SchedulingDoctorOption[],
 ): SchedulingForm {
@@ -183,10 +227,7 @@ function normalizeResult(
             180,
         ),
         primary: normalizePerson(current.primary, ai.primary),
-        spouse:
-            format === "casal"
-                ? normalizePerson(current.spouse, ai.spouse)
-                : current.spouse,
+        spouse: normalizePerson(current.spouse, ai.spouse),
         address,
         notes: chooseText(current.notes, ai.notes, 1000),
     };
@@ -276,9 +317,7 @@ function chooseName(current: string, candidate: string) {
 
     if (cleanCandidate.split(" ").filter(Boolean).length < 2) return cleanCurrent;
     if (!cleanCurrent) return cleanCandidate;
-    return cleanCandidate.length >= cleanCurrent.length
-        ? cleanCandidate
-        : cleanCurrent;
+    return cleanCandidate;
 }
 
 function chooseText(current: string, candidate: string, maxLength: number) {
@@ -306,7 +345,7 @@ function chooseTime(current: string, candidate: string) {
     return isValidTime(normalized) ? normalized : current;
 }
 
-function chooseDuration(current: number, candidate: number) {
+function chooseDuration(current: number, candidate: number | null) {
     if (Number.isFinite(candidate) && candidate >= 15 && candidate <= 480) {
         return Math.round(candidate / 15) * 15;
     }
@@ -383,6 +422,8 @@ function formatPhone(value: string) {
 }
 
 function formatDate(value: string) {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/.exec(value.trim());
+    if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
     const digits = onlyDigits(value).slice(0, 8);
     return digits
         .replace(/^(\d{2})(\d)/, "$1/$2")
@@ -390,19 +431,15 @@ function formatDate(value: string) {
 }
 
 function normalizeTime(value: string) {
-    const match = /^(\d{1,2}):?(\d{2})$/.exec(value.trim());
+    const match = /^(\d{1,2})(?:(?:[:h])?(\d{2}))?(?::00)?$/.exec(value.trim());
     if (!match) return "";
 
     const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    if (hours > 23 || minutes > 59) return "";
+    const minutes = Number(match[2] ?? 0);
+    if (hours > 23 || minutes > 59 || minutes % 15 !== 0) return "";
 
-    const roundedMinutes = Math.min(
-        23 * 60 + 45,
-        Math.round((hours * 60 + minutes) / 15) * 15,
-    );
-    const normalizedHours = String(Math.floor(roundedMinutes / 60)).padStart(2, "0");
-    const normalizedMinutePart = String(roundedMinutes % 60).padStart(2, "0");
+    const normalizedHours = String(hours).padStart(2, "0");
+    const normalizedMinutePart = String(minutes).padStart(2, "0");
 
     return `${normalizedHours}:${normalizedMinutePart}`;
 }

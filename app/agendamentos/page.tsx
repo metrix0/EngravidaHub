@@ -41,7 +41,7 @@ const STATUS_OPTIONS = [
 ];
 
 const FORMAT_OPTIONS = [
-    { label: "Congelamento", value: "congelamento" },
+    { label: "Individual", value: "congelamento" },
     { label: "Casal", value: "casal" },
 ];
 

@@ -52,5 +52,14 @@ jobs:
       - name: Cadence and analysis collector regression checks
         run: node scripts/test-cadence-repair.cjs
 
+      - name: Invoice replacement regression checks
+        run: node scripts/test-invoice-replacements.cjs
+
+      - name: Inbox scheduling regression checks
+        run: node scripts/test-inbox-scheduling.cjs
+
+      - name: User invitation regression checks
+        run: node scripts/test-user-invitations.cjs
+
       - name: Build
         run: pnpm build
