@@ -53,6 +53,10 @@ report = buildAgendaIntelligence({ ...base, analyses: [analysis, analysis] });
 assert.equal(report.preferences.length, 1);
 assert.equal(report.preferences[0].conversations, 1);
 assert.equal(report.preferences[0].availableSlots, 1); // Exact 9:30 is feasible even though greedy 45-min packing starts 9:45.
+assert.deepEqual(
+    buildAgendaIntelligence({ ...base, analyses: [analysis], coverage: { analyzedConversations: 25, signalsProcessed: 7 } }).coverage,
+    { analyzedConversations: 25, signalsProcessed: 7, signalsPending: 18 },
+);
 report = buildAgendaIntelligence({ ...base, agendas: [], analyses: [analysis] });
 assert.equal(report.preferences[0].coverageComplete, false);
 assert.equal(report.occupancy, null);

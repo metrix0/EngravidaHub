@@ -21,7 +21,8 @@ export async function GET(request: Request) {
         if (!params.has("days")) params.set("days", "30");
         const range = resolveDashboardDateRange(params);
         const days = range.startDate ? Math.round((Date.parse(range.endAt) - Date.parse(range.startAt)) / 86_400_000) : Number(parsed.data.days);
-        const report = await loadAgendaIntelligence({ days, resultsStart: range.startAt, resultsEnd: range.endAt,
+        const report = await loadAgendaIntelligence({ days,
+            ...(range.startDate ? { resultsStart: range.startAt, resultsEnd: range.endAt } : {}),
             unitIds: access.permission.unit_lock ? [access.permission.unit_lock.id] : parsed.data.unitIds,
             doctorIds: parsed.data.doctorIds });
         if (!access.permission.allowed_tabs.includes("conversas")) {

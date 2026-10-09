@@ -92,6 +92,7 @@ export function buildAgendaIntelligence(input: {
     demandAppointments?: IntelligenceAppointment[]; evidenceMessages?: IntelligenceEvidenceMessage[];
     history: ScheduleHistory[]; historyStartedAt: string | null; days: number; now?: number;
     resultsStart?: string; resultsEnd?: string;
+    coverage?: { analyzedConversations: number; signalsProcessed: number };
     doctors: Array<{ id: string; unit_id: string; name: string }>;
 }) {
     const now = input.now ?? Date.now();
@@ -264,6 +265,8 @@ export function buildAgendaIntelligence(input: {
     const waits = doctors.flatMap(doctor => doctor.waitDays === null ? [] : [doctor.waitDays]).sort((a, b) => a - b);
     const mid = Math.floor(waits.length / 2);
     const medianWaitDays = !waits.length ? null : waits.length % 2 ? waits[mid] : (waits[mid - 1] + waits[mid]) / 2;
+    const analyzedConversations = input.coverage?.analyzedConversations ?? allConversations.size;
+    const signalsProcessed = input.coverage?.signalsProcessed ?? processed.size;
     return { days: input.days, start, end, resultsStart, resultsEnd, evidenceDetails, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
         occupancy: capacityMinutes ? occupiedMinutes / capacityMinutes * 100 : null,
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
@@ -271,7 +274,7 @@ export function buildAgendaIntelligence(input: {
         heatmap: [...heatmap.values()].sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
         preferences, opportunities, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
         history: { startedAt: input.historyStartedAt, observedFrom: historyAvailable ? observedFrom : null, ...historyMetrics },
-        coverage: { analyzedConversations: allConversations.size, signalsProcessed: processed.size, signalsPending: allConversations.size - processed.size } };
+        coverage: { analyzedConversations, signalsProcessed, signalsPending: analyzedConversations - signalsProcessed } };
 }
 
 function compatibleSlots(windows: Array<Interval & { doctorName: string; timezone: string; duration: number }>, preference: string) {
