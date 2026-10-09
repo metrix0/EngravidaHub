@@ -118,18 +118,31 @@ function addPreferenceDemand(demand: number[], value: string, conversations: num
 }
 
 function DemandHeatBar({ values, max, className }: { values: number[]; max: number; className: string }) {
-    return <div className={`flex overflow-hidden border border-slate-200 ${className}`}>
-        {values.map((value, hour) => {
-            const intensity = max > 0 ? value / max * 100 : 0;
-            const hourLabel = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00`;
-            return <div
-                key={hour}
-                className="min-w-0 flex-1 cursor-help border-r border-white/70 last:border-r-0"
-                style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
-                title={`${hourLabel} · intensidade ${Math.round(intensity)}%`}
-                aria-label={hourLabel}
-            />;
-        })}
+    const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+    const hoveredLabel = hoveredHour === null
+        ? null
+        : `${String(hoveredHour).padStart(2, "0")}:00–${String((hoveredHour + 1) % 24).padStart(2, "0")}:00`;
+
+    return <div className="relative">
+        {hoveredHour !== null && hoveredLabel ? <div
+            className="pointer-events-none absolute -top-8 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm"
+            style={{ left: `${(hoveredHour + 0.5) / 24 * 100}%` }}
+        >
+            {hoveredLabel}
+        </div> : null}
+        <div className={`flex overflow-hidden border border-slate-200 ${className}`} onMouseLeave={() => setHoveredHour(null)}>
+            {values.map((value, hour) => {
+                const intensity = max > 0 ? value / max * 100 : 0;
+                const hourLabel = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00`;
+                return <div
+                    key={hour}
+                    className="min-w-0 flex-1 cursor-help border-r border-white/70 last:border-r-0"
+                    style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
+                    onMouseEnter={() => setHoveredHour(hour)}
+                    aria-label={hourLabel}
+                />;
+            })}
+        </div>
     </div>;
 }
 
