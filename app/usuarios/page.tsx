@@ -216,6 +216,7 @@ const PRESETS: PermissionPreset[] = [
             "jornada",
             "eventos",
             "assistente",
+            "inteligencia_agenda",
             "internos",
             "clientes",
             "funil",
@@ -227,9 +228,9 @@ const PRESETS: PermissionPreset[] = [
         color: "green",
         icon: "headphones",
         default_tabs: [
-            "assistente",
             "inbox",
             "agendamentos",
+            "inteligencia_agenda",
             "mensagem_ativa",
             "internos",
             "clientes",
