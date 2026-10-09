@@ -32,11 +32,156 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
         case "inteligencia_agenda.nao_comparecimento": return <KpiCard icon={<Users size={22} />} label="Não comparecimento" currentValue={report.noShowRate} formatter={value => `${number(value)}%`} color="purple" tooltipText={`${results} ${report.noShows} não comparecimentos ÷ consultas concluídas ou registradas como não compareceu.`} />;
         case "inteligencia_agenda.mapa": return <Card><h3 className="mb-4 text-lg font-bold">Ocupação por dia e horário</h3><OccupancyHeatmap report={report} /></Card>;
         case "inteligencia_agenda.oportunidades": return <AgendaDemandOpportunities report={report} />;
+        case "inteligencia_agenda.demanda_horaria": return <DemandByHourCard report={report} />;
+        case "inteligencia_agenda.demanda_horaria_unidade": return <DemandByUnitCard report={report} />;
         case "inteligencia_agenda.preferencias": return <PreferencesCard report={report} doctorFiltered={doctorFiltered} />;
         case "inteligencia_agenda.medicos": return <DoctorsCard report={report} />;
         case "inteligencia_agenda.recuperacao": return <RecoveryCard report={report} />;
         default: return null;
     }
+}
+
+function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
+    const demand = hourlyDemand(report.preferences);
+    const maxDemand = Math.max(...demand);
+    const hasDemand = maxDemand > 0;
+
+    return <Card className="h-full">
+        <div className="mb-5">
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+                Demanda por horário
+                <InfoTooltip
+                    portal
+                    text="Distribui as preferências explícitas de horário identificadas nas conversas ao longo das 24 horas. Pedidos amplos, como manhã ou após 17h, são distribuídos pela faixa correspondente; pedidos apenas por dia da semana não entram. Uma conversa pode contribuir para mais de uma faixa quando expressa mais de uma preferência."
+                >
+                    <HelpCircle size={14} className="shrink-0 text-slate-400" />
+                </InfoTooltip>
+            </h3>
+            <p className="mt-1 text-sm text-muted">Quanto mais quente, maior a procura por consultas naquele horário.</p>
+        </div>
+        {hasDemand ? <>
+            <DemandHeatBar values={demand} max={maxDemand} className="h-16 rounded-xl" />
+            <HourAxis className="mt-2" />
+            <DemandLegend />
+        </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
+    </Card>;
+}
+
+function DemandByUnitCard({ report }: { report: AgendaIntelligenceReport }) {
+    const unitDemand = new Map<string, { name: string; values: number[] }>();
+    for (const preference of report.preferences) {
+        const current = unitDemand.get(preference.unitId) ?? {
+            name: preference.unitName,
+            values: Array.from({ length: 24 }, () => 0),
+        };
+        addPreferenceDemand(current.values, preference.value, preference.conversations);
+        unitDemand.set(preference.unitId, current);
+    }
+    const unitRows = [...unitDemand.entries()]
+        .map(([id, item]) => ({ id, ...item, max: Math.max(...item.values) }))
+        .filter(item => item.max > 0)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+    return <Card className="h-full">
+        <div className="mb-4">
+            <h3 className="text-lg font-bold">Demanda por horário por unidade</h3>
+            <p className="mt-1 text-sm text-muted">Cada faixa mostra onde a procura se concentra dentro de cada unidade.</p>
+        </div>
+        {unitRows.length ? <>
+            <div className="space-y-2">
+                {unitRows.map(unit => <div key={unit.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3">
+                    <div className="truncate text-xs font-medium text-slate-600" title={unit.name}>{unit.name}</div>
+                    <DemandHeatBar values={unit.values} max={unit.max} className="h-2.5 rounded-full" />
+                </div>)}
+            </div>
+            <div className="ml-[122px]">
+                <HourAxis className="mt-1.5" />
+            </div>
+            <DemandLegend />
+        </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
+    </Card>;
+}
+
+function hourlyDemand(preferences: AgendaIntelligenceReport["preferences"]) {
+    const demand = Array.from({ length: 24 }, () => 0);
+    for (const preference of preferences) {
+        addPreferenceDemand(demand, preference.value, preference.conversations);
+    }
+    return demand;
+}
+
+function addPreferenceDemand(demand: number[], value: string, conversations: number) {
+    const hours = preferenceHours(value);
+    if (!hours.length) return;
+    const weight = conversations / hours.length;
+    for (const hour of hours) demand[hour] += weight;
+}
+
+function DemandHeatBar({ values, max, className }: { values: number[]; max: number; className: string }) {
+    const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+    const hoveredLabel = hoveredHour === null
+        ? null
+        : `${String(hoveredHour).padStart(2, "0")}:00–${String((hoveredHour + 1) % 24).padStart(2, "0")}:00`;
+
+    return <div className="relative">
+        {hoveredHour !== null && hoveredLabel ? <div
+            className="pointer-events-none absolute -top-8 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm"
+            style={{ left: `${(hoveredHour + 0.5) / 24 * 100}%` }}
+        >
+            {hoveredLabel}
+        </div> : null}
+        <div className={`flex overflow-hidden border border-slate-200 ${className}`} onMouseLeave={() => setHoveredHour(null)}>
+            {values.map((value, hour) => {
+                const intensity = max > 0 ? value / max * 100 : 0;
+                const hourLabel = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00`;
+                return <div
+                    key={hour}
+                    className="min-w-0 flex-1 cursor-help border-r border-white/70 last:border-r-0"
+                    style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
+                    onMouseEnter={() => setHoveredHour(hour)}
+                    aria-label={hourLabel}
+                />;
+            })}
+        </div>
+    </div>;
+}
+
+function HourAxis({ className = "" }: { className?: string }) {
+    return <div className={`grid grid-cols-5 text-[10px] text-muted ${className}`}>
+        <span>0h</span>
+        <span className="text-center">6h</span>
+        <span className="text-center">12h</span>
+        <span className="text-center">18h</span>
+        <span className="text-right">24h</span>
+    </div>;
+}
+
+function DemandLegend() {
+    return <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted">
+        <span>Menor</span>
+        <div className="h-2 w-32 rounded-full" style={{ background: "linear-gradient(to right, #f0fdf4, #bbf7d0, #fde68a, #fb923c, #ef4444)" }} />
+        <span>Maior demanda</span>
+    </div>;
+}
+
+function preferenceHours(value: string) {
+    const period = /(?:^|_)(morning|afternoon|evening)$/.exec(value)?.[1];
+    if (period === "morning") return range(6, 12);
+    if (period === "afternoon") return range(12, 18);
+    if (period === "evening") return range(18, 24);
+    if (value === "from_17") return range(17, 24);
+
+    const match = /^(after|before|at)_([01]\d|2[0-3])_([0-5]\d)$/.exec(value);
+    if (!match) return [];
+    const hour = Number(match[2]);
+    const minute = Number(match[3]);
+    if (match[1] === "at") return [hour];
+    if (match[1] === "after") return range(hour + (minute > 0 ? 1 : 0), 24);
+    return range(0, hour + (minute > 0 ? 1 : 0));
+}
+
+function range(start: number, end: number) {
+    return Array.from({ length: Math.max(0, end - start) }, (_, index) => start + index);
 }
 
 function PreferencesCard({ report, doctorFiltered }: { report: AgendaIntelligenceReport; doctorFiltered: boolean }) {
@@ -111,10 +256,7 @@ function OccupancyHeatmap({ report }: { report: AgendaIntelligenceReport }) {
     const hours = [...new Set(report.heatmap.map(cell => cell.hour))].sort((a, b) => a - b);
     const cells = new Map(report.heatmap.map(cell => [`${cell.weekday}:${cell.hour}`, cell]));
     if (!hours.length) {
-        const missing = report.missingDoctors.length;
-        return <p className="py-5 text-center text-sm text-muted">{missing
-            ? `Cobertura parcial da agenda: ${missing} médico${missing === 1 ? "" : "s"} sem agenda sincronizada.`
-            : "Sem disponibilidade no período."}</p>;
+        return <p className="py-5 text-center text-sm text-muted">Sem disponibilidade no período.</p>;
     }
     return <>
         <div className="overflow-x-auto"><table className="w-full text-center text-xs"><thead><tr><th className="p-2 text-muted">Dia</th>{hours.map(hour => <th key={hour} className="p-2 text-muted">{hour}h</th>)}</tr></thead>

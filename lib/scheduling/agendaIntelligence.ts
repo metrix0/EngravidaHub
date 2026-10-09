@@ -92,6 +92,7 @@ export function buildAgendaIntelligence(input: {
     demandAppointments?: IntelligenceAppointment[]; evidenceMessages?: IntelligenceEvidenceMessage[];
     history: ScheduleHistory[]; historyStartedAt: string | null; days: number; now?: number;
     resultsStart?: string; resultsEnd?: string;
+    coverage?: { analyzedConversations: number; signalsProcessed: number };
     doctors: Array<{ id: string; unit_id: string; name: string }>;
 }) {
     const now = input.now ?? Date.now();
@@ -236,7 +237,7 @@ export function buildAgendaIntelligence(input: {
         casesToReview: contactConversations.size,
         examples: [...reviewCases.map(([id]) => id), ...[...group.cases.keys()].filter(id => !reviewCases.some(([reviewId]) => reviewId === id))].slice(0, 3),
         ...compatibleSlots(freeWindows.filter(window => window.unitId === group.unitId), group.value),
-        coverageComplete: !missingDoctors.some(doctor => doctor.unit_id === group.unitId) && input.agendas.some(agenda => agenda.unit_id === group.unitId),
+        coverageComplete: input.agendas.some(agenda => agenda.unit_id === group.unitId),
     }; }).sort((a, b) => b.conversations - a.conversations || a.label.localeCompare(b.label));
     const actionable = preferences.filter(item => item.conversations >= 3 && item.casesToReview > 0 && (item.coverageComplete || item.availableSlots >= item.casesToReview));
     const opportunities = actionable.map(item => ({
@@ -264,6 +265,8 @@ export function buildAgendaIntelligence(input: {
     const waits = doctors.flatMap(doctor => doctor.waitDays === null ? [] : [doctor.waitDays]).sort((a, b) => a - b);
     const mid = Math.floor(waits.length / 2);
     const medianWaitDays = !waits.length ? null : waits.length % 2 ? waits[mid] : (waits[mid - 1] + waits[mid]) / 2;
+    const analyzedConversations = input.coverage?.analyzedConversations ?? allConversations.size;
+    const signalsProcessed = input.coverage?.signalsProcessed ?? processed.size;
     return { days: input.days, start, end, resultsStart, resultsEnd, evidenceDetails, generatedAt: new Date(now).toISOString(), capacityMinutes, occupiedMinutes,
         occupancy: capacityMinutes ? occupiedMinutes / capacityMinutes * 100 : null,
         freeSlots: doctors.reduce((total, doctor) => total + doctor.freeSlots, 0), medianWaitDays,
@@ -271,7 +274,7 @@ export function buildAgendaIntelligence(input: {
         heatmap: [...heatmap.values()].sort((a, b) => a.weekday - b.weekday || a.hour - b.hour),
         preferences, opportunities, noShows, noShowRate: resolved ? noShows / resolved * 100 : null, cancellations,
         history: { startedAt: input.historyStartedAt, observedFrom: historyAvailable ? observedFrom : null, ...historyMetrics },
-        coverage: { analyzedConversations: allConversations.size, signalsProcessed: processed.size, signalsPending: allConversations.size - processed.size } };
+        coverage: { analyzedConversations, signalsProcessed, signalsPending: analyzedConversations - signalsProcessed } };
 }
 
 function compatibleSlots(windows: Array<Interval & { doctorName: string; timezone: string; duration: number }>, preference: string) {

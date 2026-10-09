@@ -17,7 +17,7 @@ const actions = {
 export default function AgendaDemandOpportunities({ report }: { report: AgendaIntelligenceReport }) {
     return <Card className="@container">
         <div className="mb-5">
-            <h3 className="flex items-center gap-2 text-lg font-bold">Demanda × disponibilidade<InfoTooltip portal text={`Compara clientes sem agendamento identificado com vagas compatíveis nos próximos ${report.days} dias. Usa a análise existente e consultas posteriores ao pedido. Exclui quem já agendou, inclusive em outro horário, e casos incertos. Cada cliente conta uma vez por preferência. Mostra até 3 preferências registradas em pelo menos 3 conversas. Confirme o interesse antes de oferecer vagas ou ampliar a agenda. Agendas incompletas não geram sugestões de expansão. Preferências podem compartilhar vagas.`}><HelpCircle size={14} className="shrink-0 text-slate-400" /></InfoTooltip></h3>
+            <h3 className="flex items-center gap-2 text-lg font-bold">Demanda × disponibilidade<InfoTooltip portal text={`Compara clientes sem agendamento identificado com vagas compatíveis nos próximos ${report.days} dias. Usa a análise existente e consultas posteriores ao pedido. Exclui quem já agendou, inclusive em outro horário, e casos incertos. Cada cliente conta uma vez por preferência. Mostra até 3 preferências registradas em pelo menos 3 conversas. Confirme o interesse antes de oferecer vagas ou ampliar a agenda. Médicos sem agenda sincronizada são ignorados no cálculo. Preferências podem compartilhar vagas.`}><HelpCircle size={14} className="shrink-0 text-slate-400" /></InfoTooltip></h3>
             <p className="mt-1 text-sm text-muted">Casos para revisar e vagas nos horários pedidos.</p>
         </div>
         {report.opportunities.length ? <div className="grid gap-4 @3xl:grid-cols-3">
@@ -47,9 +47,7 @@ export default function AgendaDemandOpportunities({ report }: { report: AgendaIn
                     </div>
                 </article>;
             })}
-        </div> : <p className="py-5 text-center text-sm text-muted">{report.missingDoctors.length
-            ? `Cobertura parcial da agenda: ${report.missingDoctors.length} médico${report.missingDoctors.length === 1 ? "" : "s"} sem agenda sincronizada, então não há dados suficientes para comparar.`
-            : "Sem oportunidades com dados suficientes para comparar."}</p>}
+        </div> : <p className="py-5 text-center text-sm text-muted">Sem oportunidades com dados suficientes para comparar.</p>}
     </Card>;
 }
 

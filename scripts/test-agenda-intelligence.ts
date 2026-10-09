@@ -53,6 +53,10 @@ report = buildAgendaIntelligence({ ...base, analyses: [analysis, analysis] });
 assert.equal(report.preferences.length, 1);
 assert.equal(report.preferences[0].conversations, 1);
 assert.equal(report.preferences[0].availableSlots, 1); // Exact 9:30 is feasible even though greedy 45-min packing starts 9:45.
+assert.deepEqual(
+    buildAgendaIntelligence({ ...base, analyses: [analysis], coverage: { analyzedConversations: 25, signalsProcessed: 7 } }).coverage,
+    { analyzedConversations: 25, signalsProcessed: 7, signalsPending: 18 },
+);
 report = buildAgendaIntelligence({ ...base, agendas: [], analyses: [analysis] });
 assert.equal(report.preferences[0].coverageComplete, false);
 assert.equal(report.occupancy, null);
@@ -85,11 +89,15 @@ assert.equal(formatDoctorName("  DR.  ANA CAROLINA DE SOUZA  "), "Dr. Ana Caroli
 assert.equal(formatDoctorName("DRA. BÁRBARA D'ÁVILA"), "Dra. Bárbara D'Ávila");
 assert.equal(formatDoctorName("Kelma Luana Abreu de Siqueira"), "Dr. Kelma Luana Abreu de Siqueira");
 const widgetIds = AGENDA_INTELLIGENCE_WIDGETS.map(widget => widget.id);
-assert.equal(widgetIds.length, 9);
+assert.equal(widgetIds.length, 11);
+assert.equal(widgetIds.includes("inteligencia_agenda.demanda_horaria"), true);
+assert.equal(widgetIds.includes("inteligencia_agenda.demanda_horaria_unidade"), true);
+assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria") + 1, widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade"));
+assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade") + 1, widgetIds.indexOf("inteligencia_agenda.preferencias"));
 assert.equal(widgetIds.includes("inteligencia_agenda.recomendacoes"), false);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
-// Interest is actionable only with enough conversations; partial capacity must not imply a shortage.
+// Interest is actionable only with enough conversations; doctors without synchronized agendas are ignored.
 const interested = Array.from({ length: 4 }, (_, index) => ({ ...analysis, client_id: `client-${index}`, conversation_id: `interest-${index}` }));
 report = buildAgendaIntelligence({ ...base, analyses: interested });
 assert.equal(report.opportunities[0].action, "expand");
@@ -97,7 +105,9 @@ assert.equal(report.opportunities[0].gap, 3);
 assert.equal(report.opportunities[0].firstCompatibleSlot?.startsAt, "2026-10-05T12:30:00.000Z");
 assert.equal(report.opportunities[0].firstCompatibleSlot?.doctorName, "Médico");
 report = buildAgendaIntelligence({ ...base, analyses: interested, doctors: [...base.doctors, { id: "unsynced", unit_id: "unit", name: "Sem agenda" }] });
-assert.equal(report.opportunities.length, 0);
+assert.equal(report.preferences[0].coverageComplete, true);
+assert.equal(report.opportunities[0].action, "expand");
+assert.equal(report.opportunities[0].gap, 3);
 report = buildAgendaIntelligence({ ...base, analyses: interested.map(item => ({ ...item, pattern_signals: [{ ...consultation, value: "morning" }] })) });
 assert.equal(report.opportunities[0].action, "fill");
 assert.equal(buildAgendaIntelligence({ ...base, analyses: [analysis] }).opportunities.length, 0);
