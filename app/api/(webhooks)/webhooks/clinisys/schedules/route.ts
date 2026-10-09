@@ -125,14 +125,24 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true });
         }
 
-        const [match, procedures] = await Promise.all([
-            resolveHubUnitDoctor(body.agenda.unitName, body.agenda.doctorName),
-            listClinisysProcedures(body.externalId),
-        ]);
+        const { data: existing, error: existingError } = await supabase
+            .from("clinisys_agendas")
+            .select("unit_id, doctor_id, procedures")
+            .eq("external_id", body.externalId)
+            .maybeSingle();
+        if (existingError) throw existingError;
+        const match = await resolveHubUnitDoctor(body.agenda.unitName, body.agenda.doctorName);
+        let procedures = existing?.procedures ?? [];
+        try {
+            procedures = await listClinisysProcedures(body.externalId);
+        } catch (error) {
+            if (!existing) throw error;
+            console.warn("[clinisys-schedules] keeping existing procedures after API failure", error);
+        }
         const { error } = await supabase.from("clinisys_agendas").upsert({
             external_id: body.externalId,
-            unit_id: match?.unitId ?? null,
-            doctor_id: match?.doctorId ?? null,
+            unit_id: match?.unitId ?? existing?.unit_id ?? null,
+            doctor_id: match?.doctorId ?? existing?.doctor_id ?? null,
             unit_name: body.agenda.unitName,
             doctor_name: body.agenda.doctorName,
             timezone: body.agenda.timezone,
@@ -148,7 +158,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             ok: true,
-            mapped: Boolean(match),
+            mapped: Boolean(match || (existing?.unit_id && existing?.doctor_id)),
         });
     } catch (error) {
         console.error("[clinisys-schedules] processing failed", error);

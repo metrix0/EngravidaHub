@@ -132,10 +132,26 @@ export async function listClinisysAvailability({
         patient: { name: "", cpf: null, birthDate: null, phone: null, email: null },
         notes: null,
     });
+    return listClinisysAvailabilityByAgenda({
+        agendaId: context.agendaId,
+        procedureId: context.procedureId,
+        dateFrom,
+        dateTo,
+    });
+}
+
+export async function listClinisysAvailabilityByAgenda({
+    agendaId, procedureId, dateFrom, dateTo,
+}: {
+    agendaId: string;
+    procedureId: string;
+    dateFrom?: string | null;
+    dateTo?: string | null;
+}) {
     const params = new URLSearchParams({
         acao: "listarHorariosDisponiveis",
-        agenda: context.agendaId,
-        procedimento: context.procedureId,
+        agenda: agendaId,
+        procedimento: procedureId,
     });
     if (dateFrom) params.set("data_inicial", formatQueryDate(dateFrom));
     if (dateTo) params.set("data_final", formatQueryDate(dateTo));
