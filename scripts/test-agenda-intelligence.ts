@@ -89,9 +89,11 @@ assert.equal(formatDoctorName("  DR.  ANA CAROLINA DE SOUZA  "), "Dr. Ana Caroli
 assert.equal(formatDoctorName("DRA. BÁRBARA D'ÁVILA"), "Dra. Bárbara D'Ávila");
 assert.equal(formatDoctorName("Kelma Luana Abreu de Siqueira"), "Dr. Kelma Luana Abreu de Siqueira");
 const widgetIds = AGENDA_INTELLIGENCE_WIDGETS.map(widget => widget.id);
-assert.equal(widgetIds.length, 10);
+assert.equal(widgetIds.length, 11);
 assert.equal(widgetIds.includes("inteligencia_agenda.demanda_horaria"), true);
-assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria") + 1, widgetIds.indexOf("inteligencia_agenda.preferencias"));
+assert.equal(widgetIds.includes("inteligencia_agenda.demanda_horaria_unidade"), true);
+assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria") + 1, widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade"));
+assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade") + 1, widgetIds.indexOf("inteligencia_agenda.preferencias"));
 assert.equal(widgetIds.includes("inteligencia_agenda.recomendacoes"), false);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);

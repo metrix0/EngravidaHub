@@ -33,6 +33,7 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
         case "inteligencia_agenda.mapa": return <Card><h3 className="mb-4 text-lg font-bold">Ocupação por dia e horário</h3><OccupancyHeatmap report={report} /></Card>;
         case "inteligencia_agenda.oportunidades": return <AgendaDemandOpportunities report={report} />;
         case "inteligencia_agenda.demanda_horaria": return <DemandByHourCard report={report} />;
+        case "inteligencia_agenda.demanda_horaria_unidade": return <DemandByUnitCard report={report} />;
         case "inteligencia_agenda.preferencias": return <PreferencesCard report={report} doctorFiltered={doctorFiltered} />;
         case "inteligencia_agenda.medicos": return <DoctorsCard report={report} />;
         case "inteligencia_agenda.recuperacao": return <RecoveryCard report={report} />;
@@ -45,21 +46,7 @@ function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
     const maxDemand = Math.max(...demand);
     const hasDemand = maxDemand > 0;
 
-    const unitDemand = new Map<string, { name: string; values: number[] }>();
-    for (const preference of report.preferences) {
-        const current = unitDemand.get(preference.unitId) ?? {
-            name: preference.unitName,
-            values: Array.from({ length: 24 }, () => 0),
-        };
-        addPreferenceDemand(current.values, preference.value, preference.conversations);
-        unitDemand.set(preference.unitId, current);
-    }
-    const unitRows = [...unitDemand.entries()]
-        .map(([id, item]) => ({ id, ...item, max: Math.max(...item.values) }))
-        .filter(item => item.max > 0)
-        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-
-    return <Card>
+    return <Card className="h-full">
         <div className="mb-5">
             <h3 className="flex items-center gap-2 text-lg font-bold">
                 Demanda por horário
@@ -75,25 +62,42 @@ function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
         {hasDemand ? <>
             <DemandHeatBar values={demand} max={maxDemand} className="h-16 rounded-xl" />
             <HourAxis className="mt-2" />
+            <DemandLegend />
+        </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
+    </Card>;
+}
 
-            {unitRows.length > 1 ? <div className="mt-5 border-t border-slate-100 pt-4">
-                <h4 className="mb-3 text-sm font-semibold">Demanda por horário por unidade</h4>
-                <div className="space-y-2">
-                    {unitRows.map(unit => <div key={unit.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3">
-                        <div className="truncate text-xs font-medium text-slate-600" title={unit.name}>{unit.name}</div>
-                        <DemandHeatBar values={unit.values} max={unit.max} className="h-2.5 rounded-full" />
-                    </div>)}
-                </div>
-                <div className="ml-[122px]">
-                    <HourAxis className="mt-1.5" />
-                </div>
-            </div> : null}
+function DemandByUnitCard({ report }: { report: AgendaIntelligenceReport }) {
+    const unitDemand = new Map<string, { name: string; values: number[] }>();
+    for (const preference of report.preferences) {
+        const current = unitDemand.get(preference.unitId) ?? {
+            name: preference.unitName,
+            values: Array.from({ length: 24 }, () => 0),
+        };
+        addPreferenceDemand(current.values, preference.value, preference.conversations);
+        unitDemand.set(preference.unitId, current);
+    }
+    const unitRows = [...unitDemand.entries()]
+        .map(([id, item]) => ({ id, ...item, max: Math.max(...item.values) }))
+        .filter(item => item.max > 0)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
-            <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted">
-                <span>Menor</span>
-                <div className="h-2 w-32 rounded-full" style={{ background: "linear-gradient(to right, #f0fdf4, #bbf7d0, #fde68a, #fb923c, #ef4444)" }} />
-                <span>Maior demanda</span>
+    return <Card className="h-full">
+        <div className="mb-4">
+            <h3 className="text-lg font-bold">Demanda por horário por unidade</h3>
+            <p className="mt-1 text-sm text-muted">Cada faixa mostra onde a procura se concentra dentro de cada unidade.</p>
+        </div>
+        {unitRows.length ? <>
+            <div className="space-y-2">
+                {unitRows.map(unit => <div key={unit.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3">
+                    <div className="truncate text-xs font-medium text-slate-600" title={unit.name}>{unit.name}</div>
+                    <DemandHeatBar values={unit.values} max={unit.max} className="h-2.5 rounded-full" />
+                </div>)}
             </div>
+            <div className="ml-[122px]">
+                <HourAxis className="mt-1.5" />
+            </div>
+            <DemandLegend />
         </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
     </Card>;
 }
@@ -117,11 +121,13 @@ function DemandHeatBar({ values, max, className }: { values: number[]; max: numb
     return <div className={`flex overflow-hidden border border-slate-200 ${className}`}>
         {values.map((value, hour) => {
             const intensity = max > 0 ? value / max * 100 : 0;
+            const hourLabel = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00`;
             return <div
                 key={hour}
-                className="min-w-0 flex-1 border-r border-white/70 last:border-r-0"
+                className="min-w-0 flex-1 cursor-help border-r border-white/70 last:border-r-0"
                 style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
-                title={`${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · intensidade ${Math.round(intensity)}%`}
+                title={`${hourLabel} · intensidade ${Math.round(intensity)}%`}
+                aria-label={hourLabel}
             />;
         })}
     </div>;
@@ -134,6 +140,14 @@ function HourAxis({ className = "" }: { className?: string }) {
         <span className="text-center">12h</span>
         <span className="text-center">18h</span>
         <span className="text-right">24h</span>
+    </div>;
+}
+
+function DemandLegend() {
+    return <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted">
+        <span>Menor</span>
+        <div className="h-2 w-32 rounded-full" style={{ background: "linear-gradient(to right, #f0fdf4, #bbf7d0, #fde68a, #fb923c, #ef4444)" }} />
+        <span>Maior demanda</span>
     </div>;
 }
 

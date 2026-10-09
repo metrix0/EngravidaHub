@@ -52,11 +52,16 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind === "kpi").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} /></DashboardWidget>)}
             </div>
-            {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind !== "kpi").map(widget => {
-                const content = <DashboardWidget key={`${widget.id}:${report.generatedAt}`} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>;
-                return widget.id === "inteligencia_agenda.demanda_horaria"
-                    ? <div key={widget.id} className="xl:w-[calc(50%-0.625rem)]">{content}</div>
-                    : content;
+            {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind !== "kpi").map((widget, index, widgets) => {
+                if (widget.id === "inteligencia_agenda.demanda_horaria_unidade") return null;
+                if (widget.id === "inteligencia_agenda.demanda_horaria") {
+                    const unitWidget = widgets.find(item => item.id === "inteligencia_agenda.demanda_horaria_unidade");
+                    return <div key={widget.id} className="grid gap-5 xl:grid-cols-2">
+                        <DashboardWidget widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>
+                        {unitWidget ? <DashboardWidget widgetId={unitWidget.id}><AgendaIntelligenceWidget widgetId={unitWidget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget> : null}
+                    </div>;
+                }
+                return <DashboardWidget key={`${widget.id}:${report.generatedAt}:${index}`} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>;
             })}
         </div> : null}
         {optionsError ? <div role="alert" className="rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</div> : null}

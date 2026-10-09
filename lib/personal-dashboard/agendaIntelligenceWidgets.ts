@@ -9,6 +9,7 @@ const definitions = [
     ["mapa", "Ocupação por dia e horário", "chart"],
     ["oportunidades", "Demanda × disponibilidade", "chart"],
     ["demanda_horaria", "Demanda por horário", "chart"],
+    ["demanda_horaria_unidade", "Demanda por horário por unidade", "chart"],
     ["preferencias", "Horários pedidos nas conversas", "table"],
     ["medicos", "Capacidade por médico", "table"],
     ["recuperacao", "Cancelamentos e recuperação de vagas", "chart"],
