@@ -55,5 +55,8 @@ jobs:
       - name: Invoice replacement regression checks
         run: node scripts/test-invoice-replacements.cjs
 
+      - name: Inbox scheduling regression checks
+        run: node scripts/test-inbox-scheduling.cjs
+
       - name: Build
         run: pnpm build

@@ -78,7 +78,8 @@ export type SchedulingDoctorOption = {
 };
 
 export type SchedulingDataResponse = {
-    client: SchedulingClientProfile;
+    client: SchedulingClientProfile | null;
+    contact?: { name: string | null; location: string | null } | null;
     spouse: SchedulingClientProfile | null;
     units: SchedulingUnitOption[];
     doctors: SchedulingDoctorOption[];

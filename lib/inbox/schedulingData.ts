@@ -45,19 +45,21 @@ const UNIT_SELECT = `
     longitude
 `;
 
-type SchedulingThread = {
+export type SchedulingThread = {
     id: string;
-    client_id: string;
+    client_id: string | null;
+    instagram_user_id: string | null;
     assigned_attendant_id: string | null;
 };
 
 type SchedulingThreadRow = {
     id: string;
     client_id: string | null;
+    instagram_user_id: string | null;
     assigned_attendant_id: string | null;
     instagram_user:
-        | { client_id: string | null }
-        | Array<{ client_id: string | null }>
+        | { client_id: string | null; display_name: string | null; location: string | null }
+        | Array<{ client_id: string | null; display_name: string | null; location: string | null }>
         | null;
 };
 
@@ -71,9 +73,10 @@ export async function loadSchedulingContext(
         .select(`
             id,
             client_id,
+            instagram_user_id,
             assigned_attendant_id,
             instagram_user:instagram_users!thread_instagram_user_id_fkey (
-                client_id
+                client_id, display_name, location
             )
         `)
         .eq("id", threadId)
@@ -88,12 +91,9 @@ export async function loadSchedulingContext(
         ? typedThread.instagram_user[0] ?? null
         : typedThread.instagram_user;
     const clientId = typedThread.client_id ?? instagramUser?.client_id ?? null;
-    if (!clientId) return null;
-
-    const context = await loadSchedulingClientContext(
-        supabase,
-        clientId,
-    );
+    const context = clientId
+        ? await loadSchedulingClientContext(supabase, clientId)
+        : await loadUnlinkedSchedulingContext(supabase, instagramUser);
 
     return context
         ? {
@@ -101,10 +101,34 @@ export async function loadSchedulingContext(
               thread: {
                   id: typedThread.id,
                   client_id: clientId,
+                  instagram_user_id: typedThread.instagram_user_id,
                   assigned_attendant_id: typedThread.assigned_attendant_id,
               },
           }
         : null;
+}
+
+async function loadUnlinkedSchedulingContext(
+    supabase: SupabaseClient,
+    contact: { display_name: string | null; location: string | null } | null,
+): Promise<SchedulingDataResponse> {
+    const [units, doctors] = await Promise.all([fetchUnits(supabase), fetchDoctors(supabase)]);
+    return {
+        client: null,
+        contact: contact ? { name: contact.display_name, location: contact.location } : null,
+        spouse: null,
+        units,
+        doctors,
+        suggestedFormat: "congelamento",
+        form: {
+            unitId: "", doctorId: "", schedulingDate: "", schedulingTime: "",
+            durationMinutes: 45, procedureName: "Consulta",
+            primary: { ...emptyPerson(), fullName: contact?.display_name?.trim() ?? "" },
+            spouse: emptyPerson(),
+            address: { street: "", number: "", complement: "", neighborhood: "", city: "", state: "", cep: "", country: "" },
+            notes: "",
+        },
+    };
 }
 
 export async function loadSchedulingClientContext(
@@ -215,7 +239,6 @@ function buildSchedulingForm(
     doctors: SchedulingDoctorOption[],
 ): SchedulingForm {
     const unitId = chooseInitialUnit(client, units);
-    const selectedUnit = units.find((unit) => unit.id === unitId) ?? null;
     const unitDoctors = doctors.filter((doctor) => doctor.unit_id === unitId);
 
     return {
@@ -227,7 +250,7 @@ function buildSchedulingForm(
         procedureName: "Consulta",
         primary: mapClientToPerson(client),
         spouse: spouse ? mapClientToPerson(spouse) : emptyPerson(),
-        address: buildAddress(client, selectedUnit),
+        address: buildAddress(client),
         notes: "",
     };
 }
@@ -289,7 +312,6 @@ function mapClientToPerson(
 
 function buildAddress(
     client: SchedulingClientProfile,
-    selectedUnit: SchedulingUnitOption | null,
 ): SchedulingAddressFields {
     return {
         street: client.street?.trim() ?? "",
@@ -297,12 +319,9 @@ function buildAddress(
         complement: client.complement?.trim() ?? "",
         neighborhood: client.neighborhood?.trim() ?? "",
         city: client.city?.trim() ?? "",
-        state:
-            client.state?.trim() ||
-            selectedUnit?.state?.trim() ||
-            "",
+        state: client.state?.trim() ?? "",
         cep: formatCep(client.cep ?? ""),
-        country: client.country?.trim() || "Brasil",
+        country: client.country?.trim() ?? "",
     };
 }
 

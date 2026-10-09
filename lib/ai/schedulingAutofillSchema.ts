@@ -15,7 +15,7 @@ const aiDuration = z
     .transform((value) => {
         if (typeof value === "number") return value;
         const parsed = Number.parseInt(value ?? "", 10);
-        return Number.isFinite(parsed) ? parsed : 45;
+        return Number.isFinite(parsed) ? parsed : null;
     });
 
 const personSchema = z

@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
+import { loadSchedulingContext, type SchedulingThread } from "@/lib/inbox/schedulingData";
+import { resolveSchedulingClient, schedulingClientValues } from "@/lib/inbox/schedulingClient";
 import {
     APPOINTMENT_SELECT,
     fetchAppointmentById,
@@ -33,7 +35,9 @@ const createSchema = z.object({
     durationMinutes: z.number().int().min(15).max(480),
     status: z.enum(["scheduled", "confirmed", "completed", "cancelled", "no_show"]).default("scheduled"),
     format: z.enum(["congelamento", "casal"]), procedureName: z.string().trim().min(1).max(180),
-    primary: personSchema, spouse: personSchema, address: addressSchema, notes: z.string().max(2000),
+    primary: personSchema, spouse: personSchema,
+    address: addressSchema.default({ street: "", number: "", complement: "", neighborhood: "", city: "", state: "", cep: "", country: "" }),
+    notes: z.string().max(2000),
     addToFivFunnel: z.boolean().optional().default(true),
 }).superRefine((value, context) => {
     if (!value.primary.fullName.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["primary", "fullName"], message: "Informe o nome da pessoa principal." });
@@ -71,22 +75,13 @@ export async function POST(request: Request) {
         const body = parsed.data;
         if (!(await validateDoctorForUnit(supabase, body.doctorId, body.unitId))) return NextResponse.json({ ok: false, error: "O médico não pertence à unidade selecionada." }, { status: 400 });
         let clientId = body.clientId ?? null;
+        let schedulingThread: SchedulingThread | null = null;
         if (body.threadId) {
-            let threadQuery = supabase.from("thread").select(`
-                id,
-                client_id,
-                instagram_user:instagram_users!thread_instagram_user_id_fkey (
-                    client_id
-                )
-            `).eq("id", body.threadId);
-            if (attendant) threadQuery = threadQuery.eq("assigned_attendant_id", attendant.id);
-            const { data: thread, error: threadError } = await threadQuery.maybeSingle();
-            if (threadError) throw threadError;
-            if (!thread) return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
-            const instagramUser = Array.isArray(thread.instagram_user)
-                ? thread.instagram_user[0] ?? null
-                : thread.instagram_user;
-            clientId = thread.client_id ?? instagramUser?.client_id ?? null;
+            if (!attendant?.is_online) return NextResponse.json({ ok: false, error: "Not allowed" }, { status: 403 });
+            const context = await loadSchedulingContext(supabase, body.threadId, attendant.id);
+            if (!context) return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
+            schedulingThread = context.thread;
+            clientId = schedulingThread.client_id ?? clientId;
         }
         const startsAt = new Date(body.startsAt);
         if (startsAt.getUTCMinutes() % 15 !== 0) return NextResponse.json({ ok: false, error: "Selecione um horário em intervalos de 15 minutos." }, { status: 400 });
@@ -97,6 +92,10 @@ export async function POST(request: Request) {
             .lt("starts_at", endsAt.toISOString()).gt("ends_at", startsAt.toISOString()).limit(1);
         if (conflictError) throw conflictError;
         if (conflicts?.length) return NextResponse.json({ ok: false, error: "Este horário já está ocupado para o médico selecionado." }, { status: 409 });
+
+        if (schedulingThread) {
+            clientId = await resolveSchedulingClient(supabase, schedulingThread, clientId, body.primary, body.address, body.unitId);
+        }
 
         const { data: inserted, error: insertError } = await supabase.from("appointments").insert({
             client_id: clientId, thread_id: body.threadId ?? null, unit_id: body.unitId, doctor_id: body.doctorId,
@@ -135,14 +134,8 @@ export async function POST(request: Request) {
         }
 
         if (clientId) {
-            const { error: clientUpdateError } = await supabase.from("clients").update({
-                name: body.primary.fullName || null, phone: body.primary.phone || null, email: body.primary.email || null,
-                cpf: body.primary.cpf || null, birth_date: parseBrazilDate(body.primary.birthDate), unit_id: body.unitId,
-                street: body.address.street || null, number: body.address.number || null,
-                complement: body.address.complement || null, neighborhood: body.address.neighborhood || null,
-                city: body.address.city || null, state: body.address.state || null,
-                cep: onlyDigits(body.address.cep) || null, country: body.address.country || null,
-            }).eq("id", clientId);
+            const { error: clientUpdateError } = await supabase.from("clients")
+                .update(schedulingClientValues(body.primary, body.address, body.unitId)).eq("id", clientId);
             if (clientUpdateError) console.warn("[appointments:post] appointment created but client data was not updated", { client_id: clientId, error: clientUpdateError.message });
         }
 
