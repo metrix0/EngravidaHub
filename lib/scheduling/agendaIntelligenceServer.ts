@@ -1,5 +1,4 @@
 // lib/scheduling/agendaIntelligenceServer.ts
-import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase/client";
 import { patternSignalSchema } from "@/lib/analysis/patternSignals";
 import { buildAgendaIntelligence, type IntelligenceAgenda, type IntelligenceAnalysis, type IntelligenceAppointment, type IntelligenceEvidenceMessage, type ScheduleHistory } from "./agendaIntelligence";
@@ -22,30 +21,7 @@ async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: 
 type LoadAgendaIntelligenceArgs = { days: number; unitIds: string[]; doctorIds: string[]; resultsStart?: string; resultsEnd?: string };
 type CoverageRow = { id: string; clients: { unit_id: string | null } | Array<{ unit_id: string | null }> };
 
-const cachedAgendaIntelligence = unstable_cache(
-    async (days: number, unitIdsKey: string, doctorIdsKey: string, resultsStart: string, resultsEnd: string) =>
-        loadAgendaIntelligenceUncached({
-            days,
-            unitIds: unitIdsKey ? unitIdsKey.split(",") : [],
-            doctorIds: doctorIdsKey ? doctorIdsKey.split(",") : [],
-            resultsStart: resultsStart || undefined,
-            resultsEnd: resultsEnd || undefined,
-        }),
-    ["agenda-intelligence-report-v1"],
-    { revalidate: 60 },
-);
-
 export async function loadAgendaIntelligence({ days, unitIds, doctorIds, resultsStart, resultsEnd }: LoadAgendaIntelligenceArgs) {
-    return cachedAgendaIntelligence(
-        days,
-        [...new Set(unitIds)].sort().join(","),
-        [...new Set(doctorIds)].sort().join(","),
-        resultsStart ?? "",
-        resultsEnd ?? "",
-    );
-}
-
-async function loadAgendaIntelligenceUncached({ days, unitIds, doctorIds, resultsStart, resultsEnd }: LoadAgendaIntelligenceArgs) {
     const now = Date.now();
     const from = resultsStart ?? new Date(now - days * 86_400_000).toISOString();
     const until = new Date(Math.min(now, resultsEnd ? Date.parse(resultsEnd) : now)).toISOString();
@@ -64,24 +40,7 @@ async function loadAgendaIntelligenceUncached({ days, unitIds, doctorIds, result
         }),
     );
     const evidenceRequest = scopedAnalysisRequest.then(loadEvidenceMessages);
-    const coverageRequest = unitIds.length
-        ? readAll<CoverageRow>(cursor => {
-            let query = supabase.from("conversation_analysis")
-                .select("id, clients!inner(unit_id), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
-                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp").order("id").limit(500);
-            if (cursor) query = query.gt("id", cursor);
-            return query;
-        }).then(rows => rows.filter(row => {
-            const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
-            return Boolean(client?.unit_id && unitIds.includes(client.unit_id));
-        }).length)
-        : supabase.from("conversation_analysis")
-            .select("id, clients!inner(id), conversations!conversation_analysis_conversation_id_fkey!inner(channel)", { count: "exact", head: true })
-            .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp")
-            .then(({ count, error }) => {
-                if (error) throw error;
-                return count ?? 0;
-            });
+    const coverageRequest = loadAnalyzedConversationCount({ from, until, unitIds });
     const [agendas, appointments, analyses, history, baseline, doctorResult, evidenceMessages, analyzedConversations] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
             let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures")
@@ -127,12 +86,43 @@ async function loadAgendaIntelligenceUncached({ days, unitIds, doctorIds, result
     return buildAgendaIntelligence({ days, now, resultsStart: from, resultsEnd: until, agendas,
         appointments: appointments.filter(item => !doctorIds.length || doctorIds.includes(item.doctor_id)), demandAppointments: appointments,
         analyses, evidenceMessages, doctors,
-        coverage: {
-            analyzedConversations,
-            signalsProcessed: analyses.filter(analysis => Array.isArray(analysis.pattern_signals)).length,
-        },
+        ...(analyzedConversations === null ? {} : {
+            coverage: {
+                analyzedConversations,
+                signalsProcessed: analyses.filter(analysis => Array.isArray(analysis.pattern_signals)).length,
+            },
+        }),
         history: history.map(row => ({ ...row, before_state: scoped(row.before_state), after_state: scoped(row.after_state) })),
         historyStartedAt: baseline.data?.recorded_at ?? null });
+}
+
+async function loadAnalyzedConversationCount({ from, until, unitIds }: { from: string; until: string; unitIds: string[] }) {
+    try {
+        if (!unitIds.length) {
+            const { count, error } = await supabase.from("conversation_analysis")
+                .select("id, conversations!conversation_analysis_conversation_id_fkey!inner(channel)", { count: "exact" })
+                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp")
+                .limit(1);
+            if (error) throw error;
+            return count ?? 0;
+        }
+
+        const rows = await readAll<CoverageRow>(cursor => {
+            let query = supabase.from("conversation_analysis")
+                .select("id, clients!inner(unit_id), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
+                .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp")
+                .order("id").limit(500);
+            if (cursor) query = query.gt("id", cursor);
+            return query;
+        });
+        return rows.filter(row => {
+            const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+            return Boolean(client?.unit_id && unitIds.includes(client.unit_id));
+        }).length;
+    } catch (error) {
+        console.warn("[agenda-intelligence] coverage count failed; continuing without it", error);
+        return null;
+    }
 }
 
 async function loadEvidenceMessages(analyses: IntelligenceAnalysis[]) {
