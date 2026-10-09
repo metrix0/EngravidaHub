@@ -43,7 +43,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
     const coverageRequest = loadAnalyzedConversationCount({ from, until, unitIds });
     const [agendas, appointments, analyses, history, baseline, doctorResult, evidenceMessages, analyzedConversations] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
-            let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures")
+            let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures, availability_snapshot")
                 .eq("active", true).not("doctor_id", "is", null).not("unit_id", "is", null).order("id").limit(500);
             if (unitIds.length) query = query.in("unit_id", unitIds);
             if (doctorIds.length) query = query.in("doctor_id", doctorIds);

@@ -1,6 +1,6 @@
 // lib/scheduling/agendaIntelligence.ts
 import { patternSignalSchema } from "@/lib/analysis/patternSignals";
-import { replicatedAgendaCapacity, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
+import { hasFreshClinisysAvailabilitySnapshot, replicatedAgendaCapacity, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
 import { normalizePhoneIdentity } from "@/lib/clients/phoneIdentity";
 
 type Interval = { start: number; end: number };
@@ -117,8 +117,17 @@ export function buildAgendaIntelligence(input: {
         let capacityMinutes = 0, occupiedMinutes = 0, freeSlots = 0;
         let firstAvailable: number | null = null;
         for (let date = start; date < end; date = new Date(Date.parse(`${date}T12:00:00Z`) + DAY).toISOString().slice(0, 10)) {
-            const capacity = mergeIntervals(agendas.flatMap(item => replicatedAgendaCapacity(item, date))
-                .map(interval => ({ start: Math.max(now, interval.start), end: interval.end })));
+            const hasLive = agendas.some(item => hasFreshClinisysAvailabilitySnapshot(item, date, now));
+            const dayStart = Date.parse(`${date}T00:00:00-03:00`);
+            const dayEnd = dayStart + DAY;
+            // Live CliniSYS slots exclude appointments; count confirmed busy periods as
+            // occupied capacity, not as additional free windows.
+            const busyCapacity = hasLive ? busy.filter(item => item.start < dayEnd && item.end > dayStart) : [];
+            const capacity = mergeIntervals([
+                ...agendas.flatMap(item => replicatedAgendaCapacity(item, date, now)),
+                ...busyCapacity,
+            ].map(interval => ({ start: Math.max(now, interval.start), end: interval.end }))
+                .filter(interval => interval.end > interval.start));
             const free = subtractIntervals(capacity, busy);
             capacityMinutes += minutes(capacity);
             occupiedMinutes += minutes(capacity) - minutes(free);

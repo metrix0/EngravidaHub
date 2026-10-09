@@ -48,6 +48,7 @@ export type AgendaRow = {
     exceptions: unknown;
     blocks: unknown;
     procedures: unknown;
+    availability_snapshot?: unknown;
 };
 
 type StoredProcedure = {
@@ -328,8 +329,49 @@ function availabilityPeriodsForDate(
 
 // Capacity uses the same working hours, exception and block rules as booking.
 // Return disjoint intervals, rather than overlapping alternative start times.
-export function replicatedAgendaCapacity(agenda: AgendaRow, date: string) {
+export function hasFreshClinisysAvailabilitySnapshot(agenda: AgendaRow, date: string, now = Date.now()) {
+    const snapshot = agenda.availability_snapshot as {
+        dateFrom?: unknown; dateTo?: unknown; syncedAt?: unknown; slots?: unknown;
+    } | null | undefined;
+    const syncedAt = typeof snapshot?.syncedAt === "string" ? Date.parse(snapshot.syncedAt) : NaN;
+    return Boolean(
+        snapshot &&
+        typeof snapshot.dateFrom === "string" &&
+        typeof snapshot.dateTo === "string" &&
+        snapshot.dateFrom <= date &&
+        snapshot.dateTo >= date &&
+        Array.isArray(snapshot.slots) &&
+        Number.isFinite(syncedAt) &&
+        syncedAt <= now &&
+        now - syncedAt <= 15 * 60_000
+    );
+}
+
+export function replicatedAgendaCapacity(agenda: AgendaRow, date: string, now = Date.now()) {
     const timezone = isValidTimezone(agenda.timezone) ? agenda.timezone : DEFAULT_TIMEZONE;
+    if (hasFreshClinisysAvailabilitySnapshot(agenda, date, now)) {
+        const snapshot = agenda.availability_snapshot as {
+            slots: Array<{ data: string; inicio: string; termino: string }>;
+        };
+        const target = formatBrazilDate(date);
+        const slots = snapshot.slots.flatMap((slot) => {
+            if (slot?.data !== target) return [];
+            const start = minutesFromTime(slot.inicio);
+            const end = minutesFromTime(slot.termino);
+            if (start === null || end === null || end <= start) return [];
+            return [{
+                start: zonedDateTimeToEpoch(date, slot.inicio, timezone),
+                end: zonedDateTimeToEpoch(date, slot.termino, timezone),
+            }];
+        }).sort((a, b) => a.start - b.start);
+        const merged: Array<{ start: number; end: number }> = [];
+        for (const slot of slots) {
+            const previous = merged[merged.length - 1];
+            if (previous && slot.start <= previous.end) previous.end = Math.max(previous.end, slot.end);
+            else merged.push({ ...slot });
+        }
+        return merged;
+    }
     const exceptions = asArray<AgendaException>(agenda.exceptions);
     const blocks = asArray<OneTimeBlock | RecurringBlock>(agenda.blocks);
     const result: Array<{ start: number; end: number }> = [];
