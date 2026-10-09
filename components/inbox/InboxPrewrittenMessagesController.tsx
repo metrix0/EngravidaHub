@@ -483,7 +483,7 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
     {
         id: "prox-93",
         command: "/prox",
-        text: "Se desejarem seguir, o próximo passo seria agendar uma consulta, presencial ou online.",
+        text: "Se desejarem seguir, o próximo passo seria agendar uma consulta presencial ou online.",
     },
     {
         id: "todas-94",
@@ -929,6 +929,31 @@ export const PREWRITTEN_MESSAGES: PrewrittenMessage[] = [
         id: "diu-182",
         command: "/DIU",
         text: "Para mulheres que utilizam o dispositivo intrauterino (DIU), não é necessário a retirada, mesmo quando o DIU é liberador de hormônio, como o Mirena. Isso porque o hormônio liberado pelo Mirena não interfere na estimulação e desenvolvimento dos folículos",
+    },
+    {
+        id: "avaliacao-online-183",
+        command: "/AVALIAÇÃO ONLINE",
+        text: "A avaliação online é realizada através da plataforma do Google Meet, e você receberá o link através do e-mail informado. Seu pagamento deve ser feito com antecedência, (OBRIGATORIAMENTE) sendo realizado até 48h antes da avaliação no valor de R$ 250,00. Enviar o comprovante de pagamento e um documento com foto atualizado (Obrigatório em avaliações online, por questões de segurança).",
+    },
+    {
+        id: "efetivado-184",
+        command: "/efetivado",
+        text: "Agendamento efetivado!",
+    },
+    {
+        id: "agendamento-finalizado-185",
+        command: "/Agendamento finalizado",
+        text: "Entramos em contato 3 dias antes para confirmar. Podemos ajudar em algo mais?",
+    },
+    {
+        id: "finalizacao-186",
+        command: "/FINALIZAÇÃO",
+        text: "Informo que o agendamento de sua avaliação NÃO FOI concluído. Caso tenha interesse em agendar, solicitamos que retorne o contato neste canal.",
+    },
+    {
+        id: "pref-187",
+        command: "/Pref",
+        text: "Tem preferência pelo período da manhã ou da tarde?",
     },
 ];
 
