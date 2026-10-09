@@ -52,7 +52,12 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind === "kpi").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} /></DashboardWidget>)}
             </div>
-            {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind !== "kpi").map(widget => <DashboardWidget key={`${widget.id}:${report.generatedAt}`} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>)}
+            {AGENDA_INTELLIGENCE_WIDGETS.filter(widget => widget.kind !== "kpi").map(widget => {
+                const content = <DashboardWidget key={`${widget.id}:${report.generatedAt}`} widgetId={widget.id}><AgendaIntelligenceWidget widgetId={widget.id} report={report} doctorFiltered={doctorIds.length > 0} /></DashboardWidget>;
+                return widget.id === "inteligencia_agenda.demanda_horaria"
+                    ? <div key={widget.id} className="xl:w-[calc(50%-0.625rem)]">{content}</div>
+                    : content;
+            })}
         </div> : null}
         {optionsError ? <div role="alert" className="rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</div> : null}
         {error ? <div role="alert" className="rounded-xl border border-red/20 bg-red-soft p-4 text-sm text-red">{error}</div> : null}

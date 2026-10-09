@@ -32,11 +32,86 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
         case "inteligencia_agenda.nao_comparecimento": return <KpiCard icon={<Users size={22} />} label="Não comparecimento" currentValue={report.noShowRate} formatter={value => `${number(value)}%`} color="purple" tooltipText={`${results} ${report.noShows} não comparecimentos ÷ consultas concluídas ou registradas como não compareceu.`} />;
         case "inteligencia_agenda.mapa": return <Card><h3 className="mb-4 text-lg font-bold">Ocupação por dia e horário</h3><OccupancyHeatmap report={report} /></Card>;
         case "inteligencia_agenda.oportunidades": return <AgendaDemandOpportunities report={report} />;
+        case "inteligencia_agenda.demanda_horaria": return <DemandByHourCard report={report} />;
         case "inteligencia_agenda.preferencias": return <PreferencesCard report={report} doctorFiltered={doctorFiltered} />;
         case "inteligencia_agenda.medicos": return <DoctorsCard report={report} />;
         case "inteligencia_agenda.recuperacao": return <RecoveryCard report={report} />;
         default: return null;
     }
+}
+
+function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
+    const demand = Array.from({ length: 24 }, () => 0);
+
+    for (const preference of report.preferences) {
+        const hours = preferenceHours(preference.value);
+        if (!hours.length) continue;
+        const weight = preference.conversations / hours.length;
+        for (const hour of hours) demand[hour] += weight;
+    }
+
+    const maxDemand = Math.max(...demand);
+    const hasDemand = maxDemand > 0;
+
+    return <Card>
+        <div className="mb-5">
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+                Demanda por horário
+                <InfoTooltip
+                    portal
+                    text="Distribui as preferências explícitas de horário identificadas nas conversas ao longo das 24 horas. Pedidos amplos, como manhã ou após 17h, são distribuídos pela faixa correspondente; pedidos apenas por dia da semana não entram. Uma conversa pode contribuir para mais de uma faixa quando expressa mais de uma preferência."
+                >
+                    <HelpCircle size={14} className="shrink-0 text-slate-400" />
+                </InfoTooltip>
+            </h3>
+            <p className="mt-1 text-sm text-muted">Quanto mais quente, maior a procura por consultas naquele horário.</p>
+        </div>
+        {hasDemand ? <>
+            <div className="flex h-16 overflow-hidden rounded-xl border border-slate-200">
+                {demand.map((value, hour) => {
+                    const intensity = value / maxDemand * 100;
+                    return <div
+                        key={hour}
+                        className="min-w-0 flex-1 border-r border-white/70 last:border-r-0"
+                        style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
+                        title={`${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · intensidade ${Math.round(intensity)}%`}
+                    />;
+                })}
+            </div>
+            <div className="mt-2 grid grid-cols-5 text-xs text-muted">
+                <span>0h</span>
+                <span className="text-center">6h</span>
+                <span className="text-center">12h</span>
+                <span className="text-center">18h</span>
+                <span className="text-right">24h</span>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted">
+                <span>Menor</span>
+                <div className="h-2 w-32 rounded-full" style={{ background: "linear-gradient(to right, #f0fdf4, #bbf7d0, #fde68a, #fb923c, #ef4444)" }} />
+                <span>Maior demanda</span>
+            </div>
+        </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
+    </Card>;
+}
+
+function preferenceHours(value: string) {
+    const period = /(?:^|_)(morning|afternoon|evening)$/.exec(value)?.[1];
+    if (period === "morning") return range(6, 12);
+    if (period === "afternoon") return range(12, 18);
+    if (period === "evening") return range(18, 24);
+    if (value === "from_17") return range(17, 24);
+
+    const match = /^(after|before|at)_([01]\d|2[0-3])_([0-5]\d)$/.exec(value);
+    if (!match) return [];
+    const hour = Number(match[2]);
+    const minute = Number(match[3]);
+    if (match[1] === "at") return [hour];
+    if (match[1] === "after") return range(hour + (minute > 0 ? 1 : 0), 24);
+    return range(0, hour + (minute > 0 ? 1 : 0));
+}
+
+function range(start: number, end: number) {
+    return Array.from({ length: Math.max(0, end - start) }, (_, index) => start + index);
 }
 
 function PreferencesCard({ report, doctorFiltered }: { report: AgendaIntelligenceReport; doctorFiltered: boolean }) {
