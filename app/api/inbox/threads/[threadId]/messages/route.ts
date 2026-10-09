@@ -29,6 +29,7 @@ const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const ATTACHMENT_URL_TTL_SECONDS = 24 * 60 * 60;
 const TEST_MODE = false;
 const BYPASS_LOCAL_WINDOW_IN_TEST_MODE = false;
+const INSTAGRAM_MESSAGE_MAX_LENGTH = 1000;
 
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
     "image/jpeg",
@@ -429,6 +430,12 @@ export async function POST(
         : recipientNumber;
     let providerSentAt = new Date().toISOString();
     let persistedText = text;
+    const splitZernioMessages: Array<{
+        text: string;
+        id: string;
+        conversationId: string;
+        sentAt: string;
+    }> = [];
 
     try {
         log(
@@ -480,10 +487,93 @@ export async function POST(
             }
             persistedText = attachmentHistoryText(attachment);
         } else if (isZernioThread) {
+            const messageParts =
+                thread.channel === "Facebook"
+                    ? [text]
+                    : splitInstagramMessage(text);
+
+            if (messageParts.length > 1) {
+                const persistedMessages = [];
+
+                for (const [index, part] of messageParts.entries()) {
+                    const zernioMessage = await sendZernioInboxMessage({
+                        conversationId: zernioConversationId,
+                        accountId: zernioAccountId,
+                        message: part,
+                    });
+
+                    splitZernioMessages.push({
+                        text: part,
+                        id: zernioMessage.id,
+                        conversationId: zernioMessage.conversationId,
+                        sentAt: zernioMessage.sentAt,
+                    });
+
+                    providerMessageId = zernioMessage.id;
+                    providerExternalId = socialZernioExternalMessageId(
+                        zernioMessage.id,
+                        thread.channel,
+                    );
+                    providerRecipient = zernioMessage.conversationId;
+                    providerSentAt = zernioMessage.sentAt;
+
+                    const persistenceResult = await persistSentMessage({
+                        thread,
+                        attendantName: attendant.name,
+                        text: part,
+                        sentAt: zernioMessage.sentAt,
+                        externalId: providerExternalId,
+                        externalContactId: null,
+                        externalThreadId: zernioConversationId,
+                    });
+
+                    if (!persistenceResult.ok) {
+                        throw new Error(
+                            `A parte ${index + 1} foi enviada, mas não pôde ser salva no histórico local.`,
+                        );
+                    }
+
+                    persistedMessages.push(persistenceResult.message);
+
+                    log(`Zernio accepted ${socialChannelLabel} message part`, {
+                        part: index + 1,
+                        total_parts: messageParts.length,
+                        zernio_message_id: zernioMessage.id,
+                        conversation_id: zernioMessage.conversationId,
+                        sent_at: zernioMessage.sentAt,
+                        text_length: part.length,
+                    });
+                }
+
+                debug.recipient_identity = providerRecipient;
+                log("Send pipeline completed successfully", {
+                    split_parts: messageParts.length,
+                });
+
+                return NextResponse.json({
+                    ok: true,
+                    message: null,
+                    messages: persistedMessages,
+                    thread_id: thread.id,
+                    reopened,
+                    persisted: true,
+                    provider: debug.transport,
+                    provider_message_id: providerMessageId,
+                    zernio_message_id: providerMessageId,
+                    zernio_message_ids: splitZernioMessages.map(
+                        (message) => message.id,
+                    ),
+                    recipient: providerRecipient,
+                    test_mode: TEST_MODE,
+                    delivery: null,
+                    debug: finishDebug(debug, startedAt),
+                });
+            }
+
             const zernioMessage = await sendZernioInboxMessage({
                 conversationId: zernioConversationId,
                 accountId: zernioAccountId,
-                message: text,
+                message: messageParts[0] ?? text,
             });
 
             providerMessageId = zernioMessage.id;
@@ -539,7 +629,7 @@ export async function POST(
             debug.recipient_identity = error.debug?.body.to ?? null;
         }
 
-        if (reopened) {
+        if (reopened && splitZernioMessages.length === 0) {
             log("Send failed; rolling the temporary reopen back");
             await rollbackReopenedThread(thread.id, attendant.id, requestId);
         }
@@ -788,6 +878,96 @@ async function ensureAttachmentBucket() {
     }
 
     return attachmentBucketReady;
+}
+
+function splitInstagramMessage(value: string) {
+    const chunks: string[] = [];
+    let remaining = value.trim();
+
+    while (remaining.length > INSTAGRAM_MESSAGE_MAX_LENGTH) {
+        const window = remaining.slice(0, INSTAGRAM_MESSAGE_MAX_LENGTH);
+        const minimumPreferredSplit = Math.floor(
+            INSTAGRAM_MESSAGE_MAX_LENGTH * 0.5,
+        );
+        let splitAt = findLastSentenceBoundary(window);
+
+        if (splitAt < minimumPreferredSplit) {
+            const newlineIndex = window.lastIndexOf("\n");
+            if (newlineIndex >= minimumPreferredSplit) {
+                splitAt = newlineIndex;
+            }
+        }
+
+        if (splitAt < minimumPreferredSplit) {
+            const whitespaceIndex = Math.max(
+                window.lastIndexOf(" "),
+                window.lastIndexOf("\t"),
+            );
+            if (whitespaceIndex > 0) {
+                splitAt = whitespaceIndex;
+            }
+        }
+
+        if (splitAt <= 0) {
+            splitAt = safeTextSplitIndex(
+                remaining,
+                INSTAGRAM_MESSAGE_MAX_LENGTH,
+            );
+        }
+
+        const chunk = remaining.slice(0, splitAt).trim();
+        if (!chunk) {
+            splitAt = safeTextSplitIndex(
+                remaining,
+                INSTAGRAM_MESSAGE_MAX_LENGTH,
+            );
+        } else {
+            chunks.push(chunk);
+            remaining = remaining.slice(splitAt).trimStart();
+            continue;
+        }
+
+        chunks.push(remaining.slice(0, splitAt).trim());
+        remaining = remaining.slice(splitAt).trimStart();
+    }
+
+    if (remaining) chunks.push(remaining);
+    return chunks;
+}
+
+function findLastSentenceBoundary(value: string) {
+    let boundary = -1;
+
+    for (let index = 0; index < value.length - 1; index += 1) {
+        if (
+            (value[index] === "." ||
+                value[index] === "!" ||
+                value[index] === "?") &&
+            /\s/.test(value[index + 1] ?? "")
+        ) {
+            boundary = index + 1;
+        }
+    }
+
+    return boundary;
+}
+
+function safeTextSplitIndex(value: string, maxLength: number) {
+    let splitAt = Math.min(maxLength, value.length);
+
+    const previousCode = value.charCodeAt(splitAt - 1);
+    const nextCode = value.charCodeAt(splitAt);
+
+    if (
+        previousCode >= 0xd800 &&
+        previousCode <= 0xdbff &&
+        nextCode >= 0xdc00 &&
+        nextCode <= 0xdfff
+    ) {
+        splitAt -= 1;
+    }
+
+    return Math.max(splitAt, 1);
 }
 
 function socialZernioExternalMessageId(

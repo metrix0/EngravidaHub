@@ -38,10 +38,12 @@ type PersistedInboxMessageRow = {
 type SendInboxMessageResponse = {
     ok: true;
     message: PersistedInboxMessageRow | null;
+    messages?: PersistedInboxMessageRow[];
     thread_id: string;
     reopened: boolean;
     persisted?: boolean;
     blip_message_id?: string;
+    zernio_message_ids?: string[];
 };
 
 type FinalizeInboxThreadResponse = {
@@ -212,6 +214,13 @@ export async function sendInboxMessage({
         const result = json as SendInboxMessageResponse;
 
         if (result.reopened) {
+            finishOptimisticMessage(optimisticContext, {
+                invalidate: true,
+            });
+            return result;
+        }
+
+        if ((result.messages?.length ?? 0) > 1) {
             finishOptimisticMessage(optimisticContext, {
                 invalidate: true,
             });
