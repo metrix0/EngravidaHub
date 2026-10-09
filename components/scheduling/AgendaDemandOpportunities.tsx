@@ -47,7 +47,9 @@ export default function AgendaDemandOpportunities({ report }: { report: AgendaIn
                     </div>
                 </article>;
             })}
-        </div> : <p className="py-5 text-center text-sm text-muted">Sem oportunidades com dados suficientes para comparar.</p>}
+        </div> : <p className="py-5 text-center text-sm text-muted">{report.missingDoctors.length
+            ? `Cobertura parcial da agenda: ${report.missingDoctors.length} médico${report.missingDoctors.length === 1 ? "" : "s"} sem agenda sincronizada, então não há dados suficientes para comparar.`
+            : "Sem oportunidades com dados suficientes para comparar."}</p>}
     </Card>;
 }
 
