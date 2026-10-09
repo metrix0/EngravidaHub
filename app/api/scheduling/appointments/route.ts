@@ -81,7 +81,6 @@ export async function POST(request: Request) {
             const context = await loadSchedulingContext(supabase, body.threadId, attendant.id);
             if (!context) return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
             schedulingThread = context.thread;
-            clientId = schedulingThread.client_id ?? clientId;
         }
         const startsAt = new Date(body.startsAt);
         if (startsAt.getUTCMinutes() % 15 !== 0) return NextResponse.json({ ok: false, error: "Selecione um horário em intervalos de 15 minutos." }, { status: 400 });

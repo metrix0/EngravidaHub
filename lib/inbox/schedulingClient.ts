@@ -35,8 +35,15 @@ export async function resolveSchedulingClient(
     address: SchedulingAddressFields,
     unitId: string,
 ): Promise<string | null> {
+    // An explicit replacement changes the appointment patient, not the conversation link.
+    if (selectedClientId) {
+        const { data, error } = await supabase.from("clients").select("id").eq("id", selectedClientId).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error("Cliente selecionado não encontrado.");
+        if (thread.client_id || !thread.instagram_user_id) return selectedClientId;
+    }
     if (thread.client_id) return thread.client_id;
-    if (!thread.instagram_user_id) return selectedClientId;
+    if (!thread.instagram_user_id) return null;
 
     let clientId = selectedClientId;
     const phone = normalizePhoneIdentity(primary.phone);
@@ -48,11 +55,7 @@ export async function resolveSchedulingClient(
         return data?.id ?? null;
     };
 
-    if (clientId) {
-        const { data, error } = await supabase.from("clients").select("id").eq("id", clientId).maybeSingle();
-        if (error) throw error;
-        if (!data) throw new Error("Cliente selecionado não encontrado.");
-    } else {
+    if (!clientId) {
         clientId = await findByPhone();
         if (!clientId) {
             const now = new Date().toISOString();
