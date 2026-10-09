@@ -26,11 +26,16 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
             let query = supabase.from("conversation_analysis")
                 .select("id, conversation_id, client_id, pattern_signals, started_at, customer_final_state, outcome_events, clients!inner(id, unit_id, name, phone, phone_identity), conversations!conversation_analysis_conversation_id_fkey!inner(channel)")
                 .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp").order("id").limit(500);
-            if (unitIds.length) query = query.in("clients.unit_id", unitIds);
             if (cursor) query = query.gt("id", cursor);
             return query;
         });
-    const evidenceRequest = analysisRequest.then(loadEvidenceMessages);
+    const scopedAnalysisRequest = analysisRequest.then(analyses =>
+        !unitIds.length ? analyses : analyses.filter(analysis => {
+            const client = Array.isArray(analysis.clients) ? analysis.clients[0] : analysis.clients;
+            return Boolean(client?.unit_id && unitIds.includes(client.unit_id));
+        }),
+    );
+    const evidenceRequest = scopedAnalysisRequest.then(loadEvidenceMessages);
     const [agendas, appointments, analyses, history, baseline, doctorResult, evidenceMessages] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
             let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures")
@@ -48,15 +53,10 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
             if (cursor) query = query.gt("id", cursor);
             return query;
         }),
-        analysisRequest,
+        scopedAnalysisRequest,
         readAll<ScheduleHistory>(cursor => {
             let query = supabase.from("schedule_history").select("id, entity_id, entity_type, operation, recorded_at, before_state, after_state")
                 .eq("entity_type", "appointment").neq("operation", "snapshot").gte("recorded_at", from).lt("recorded_at", new Date(now).toISOString()).order("id").limit(500);
-            // Scope both sides of moves; the calculator also filters each snapshot below.
-            const current = [], previous = [];
-            if (unitIds.length) { current.push(`unit_id.in.(${unitIds.join(",")})`); previous.push(`previous_unit_id.in.(${unitIds.join(",")})`); }
-            if (doctorIds.length) { current.push(`doctor_id.in.(${doctorIds.join(",")})`); previous.push(`previous_doctor_id.in.(${doctorIds.join(",")})`); }
-            if (current.length) query = query.or(`and(${current.join(",")}),and(${previous.join(",")})`);
             if (cursor) query = query.gt("id", cursor);
             return query;
         }),
