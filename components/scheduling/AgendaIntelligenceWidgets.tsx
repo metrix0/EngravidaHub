@@ -41,17 +41,23 @@ export function AgendaIntelligenceWidget({ widgetId, report, doctorFiltered = fa
 }
 
 function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
-    const demand = Array.from({ length: 24 }, () => 0);
-
-    for (const preference of report.preferences) {
-        const hours = preferenceHours(preference.value);
-        if (!hours.length) continue;
-        const weight = preference.conversations / hours.length;
-        for (const hour of hours) demand[hour] += weight;
-    }
-
+    const demand = hourlyDemand(report.preferences);
     const maxDemand = Math.max(...demand);
     const hasDemand = maxDemand > 0;
+
+    const unitDemand = new Map<string, { name: string; values: number[] }>();
+    for (const preference of report.preferences) {
+        const current = unitDemand.get(preference.unitId) ?? {
+            name: preference.unitName,
+            values: Array.from({ length: 24 }, () => 0),
+        };
+        addPreferenceDemand(current.values, preference.value, preference.conversations);
+        unitDemand.set(preference.unitId, current);
+    }
+    const unitRows = [...unitDemand.entries()]
+        .map(([id, item]) => ({ id, ...item, max: Math.max(...item.values) }))
+        .filter(item => item.max > 0)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
     return <Card>
         <div className="mb-5">
@@ -67,24 +73,22 @@ function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
             <p className="mt-1 text-sm text-muted">Quanto mais quente, maior a procura por consultas naquele horário.</p>
         </div>
         {hasDemand ? <>
-            <div className="flex h-16 overflow-hidden rounded-xl border border-slate-200">
-                {demand.map((value, hour) => {
-                    const intensity = value / maxDemand * 100;
-                    return <div
-                        key={hour}
-                        className="min-w-0 flex-1 border-r border-white/70 last:border-r-0"
-                        style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
-                        title={`${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · intensidade ${Math.round(intensity)}%`}
-                    />;
-                })}
-            </div>
-            <div className="mt-2 grid grid-cols-5 text-xs text-muted">
-                <span>0h</span>
-                <span className="text-center">6h</span>
-                <span className="text-center">12h</span>
-                <span className="text-center">18h</span>
-                <span className="text-right">24h</span>
-            </div>
+            <DemandHeatBar values={demand} max={maxDemand} className="h-16 rounded-xl" />
+            <HourAxis className="mt-2" />
+
+            {unitRows.length > 1 ? <div className="mt-5 border-t border-slate-100 pt-4">
+                <h4 className="mb-3 text-sm font-semibold">Demanda por horário por unidade</h4>
+                <div className="space-y-2">
+                    {unitRows.map(unit => <div key={unit.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3">
+                        <div className="truncate text-xs font-medium text-slate-600" title={unit.name}>{unit.name}</div>
+                        <DemandHeatBar values={unit.values} max={unit.max} className="h-2.5 rounded-full" />
+                    </div>)}
+                </div>
+                <div className="ml-[122px]">
+                    <HourAxis className="mt-1.5" />
+                </div>
+            </div> : null}
+
             <div className="mt-4 flex items-center justify-end gap-2 text-xs text-muted">
                 <span>Menor</span>
                 <div className="h-2 w-32 rounded-full" style={{ background: "linear-gradient(to right, #f0fdf4, #bbf7d0, #fde68a, #fb923c, #ef4444)" }} />
@@ -92,6 +96,45 @@ function DemandByHourCard({ report }: { report: AgendaIntelligenceReport }) {
             </div>
         </> : <p className="py-5 text-center text-sm text-muted">Nenhuma preferência de horário identificada no período.</p>}
     </Card>;
+}
+
+function hourlyDemand(preferences: AgendaIntelligenceReport["preferences"]) {
+    const demand = Array.from({ length: 24 }, () => 0);
+    for (const preference of preferences) {
+        addPreferenceDemand(demand, preference.value, preference.conversations);
+    }
+    return demand;
+}
+
+function addPreferenceDemand(demand: number[], value: string, conversations: number) {
+    const hours = preferenceHours(value);
+    if (!hours.length) return;
+    const weight = conversations / hours.length;
+    for (const hour of hours) demand[hour] += weight;
+}
+
+function DemandHeatBar({ values, max, className }: { values: number[]; max: number; className: string }) {
+    return <div className={`flex overflow-hidden border border-slate-200 ${className}`}>
+        {values.map((value, hour) => {
+            const intensity = max > 0 ? value / max * 100 : 0;
+            return <div
+                key={hour}
+                className="min-w-0 flex-1 border-r border-white/70 last:border-r-0"
+                style={{ backgroundColor: value > 0 ? heatmapColor(intensity) : "#f8fafc" }}
+                title={`${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · intensidade ${Math.round(intensity)}%`}
+            />;
+        })}
+    </div>;
+}
+
+function HourAxis({ className = "" }: { className?: string }) {
+    return <div className={`grid grid-cols-5 text-[10px] text-muted ${className}`}>
+        <span>0h</span>
+        <span className="text-center">6h</span>
+        <span className="text-center">12h</span>
+        <span className="text-center">18h</span>
+        <span className="text-right">24h</span>
+    </div>;
 }
 
 function preferenceHours(value: string) {
