@@ -291,11 +291,26 @@ async function testPanelSelection() {
   assert.equal(tables.clients[0].street, 'Rua antiga', 'blank address must not erase profile');
   reset();
   tables.clients.push({ id: id(41), name: 'Selecionado' });
-  assert.equal((await create({clientId:id(41)})).body.appointment.client_id, id(41));
+  const manual = await create({clientId:id(41),manualClientSelection:true});
+   assert.equal(manual.body.appointment.client_id, id(41));
+   assert.equal(tables.instagram_users[0].client_id,null,'manual selection must await confirmation');
+   assert.equal(manual.body.socialLinkSuggestion.clientId,id(41));
+   assert.equal(manual.body.socialLinkSuggestion.expectedClientId,null);
+   const socialLinkRoute=load('app/api/inbox/scheduling-link/route.ts',{
+     'next/server':next,
+     '@/lib/attendants/getCurrentAttendantFromRequest':{getCurrentAttendantFromRequest:async()=>({user:{id:id(6)},attendant:{id:id(5),is_online:true}})},
+     '@/lib/inbox/schedulingData':contextHelper,
+     '@/lib/supabase/client':{supabase},
+   });
+   const link=await socialLinkRoute.POST({json:async()=>({threadId:id(1),clientId:id(41),expectedClientId:null})});
+   assert.equal(link.status,200,'confirm profile link only after appointment');
+   assert.equal(tables.instagram_users[0].client_id,id(41));
   reset(id(42));
   tables.clients.push({id:id(43),name:'Paciente substituto'});
-  assert.equal((await create({clientId:id(43)})).body.appointment.client_id,id(43),'honor the replacement patient');
+  const replacement = await create({clientId:id(43),manualClientSelection:true});
+   assert.equal(replacement.body.appointment.client_id,id(43),'honor the replacement patient');
   assert.equal(tables.instagram_users[0].client_id,id(42),'replacement must not relink the social conversation');
+   assert.equal(replacement.body.socialLinkSuggestion.expectedClientId,id(42),'replacement requires explicit confirmation');
   assert.equal(tables.clients.find(row=>row.id===id(42)).name,'Ana Silva','do not update the original client with replacement details');
   reset(id(42));
   assert.equal((await create()).body.appointment.client_id,id(42),'without replacement use the current social link');
@@ -304,6 +319,26 @@ async function testPanelSelection() {
   tables.clients.push({id:id(44),name:'Contato WhatsApp'},{id:id(45),name:'Paciente substituto'});
   assert.equal((await create({clientId:id(45)})).body.appointment.client_id,id(45),'honor replacement on a CRM-linked thread');
   assert.equal(tables.thread[0].client_id,id(44),'do not rewrite the thread identity');
+  // Preserve Meta referral details and click identifiers from the original webhook.
+  const zernioParser=load('lib/importers/zernio/parseZernioWebhook.ts',{
+    '@/lib/zernio/client':{zernioExternalMessageId:value=>value},
+  });
+  const received=zernioParser.parseZernioMessageWebhook({
+    event:'message.received',id:'event-1',timestamp:'2026-10-09T12:00:00Z',
+    account:{id:'account-1',platform:'instagram'},
+    conversation:{id:'thread-1',participantId:'person-1'},
+    message:{id:'msg-1',direction:'incoming',text:'Olá',metadata:{
+      fbclid:'test-click-id',utm_campaign:'test-utm',
+      referral:{ad_id:'ad-1',source:'ADS',campaign_id:'campaign-1',campaign_name:'Campaign',
+        adscontextdata:{adtitle:'Creative',photo_url:'https://example.com/photo.jpg'}},
+      patient_secret:'never-save',
+    }},
+  });
+  assert.equal(received.referral.campaign_id,'campaign-1');
+  assert.equal(received.social_metadata.fbclid,'test-click-id');
+  assert.equal(received.social_metadata.referral.adscontextdata.adtitle,'Creative');
+  assert.equal(received.social_metadata.patient_secret,undefined);
+
   reset(); online = false;
   assert.equal((await create()).status, 403);
   assert.equal(inserts.length, 0);
@@ -365,5 +400,5 @@ async function testPanelSelection() {
   assert.equal(filled.schedulingTime, '14:30');
   assert.equal(filled.durationMinutes,60,'missing AI duration preserves the form');
   assert.equal(filled.notes,'Preferência por consulta presencial');
-  console.log('PASS: AI model fallback, strict JSON, bounded output, provider/validation errors and privacy; rendered client selection, X, clearing and request races; optional address; social scheduling and profile linkage; authorization; rollback; complete history and extraction merge.');
+  console.log('PASS: manual social-to-CRM linking requires confirmation; AI model fallback, strict JSON, bounded output, provider/validation errors and privacy; rendered client selection, X, clearing and request races; optional address; social scheduling and profile linkage; authorization; rollback; complete history and extraction merge.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

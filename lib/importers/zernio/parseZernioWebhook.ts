@@ -21,6 +21,11 @@ export type ParsedZernioReferral = {
     photo_url: string | null;
     video_url: string | null;
     post_id: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+    ad_set_id: string | null;
+    ad_set_name: string | null;
+    ad_name: string | null;
 };
 
 export type ParsedZernioMessage = {
@@ -33,6 +38,7 @@ export type ParsedZernioMessage = {
     text: string;
     attachment: ParsedZernioAttachment | null;
     referral: ParsedZernioReferral | null;
+    social_metadata: Record<string, unknown> | null;
     sent_at: string;
     external_id: string;
     external_thread_id: string;
@@ -137,6 +143,8 @@ export function parseZernioMessageWebhook(
         text: rawText || attachmentLabel(attachment, channel),
         attachment,
         referral,
+        social_metadata: event === "message.received" && direction === "incoming"
+            ? parseSocialMetadata(message, root) : null,
         sent_at: normalizeDate(message?.sentAt ?? root?.timestamp),
         external_id: zernioExternalMessageId(
             platform === "facebook" ? `facebook:${messageId}` : messageId,
@@ -164,8 +172,9 @@ function parseReferral(
     root: Record<string, unknown> | null,
 ): ParsedZernioReferral | null {
     const metadata = asRecord(message?.metadata) ?? asRecord(root?.metadata);
-    const referral = asRecord(metadata?.referral);
-    const adId = stringValue(referral?.ad_id);
+    const referral = asRecord(metadata?.referral) ??
+        asRecord(message?.referral) ?? asRecord(root?.referral);
+    const adId = stringValue(referral?.ad_id) ?? stringValue(referral?.adId);
     if (!adId) return null;
 
     const adsContext = asRecord(referral?.adscontextdata);
@@ -178,7 +187,56 @@ function parseReferral(
         photo_url: stringValue(adsContext?.photo_url),
         video_url: stringValue(adsContext?.videourl),
         post_id: stringValue(adsContext?.post_id),
+        campaign_id: stringValue(referral?.campaign_id) ?? stringValue(referral?.campaignId),
+        campaign_name: stringValue(referral?.campaign_name) ?? stringValue(referral?.campaignName),
+        ad_set_id: stringValue(referral?.adset_id) ?? stringValue(referral?.ad_set_id),
+        ad_set_name: stringValue(referral?.adset_name) ?? stringValue(referral?.ad_set_name),
+        ad_name: stringValue(referral?.ad_name) ?? stringValue(adsContext?.adtitle),
     };
+}
+
+// Retain advertising context without persisting unfiltered provider/patient metadata.
+const SOCIAL_META_KEYS = new Set([
+    "referral", "adscontextdata", "ad_id", "adId", "adtitle", "ad_name",
+    "campaign_id", "campaignId", "campaign_name", "campaignName",
+    "adset_id", "adset_name", "ad_set_id", "ad_set_name",
+    "source", "ref", "type", "post_id", "photo_url", "videourl",
+    "source_url", "fbclid", "fbc", "fbp", "ctwa_clid", "click_id",
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+]);
+
+function parseSocialMetadata(
+    message: Record<string, unknown> | null,
+    root: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+    const metadata = asRecord(message?.metadata) ?? asRecord(root?.metadata);
+    const result = pickSocialMetadata(metadata, 0);
+    const directReferral = asRecord(message?.referral) ?? asRecord(root?.referral);
+    if (directReferral && !result.referral) {
+        const referral = pickSocialMetadata(directReferral, 1);
+        if (Object.keys(referral).length) result.referral = referral;
+    }
+    return Object.keys(result).length ? result : null;
+}
+
+function pickSocialMetadata(
+    source: Record<string, unknown> | null,
+    depth: number,
+): Record<string, unknown> {
+    const picked: Record<string, unknown> = {};
+    if (!source || depth > 2) return picked;
+    for (const [key, value] of Object.entries(source)) {
+        if (!SOCIAL_META_KEYS.has(key)) continue;
+        if (typeof value === "string" && value.trim()) {
+            picked[key] = value.trim().slice(0, 2048);
+        } else if (typeof value === "number" && Number.isFinite(value)) {
+            picked[key] = value;
+        } else if ((key === "referral" || key === "adscontextdata") && depth < 2) {
+            const nested = pickSocialMetadata(asRecord(value), depth + 1);
+            if (Object.keys(nested).length) picked[key] = nested;
+        }
+    }
+    return picked;
 }
 
 function firstAttachment(value: unknown): ParsedZernioAttachment | null {

@@ -39,6 +39,7 @@ const createSchema = z.object({
     address: addressSchema.default({ street: "", number: "", complement: "", neighborhood: "", city: "", state: "", cep: "", country: "" }),
     notes: z.string().max(2000),
     addToFivFunnel: z.boolean().optional().default(true),
+    manualClientSelection: z.boolean().optional().default(false),
 }).superRefine((value, context) => {
     if (!value.primary.fullName.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["primary", "fullName"], message: "Informe o nome da pessoa principal." });
     if (value.format === "casal" && !value.spouse.fullName.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["spouse", "fullName"], message: "Informe o nome do cônjuge." });
@@ -93,7 +94,10 @@ export async function POST(request: Request) {
         if (conflicts?.length) return NextResponse.json({ ok: false, error: "Este horário já está ocupado para o médico selecionado." }, { status: 409 });
 
         if (schedulingThread) {
-            clientId = await resolveSchedulingClient(supabase, schedulingThread, clientId, body.primary, body.address, body.unitId);
+            clientId = await resolveSchedulingClient(
+                supabase, schedulingThread, clientId, body.primary, body.address,
+                body.unitId, body.manualClientSelection,
+            );
         }
 
         const { data: inserted, error: insertError } = await supabase.from("appointments").insert({
@@ -160,10 +164,35 @@ export async function POST(request: Request) {
         const appointment = await fetchAppointmentById(supabase, inserted.id);
         if (!appointment) throw new Error("Appointment was integrated but could not be reloaded");
 
+        let socialLinkSuggestion: {
+            clientId: string;
+            sourceName: string;
+            targetName: string;
+            expectedClientId: string | null;
+        } | null = null;
+        if (
+            body.manualClientSelection && body.clientId && clientId &&
+            schedulingThread?.instagram_user_id &&
+            schedulingThread.client_id !== clientId
+        ) {
+            const [{ data: profile }, { data: selected }] = await Promise.all([
+                supabase.from("instagram_users").select("display_name, username")
+                    .eq("id", schedulingThread.instagram_user_id).maybeSingle(),
+                supabase.from("clients").select("name").eq("id", clientId).maybeSingle(),
+            ]);
+            socialLinkSuggestion = {
+                clientId,
+                sourceName: profile?.display_name || profile?.username || "contato do Instagram/Messenger",
+                targetName: selected?.name || body.primary.fullName,
+                expectedClientId: schedulingThread.client_id,
+            };
+        }
+
         return NextResponse.json(
             {
                 ok: true,
                 appointment,
+                socialLinkSuggestion,
                 automation: {
                     fiv: fivAutomation,
                     integration,

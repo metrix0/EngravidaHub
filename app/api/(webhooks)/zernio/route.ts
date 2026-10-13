@@ -144,6 +144,7 @@ export async function POST(request: Request) {
                     ? parsedMessage.sender_id
                     : null,
             interactive_option_id: null,
+            social_metadata: parsedMessage.social_metadata,
         });
 
         if (messageError) {
