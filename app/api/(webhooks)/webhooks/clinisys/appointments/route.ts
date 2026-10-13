@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { supabase } from "@/lib/supabase/client";
 import {
+    markClinisysScheduleCancelled,
+    processClinisysAppointmentCreated,
+} from "@/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds";
+import {
     normalizeWebhookDate,
     onlyDigits,
     resolveHubUnitDoctor,
@@ -102,6 +106,7 @@ export async function POST(request: Request) {
                 .eq("source", "clinisys")
                 .eq("source_external_id", body.externalId);
             if (error) throw error;
+            await markClinisysScheduleCancelled(body.externalId);
             return NextResponse.json({ ok: true });
         }
 
@@ -178,6 +183,30 @@ export async function POST(request: Request) {
                 .select("id")
                 .single();
         if (result.error) throw result.error;
+
+        if (body.event === "appointment.updated") {
+            if (appointment.status === "cancelled") {
+                await markClinisysScheduleCancelled(body.externalId);
+            }
+        } else {
+            const conversion = await processClinisysAppointmentCreated({
+                externalId: body.externalId,
+                clientId,
+                startsAt: appointment.startsAt,
+                status: appointment.status,
+                patientName: appointment.patient.name,
+                patientPhone: appointment.patient.phone ?? null,
+                unitName: appointment.unitName,
+                procedureName: appointment.procedureName,
+            });
+            if (!conversion.ok) {
+                console.error("[clinisys-appointments] conversion delivery failed", {
+                    externalId: body.externalId,
+                    scheduleId: conversion.scheduleId,
+                });
+                return NextResponse.json({ ok: false, error: "Conversion delivery failed" }, { status: 503 });
+            }
+        }
 
         return NextResponse.json({ ok: true, appointmentId: result.data.id });
     } catch (error) {
