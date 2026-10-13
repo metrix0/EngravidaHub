@@ -206,9 +206,14 @@ async function testPanelSelection() {
   assert.equal(patient().props.values.fullName,'','clear the patient fields');
   await picker().props.children.props.onChange(id(41));await settle();
   assert.equal(summary().props.name,'Maria Souza');
+  const linkingCheckbox=()=>find(tree,node=>node.props?.['aria-label']==='Vincular perfil do Instagram ao cadastro');
+  assert.equal(linkingCheckbox().props.checked,false,'social linking is opt-in before scheduling');
+  linkingCheckbox().props.onChange({target:{checked:true}});await settle();
+  assert.equal(linkingCheckbox().props.checked,true,'checkbox controls social linkage');
   assert.equal(picker(),null,'manual selection hides the picker');
   assert.equal(typeof summary().props.onClear,'function','manual selection retains its X');
   summary().props.onClear();await settle();
+  assert.equal(linkingCheckbox(),null,'clearing the chosen CRM client hides the link checkbox');
   failSelection=true;await picker().props.children.props.onChange(id(41));await settle();
   assert.equal(summary(),undefined,'failed selection must not become the current client');
   assert.ok(picker(),'failed selection remains retryable');
@@ -217,6 +222,7 @@ async function testPanelSelection() {
   context=responseData({id:id(42),name:'Cliente vinculado'});
   props={...props,threadId:id(2),clientId:id(42),selectClient:false,client:{name:'Cliente vinculado'}};dirty=true;await settle();
   assert.equal(picker(),null,'linked client hides picker even when passed by props');
+  assert.equal(linkingCheckbox(),null,'no social-link checkbox without a manually different client');
   assert.equal(typeof summary().props.onClear,'function','automatically loaded client retains an X');
   summary().props.onClear();await settle();
   assert.equal(summary(),undefined,'clearing must suppress clientId/client prop fallbacks');
@@ -350,6 +356,7 @@ async function testPanelSelection() {
   await testPanelSelection();
   const panel = load('components/inbox/SchedulingPanel.tsx', new Proxy({}, { has: () => true, get: () => ({}) }), '\nexports.validate = validate;');
   assert.equal(Object.keys(panel.validate(form, 'congelamento')).length, 0);
+  assert.ok(!fs.readFileSync(path.join(root,'components/inbox/SchedulingPanel.tsx'),'utf8').includes('FivAutomationBox'),'purple FIV checkbox stays hidden');
   assert.ok(panel.validate({...form,address:{...address,cep:'123'}}, 'congelamento')['address.cep']);
 
   reset();
