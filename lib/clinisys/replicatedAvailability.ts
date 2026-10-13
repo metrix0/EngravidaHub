@@ -16,6 +16,8 @@ type WorkingHours = TimePeriod & {
 };
 
 type AgendaException = {
+    id?: string;
+    reason?: string;
     date: string;
     available: boolean;
     periods: TimePeriod[];
@@ -26,6 +28,7 @@ type AgendaException = {
 };
 
 type OneTimeBlock = {
+    reason?: string;
     id: string;
     type: "one_time";
     startsAt: string;
@@ -33,6 +36,7 @@ type OneTimeBlock = {
 };
 
 type RecurringBlock = TimePeriod & {
+    reason?: string;
     id: string;
     type: "recurring";
     daysOfWeek: number[];
@@ -420,6 +424,30 @@ export function replicatedAgendaCapacity(agenda: AgendaRow, date: string, now = 
     return result;
 }
 
+// Calendar overlays use the same recurrence and timezone rules as availability.
+export function replicatedAgendaRestrictions(agenda: AgendaRow, date: string) {
+    const timezone = isValidTimezone(agenda.timezone) ? agenda.timezone : DEFAULT_TIMEZONE;
+    const startOfDay = zonedDateTimeToEpoch(date, "00:00", timezone);
+    const endOfDay = zonedDateTimeToEpoch(addDays(date, 1), "00:00", timezone);
+    const result: Array<{ id: string; start: number; end: number; reason: string }> = [];
+    const add = (id: string, start: number, end: number, reason: string) => {
+        start = Math.max(startOfDay, start); end = Math.min(endOfDay, end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) result.push({ id, start, end, reason });
+    };
+    for (const block of asArray<OneTimeBlock | RecurringBlock>(agenda.blocks)) {
+        if (block.type === "one_time") add(block.id, Date.parse(block.startsAt), Date.parse(block.endsAt), block.reason || "Bloqueio");
+        else if (block.daysOfWeek?.includes(isoWeekday(date)) && date >= block.validFrom && (!block.validUntil || date <= block.validUntil)) {
+            add(block.id, zonedDateTimeToEpoch(date, block.startsAt, timezone), zonedDateTimeToEpoch(date, block.endsAt, timezone), block.reason || "Bloqueio recorrente");
+        }
+    }
+    for (const exception of asArray<AgendaException>(agenda.exceptions)) {
+        if (exception.available || !exceptionApplies(exception, date, isoWeekday(date))) continue;
+        if (!exception.periods.length) add(exception.id || date, startOfDay, endOfDay, exception.reason || "Dia bloqueado");
+        else exception.periods.forEach((period, index) => add(`${exception.id || date}:${index}`, zonedDateTimeToEpoch(date, period.startsAt, timezone), zonedDateTimeToEpoch(date, period.endsAt, timezone), exception.reason || "Período bloqueado"));
+    }
+    return result;
+}
+
 function unavailableByException(
     date: string,
     startMinutes: number,
@@ -630,7 +658,7 @@ function overlaps(
     );
 }
 
-function zonedDateTimeToEpoch(date: string, time: string, timeZone: string) {
+export function zonedDateTimeToEpoch(date: string, time: string, timeZone: string) {
     const [year, month, day] = date.split("-").map(Number);
     const [hour, minute] = time.split(":").map(Number);
     const guess = Date.UTC(year, month - 1, day, hour, minute);
@@ -644,8 +672,11 @@ function zonedDateTimeToEpoch(date: string, time: string, timeZone: string) {
     return result;
 }
 
+const timezoneFormatters = new Map<string, Intl.DateTimeFormat>();
 function timezoneOffsetMs(timeZone: string, value: Date) {
-    const parts = new Intl.DateTimeFormat("en-US", {
+    let formatter = timezoneFormatters.get(timeZone);
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat("en-US", {
         timeZone,
         year: "numeric",
         month: "2-digit",
@@ -654,7 +685,10 @@ function timezoneOffsetMs(timeZone: string, value: Date) {
         minute: "2-digit",
         second: "2-digit",
         hourCycle: "h23",
-    }).formatToParts(value);
+        });
+        timezoneFormatters.set(timeZone, formatter);
+    }
+    const parts = formatter.formatToParts(value);
     const part = (type: Intl.DateTimeFormatPartTypes) =>
         Number(parts.find((item) => item.type === type)?.value ?? 0);
 

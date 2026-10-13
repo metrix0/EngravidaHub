@@ -12,6 +12,8 @@ import { GripHorizontal, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
+import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
+import type { AgendaBlock } from "@/lib/scheduling/operationalAgenda";
 import type {
     AppointmentDayNote,
     CalendarAppointment,
@@ -28,6 +30,7 @@ type Props = {
     weekDays: Date[];
     appointments: CalendarAppointment[];
     notes: AppointmentDayNote[];
+    blocks?: AgendaBlock[];
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -268,7 +271,7 @@ export default function WeekCalendar(props: Props) {
 
                         <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                             <div className="border-r border-slate-200 px-2 py-3 text-center text-[11px] font-bold uppercase text-slate-400">
-                                Notas
+                                Notas / bloqueios
                             </div>
 
                             {props.weekDays.map((day) => {
@@ -280,6 +283,7 @@ export default function WeekCalendar(props: Props) {
                                         className="group/day min-h-16 border-r border-slate-200 p-2 last:border-r-0"
                                     >
                                         <div className="flex flex-wrap gap-1.5">
+                                            <div className="max-h-24 w-full space-y-1 overflow-y-auto">{(props.blocks ?? []).filter(block => block.date === dayKey).map(block => <div key={block.id} className="rounded-md border-l-2 border-red-400 bg-red-50 px-2 py-1 text-[10px] text-red-700" title={`${block.doctorName}: ${block.reason}`}><span className="block truncate font-semibold">{block.doctorName}</span><span className="block truncate">{time(block.startsAt)} – {dateKeyIso(block.endsAt) !== dayKey ? "24:00" : time(block.endsAt)} · {block.reason}</span></div>)}</div>
                                             {(notesByDay.get(dayKey) ?? []).map(
                                                 (note) => (
                                                     <div
@@ -387,6 +391,13 @@ export default function WeekCalendar(props: Props) {
                                             handleDrop(event, day)
                                         }
                                     >
+                                        {(props.blocks ?? []).filter(block => block.date === dayKey).map((block, index) => {
+                                            if (dateKeyIso(block.endsAt) !== dayKey) return null;
+                                            const start = Math.max(START_HOUR * 60, minutes(block.startsAt));
+                                            const end = dateKeyIso(block.endsAt) !== dayKey ? END_HOUR * 60 : Math.min(END_HOUR * 60, minutes(block.endsAt));
+                                            if (end <= start) return null;
+                                            return <div key={block.id} title={`${block.doctorName}: ${block.reason}`} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700" style={{ top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT, height: (end - start) / 60 * HOUR_HEIGHT, marginLeft: index % 5 * 5 }}><span className="sticky top-0">{block.doctorName} · {block.reason}</span></div>;
+                                        })}
                                         {appointments.map((appointment) => {
                                             const endsAt =
                                                 resize?.id === appointment.id
@@ -422,6 +433,7 @@ export default function WeekCalendar(props: Props) {
                                             return (
                                                 <div
                                                     key={appointment.id}
+                                                    title={`${bookingTeamLabel(appointment.booking_team)} · ${appointment.patient_name}`}
                                                     draggable
                                                     onDragStart={(event) => {
                                                         event.dataTransfer.effectAllowed =
@@ -465,9 +477,7 @@ export default function WeekCalendar(props: Props) {
                                                               ? 35
                                                               : 5 + overlap,
                                                         backgroundColor:
-                                                            appointment.doctor
-                                                                ?.color ??
-                                                            "#7c3aed",
+                                                            appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
                                                     <button

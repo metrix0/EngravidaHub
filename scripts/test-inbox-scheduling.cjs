@@ -11,7 +11,7 @@ function load(file, mocks = {}, suffix = '', globals = {}) {
   }).outputText;
   vm.runInNewContext(source + suffix, {
     exports, require: name => name in mocks ? mocks[name] : require(name),
-    console, Date, Intl, URL, performance, process, ...globals,
+    console, Date, Intl, URL, URLSearchParams, performance, process, ...globals,
   }, { filename: file });
   return exports;
 }
@@ -79,6 +79,7 @@ const route = load('app/api/scheduling/appointments/route.ts', {
   '@/lib/supabase/client': { supabase },
   '@/lib/inbox/schedulingData': contextHelper,
   '@/lib/inbox/schedulingClient': clientHelper,
+  '@/lib/scheduling/operationalAgendaServer': { enrichBookingTeams: async rows => rows },
   '@/lib/scheduling/appointmentServer': { APPOINTMENT_SELECT: '*', parseBrazilDate, validateDoctorForUnit: async () => true, fetchAppointmentById: async (_, key) => tables.appointments.find(row => row.id === key) },
   '@/lib/scheduling/appointmentAutomation': { buildAppointmentIntegrationPayload: (_, row) => row, sendAppointmentIntegration: async () => ({ ok: integrationOk }), moveClientToFivFirstStage: async ({clientId}) => ({ applied: !!clientId }) },
 });
@@ -153,7 +154,7 @@ async function testPanelSelection() {
   assert.equal(nameMatcher(null,'Ana Beatriz Santos'),false,'missing social name must default unchecked');
   let slots = [], cursor = 0, effects = [], timers = new Map(), timerId = 0, dirty = true, tree;
   let props = {open:true,threadId:id(1),clientId:null,instagramUserId:id(4),instagramName:'Ana Instagram',selectClient:true,onClose:()=>{}};
-  let pendingSelection = null, pendingContext = null, failSelection = false;
+  let pendingSelection = null, pendingContext = null, failSelection = false, liveAvailability = false;
   const blankForm = {...form,unitId:'',doctorId:'',schedulingDate:'',schedulingTime:'',primary:emptyPerson};
   const responseData = (client, contact = null) => ({client,contact,spouse:null,units:[],doctors:[],suggestedFormat:'congelamento',form:{...blankForm,primary:{...emptyPerson,fullName:client?.name??contact?.name??''}}});
   let context = responseData(null,{name:'Ana Instagram'});
@@ -181,6 +182,8 @@ async function testPanelSelection() {
     AbortController,Event,
     window:{setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:key=>timers.delete(key),dispatchEvent:()=>{}},
     fetch:async url=>{
+      if(liveAvailability && url.includes('/scheduling/procedures?')) return {ok:true,json:async()=>({procedures:[{name:'1 Avaliação de Reprodução Humana Presencial'}]})};
+      if(liveAvailability && url.includes('/scheduling/availability?')) return {ok:true,json:async()=>({slots:[{data:'14/10/2026',inicio:'09:00',termino:'09:45'}]})};
       if(url.includes('scheduling-data?thread_id=')) return pendingContext??{ok:true,json:async()=>context};
       if(url.includes('scheduling-data?client_id=')) {
         if(pendingSelection)return pendingSelection;
@@ -288,6 +291,15 @@ async function testPanelSelection() {
   props={...props,threadId:null,clientId:id(42),selectClient:false,client:null};dirty=true;await settle();
   assert.equal(summary().props.onClear,undefined,'standalone scheduling retains its existing behavior');
   assert.equal(picker(),null);
+  liveAvailability=true;
+  props={...props,clientId:null,selectClient:true,initialSlot:{unitId:id(2),doctorId:id(3),startsAt:'2026-10-14T12:00:00Z',durationMinutes:45}};dirty=true;await settle();
+  const field=label=>find(tree,node=>node.props?.label===label);
+  assert.equal(field('Unidade').props.value,id(2));
+  assert.equal(field('Médico').props.value,id(3));
+  assert.equal(field('Horário').props.value,'09:00','clicked vacancy is preselected after live verification');
+  await picker().props.children.props.onChange(id(41));await settle();
+  assert.equal(field('Médico').props.value,id(3),'selecting the client preserves the chosen doctor');
+  assert.equal(field('Horário').props.value,'09:00','selecting the client preserves the verified vacancy');
 }
 
 (async () => {
@@ -380,9 +392,44 @@ async function testPanelSelection() {
   integrationOk = true;
 
   await testPanelSelection();
-  const panel = load('components/inbox/SchedulingPanel.tsx', new Proxy({}, { has: () => true, get: () => ({}) }), '\nexports.validate = validate;');
+  // Report endpoints enforce the tab grant and server-side unit lock. Snapshot
+  // counts are calculated by the server, never accepted from a browser payload.
+  let reportAccess={ok:true,user:{id:id(6)},permission:{unit_lock:{id:id(2)}}};
+  let loadedReportArgs, savedSnapshot, requestedTab, readScope;
+  const reportRoute=load('app/api/scheduling/reports/route.ts',{
+    'next/server':next,
+    '@/lib/auth/getServerTabAccess':{getServerTabAccess:async tab=>{requestedTab=tab;return reportAccess;}},
+    '@/lib/scheduling/operationalAgenda':{agendaDate:()=> '2026-10-13',agendaWeekStart:()=> '2026-10-11',agendaAddDays:()=> '2026-10-18',agendaMonthStart:()=> '2026-11-01'},
+    '@/lib/scheduling/operationalAgendaServer':{agendaScopeKey:(units,doctors)=>[...units,...doctors].join(','),loadOperationalAgenda:async args=>{loadedReportArgs=args;return {counts:{total:12},byUnit:[{unitName:'Bauru',total:12}]};}},
+    '@/lib/supabase/client':{supabase:{from:()=>({select:()=>({eq:(_,value)=>{readScope=value;return {order:()=>({limit:async()=>({data:[],error:null})})};}}),upsert:async value=>{savedSnapshot=value;return {error:null};}})}},
+  });
+  const reportUrl=`https://hub.test/api/scheduling/reports?view=reports&start=2026-10-01&end=2026-11-01&unit_ids=${id(999)}`;
+  assert.equal((await reportRoute.GET({url:reportUrl})).status,200);
+  assert.equal(requestedTab,'inteligencia_agenda');
+  assert.equal(loadedReportArgs.unitIds[0],id(2),'caller cannot override unit lock');
+  assert.equal(readScope,id(2),'saved reports cannot expose another unit');
+  assert.equal((await reportRoute.GET({url:'https://hub.test/api/scheduling/reports?view=calendar'})).status,200);
+  assert.equal(requestedTab,'agendamentos');
+  assert.equal((await reportRoute.POST({json:async()=>({month:'2026-10',unitIds:[id(999)],doctorIds:[],report:{counts:{total:9999}}})})).status,200);
+  assert.equal(savedSnapshot.unit_ids[0],id(2));
+  assert.equal(savedSnapshot.captured_by,id(6));
+  assert.equal(savedSnapshot.report.counts.total,12,'ignore forged client-side counts');
+  reportAccess={ok:false,status:403,error:'Tab not allowed'};
+  assert.equal((await reportRoute.GET({url:reportUrl})).status,403);
+  assert.equal((await reportRoute.POST({json:async()=>({})})).status,403);
+  const panel = load('components/inbox/SchedulingPanel.tsx', new Proxy({}, { has: () => true, get: () => ({}) }), '\nexports.validate = validate; exports.withInitialSlot = withInitialSlot;');
   assert.equal(Object.keys(panel.validate(form, 'congelamento')).length, 0);
+
   assert.ok(!fs.readFileSync(path.join(root,'components/inbox/SchedulingPanel.tsx'),'utf8').includes('FivAutomationBox'),'purple FIV checkbox stays hidden');
+
+  const slotForm = panel.withInitialSlot(form, {unitId:id(7),doctorId:id(8),startsAt:'2026-10-14T12:00:00Z',durationMinutes:45});
+  assert.equal(slotForm.unitId,id(7));
+  assert.equal(slotForm.doctorId,id(8));
+  assert.equal(slotForm.schedulingDate,'14/10/2026');
+  assert.equal(slotForm.durationMinutes,45);
+  assert.equal(slotForm.primary,form.primary,'choosing a vacancy preserves the selected client');
+  assert.equal(slotForm.schedulingTime,'','time must be verified against live procedure availability');
+
   assert.ok(panel.validate({...form,address:{...address,cep:'123'}}, 'congelamento')['address.cep']);
 
   reset();

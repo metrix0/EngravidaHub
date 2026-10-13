@@ -21,6 +21,9 @@ import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
+import AgendaIndicators from "@/components/scheduling/AgendaIndicators";
+import FreeAgendaSlots from "@/components/scheduling/FreeAgendaSlots";
+import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import WeekCalendar, {
     formatLocalDateKey,
 } from "@/components/scheduling/WeekCalendar";
@@ -57,6 +60,11 @@ export default function AppointmentsPage() {
     const [selectedAppointmentId, setSelectedAppointmentId] =
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
+    const [freeOnly, setFreeOnly] = useState(false);
+    const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
+    const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
+    const [loadingReport, setLoadingReport] = useState(true);
+    const [reportError, setReportError] = useState<string | null>(null);
 
     const [unitValues, setUnitValues] = useState<string[]>(() =>
         lockedUnitId ? [lockedUnitId] : [],
@@ -245,6 +253,25 @@ export default function AppointmentsPage() {
     }, [loadCalendar, reloadKey]);
 
     useEffect(() => {
+        const controller = new AbortController();
+        const params = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+        unitValues.forEach(id => params.append("unit_ids", id));
+        doctorValues.forEach(id => params.append("doctor_ids", id));
+        setLoadingReport(true); setReportError(null);
+        void (async () => {
+            try {
+                const response = await fetch(`/api/scheduling/reports?${params}`, { cache: "no-store", signal: controller.signal });
+                const json = await response.json();
+                if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar os indicadores e horários livres.");
+                if (!controller.signal.aborted) setAgendaReport(json.report);
+            } catch (error) {
+                if (!controller.signal.aborted) { setAgendaReport(null); setReportError(error instanceof Error ? error.message : "Não foi possível carregar os indicadores e horários livres."); }
+            } finally { if (!controller.signal.aborted) setLoadingReport(false); }
+        })();
+        return () => controller.abort();
+    }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
         function handleAppointmentChanged() {
             setReloadKey((current) => current + 1);
         }
@@ -311,6 +338,7 @@ export default function AppointmentsPage() {
             setAppointments((current) =>
                 current.map((item) => (item.id === saved.id ? saved : item)),
             );
+            setReloadKey(current => current + 1);
             return saved;
         } catch (updateError) {
             if (optimisticPatch) {
@@ -399,6 +427,7 @@ export default function AppointmentsPage() {
             setSelectedAppointmentId((current) =>
                 current === appointment.id ? null : current,
             );
+            setReloadKey(current => current + 1);
         } catch (deleteError) {
             setAppointments(previous);
             throw deleteError;
@@ -519,12 +548,13 @@ export default function AppointmentsPage() {
                     <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap">
                         <button
                             type="button"
-                            onClick={() => setSchedulingPanelOpen(true)}
+                            onClick={() => { setInitialSlot(null); setSchedulingPanelOpen(true); }}
                             className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
                         >
                             <CalendarCheck size={17} />
                             Agendar
                         </button>
+                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} className={`h-10 cursor-pointer whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>{freeOnly ? "Ver agenda" : "Horários Livres"}</button>
                         <button
                             type="button"
                             onClick={() => setWeekStart(startOfWeekSunday(new Date()))}
@@ -614,10 +644,14 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
-                <WeekCalendar
+                <AgendaIndicators report={agendaReport} loading={loadingReport} />
+                {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
+                {agendaReport?.missingDoctors?.length ? <p className="mb-3 text-xs text-muted">{agendaReport.missingDoctors.length} médicos sem agenda sincronizada; seus horários livres não estão incluídos.</p> : null}
+                {freeOnly ? agendaReport && !loadingReport ? <FreeAgendaSlots report={agendaReport} onSelect={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }} /> : <div className="min-h-0 flex-1">{loadingReport ? <Skeleton className="h-64 rounded-2xl" /> : null}</div> : <WeekCalendar
                     weekDays={weekDays}
                     appointments={appointments}
                     notes={visibleNotes}
+                    blocks={agendaReport?.blocks ?? []}
                     selectedAppointmentId={selectedAppointmentId}
                     loading={loadingCalendar}
                     onSelectAppointment={(appointment) =>
@@ -629,12 +663,13 @@ export default function AppointmentsPage() {
                     onAddNote={handleAddNote}
                     onEditNote={handleEditNote}
                     onDeleteNote={handleDeleteNote}
-                />
+                />}
             </section>
 
             <SchedulingPanel
                 open={schedulingPanelOpen}
                 selectClient
+                initialSlot={initialSlot}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onCreated={() => setSchedulingPanelOpen(false)}
             />

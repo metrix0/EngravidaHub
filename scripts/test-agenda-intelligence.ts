@@ -5,6 +5,8 @@ import { replicatedAgendaCapacity } from "../lib/clinisys/replicatedAvailability
 import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "../lib/auth/userAccess";
 import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
+import { buildOperationalAgenda } from "../lib/scheduling/operationalAgenda";
+import { sectorBookingTeam, teamForAttendantName } from "../lib/scheduling/bookingOrigin";
 import { filterDashboardWidgetIds } from "../lib/personal-dashboard/registryExtended";
 
 // The separate page requires its own grant, even when appointments are allowed.
@@ -162,4 +164,41 @@ report = buildAgendaIntelligence({ ...base, analyses: twelveRequests });
 assert.equal(report.opportunities[0].contacts.length, 12); // All eligible contacts, not just the table's three examples.
 assert.equal(Object.keys(report.evidenceDetails).length, 12);
 assert.equal(buildAgendaIntelligence({ ...base, analyses: [{ ...analysis, customer_final_state: "not_qualified" }] }).preferences[0].casesToReview, 0);
-console.log("Agenda intelligence regression checks passed.");
+// Operational reports pack physical consultations; repeated agendas and 15-minute
+// alternatives must not inflate the free-slot count or the 3+ vacancies date.
+const operationalBase = { agendas: [agenda], appointments: [], start: "2026-10-04", end: "2026-10-11", reportDate: "2026-10-05", now };
+let operational = buildOperationalAgenda(operationalBase);
+assert.equal(operational.counts.available, 5);
+assert.equal(operational.slots.length, 5);
+assert.equal(operational.availability[0].firstWaitDays, 0);
+assert.equal(operational.availability[0].threeWaitDays, 0);
+assert.equal(operational.availability[0].weeks[0], 5);
+assert.equal(buildOperationalAgenda({ ...operationalBase, agendas: [agenda, agenda] }).counts.available, 5);
+operational = buildOperationalAgenda({ ...operationalBase, appointments: [{ ...appointment("ra", "08:00", "08:45"), booking_team: "ra" }, { ...appointment("unit", "08:45", "09:30"), booking_team: "unit" }, appointment("unknown", "09:30", "10:15"), appointment("cancel", "10:15", "12:00", "cancelled")] });
+assert.equal(operational.counts.ra, 1);
+assert.equal(operational.counts.unit, 1);
+assert.equal(operational.counts.unknown, 1);
+assert.equal(operational.counts.available, 2);
+assert.equal(operational.counts.occupancy, 60);
+assert.equal(operational.availability[0].threeWaitDays, 7); // Next Monday, not the third chronological slot.
+assert.equal(operational.availability[0].nextDates[1], "2026-10-12");
+operational = buildOperationalAgenda({ ...operationalBase, agendas: [unavailable] });
+assert.equal(operational.counts.available, 2);
+assert.equal(operational.counts.blocked, 3);
+assert.equal(operational.blocks.length, 2);
+assert.ok(operational.slots.every(slot => !operational.blocks.some(block => Date.parse(slot.startsAt) < Date.parse(block.endsAt) && Date.parse(slot.endsAt) > Date.parse(block.startsAt))));
+const vacation = { ...agenda, blocks: [{ id: "vacation", type: "one_time", startsAt: "2026-10-04T00:00:00-03:00", endsAt: "2026-10-07T00:00:00-03:00", reason: "Férias" }] };
+operational = buildOperationalAgenda({ ...operationalBase, agendas: [vacation] });
+assert.equal(operational.counts.available, 0);
+assert.equal(operational.blocks.length, 3);
+assert.ok(operational.blocks.every(block => block.reason === "Férias"));
+assert.equal(operational.availability[0].firstWaitDays, 7);
+assert.equal(sectorBookingTeam("ra"), "ra");
+assert.equal(sectorBookingTeam("reception"), "unit");
+assert.equal(sectorBookingTeam(null), null);
+const originAttendants = [{ id: "ra", name: "Ana Silva", team: "ra" as const }, { id: "unit", name: "Ana Souza", team: "unit" as const }];
+assert.equal(teamForAttendantName("Ana da Silva", originAttendants), "ra");
+assert.equal(teamForAttendantName("Ana", originAttendants), null);
+assert.equal(teamForAttendantName("Ana Maria Silva", [...originAttendants, { id: "other", name: "Ana Maria Silva", team: "unit" as const }]), "unit");
+assert.equal(teamForAttendantName("Ana Silva", [originAttendants[0], { id: "duplicate", name: "Ana Silva", team: "unit" as const }]), null);
+console.log("Agenda intelligence and operational report regression checks passed.");

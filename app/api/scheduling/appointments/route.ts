@@ -6,6 +6,7 @@ import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAtten
 import { supabase } from "@/lib/supabase/client";
 import { loadSchedulingContext, type SchedulingThread } from "@/lib/inbox/schedulingData";
 import { resolveSchedulingClient, schedulingClientValues } from "@/lib/inbox/schedulingClient";
+import { enrichBookingTeams } from "@/lib/scheduling/operationalAgendaServer";
 import {
     APPOINTMENT_SELECT,
     fetchAppointmentById,
@@ -63,7 +64,7 @@ export async function GET(request: Request) {
         if (formats.length) query = query.in("format", formats);
         if (search) { const escaped = search.replace(/[,%()]/g, " ").trim(); if (escaped) query = query.or(`patient_name.ilike.%${escaped}%,procedure_name.ilike.%${escaped}%`); }
         const { data, error } = await query; if (error) throw error;
-        return NextResponse.json({ ok: true, appointments: (data ?? []).map(mapAppointment) });
+        return NextResponse.json({ ok: true, appointments: await enrichBookingTeams((data ?? []).map(mapAppointment)) });
     } catch (error) { console.error("[appointments:get] failed", error); return errorResponse(error); }
 }
 
