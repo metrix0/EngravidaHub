@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, CalendarCheck, CheckCircle2, Clock, Info, LoaderCircle, Search, Sparkles } from "lucide-react";
+import { AlertCircle, CalendarCheck, CheckCircle2, Clock, Info, Link2, LoaderCircle, Search, Sparkles } from "lucide-react";
 import SchedulingClientSummary from "@/components/scheduling/SchedulingClientSummary";
 import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
@@ -12,7 +12,7 @@ import { SCHEDULING_DURATION_OPTIONS } from "@/lib/scheduling/options";
 import type { InboxChannel } from "@/types/inbox";
 import type { CalendarAppointment, SchedulingAddressFields, SchedulingDataResponse, SchedulingForm, SchedulingFormat, SchedulingPersonFields } from "@/types/scheduling";
 
-type Props = { open:boolean; threadId?:string|null; clientId?:string|null; initialSchedule?:{scheduledFor:string;procedureName:string|null}|null; onClose:()=>void; onOpenClientProfile?:(id:string)=>void; onCreated?:()=>void; selectClient?:boolean; client?:{name:string;phone:string|null;city:string|null;channel:InboxChannel}|null };
+type Props = { open:boolean; threadId?:string|null; clientId?:string|null; instagramUserId?:string|null; initialSchedule?:{scheduledFor:string;procedureName:string|null}|null; onClose:()=>void; onOpenClientProfile?:(id:string)=>void; onCreated?:()=>void; selectClient?:boolean; client?:{name:string;phone:string|null;city:string|null;channel:InboxChannel}|null };
 type Data = Omit<SchedulingDataResponse,"client"> & {client:SchedulingDataResponse["client"]|null};
 type ClientOption={id:string;name:string|null;phone:string|null;email:string|null};
 type AvailabilitySlot={data?:string;inicio?:string;termino?:string};
@@ -22,7 +22,7 @@ const emptyPerson:SchedulingPersonFields={fullName:"",cpf:"",birthDate:"",email:
 const emptyAddress:SchedulingAddressFields={street:"",number:"",complement:"",neighborhood:"",city:"",state:"",cep:"",country:""};
 const initialForm:SchedulingForm={unitId:"",doctorId:"",schedulingDate:"",schedulingTime:"",durationMinutes:45,procedureName:"Consulta",primary:{...emptyPerson},spouse:{...emptyPerson},address:{...emptyAddress},notes:""};
 
-export default function SchedulingPanel({open,threadId,clientId,initialSchedule=null,onClose,onOpenClientProfile,onCreated,selectClient=false,client=null}:Props){
+export default function SchedulingPanel({open,threadId,clientId,instagramUserId=null,initialSchedule=null,onClose,onOpenClientProfile,onCreated,selectClient=false,client=null}:Props){
  const [format,setFormat]=useState<SchedulingFormat>("congelamento"); const [form,setForm]=useState(initialForm); const [data,setData]=useState<Data|null>(null);
  const [errors,setErrors]=useState<ErrorMap>({}); const [loading,setLoading]=useState(false); const [autofilling,setAutofilling]=useState(false); const [submitting,setSubmitting]=useState(false);
  const [message,setMessage]=useState<{type:"error"|"success";text:string}|null>(null); const [clients,setClients]=useState<ClientOption[]>([]); const [selectedClientId,setSelectedClientId]=useState(""); const [clientQuery,setClientQuery]=useState(""); const [loadingClients,setLoadingClients]=useState(false); const requestRef=useRef(0); const [clientCleared,setClientCleared]=useState(false);
@@ -80,7 +80,7 @@ export default function SchedulingPanel({open,threadId,clientId,initialSchedule=
   onCreated?.()}catch(e){setMessage({type:"error",text:e instanceof Error?e.message:"Não foi possível criar o agendamento."})}finally{setSubmitting(false)}}
 
 
-  const showLinkCheckbox=!!(threadId&&selectedClientId&&selectedClientId!==clientId);
+  const showLinkCheckbox=!!(threadId&&instagramUserId&&selectedClientId);
   const summaryClient=data?.client??(clientCleared||selectedClientId?null:client); const clientName=summaryClient?.name??data?.contact?.name??"Cliente sem nome"; const clientPhone=summaryClient?.phone??"Sem telefone"; const clientCity=summaryClient?.city??null;
  return <DetailsSidePanel open={open} title="Agendar" onClose={onClose} headerContent={hasCurrentClient?<SchedulingClientSummary name={clientName} phone={clientPhone} city={clientCity} onClick={profileClientId&&onOpenClientProfile?()=>onOpenClientProfile(profileClientId):undefined} onClear={threadId?clearSelectedClient:undefined}/>:undefined} bodyClassName="min-h-0 flex-1 overflow-y-auto px-4 py-4 pt-3 md:px-6 md:py-6">
   <div className={`space-y-6 ${loading?"pointer-events-none opacity-45":""}`}>
@@ -93,7 +93,7 @@ export default function SchedulingPanel({open,threadId,clientId,initialSchedule=
    <h3 className="pt-1 text-sm font-bold uppercase tracking-wide text-slate-950">DETALHES DO CLIENTE</h3>
    <Person values={form.primary} who="primary" errors={errors} onChange={updatePerson}/>{format==="casal"&&<Person title="Cônjuge" values={form.spouse} who="spouse" errors={errors} onChange={updatePerson}/>}<Address values={form.address} errors={errors} onChange={updateAddress}/>
    <Text label="Observações" value={form.notes} onChange={v=>update("notes",v)} multiline/>
-   {showLinkCheckbox&&<label className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div className="min-w-0"><div className="text-sm font-bold text-slate-800">Vincular perfil do Instagram ao cadastro</div><div className="mt-1 text-xs leading-relaxed text-slate-500">Vincular ao cliente selecionado ao concluir o agendamento, preservando as conversas e os dados de anúncios.</div></div><input type="checkbox" aria-label="Vincular perfil do Instagram ao cadastro" checked={linkSocialProfile} disabled={disabled||appointmentCreated} onChange={event=>setLinkSocialProfile(event.target.checked)} className="h-4 w-4 cursor-pointer accent-brand disabled:cursor-not-allowed"/></label>} {message&&<Notice {...message}/>}<button type="button" disabled={disabled||appointmentCreated||message?.type==="success"} onClick={submit} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand/90 disabled:opacity-55">{submitting?<LoaderCircle size={17} className="animate-spin"/>:<CalendarCheck size={17}/>} {submitting?"Criando...":"Criar agendamento"}</button>
+   {showLinkCheckbox&&<label className={`group grid w-full grid-cols-[minmax(0,1fr)_24px] items-center rounded-xl border px-4 py-4 text-left transition ${linkSocialProfile?"cursor-pointer border-purple/20 bg-purple-soft/60 hover:bg-purple-soft":"cursor-pointer border-slate-200 bg-slate-50 hover:bg-slate-100"} ${disabled||appointmentCreated?"cursor-not-allowed opacity-60":""}`}><div className="min-w-0"><div className={`mb-1 flex items-center gap-2 text-sm font-bold ${linkSocialProfile?"text-purple":"text-slate-500"}`}><Link2 size={16}/><span>Vincular perfil do Instagram ao cadastro</span></div><div className="text-xs leading-relaxed text-slate-500">O perfil do Instagram será vinculado ao cliente selecionado após o agendamento. As conversas e os dados dos anúncios serão preservados.</div></div><input type="checkbox" aria-label="Vincular perfil do Instagram ao cadastro" checked={linkSocialProfile} disabled={disabled||appointmentCreated} onChange={event=>setLinkSocialProfile(event.target.checked)} className="h-4 w-4 cursor-pointer accent-purple disabled:cursor-not-allowed"/></label>} {message&&<Notice {...message}/>}<button type="button" disabled={disabled||appointmentCreated||message?.type==="success"} onClick={submit} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand/90 disabled:opacity-55">{submitting?<LoaderCircle size={17} className="animate-spin"/>:<CalendarCheck size={17}/>} {submitting?"Criando...":"Criar agendamento"}</button>
   </div>
  </DetailsSidePanel>
 }

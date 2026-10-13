@@ -141,7 +141,7 @@ async function testAiGeneration() {
 // Run the actual panel with controlled hooks and network responses; inspect its rendered props.
 async function testPanelSelection() {
   let slots = [], cursor = 0, effects = [], timers = new Map(), timerId = 0, dirty = true, tree;
-  let props = {open:true,threadId:id(1),clientId:null,selectClient:true,onClose:()=>{}};
+  let props = {open:true,threadId:id(1),clientId:null,instagramUserId:id(4),selectClient:true,onClose:()=>{}};
   let pendingSelection = null, pendingContext = null, failSelection = false;
   const blankForm = {...form,unitId:'',doctorId:'',schedulingDate:'',schedulingTime:'',primary:emptyPerson};
   const responseData = (client, contact = null) => ({client,contact,spouse:null,units:[],doctors:[],suggestedFormat:'congelamento',form:{...blankForm,primary:{...emptyPerson,fullName:client?.name??contact?.name??''}}});
@@ -222,11 +222,15 @@ async function testPanelSelection() {
   context=responseData({id:id(42),name:'Cliente vinculado'});
   props={...props,threadId:id(2),clientId:id(42),selectClient:false,client:{name:'Cliente vinculado'}};dirty=true;await settle();
   assert.equal(picker(),null,'linked client hides picker even when passed by props');
-  assert.equal(linkingCheckbox(),null,'no social-link checkbox without a manually different client');
+  assert.equal(linkingCheckbox(),null,'no social-link checkbox without a manual selection');
   assert.equal(typeof summary().props.onClear,'function','automatically loaded client retains an X');
   summary().props.onClear();await settle();
   assert.equal(summary(),undefined,'clearing must suppress clientId/client prop fallbacks');
   assert.ok(picker(),'clearing linked client exposes picker despite selectClient=false');
+  await picker().props.children.props.onChange(id(42));await settle();
+  assert.equal(linkingCheckbox().props.checked,false,'checkbox appears for explicit selection even when it equals the originally linked client');
+  summary().props.onClear();await settle();
+  assert.equal(linkingCheckbox(),null);
 
   let resolveSelection;
   pendingSelection=new Promise(resolve=>{resolveSelection=resolve;});

@@ -1045,6 +1045,11 @@ export default function InboxPage() {
                         : selectedListThread?.thread_id ?? null
                 }
                 clientId={selectedClientId}
+                instagramUserId={
+                    selectedThreadMatchesSelection
+                        ? selectedThread?.instagram_user_id ?? null
+                        : selectedListThread?.instagram_user_id ?? null
+                }
                 selectClient={!selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onOpenClientProfile={(clientId) => {
