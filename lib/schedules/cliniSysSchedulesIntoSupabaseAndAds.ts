@@ -2,6 +2,7 @@
 import crypto from "crypto";
 
 import { supabase } from "@/lib";
+import { sendScheduleConversionOnce } from "@/lib/schedules/sendScheduleConversionOnce";
 
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
@@ -439,8 +440,7 @@ export async function processClinisysAppointmentCreated(appointment: ClinisysCre
         schedule,
         client: client as ClientForSchedule,
         scheduleId,
-        checkAlreadySent: true,
-    });
+     });
 
     const failed = [meta, google].some((result) =>
         typeof result === "object" && result !== null &&
@@ -462,27 +462,14 @@ async function sendScheduleConversion({
     schedule,
     client,
     scheduleId,
-    checkAlreadySent = false,
 }: {
     schedule: NormalizedSchedule;
     client: ClientForSchedule;
     scheduleId: string;
-    checkAlreadySent?: boolean;
 }) {
     const inactive = scheduleIsInactive(normalizeScheduleStatus(schedule.status));
     const skipped = { ok: true, skipped: true, reason: "inactive_schedule_status" };
     if (inactive) return { meta: skipped, google: skipped };
-
-    const alreadySent = new Set<string>();
-    if (checkAlreadySent) {
-        const { data, error } = await supabase.from("ad_events")
-            .select("platform")
-            .eq("schedule_id", scheduleId)
-            .eq("event_type", "schedule")
-            .eq("status", "sent");
-        if (error) throw error;
-        for (const row of data ?? []) alreadySent.add(row.platform);
-    }
 
     const event: DerivedAdEvent = {
         type: "schedule",
@@ -491,25 +478,29 @@ async function sendScheduleConversion({
         occurred_at: getScheduleEventTime(schedule.created_in_source_at),
         confidence: 0.95,
     };
-    const meta = alreadySent.has("Meta Ads")
-        ? { ok: true, skipped: true, reason: "already_sent_for_appointment" }
-        : await sendMetaEvents({
+    const meta = await sendScheduleConversionOnce({
+        scheduleId,
+        platform: "Meta Ads",
+        send: () => sendMetaEvents({
             events: [event],
             phone: client.phone ?? schedule.phone,
             email: client.email,
             schedule_id: scheduleId,
             client_id: client.id,
-        });
-    const google = alreadySent.has("Google Ads")
-        ? { ok: true, skipped: true, reason: "already_sent_for_appointment" }
-        : await sendGoogleEvents({
+        }),
+    });
+    const google = await sendScheduleConversionOnce({
+        scheduleId,
+        platform: "Google Ads",
+        send: () => sendGoogleEvents({
             events: [event],
             phone: client.phone ?? schedule.phone,
             email: client.email,
             name: client.name ?? schedule.patient_name,
             schedule_id: scheduleId,
             client_id: client.id,
-        });
+        }),
+    });
     return { meta, google };
 }
 

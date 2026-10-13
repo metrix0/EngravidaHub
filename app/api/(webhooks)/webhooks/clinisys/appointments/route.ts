@@ -269,10 +269,13 @@ async function upsertClient({
         if (result.error) throw result.error;
         client = result.data;
     }
-    if (!client && phone) {
+    // Preserve CPF/email identity when the incoming phone belongs to a different client.
+    let phoneOwner: { id: string } | null = null;
+    if (phone) {
         const result = await supabase.from("clients").select("id").eq("phone", phone).limit(1).maybeSingle();
         if (result.error) throw result.error;
-        client = result.data;
+        phoneOwner = result.data;
+        if (!client) client = phoneOwner;
     }
     if (!client && patient.email) {
         const result = await supabase.from("clients").select("id").ilike("email", patient.email).limit(1).maybeSingle();
@@ -299,9 +302,17 @@ async function upsertClient({
         last_interaction_at: now,
         updated_at: now,
     };
+    const { phone: _incomingPhone, ...withoutPhone } = values;
     if (client) {
-        const { error } = await supabase.from("clients").update(values).eq("id", client.id);
-        if (error) throw error;
+        const update = phoneOwner && phoneOwner.id !== client.id ? withoutPhone : values;
+        const { error } = await supabase.from("clients").update(update).eq("id", client.id);
+        if (error?.code === "23505" && phone) {
+            // Another request could have claimed the phone after our lookup.
+            const retry = await supabase.from("clients").update(withoutPhone).eq("id", client.id);
+            if (retry.error) throw retry.error;
+        } else if (error) {
+            throw error;
+        }
         return client.id;
     }
     const { data: created, error } = await supabase
@@ -309,6 +320,16 @@ async function upsertClient({
         .insert({ ...values, first_seen_at: now })
         .select("id")
         .single();
+    if (error?.code === "23505" && phone) {
+        // Reuse a client created concurrently with the same phone.
+        const raced = await supabase.from("clients").select("id").eq("phone", phone).limit(1).maybeSingle();
+        if (raced.error) throw raced.error;
+        if (raced.data) {
+            const retry = await supabase.from("clients").update(values).eq("id", raced.data.id);
+            if (retry.error) throw retry.error;
+            return raced.data.id;
+        }
+    }
     if (error) throw error;
     return created.id;
 }
