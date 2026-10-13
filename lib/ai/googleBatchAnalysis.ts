@@ -27,6 +27,7 @@ const JOB_PREFIX = "engravida-analysis";
 const INPUT_PREFIX = "engravida/analysis/input";
 const OUTPUT_PREFIX = "engravida/analysis/output";
 const PROCESSED_PREFIX = "engravida/analysis/processed";
+const COLLECTION_LEASE_MS = 10 * 60_000; // Longer than the 300s API function limit.
 const PAGE_SIZE = 1_000;
 const MIN_RECORDS_PER_JOB = 100;
 const MAX_RECORDS_PER_JOB = 100_000;
@@ -152,189 +153,206 @@ async function collectFinishedJobs(jobs: BatchJobSummary[]) {
         const jobId = job.name.split("/").at(-1) ?? job.displayName;
         const markerKey = `${PROCESSED_PREFIX}/${jobId}.json`;
         if (await gcsExists(markerKey)) continue;
+        const lease = await acquireBatchCollectionLease(jobId);
+        if (!lease) continue;
 
-        if (
-            [
-                "JOB_STATE_FAILED",
-                "JOB_STATE_CANCELLED",
-                "JOB_STATE_EXPIRED",
-                "JOB_STATE_PAUSED",
-            ].includes(job.state)
-        ) {
-            const restored = await restoreJobRecords(
-                job,
-                job.error?.message ?? job.state,
-            );
-            await putGcsJson(markerKey, {
-                job_name: job.name,
-                status: job.state,
-                restored,
-                processed_at: new Date().toISOString(),
-            });
-            await cleanupJobObjects(job);
-            results.push({
-                job_name: job.displayName,
-                status: job.state,
-                restored,
-            });
-            continue;
-        }
+        try {
+            // A previous collector may have completed just before this claim.
+            if (await gcsExists(markerKey)) continue;
 
-        const outputUri =
-            job.outputInfo?.gcsOutputDirectory ??
-            job.outputConfig?.gcsDestination?.outputUriPrefix;
-        if (!outputUri) {
-            results.push({
-                job_name: job.displayName,
-                status: job.state,
-                error: "Batch job has no Cloud Storage output URI",
-            });
-            continue;
-        }
 
-        const { bucket, key: outputPrefix } = parseGcsUri(outputUri);
-        ensureConfiguredBucket(bucket);
-        const allOutputKeys = await listGcsObjects(outputPrefix);
-        const outputKeys = allOutputKeys.filter(isBatchOutputObject);
-        if (outputKeys.length === 0) {
-            results.push({
-                job_name: job.displayName,
-                status: job.state,
-                error: "Completed job output is not visible in Cloud Storage yet",
-            });
-            continue;
-        }
-
-        let succeeded = 0;
-        let failed = 0;
-        let ineligible = 0;
-        let retryScheduled = 0;
-        let retryExhausted = 0;
-        let alreadyCompleted = 0;
-        let retryLimitSkipped = 0;
-        let stateConflicts = 0;
-        const seenRecordIds = new Set<string>();
-        const expectedRecordIds = await getJobRecordIds(job);
-
-        const countFailure = (outcome: FailureRecordingOutcome) => {
-            if (outcome.kind === "retry_scheduled") {
-                failed += 1;
-                retryScheduled += 1;
-                return;
+            if (
+                [
+                    "JOB_STATE_FAILED",
+                    "JOB_STATE_CANCELLED",
+                    "JOB_STATE_EXPIRED",
+                    "JOB_STATE_PAUSED",
+                ].includes(job.state)
+            ) {
+                const restored = await restoreJobRecords(
+                    job,
+                    job.error?.message ?? job.state,
+                );
+                await putGcsJson(markerKey, {
+                    job_name: job.name,
+                    status: job.state,
+                    restored,
+                    processed_at: new Date().toISOString(),
+                });
+                await cleanupJobObjects(job);
+                results.push({
+                    job_name: job.displayName,
+                    status: job.state,
+                    restored,
+                });
+                continue;
             }
-            if (outcome.kind === "retry_exhausted") {
-                failed += 1;
-                retryExhausted += 1;
-                return;
+
+            const outputUri =
+                job.outputInfo?.gcsOutputDirectory ??
+                job.outputConfig?.gcsDestination?.outputUriPrefix;
+            if (!outputUri) {
+                results.push({
+                    job_name: job.displayName,
+                    status: job.state,
+                    error: "Batch job has no Cloud Storage output URI",
+                });
+                continue;
             }
-            if (outcome.kind === "already_completed") {
-                alreadyCompleted += 1;
-                return;
+
+            const { bucket, key: outputPrefix } = parseGcsUri(outputUri);
+            ensureConfiguredBucket(bucket);
+            const allOutputKeys = await listGcsObjects(outputPrefix);
+            const outputKeys = allOutputKeys.filter(isBatchOutputObject);
+            if (outputKeys.length === 0) {
+                results.push({
+                    job_name: job.displayName,
+                    status: job.state,
+                    error: "Completed job output is not visible in Cloud Storage yet",
+                });
+                continue;
             }
-            if (outcome.kind === "retry_limit_reached") {
-                retryLimitSkipped += 1;
-                return;
-            }
-            stateConflicts += 1;
-        };
 
-        for (const key of outputKeys) {
-            const text = await getGcsText(key);
-            for (const rawLine of text.split(/\r?\n/)) {
-                const line = rawLine.trim();
-                if (!line) continue;
+            let succeeded = 0;
+            let failed = 0;
+            let ineligible = 0;
+            let retryScheduled = 0;
+            let retryExhausted = 0;
+            let alreadyCompleted = 0;
+            let retryLimitSkipped = 0;
+            let stateConflicts = 0;
+            const seenRecordIds = new Set<string>();
+            const expectedRecordIds = await getJobRecordIds(job);
 
-                let conversationId: string | null = null;
-                try {
-                    const record = JSON.parse(line) as BatchOutputLine;
-                    const content = extractBatchContent(record);
-                    conversationId = getBatchRecordId(record, content);
-                    if (!conversationId) {
-                        throw new Error(
-                            "Missing conversation ID in Google batch output",
-                        );
-                    }
-                    if (!expectedRecordIds.has(conversationId)) {
-                        throw new Error(
-                            `Google batch returned unexpected conversation ID ${conversationId}`,
-                        );
-                    }
-                    seenRecordIds.add(conversationId);
+            const countFailure = (outcome: FailureRecordingOutcome) => {
+                if (outcome.kind === "retry_scheduled") {
+                    failed += 1;
+                    retryScheduled += 1;
+                    return;
+                }
+                if (outcome.kind === "retry_exhausted") {
+                    failed += 1;
+                    retryExhausted += 1;
+                    return;
+                }
+                if (outcome.kind === "already_completed") {
+                    alreadyCompleted += 1;
+                    return;
+                }
+                if (outcome.kind === "retry_limit_reached") {
+                    retryLimitSkipped += 1;
+                    return;
+                }
+                stateConflicts += 1;
+            };
 
-                    const recordError = getBatchRecordError(record);
-                    if (recordError) {
-                        countFailure(
-                            await recordConversationAnalysisFailure(
-                                conversationId,
-                                `Google batch record failed: ${recordError}`,
-                            ),
-                        );
-                        continue;
-                    }
+            for (const key of outputKeys) {
+                const text = await getGcsText(key);
+                for (const rawLine of text.split(/\r?\n/)) {
+                    const line = rawLine.trim();
+                    if (!line) continue;
 
-                    if (!content) {
-                        throw new Error(
-                            "Google batch record returned no message content",
-                        );
-                    }
+                    let conversationId: string | null = null;
+                    try {
+                        const record = JSON.parse(line) as BatchOutputLine;
+                        const content = extractBatchContent(record);
+                        conversationId = getBatchRecordId(record, content);
+                        if (!conversationId) {
+                            throw new Error(
+                                "Missing conversation ID in Google batch output",
+                            );
+                        }
+                        if (!expectedRecordIds.has(conversationId)) {
+                            throw new Error(
+                                `Google batch returned unexpected conversation ID ${conversationId}`,
+                            );
+                        }
+                        seenRecordIds.add(conversationId);
 
-                    const result = await persistCompletedAnalysis(conversationId, content);
-                    if (result === "saved") succeeded += 1;
-                    else if (result === "ineligible") ineligible += 1;
-                    else if (result === "already_completed") alreadyCompleted += 1;
-                    else if (result === "retry_limit_reached") retryLimitSkipped += 1;
-                    else stateConflicts += 1;
-                } catch (error) {
-                    if (conversationId) {
-                        countFailure(
-                            await recordConversationAnalysisFailure(
-                                conversationId,
-                                `Failed to import Google batch result: ${formatError(error)}`,
-                            ),
-                        );
-                    } else {
-                        failed += 1;
+                        const recordError = getBatchRecordError(record);
+                        if (recordError) {
+                            countFailure(
+                                await recordConversationAnalysisFailure(
+                                    conversationId,
+                                    `Google batch record failed: ${recordError}`,
+                                ),
+                            );
+                            continue;
+                        }
+
+                        if (!content) {
+                            throw new Error(
+                                "Google batch record returned no message content",
+                            );
+                        }
+
+                        const result = await persistCompletedAnalysis(conversationId, content);
+                        if (result === "saved") succeeded += 1;
+                        else if (result === "ineligible") ineligible += 1;
+                        else if (result === "already_completed") alreadyCompleted += 1;
+                        else if (result === "retry_limit_reached") retryLimitSkipped += 1;
+                        else stateConflicts += 1;
+                    } catch (error) {
+                        if (conversationId) {
+                            countFailure(
+                                await recordConversationAnalysisFailure(
+                                    conversationId,
+                                    `Failed to import Google batch result: ${formatError(error)}`,
+                                ),
+                            );
+                        } else {
+                            failed += 1;
+                        }
+                        console.error("[google-batch] failed to import output record", {
+                            job_name: job.displayName,
+                            output_key: key,
+                            conversation_id: conversationId,
+                            error: formatError(error),
+                        });
                     }
-                    console.error("[google-batch] failed to import output record", {
-                        job_name: job.displayName,
-                        output_key: key,
-                        conversation_id: conversationId,
-                        error: formatError(error),
-                    });
                 }
             }
+
+            const missing = await restoreMissingJobRecords(
+                job,
+                seenRecordIds,
+                `Google batch job ${job.state} did not return an output record`,
+            );
+            failed += missing;
+
+            const summary = {
+                status: job.state,
+                succeeded,
+                failed,
+                ineligible,
+                retry_scheduled: retryScheduled,
+                retry_exhausted: retryExhausted,
+                already_completed: alreadyCompleted,
+                retry_limit_skipped: retryLimitSkipped,
+                state_conflicts: stateConflicts,
+                missing_restored: missing,
+            };
+
+            await putGcsJson(markerKey, {
+                job_name: job.name,
+                ...summary,
+                processed_at: new Date().toISOString(),
+            });
+            await cleanupJobObjects(job, allOutputKeys);
+            results.push({
+                job_name: job.displayName,
+                ...summary,
+            });
+        } finally {
+            try {
+                await releaseBatchCollectionLease(lease);
+            } catch (error) {
+                console.warn("[google-batch] failed to release collector lease", {
+                    job_name: job.displayName,
+                    error: formatError(error),
+                });
+            }
         }
-
-        const missing = await restoreMissingJobRecords(
-            job,
-            seenRecordIds,
-            `Google batch job ${job.state} did not return an output record`,
-        );
-        failed += missing;
-
-        const summary = {
-            status: job.state,
-            succeeded,
-            failed,
-            ineligible,
-            retry_scheduled: retryScheduled,
-            retry_exhausted: retryExhausted,
-            already_completed: alreadyCompleted,
-            retry_limit_skipped: retryLimitSkipped,
-            state_conflicts: stateConflicts,
-            missing_restored: missing,
-        };
-
-        await putGcsJson(markerKey, {
-            job_name: job.name,
-            ...summary,
-            processed_at: new Date().toISOString(),
-        });
-        await cleanupJobObjects(job, allOutputKeys);
-        results.push({
-            job_name: job.displayName,
-            ...summary,
-        });
     }
 
     return results;
@@ -1493,15 +1511,72 @@ async function cleanupJobObjects(
     }
 }
 
-async function deleteGcsObject(key: string) {
-    const response = await googleFetch(gcsObjectUrl(key), {
+async function deleteGcsObject(key: string, ifGenerationMatch?: string) {
+    const url = new URL(gcsObjectUrl(key));
+    if (ifGenerationMatch) url.searchParams.set("ifGenerationMatch", ifGenerationMatch);
+    const response = await googleFetch(url, {
         method: "DELETE",
     });
-    if (!response.ok && response.status !== 404) {
+    if (!response.ok && response.status !== 404 && !(ifGenerationMatch && response.status === 412)) {
         throw new Error(
             `Cloud Storage DELETE failed (${response.status}): ${await response.text()}`,
         );
     }
+}
+
+type BatchCollectionLease = { key: string; generation: string };
+
+// Atomic across independent functions: only one invocation can claim a batch.
+// Abandoned leases expire if a serverless invocation is terminated.
+async function acquireBatchCollectionLease(jobId: string): Promise<BatchCollectionLease | null> {
+    const key = `${PROCESSED_PREFIX}/collector-leases/${jobId}.json`;
+    const upload = (generation: string) => {
+        const url = new URL(
+            `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName())}/o`,
+        );
+        url.searchParams.set("uploadType", "media");
+        url.searchParams.set("name", normalizeObjectKey(key));
+        url.searchParams.set("ifGenerationMatch", generation);
+        return googleFetch(url, {
+            method: "POST",
+            body: JSON.stringify({ job_id: jobId, claimed_at: new Date().toISOString() }),
+            headers: { "content-type": "application/json" },
+        });
+    };
+
+    let response = await upload("0");
+    if (response.status === 412) {
+        const metadataResponse = await googleFetch(gcsObjectUrl(key));
+        if (metadataResponse.status === 404) return null;
+        const existing = await readJsonResponse<{
+            generation?: string;
+            timeCreated?: string;
+        }>(metadataResponse, "read Google batch collector lease");
+        const claimedAt = Date.parse(existing.timeCreated ?? "");
+        if (
+            !existing.generation ||
+            !Number.isFinite(claimedAt) ||
+            Date.now() - claimedAt < COLLECTION_LEASE_MS
+        ) {
+            return null;
+        }
+
+        // Reclaim a crashed worker's lease only if its generation is unchanged.
+        // Live invocations are capped at 300s, below the 10-minute lease.
+        response = await upload(existing.generation);
+    }
+
+    if (response.status === 412) return null;
+    const claimed = await readJsonResponse<{ generation?: string }>(
+        response,
+        "claim Google batch collector lease",
+    );
+    if (!claimed.generation) throw new Error("Google batch collector lease has no generation");
+    return { key, generation: claimed.generation };
+}
+
+async function releaseBatchCollectionLease(lease: BatchCollectionLease) {
+    await deleteGcsObject(lease.key, lease.generation);
 }
 
 async function putGcsJson(key: string, value: unknown) {
