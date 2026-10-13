@@ -140,8 +140,19 @@ async function testAiGeneration() {
 
 // Run the actual panel with controlled hooks and network responses; inspect its rendered props.
 async function testPanelSelection() {
+  const matchMocks=new Proxy({react:{},'react/jsx-runtime':require('react/jsx-runtime')},{
+    has:()=>true,
+    get(target,name){return target[name]??(target[name]=new Proxy({}, {get:(_,key)=>key==='__esModule'?false:function Stub(){}}));},
+  });
+  const nameMatcher=load('components/inbox/SchedulingPanel.tsx',matchMocks,';exports.areNamesSimilar=areNamesSimilar;').areNamesSimilar;
+  assert.equal(nameMatcher('João da Silva','Joao Silva'),true,'ignore accents and name particles');
+  assert.equal(nameMatcher('Ana Beatriz Santos','Ana Beatriz'),true,'allow missing surname with strong overlap');
+  assert.equal(nameMatcher('joao.v.almeida [TESTE META]','João Vitor Almeida'),true,'compare usernames without test labels');
+  assert.equal(nameMatcher('Maria Silva','Maria Souza'),false,'different surnames do not auto-link');
+  assert.equal(nameMatcher('joao.v.almeida [TESTE META]','Ana Beatriz Santos (TESTE CRM)'),false,'test profile must default unchecked');
+  assert.equal(nameMatcher(null,'Ana Beatriz Santos'),false,'missing social name must default unchecked');
   let slots = [], cursor = 0, effects = [], timers = new Map(), timerId = 0, dirty = true, tree;
-  let props = {open:true,threadId:id(1),clientId:null,instagramUserId:id(4),selectClient:true,onClose:()=>{}};
+  let props = {open:true,threadId:id(1),clientId:null,instagramUserId:id(4),instagramName:'Ana Instagram',selectClient:true,onClose:()=>{}};
   let pendingSelection = null, pendingContext = null, failSelection = false;
   const blankForm = {...form,unitId:'',doctorId:'',schedulingDate:'',schedulingTime:'',primary:emptyPerson};
   const responseData = (client, contact = null) => ({client,contact,spouse:null,units:[],doctors:[],suggestedFormat:'congelamento',form:{...blankForm,primary:{...emptyPerson,fullName:client?.name??contact?.name??''}}});
@@ -207,13 +218,24 @@ async function testPanelSelection() {
   await picker().props.children.props.onChange(id(41));await settle();
   assert.equal(summary().props.name,'Maria Souza');
   const linkingCheckbox=()=>find(tree,node=>node.props?.['aria-label']==='Vincular perfil do Instagram ao cadastro');
-  assert.equal(linkingCheckbox().props.checked,false,'social linking is opt-in before scheduling');
+  assert.equal(linkingCheckbox().props.checked,false,'different names must start unchecked');
+  const linkText=find(tree,node=>node.props?.className==="space-y-0.5 text-xs leading-relaxed text-slate-500");
+  assert.ok(linkText,'both profile names should render under the checkbox title');
+  assert.ok(linkText.props.children[0].props.children.includes('Ana Instagram'));
+  assert.ok(linkText.props.children[1].props.children.includes('Maria Souza'));
   linkingCheckbox().props.onChange({target:{checked:true}});await settle();
   assert.equal(linkingCheckbox().props.checked,true,'checkbox controls social linkage');
   assert.equal(picker(),null,'manual selection hides the picker');
   assert.equal(typeof summary().props.onClear,'function','manual selection retains its X');
   summary().props.onClear();await settle();
   assert.equal(linkingCheckbox(),null,'clearing the chosen CRM client hides the link checkbox');
+  props={...props,instagramName:'Maria Souza'};dirty=true;await settle();
+  await picker().props.children.props.onChange(id(41));await settle();
+  assert.equal(linkingCheckbox().props.checked,true,'matching names must be checked by default');
+  linkingCheckbox().props.onChange({target:{checked:false}});await settle();
+  assert.equal(linkingCheckbox().props.checked,false,'manual unchecking must remain possible');
+  summary().props.onClear();await settle();
+  props={...props,instagramName:'Ana Instagram'};dirty=true;await settle();
   failSelection=true;await picker().props.children.props.onChange(id(41));await settle();
   assert.equal(summary(),undefined,'failed selection must not become the current client');
   assert.ok(picker(),'failed selection remains retryable');
@@ -228,7 +250,7 @@ async function testPanelSelection() {
   assert.equal(summary(),undefined,'clearing must suppress clientId/client prop fallbacks');
   assert.ok(picker(),'clearing linked client exposes picker despite selectClient=false');
   await picker().props.children.props.onChange(id(42));await settle();
-  assert.equal(linkingCheckbox().props.checked,false,'checkbox appears for explicit selection even when it equals the originally linked client');
+  assert.equal(linkingCheckbox().props.checked,false,'different names remain unchecked for explicitly selected clients');
   summary().props.onClear();await settle();
   assert.equal(linkingCheckbox(),null);
 
