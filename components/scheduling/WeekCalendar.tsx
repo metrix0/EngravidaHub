@@ -126,12 +126,10 @@ export default function WeekCalendar(props: Props) {
     }, [freeSlotsByDay]);
 
     const blocksByDay = useMemo(() => groupAgendaBlocks(props.blocks ?? []), [props.blocks]);
-    const blockLanesByDay = useMemo(() => {
-        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
-        blocksByDay.forEach((blocks, day) => result.set(day, layoutConcurrentEvents(
-            blocks.filter(block => dateKeyIso(block.endsAt) === day).map(block => ({
-                id: block.id, start: Date.parse(block.startsAt), end: Date.parse(block.endsAt),
-            })),
+    const displayedBlocksByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof groupOverlappingAgendaBlocks>>();
+        blocksByDay.forEach((blocks, day) => result.set(day, groupOverlappingAgendaBlocks(
+            blocks.filter(block => dateKeyIso(block.endsAt) === day),
         )));
         return result;
     }, [blocksByDay]);
@@ -446,22 +444,37 @@ export default function WeekCalendar(props: Props) {
                                             handleDrop(event, day)
                                         }
                                     >
-                                        {(blocksByDay.get(dayKey) ?? []).map(block => {
-                                            if (dateKeyIso(block.endsAt) !== dayKey) return null;
-                                            const start = Math.max(START_HOUR * 60, minutes(block.startsAt));
-                                            const end = Math.min(END_HOUR * 60, minutes(block.endsAt));
+                                        {(displayedBlocksByDay.get(dayKey) ?? []).map(group => {
+                                            const start = Math.max(START_HOUR * 60, minutes(group.startsAt));
+                                            const end = Math.min(END_HOUR * 60, minutes(group.endsAt));
                                             if (end <= start) return null;
-                                            const doctors = block.doctorNames.length === 1 ? block.doctorNames[0] : `${block.doctorNames.length} médicos`;
-                                            const lane = blockLanesByDay.get(dayKey)?.get(block.id) ?? { column: 0, columns: 1 };
+                                            const names = [...new Set(group.blocks.flatMap(block => block.doctorNames))];
+                                            const label = group.blocks.length === 1
+                                                ? `${group.blocks[0].reason} · ${names.length === 1 ? names[0] : `${names.length} médicos`}`
+                                                : group.blocks.every(block => block.isLunch)
+                                                    ? `Almoço · ${names.length} médicos`
+                                                    : `${group.blocks.length} bloqueios`;
                                             return (
-                                                <div key={block.id} title={`${block.doctorNames.join(", ")}: ${block.reason}`} className="absolute z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700"
+                                                <div key={group.id} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 text-[10px] font-semibold text-red-700 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
                                                     style={{
                                                         top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT,
                                                         height: (end - start) / 60 * HOUR_HEIGHT,
-                                                        left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
-                                                        right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
                                                     }}>
-                                                    <span className="block whitespace-normal break-words leading-tight">{block.reason} · {doctors}</span>
+                                                    <InfoTooltip portal widthClassName="w-[340px]" text={
+                                                        <span className="block max-h-72 overflow-y-auto">
+                                                            <span className="mb-1 block font-bold text-slate-800">{label}</span>
+                                                            {group.blocks.map(block => (
+                                                                <span key={block.id} className="block border-t border-slate-100 py-1.5">
+                                                                    <span className="block font-semibold">{time(block.startsAt)}–{time(block.endsAt)} · {block.reason}</span>
+                                                                    <span className="block break-words">{block.doctorNames.join(", ")}</span>
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    }>
+                                                        <span className="flex h-full w-full min-w-0 flex-col overflow-hidden px-1 py-0.5">
+                                                            <span className="block w-full min-w-0 truncate">{label}</span>
+                                                        </span>
+                                                    </InfoTooltip>
                                                 </div>
                                             );
                                         })}
@@ -1033,6 +1046,21 @@ function groupAgendaBlocks(blocks: AgendaBlock[]) {
         }
     }
     return byDay;
+}
+
+function groupOverlappingAgendaBlocks(blocks: GroupedAgendaBlock[]) {
+    const groups: Array<{ id: string; startsAt: string; endsAt: string; blocks: GroupedAgendaBlock[] }> = [];
+    const sorted = [...blocks].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt) || a.id.localeCompare(b.id));
+    for (const block of sorted) {
+        const last = groups[groups.length - 1];
+        if (last && Date.parse(block.startsAt) < Date.parse(last.endsAt)) {
+            last.blocks.push(block);
+            if (Date.parse(block.endsAt) > Date.parse(last.endsAt)) last.endsAt = block.endsAt;
+        } else {
+            groups.push({ id: `blocked:${block.id}`, startsAt: block.startsAt, endsAt: block.endsAt, blocks: [block] });
+        }
+    }
+    return groups;
 }
 
 function groupFreeSlotStarts(slots: AgendaFreeSlot[]) {
