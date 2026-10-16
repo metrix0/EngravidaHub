@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, SearchCheck, Target, Users } from "lucide-react";
+import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, SearchCheck, Target } from "lucide-react";
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart, Legend } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
@@ -11,6 +11,7 @@ import HorizontalScroller from "@/components/ui/HorizontalScroller";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { SearchFilter } from "@/components/ui/SearchFilter";
+import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -34,6 +35,8 @@ export default function PerformancePage() {
     const [result, setResult] = useState<{ key: string; report: PerformanceReport | null; error: string | null }>({ key: "", report: null, error: null });
     const [search, setSearch] = useState("");
     const [team, setTeam] = useState("all");
+    const [unitId, setUnitId] = useState("");
+    const [attendantId, setAttendantId] = useState("");
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "tickets", descending: true });
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const dateRange = useMemo(() => {
@@ -44,7 +47,7 @@ export default function PerformancePage() {
         return selectedRange;
     }, [period, selectedRange]);
     const start = dateRange.start, end = dateRange.end;
-    const requestKey = start && end ? start + ":" + end : "";
+    const requestKey = start && end ? start + ":" + end + ":" + unitId : "";
     const loading = ready && Boolean(currentUser) && (!requestKey || result.key !== requestKey);
     const report = result.key === requestKey ? result.report : null;
     const error = result.key === requestKey ? result.error : null;
@@ -55,6 +58,7 @@ export default function PerformancePage() {
         void (async () => {
             try {
                 const params = new URLSearchParams({ start, end });
+                if (unitId) params.set("unit_id", unitId);
                 const response = await fetch("/api/performance?" + params, { cache: "no-store", signal: controller.signal });
                 const json = await response.json();
                 if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar a performance.");
@@ -64,12 +68,13 @@ export default function PerformancePage() {
             }
         })();
         return () => controller.abort();
-    }, [ready, currentUser, start, end, requestKey]);
+    }, [ready, currentUser, start, end, requestKey, unitId]);
 
     const ranked = useMemo(() => {
         if (!report) return [];
         const term = search.trim().toLocaleLowerCase("pt-BR");
         return report.attendants.filter(person => (!term || person.name.toLocaleLowerCase("pt-BR").includes(term)) &&
+            (!attendantId || person.id === attendantId) &&
             (team === "all" || (team === "ra" ? person.sector === "ra" : person.sector !== "ra")))
             .sort((first, second) => {
                 const a = first[sort.key], b = second[sort.key];
@@ -78,8 +83,21 @@ export default function PerformancePage() {
                 const delta = sort.descending ? b - a : a - b;
                 return delta || first.name.localeCompare(second.name, "pt-BR");
             });
-    }, [report, search, team, sort]);
+    }, [report, search, team, sort, attendantId]);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
+    const raOnlyContribution = team === "all" && !attendantId && !search.trim();
+    const unitContribution = useMemo(() => {
+        if (!report) return [];
+        const visibleIds = new Set(ranked.filter(person => !raOnlyContribution || person.sector === "ra").map(person => person.id));
+        const byUnit = new Map<string, number>();
+        for (const row of report.unitAttributions) {
+            if (visibleIds.has(row.attendantId)) byUnit.set(row.unitName, (byUnit.get(row.unitName) ?? 0) + row.appointments);
+        }
+        return report.units.map(unit => {
+            const contributed = byUnit.get(unit.name) ?? 0;
+            return { ...unit, contributed, contributionShare: unit.total ? 100 * contributed / unit.total : 0 };
+        });
+    }, [report, ranked, raOnlyContribution]);
     const totals = useMemo(() => ranked.reduce((acc, person) => ({
         tickets: acc.tickets + person.tickets,
         appointments: acc.appointments + person.appointments,
@@ -120,8 +138,13 @@ export default function PerformancePage() {
                     <Card className="min-w-0 !p-0">
                         <div className="flex flex-wrap items-start justify-between gap-4 p-4 md:p-6">
                             <div><h2 className="text-lg font-bold">Ranking comparativo</h2>
-                                <p className="mt-1 text-xs text-muted">Clique em um nome para detalhar. Consultas contabilizadas pela data em que foram marcadas.</p></div>
+                                <p className="mt-1 text-xs text-muted">Clique em um nome para detalhar. Consultas contabilizadas pela data em que foram marcadas.</p>
+                                {unitId ? <p className="mt-1 text-xs text-muted">Tickets e tempos por unidade usam o vínculo atual do cliente. Conversas sem unidade identificada não entram no filtro.</p> : null}</div>
                             <div className="flex flex-wrap gap-3">
+                                <SingleFilterButton label="Todas as unidades" options={report.unitOptions.map(unit => ({ label: unit.name, value: unit.id }))}
+                                    values={unitId ? [unitId] : []} onChange={values => setUnitId(values[0] ?? "")} widthClassName="w-[200px]" />
+                                <DropdownSelect value={attendantId} onChange={setAttendantId} widthClassName="w-[230px]"
+                                    options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions.map(person => ({ label: person.name, value: person.id }))]} />
                                 <SearchFilter value={search} onChange={setSearch} placeholder="Buscar atendente" />
                                 <DropdownSelect value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
                                     { value: "all", label: "Todas as equipes" }, { value: "ra", label: "Relacionamento (RA)" }, { value: "other", label: "Demais equipes" }
@@ -181,13 +204,13 @@ export default function PerformancePage() {
                         </div>
                     </section> : null}
                     <section className="space-y-4">
-                        <div><h2 className="text-lg font-bold">Contribuição RA por unidade</h2><p className="mt-1 text-xs text-muted">Participação das marcações feitas pelo time de Relacionamento em cada unidade, no período selecionado.</p></div>
-                        {report.units.length ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{report.units.map(unit =>
+                        <div><h2 className="text-lg font-bold">{raOnlyContribution ? "Contribuição RA por unidade" : "Contribuição dos atendentes filtrados por unidade"}</h2><p className="mt-1 text-xs text-muted">Participação das marcações dos atendentes selecionados sobre o total de cada unidade, no período.</p></div>
+                        {unitContribution.length ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{unitContribution.map(unit =>
                             <Card key={unit.name} className="min-w-0">
                                 <div className="flex items-baseline justify-between gap-2"><h3 className="min-w-0 truncate text-sm font-bold" title={unit.name}>{unit.name}</h3>
-                                    <span className={"shrink-0 text-lg font-bold tabular-nums " + (unit.share >= 40 ? "text-green" : unit.share >= 20 ? "text-orange" : "text-red")}>{percentage(unit.share)}</span></div>
-                                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green" style={{width: Math.min(100,unit.share) + "%"}} /></div>
-                                <p className="mt-3 text-xs text-muted"><strong className="text-slate-700">{number(unit.ra)}</strong> RA de {number(unit.total)} marcações</p>
+                                    <span className={"shrink-0 text-lg font-bold tabular-nums " + (unit.contributionShare >= 40 ? "text-green" : unit.contributionShare >= 20 ? "text-orange" : "text-red")}>{percentage(unit.contributionShare)}</span></div>
+                                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green" style={{width: Math.min(100,unit.contributionShare) + "%"}} /></div>
+                                <p className="mt-3 text-xs text-muted"><strong className="text-slate-700">{number(unit.contributed)}</strong> de {number(unit.total)} marcações</p>
                                 {unit.matched < unit.total ? <p className="mt-1 text-[11px] text-muted">{number(unit.total - unit.matched)} sem atendente identificado</p> : null}
                             </Card>
                         )}</div> : <p className="text-sm text-muted">Nenhuma marcação no período.</p>}
@@ -196,7 +219,7 @@ export default function PerformancePage() {
                         Fonte: conversas e análises do Hub; marcações importadas do Clinisys, pelo dia em que foram criadas.
                         {report.coverage.totalBookings > 0 ? " " + number(report.coverage.matchedBookings) + " de " + number(report.coverage.totalBookings) + " marcações puderam ser vinculadas com segurança a atendentes." : ""}
                         {" "}Tempos são médias apenas de análises com valores válidos até 2 horas. O score e a taxa de resolução são calculados somente sobre conversas avaliadas pela IA.
-                        Tickets sem atendente identificado não entram no ranking. Marcações sem correspondência permanecem apenas nos totais por unidade.
+                        Tickets sem atendente identificado não entram no ranking. Marcações sem correspondência permanecem apenas nos totais por unidade. O filtro de unidade utiliza o vínculo atual do cliente nas conversas e a unidade registrada pelo Clinisys nas marcações.
                     </p>
                 </> : !isLoadingCurrentUser && !loading ? <p className="py-12 text-center text-sm text-muted">Não há dados para o período.</p> : null}
         </section>

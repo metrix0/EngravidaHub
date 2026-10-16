@@ -2,6 +2,7 @@
 // Aggregate the existing conversation analyses and Clinisys bookings without guessing identities.
 export type PerformanceSource = {
     people: Array<{ id: string; name: string; sector: string; active: boolean }>;
+    units: Array<{ id: string; name: string }>;
     period: Array<{ attendant_id: string; tickets: number; analyzed: number; first_seconds: number | null; first_count: number; response_seconds: number | null; response_count: number; score: number | null; score_count: number; resolved: number; eligible_resolution: number }>;
     monthly: Array<{ attendant_id: string; month: string; tickets: number; analyzed: number; first_seconds: number | null; response_seconds: number | null; score: number | null }>;
     bookings: Array<{ date: string; attendant_name: string; unit_name: string | null; appointments: number }>;
@@ -13,9 +14,13 @@ export type PerformanceAttendant = {
     score: number | null; scoreCount: number; resolutionRate: number | null; monthly: PerformanceMonth[];
 };
 export type PerformanceUnit = { name: string; total: number; ra: number; matched: number; share: number };
+export type PerformanceUnitAttribution = { unitName: string; attendantId: string; appointments: number };
 export type PerformanceReport = {
     attendants: PerformanceAttendant[];
     units: PerformanceUnit[];
+    unitOptions: Array<{ id: string; name: string }>;
+    attendantOptions: Array<{ id: string; name: string }>;
+    unitAttributions: PerformanceUnitAttribution[];
     coverage: { totalBookings: number; matchedBookings: number; totalTickets: number; analyzedTickets: number };
     months: string[];
 };
@@ -57,15 +62,26 @@ export function buildPerformanceReport(source: PerformanceSource, start: string,
     }
     const bookingsById = new Map<string, number>();
     const unitsByName = new Map<string, { total: number; ra: number; matched: number }>();
+    const unitAttributions = new Map<string, PerformanceUnitAttribution>();
+    const resolvedNames = new Map<string, PerformanceSource["people"][number] | null>();
     let totalBookings = 0, matchedBookings = 0;
     for (const booking of source.bookings) {
         const amount = Number(booking.appointments);
-        const person = matchPerformanceAttendant(booking.attendant_name, source.people);
+        if (!resolvedNames.has(booking.attendant_name)) {
+            resolvedNames.set(booking.attendant_name, matchPerformanceAttendant(booking.attendant_name, source.people));
+        }
+        const person = resolvedNames.get(booking.attendant_name) ?? null;
         const inPeriod = booking.date >= start && booking.date <= end;
         if (inPeriod) {
             totalBookings += amount;
             if (person) { matchedBookings += amount; bookingsById.set(person.id, (bookingsById.get(person.id) ?? 0) + amount); }
             const unitName = booking.unit_name?.trim() || "Unidade não informada";
+            if (person) {
+                const key = person.id + "|" + unitName;
+                const attribution = unitAttributions.get(key) ?? { unitName, attendantId: person.id, appointments: 0 };
+                attribution.appointments += amount;
+                unitAttributions.set(key, attribution);
+            }
             const unit = unitsByName.get(unitName) ?? { total: 0, ra: 0, matched: 0 };
             unit.total += amount;
             if (person) { unit.matched += amount; if (person.sector === "ra") unit.ra += amount; }
@@ -99,6 +115,9 @@ export function buildPerformanceReport(source: PerformanceSource, start: string,
         ({ name, ...value, share: value.total ? 100 * value.ra / value.total : 0 })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "pt-BR"));
     return {
         attendants, units, months,
+        unitOptions: source.units,
+        attendantOptions: source.people.map(person => ({ id: person.id, name: person.name })),
+        unitAttributions: [...unitAttributions.values()],
         coverage: {
             totalBookings, matchedBookings,
             totalTickets: attendants.reduce((count, person) => count + person.tickets, 0),

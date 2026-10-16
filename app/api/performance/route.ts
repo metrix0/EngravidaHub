@@ -8,7 +8,7 @@ import { buildPerformanceReport, type PerformanceSource } from "@/lib/performanc
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const querySchema = z.object({
-    start: z.iso.date(), end: z.iso.date(),
+    start: z.iso.date(), end: z.iso.date(), unit_id: z.string().uuid().optional(),
 }).refine(data => data.start <= data.end &&
     Date.parse(data.end) - Date.parse(data.start) <= 366 * 86_400_000,
 { message: "Selecione um período de até 12 meses." });
@@ -22,11 +22,11 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Esta visão está disponível apenas para perfis sem restrição de unidade." }, { status: 403 });
     }
     const params = new URL(request.url).searchParams;
-    const filters = querySchema.safeParse({ start: params.get("start"), end: params.get("end") });
+    const filters = querySchema.safeParse({ start: params.get("start"), end: params.get("end"), unit_id: params.get("unit_id") || undefined });
     if (!filters.success) return NextResponse.json({ error: "Período inválido." }, { status: 400 });
     try {
         const { data, error } = await supabase.rpc("performance_attendant_report_v1", {
-            p_start: filters.data.start, p_end: filters.data.end,
+            p_start: filters.data.start, p_end: filters.data.end, p_unit_id: filters.data.unit_id ?? null,
         });
         if (error) throw error;
         if (!data || !Array.isArray(data.people) || !Array.isArray(data.bookings)) throw new Error("Relatório incompleto");
