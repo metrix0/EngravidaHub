@@ -459,7 +459,7 @@ export default function WeekCalendar(props: Props) {
                                                     }}>
                                                     <div className="flex h-full min-h-0 flex-col gap-1">
                                                         <span className="shrink-0 leading-tight">{label}</span>
-                                                        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+                                                        <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
                                                             {group.blocks.flatMap(block => block.doctorNames.map((doctor, index) => (
                                                                 <div key={`${block.id}:${index}`} className="min-w-0 border-t border-red-200/60 pt-1 first:border-t-0 first:pt-0">
                                                                     <span className="block break-words leading-tight">{doctor}</span>
