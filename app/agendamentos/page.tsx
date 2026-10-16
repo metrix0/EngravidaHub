@@ -64,7 +64,6 @@ export default function AppointmentsPage() {
     const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
     const [notes, setNotes] = useState<AppointmentDayNote[]>([]);
     const [noteDialog, setNoteDialog] = useState<{ dateKey: string; note?: AppointmentDayNote } | null>(null);
-    const [noteText, setNoteText] = useState("");
     const [noteSaving, setNoteSaving] = useState(false);
     const [noteError, setNoteError] = useState<string | null>(null);
     const [selectedAppointmentId, setSelectedAppointmentId] =
@@ -447,19 +446,17 @@ export default function AppointmentsPage() {
 
     async function handleAddNote(dateKey: string) {
         setNoteDialog({ dateKey });
-        setNoteText("");
         setNoteError(null);
     }
 
     async function handleEditNote(note: AppointmentDayNote) {
         setNoteDialog({ dateKey: note.note_date, note });
-        setNoteText(note.text);
         setNoteError(null);
     }
 
-    async function handleSaveNote() {
+    async function handleSaveNote(value: string) {
         if (!noteDialog || noteSaving) return;
-        const text = noteText.trim();
+        const text = value.trim();
         if (!text || text.length > 500 || text === noteDialog.note?.text) return;
 
         setNoteSaving(true);
@@ -703,50 +700,16 @@ export default function AppointmentsPage() {
                 panelClassName="p-6"
                 zIndexClassName="z-[120]"
             >
-                <form
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        void handleSaveNote();
-                    }}
-                >
-                    <h2 className="pr-10 text-lg font-bold text-slate-950">
-                        {noteDialog?.note ? "Editar nota" : "Nota para este dia"}
-                    </h2>
-                    <label htmlFor="agenda-day-note" className="mt-5 block text-sm font-semibold text-slate-700">
-                        Nota
-                    </label>
-                    <textarea
-                        id="agenda-day-note"
-                        autoFocus
-                        value={noteText}
-                        onChange={(event) => setNoteText(event.target.value)}
-                        maxLength={500}
-                        rows={4}
-                        disabled={noteSaving}
-                        placeholder="Escreva a nota..."
-                        className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
+                {noteDialog ? (
+                    <AgendaDayNoteForm
+                        key={noteDialog.note?.id ?? noteDialog.dateKey}
+                        note={noteDialog.note}
+                        saving={noteSaving}
+                        error={noteError}
+                        onCancel={() => setNoteDialog(null)}
+                        onSave={(value) => void handleSaveNote(value)}
                     />
-                    {noteError ? (
-                        <p role="alert" className="mt-2 text-sm text-red">{noteError}</p>
-                    ) : null}
-                    <div className="mt-5 flex justify-end gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setNoteDialog(null)}
-                            disabled={noteSaving}
-                            className="h-10 cursor-pointer rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={noteSaving || !noteText.trim() || noteText.trim() === noteDialog?.note?.text}
-                            className="h-10 cursor-pointer rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            {noteSaving ? "Salvando..." : "Salvar"}
-                        </button>
-                    </div>
-                </form>
+                ) : null}
             </Modal>
 
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
@@ -771,6 +734,69 @@ export default function AppointmentsPage() {
                 onDelete={handleDeleteAppointment}
             />
         </main>
+    );
+}
+
+function AgendaDayNoteForm({
+    note,
+    saving,
+    error,
+    onCancel,
+    onSave,
+}: {
+    note?: AppointmentDayNote;
+    saving: boolean;
+    error: string | null;
+    onCancel: () => void;
+    onSave: (value: string) => void;
+}) {
+    const [text, setText] = useState(note?.text ?? "");
+
+    return (
+        <form
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSave(text);
+            }}
+        >
+            <h2 className="pr-10 text-lg font-bold text-slate-950">
+                {note ? "Editar nota" : "Nota para este dia"}
+            </h2>
+            <label htmlFor="agenda-day-note" className="mt-5 block text-sm font-semibold text-slate-700">
+                Nota
+            </label>
+            <textarea
+                id="agenda-day-note"
+                autoFocus
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                maxLength={500}
+                rows={4}
+                disabled={saving}
+                placeholder="Escreva a nota..."
+                className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
+            />
+            {error ? (
+                <p role="alert" className="mt-2 text-sm text-red">{error}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-3">
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    disabled={saving}
+                    className="h-10 cursor-pointer rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    Cancelar
+                </button>
+                <button
+                    type="submit"
+                    disabled={saving || !text.trim() || text.trim() === note?.text}
+                    className="h-10 cursor-pointer rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {saving ? "Salvando..." : "Salvar"}
+                </button>
+            </div>
+        </form>
     );
 }
 
