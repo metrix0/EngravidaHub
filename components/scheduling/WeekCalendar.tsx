@@ -312,7 +312,7 @@ export default function WeekCalendar(props: Props) {
 
                         {!freeOnly ? <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                             <div className="border-r border-slate-200 px-2 py-3 text-center text-[11px] font-bold uppercase text-slate-400">
-                                Notas / bloqueios
+                                Notas
                             </div>
 
                             {props.weekDays.map((day) => {

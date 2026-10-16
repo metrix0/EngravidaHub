@@ -7,6 +7,7 @@ import {
     ChartNoAxesCombined,
     ChevronLeft,
     ChevronRight,
+    Clock3,
     MapPin,
     Info,
     RefreshCw,
@@ -558,7 +559,7 @@ export default function AppointmentsPage() {
                             <CalendarCheck size={17} />
                             Agendar
                         </button>
-                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`h-10 shrink-0 cursor-pointer whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>Horários Livres</button>
+                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`flex h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}><Clock3 size={17} />Horários Livres</button>
                         <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
@@ -601,7 +602,7 @@ export default function AppointmentsPage() {
                 </header>
 
                 <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3 px-2 sm:px-3">
-                    <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-sm">
+                    <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm transition focus-within:ring-2 focus-within:ring-brand/30">
                         <Search size={17} className="shrink-0 text-slate-400" />
                         <input
                             value={search}
@@ -643,7 +644,7 @@ export default function AppointmentsPage() {
                     />
                     <div className="ml-auto flex shrink-0 items-center">
                         <InfoTooltip text={<AgendaLegend />} portal widthClassName="w-[300px]">
-                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-selection hover:text-slate-700">
+                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-slate-700">
                                 <Info size={17} />
                             </span>
                         </InfoTooltip>
