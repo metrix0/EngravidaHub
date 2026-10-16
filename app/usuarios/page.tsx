@@ -59,7 +59,7 @@ const NO_PRESET_ID = "__none__" as const;
 const NO_VALUE_ID = "__none__" as const;
 type AccessPresetId = PresetId | typeof NO_PRESET_ID;
 
-type ColorName = "purple" | "blue" | "green" | "orange" | "red";
+type ColorName = "blue" | "green" | "orange" | "red";
 
 type PermissionTab = {
     id: TabId;
@@ -180,7 +180,7 @@ const TABS: PermissionTab[] = [
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
-    { id: "performance", label: "Performance", href: "/performance", color: "purple", position: 62 },
+    { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
     { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
@@ -269,7 +269,6 @@ const colorClasses: Record<
     ColorName,
     { iconBg: string; iconText: string; softBg: string; text: string }
 > = {
-    purple: { iconBg: "bg-purple-soft", iconText: "text-purple", softBg: "bg-purple-soft", text: "text-purple" },
     blue: { iconBg: "bg-blue-soft", iconText: "text-blue", softBg: "bg-blue-soft", text: "text-blue" },
     green: { iconBg: "bg-green-soft", iconText: "text-green", softBg: "bg-green-soft", text: "text-green" },
     orange: { iconBg: "bg-orange-soft", iconText: "text-orange", softBg: "bg-orange-soft", text: "text-orange" },
@@ -291,7 +290,6 @@ const TAB_COLOR_ORDER: Record<ColorName, number> = {
     green: 20,
     orange: 30,
     red: 40,
-    purple: 50,
 };
 
 export default function UsuariosPage() {
@@ -1328,7 +1326,7 @@ function UserDetailsPanel({
                 <PanelSection
                     title="Grupos internos"
                     action={(
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-soft px-2.5 py-1 text-xs font-bold text-purple">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
                             <UsersRound size={13} />
                             {user.group_ids.length}
                         </span>
@@ -1572,7 +1570,7 @@ function GroupMembershipSelector({
                                     onClick={() => toggleGroup(group.id)}
                                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                                         isAutomatic
-                                            ? "cursor-default bg-purple-soft/40"
+                                            ? "cursor-default bg-slate-100/60"
                                             : "cursor-pointer hover:bg-slate-50"
                                     }`}
                                 >
@@ -1591,7 +1589,7 @@ function GroupMembershipSelector({
                                     </span>
 
                                     {isAutomatic ? (
-                                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-purple-soft px-2 py-1 text-[10px] font-bold text-purple">
+                                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
                                             <LockKeyhole size={11} />
                                             Automático
                                         </span>
