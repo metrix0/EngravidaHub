@@ -452,26 +452,24 @@ export default function WeekCalendar(props: Props) {
                                                     ? `Almoço · ${names.length} médicos`
                                                     : `${group.blocks.length} bloqueios`;
                                             return (
-                                                <div key={group.id} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 text-[10px] font-semibold text-red-700 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                <div key={group.id} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-2 py-1 text-[10px] font-semibold text-red-700"
                                                     style={{
                                                         top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT,
                                                         height: (end - start) / 60 * HOUR_HEIGHT,
                                                     }}>
-                                                    <InfoTooltip portal widthClassName="w-[340px]" text={
-                                                        <span className="block max-h-72 overflow-y-auto">
-                                                            <span className="mb-1 block font-bold text-slate-800">{label}</span>
-                                                            {group.blocks.map(block => (
-                                                                <span key={block.id} className="block border-t border-slate-100 py-1.5">
-                                                                    <span className="block font-semibold">{time(block.startsAt)}–{time(block.endsAt)} · {block.reason}</span>
-                                                                    <span className="block break-words">{block.doctorNames.join(", ")}</span>
-                                                                </span>
-                                                            ))}
-                                                        </span>
-                                                    }>
-                                                        <span className="flex h-full w-full min-w-0 flex-col overflow-hidden px-1 py-0.5">
-                                                            <span className="block w-full min-w-0 truncate">{label}</span>
-                                                        </span>
-                                                    </InfoTooltip>
+                                                    <div className="flex h-full min-h-0 flex-col gap-1">
+                                                        <span className="shrink-0 leading-tight">{label}</span>
+                                                        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+                                                            {group.blocks.flatMap(block => block.doctorNames.map((doctor, index) => (
+                                                                <div key={`${block.id}:${index}`} className="min-w-0 border-t border-red-200/60 pt-1 first:border-t-0 first:pt-0">
+                                                                    <span className="block break-words leading-tight">{doctor}</span>
+                                                                    <span className="block text-[9px] font-medium leading-tight opacity-80">
+                                                                        {time(block.startsAt)}–{time(block.endsAt)}{!block.isLunch && group.blocks.length > 1 ? ` · ${block.reason}` : ""}
+                                                                    </span>
+                                                                </div>
+                                                            )))}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             );
                                         })}
