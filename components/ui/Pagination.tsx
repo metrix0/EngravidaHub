@@ -8,6 +8,7 @@ type PaginationProps = {
     totalPages: number;
     currentPage: number;
     onPageChange: (page: number) => void;
+    activeTone?: "purple" | "brand";
 };
 
 type PaginationPage = number | "...";
@@ -16,6 +17,7 @@ export default function Pagination({
                                        totalPages,
                                        currentPage,
                                        onPageChange,
+                                       activeTone = "purple",
                                    }: PaginationProps) {
     const pages = getPaginationPages(totalPages, currentPage);
 
@@ -45,7 +47,7 @@ export default function Pagination({
                         onClick={() => onPageChange(page)}
                         className={`flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-sm font-semibold transition-colors ${
                             page === currentPage
-                                ? "bg-purple-soft text-purple"
+                                ? (activeTone === "brand" ? "bg-brand-soft text-brand" : "bg-purple-soft text-purple")
                                 : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                         }`}
                     >

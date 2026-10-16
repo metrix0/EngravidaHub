@@ -3,11 +3,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, SearchCheck, Target } from "lucide-react";
-import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart, Legend } from "recharts";
+import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
 import Skeleton from "@/components/ui/Skeleton";
 import HorizontalScroller from "@/components/ui/HorizontalScroller";
+import Pagination from "@/components/ui/Pagination";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { SearchFilter } from "@/components/ui/SearchFilter";
@@ -26,8 +27,22 @@ function duration(value: number | null) {
     return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(v => String(v).padStart(2, "0")).join(":");
 }
 const monthLabel = (value: string) => new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(value + "-01T12:00:00Z")).replace(".", "");
-const labelForSector = (sector: string) => sector === "ra" ? "Relacionamento (RA)" : sector === "reception" ? "Recepção" : sector === "assistance" ? "Assistência" : sector === "management" ? "Gestão" : sector === "finance" ? "Financeiro" : "Outra equipe";
+const labelForSector = (sector: string) => sector === "ra" ? "RA" : sector === "reception" ? "Recepção" : sector === "assistance" ? "Assistência" : sector === "management" ? "Gestão" : sector === "finance" ? "Financeiro" : "Outra equipe";
 const COLORS = { brand: "#ef4444", green: "#0fbb73", blue: "#1683ff", amber: "#e29229", muted: "#94a3b8" };
+const RANKING_PAGE_SIZE = 10;
+
+function ChartLegend({ items }: { items: Array<{ label: string; color: string }> }) {
+    return (
+        <div className="mt-3 flex flex-wrap items-center gap-5 text-xs text-slate-500">
+            {items.map(item => (
+                <span key={item.label} className="flex items-center gap-2">
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                    {item.label}
+                </span>
+            ))}
+        </div>
+    );
+}
 
 export default function PerformancePage() {
     const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("current_month");
@@ -39,6 +54,7 @@ export default function PerformancePage() {
     const [attendantId, setAttendantId] = useState("");
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "tickets", descending: true });
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [rankingPage, setRankingPage] = useState(1);
     const dateRange = useMemo(() => {
         if (period !== null) {
             const preset = DEFAULT_CALENDAR_PRESETS.find(item => item.value === period);
@@ -84,6 +100,13 @@ export default function PerformancePage() {
                 return delta || first.name.localeCompare(second.name, "pt-BR");
             });
     }, [report, search, team, sort, attendantId]);
+    useEffect(() => {
+        setRankingPage(1);
+    }, [search, team, unitId, attendantId, sort, start, end]);
+    const rankingPages = Math.max(1, Math.ceil(ranked.length / RANKING_PAGE_SIZE));
+    const currentRankingPage = Math.min(rankingPage, rankingPages);
+    const rankingStart = (currentRankingPage - 1) * RANKING_PAGE_SIZE;
+    const visibleRanked = ranked.slice(rankingStart, rankingStart + RANKING_PAGE_SIZE);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
     const raOnlyContribution = team === "all" && !attendantId && !search.trim();
     const unitContribution = useMemo(() => {
@@ -110,8 +133,10 @@ export default function PerformancePage() {
         {label}<ArrowDownUp size={12} />
     </button>;
     const columns: DataTableColumn<PerformanceAttendant>[] = [
-        { id: "position", label: "#", width: "7%", align: "center", render: (_, index) =>
-            <span className={"inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold " + (index === 0 ? "bg-green-soft text-green" : index === 1 ? "bg-blue-soft text-blue" : index === 2 ? "bg-orange-soft text-orange" : "bg-slate-100 text-slate-600")}>{index + 1}</span> },
+        { id: "position", label: "#", width: "7%", align: "center", render: (_, index) => {
+            const position = rankingStart + index + 1;
+            return <span className={"inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold " + (position === 1 ? "bg-green-soft text-green" : position === 2 ? "bg-blue-soft text-blue" : position === 3 ? "bg-orange-soft text-orange" : "bg-slate-100 text-slate-600")}>{position}</span>;
+        } },
         { id: "attendant", label: "Atendente", width: "28%", render: person =>
             <div className="min-w-0"><button type="button" className={"block truncate text-left font-semibold hover:text-brand " + (person.id === selected?.id ? "text-brand" : "")}
                 title={"Ver " + person.name} onClick={() => setSelectedId(person.id)}>{person.name}</button><span className="block truncate text-xs text-muted">{labelForSector(person.sector)}</span></div> },
@@ -147,11 +172,19 @@ export default function PerformancePage() {
                                     options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions.map(person => ({ label: person.name, value: person.id }))]} />
                                 <SearchFilter value={search} onChange={setSearch} placeholder="Buscar atendente" />
                                 <DropdownSelect value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
-                                    { value: "all", label: "Todas as equipes" }, { value: "ra", label: "Relacionamento (RA)" }, { value: "other", label: "Demais equipes" }
+                                    { value: "all", label: "Todas as equipes" }, { value: "ra", label: "RA" }, { value: "other", label: "Demais equipes" }
                                 ]} />
                             </div>
                         </div>
-                        <DataTable columns={columns} rows={ranked} getRowKey={row => row.id} onRowClick={person => setSelectedId(person.id)} emptyMessage="Nenhum atendente com atividade no período." />
+                        <DataTable columns={columns} rows={visibleRanked} getRowKey={row => row.id} onRowClick={person => setSelectedId(person.id)} emptyMessage="Nenhum atendente com atividade no período." />
+                        {rankingPages > 1 ? (
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 md:px-6">
+                                <span className="text-xs text-muted">
+                                    {rankingStart + 1}–{Math.min(rankingStart + RANKING_PAGE_SIZE, ranked.length)} de {number(ranked.length)} atendentes
+                                </span>
+                                <Pagination totalPages={rankingPages} currentPage={currentRankingPage} onPageChange={setRankingPage} activeTone="brand" />
+                            </div>
+                        ) : null}
                         <div className="flex flex-wrap justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-muted md:px-6">
                             <span><strong className="text-slate-700">{number(totals.tickets)}</strong> tickets · <strong className="text-slate-700">{number(totals.appointments)}</strong> consultas marcadas</span>
                             <span>{number(ranked.length)} atendentes com atividade · Score IA = média da nota de resolução (0–100)</span>
@@ -184,19 +217,21 @@ export default function PerformancePage() {
                         </Card>
                         <div className="grid min-w-0 gap-5 lg:grid-cols-2">
                             <Card className="min-w-0"><h3 className="text-lg font-bold">Evolução de tickets e consultas</h3><p className="mt-1 text-xs text-muted">Volume mensal de conversas e marcações</p>
+                                <ChartLegend items={[{ label: "Tickets", color: COLORS.brand }, { label: "Consultas", color: COLORS.green }]} />
                                 <div className="mt-5 h-72 min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{width: 500, height: 288}}>
                                     <ComposedChart data={chart} margin={{ top: 8, right: 10, bottom: 0, left: -20 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="month" axisLine={false} tickLine={false} fontSize={11} /><YAxis axisLine={false} tickLine={false} fontSize={11} />
-                                        <Tooltip formatter={value => number(Number(value))} /><Legend />
+                                        <Tooltip formatter={value => number(Number(value))} />
                                         <Area type="monotone" dataKey="tickets" name="Tickets" stroke={COLORS.brand} fill="#fce8e8" strokeWidth={2} />
                                         <Line type="monotone" dataKey="appointments" name="Consultas" stroke={COLORS.green} strokeWidth={2} dot={{r: 3}} />
                                     </ComposedChart></ResponsiveContainer></div>
                             </Card>
                             <Card className="min-w-0"><h3 className="text-lg font-bold">Evolução do tempo de resposta</h3><p className="mt-1 text-xs text-muted">Média em minutos (somente medições válidas)</p>
+                                <ChartLegend items={[{ label: "1ª resposta", color: COLORS.amber }, { label: "Resposta", color: COLORS.blue }]} />
                                 <div className="mt-5 h-72 min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{width: 500, height: 288}}>
                                     <LineChart data={chart} margin={{ top: 8, right: 10, bottom: 0, left: -20 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="month" axisLine={false} tickLine={false} fontSize={11} /><YAxis axisLine={false} tickLine={false} fontSize={11} unit=" min" />
-                                        <Tooltip formatter={value => value === null ? "—" : Number(value).toLocaleString("pt-BR") + " min"} /><Legend />
+                                        <Tooltip formatter={value => value === null ? "—" : Number(value).toLocaleString("pt-BR") + " min"} />
                                         <Line type="monotone" dataKey="firstMinutes" name="1ª resposta" stroke={COLORS.amber} strokeWidth={2} connectNulls={false} />
                                         <Line type="monotone" dataKey="responseMinutes" name="Resposta" stroke={COLORS.blue} strokeWidth={2} connectNulls={false} />
                                     </LineChart></ResponsiveContainer></div>
