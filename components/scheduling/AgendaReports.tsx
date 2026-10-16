@@ -54,7 +54,7 @@ function useAgendaReport(query: string, ready: boolean) {
     return { ...result, report: loading ? null : result.report, error: loading ? null : result.error, loading, refresh: () => setReload(value => value + 1) };
 }
 
-export default function AgendaReports({ unitIds, doctorIds, ready }: { unitIds: string[]; doctorIds: string[]; ready: boolean }) {
+export default function AgendaReports({ unitIds, doctorIds, units, doctors, ready }: { unitIds: string[]; doctorIds: string[]; units: Array<{ id: string; name: string }>; doctors: Array<{ id: string; name: string; unit_id: string }>; ready: boolean }) {
     const [date, setDate] = useState(today), [month, setMonth] = useState(() => today().slice(0, 7));
     const [exporting, setExporting] = useState(false), [exportError, setExportError] = useState<string | null>(null);
     const unitKey = [...unitIds].sort().join(","), doctorKey = [...doctorIds].sort().join(",");
@@ -71,7 +71,12 @@ export default function AgendaReports({ unitIds, doctorIds, ready }: { unitIds: 
     async function exportImage() {
         if (!daily.report) return;
         setExporting(true); setExportError(null);
-        try { await downloadDailyReport(daily.report); }
+        try {
+            const relevantUnits = units.filter(unit => (!unitIds.length || unitIds.includes(unit.id)) && (!doctorIds.length || doctors.some(doctor => doctor.unit_id === unit.id && doctorIds.includes(doctor.id))));
+            const unitScope = unitIds.length === 1 ? units.find(unit => unit.id === unitIds[0])?.name ?? "Unidade selecionada" : unitIds.length ? `${unitIds.length} unidades selecionadas` : "Todas as unidades";
+            const doctorScope = doctorIds.length === 1 ? doctors.find(doctor => doctor.id === doctorIds[0])?.name ?? "Médico selecionado" : doctorIds.length ? `${doctorIds.length} médicos selecionados` : "Todos os médicos";
+            await downloadDailyReport(daily.report, relevantUnits, `${unitScope} · ${doctorScope}`);
+        }
         catch { setExportError("Não foi possível gerar a imagem. Tente novamente."); }
         finally { setExporting(false); }
     }
@@ -151,26 +156,29 @@ function ReportTable({ title, columns, rows, note }: { title: string; columns: s
     const tableColumns: DataTableColumn<ReactNode[]>[] = columns.map((column, index) => ({ id: String(index), label: column, width: `${index === 0 ? 38 : 62 / (columns.length - 1)}%` as `${number}%`, align: index === 0 ? "left" : "center", render: row => <span className={`block text-xs leading-5 ${index === 0 ? "font-semibold" : "tabular-nums"}`}>{row[index]}</span> }));
     return <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title={title} /></div><DataTable columns={tableColumns} rows={rows} getRowKey={(_, index) => String(index)} emptyMessage="Nenhuma agenda disponível para estes filtros." />{note ? <p className="px-4 py-3 text-xs leading-5 text-muted md:px-6">{note}</p> : null}</Card>;
 }
-function dailyTables(report: OperationalAgendaReport) {
+function dailyTables(report: OperationalAgendaReport, units?: Array<{ id: string; name: string }>) {
     const days = (value: number | null, total: number) => value === null ? total ? "Sem vaga" : "Sem agenda vigente" : `${value} ${value === 1 ? "dia" : "dias"}`;
+    const entries = units?.length
+        ? units.map(unit => ({ name: unit.name, row: report.availability.find(row => row.unitId === unit.id) }))
+        : report.availability.map(row => ({ name: row.unitName, row }));
     return [
-        { title: "Tempo de espera", columns: ["Unidade", "1ª vaga", "Dia com 3+"], rows: report.availability.map(row => [row.unitName, days(row.firstWaitDays, row.total), days(row.threeWaitDays, row.total)]), note: "3+ vagas considera o total de horários livres dos médicos da unidade no mesmo dia." },
-        { title: "Próximas datas", columns: ["Unidade", "1ª data", "2ª data", "3ª data"], rows: report.availability.map(row => [row.unitName, ...Array.from({ length: 3 }, (_, index) => row.nextDates[index] ? shortDate(row.nextDates[index]) : "—")]) },
-        { title: "Disponibilidade semanal", columns: ["Unidade", "Atual", "+1 sem.", "+2 sem.", "+3 sem."], rows: report.availability.map(row => [row.unitName, ...row.weeks]) },
-        { title: "Próximos sábados", columns: ["Unidade", "Datas disponíveis"], rows: report.availability.map(row => [row.unitName, row.saturdays.length ? row.saturdays.map(item => `${shortDate(item.date)}${item.threeOrMore ? " (3+)" : ""}`).join(" · ") : row.servesSaturday ? "Sem vaga no período" : row.total ? "Não atende no período" : "Sem agenda vigente"]) },
+        { title: "Tempo de espera", columns: ["Unidade", "1ª vaga", "Dia com 3+"], rows: entries.map(({ name, row }) => [name, row ? days(row.firstWaitDays, row.total) : "Sem agenda vigente", row ? days(row.threeWaitDays, row.total) : "Sem agenda vigente"]), note: "3+ vagas considera o total de horários livres dos médicos da unidade no mesmo dia." },
+        { title: "Próximas datas", columns: ["Unidade", "1ª data", "2ª data", "3ª data"], rows: entries.map(({ name, row }) => [name, ...Array.from({ length: 3 }, (_, index) => row?.nextDates[index] ? shortDate(row.nextDates[index]) : "—")]) },
+        { title: "Disponibilidade semanal", columns: ["Unidade", "Atual", "+1 sem.", "+2 sem.", "+3 sem."], rows: entries.map(({ name, row }) => [name, ...(row?.weeks ?? [0, 0, 0, 0])]) },
+        { title: "Próximos sábados", columns: ["Unidade", "Datas disponíveis"], rows: entries.map(({ name, row }) => [name, !row ? "Sem agenda vigente" : row.saturdays.length ? row.saturdays.map(item => `${shortDate(item.date)}${item.threeOrMore ? " (3+)" : ""}`).join(" · ") : row.servesSaturday ? "Sem vaga no período" : row.total ? "Não atende no período" : "Sem agenda vigente"]) },
     ];
 }
 function DailyReport({ report }: { report: OperationalAgendaReport }) {
     return <div className="min-w-0 space-y-3"><div className="grid min-w-0 gap-5 lg:grid-cols-2">{AGENDA_AVAILABILITY_WIDGETS.map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaReportWidget widgetId={widget.id} report={report} /></DashboardWidget>)}</div><p className="text-xs text-muted">Atualizado em {new Date(report.generatedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · Busca até {shortDate(report.horizonEnd)}</p></div>;
 }
-async function downloadDailyReport(report: OperationalAgendaReport) {
+async function downloadDailyReport(report: OperationalAgendaReport, units: Array<{ id: string; name: string }>, scope: string) {
     const logo = new Image();
     logo.src = "/logo.png";
     await logo.decode();
     await document.fonts.ready;
     const canvas = document.createElement("canvas");
-    const tables = dailyTables(report).map(table => ({ title: table.title, columns: table.columns, rows: table.rows.map(row => row.map(String)) }));
-    if (!renderAgendaReportImage(canvas, { ...report, tables }, { image: logo, width: logo.naturalWidth, height: logo.naturalHeight }, getComputedStyle(document.body).fontFamily)) throw new Error("Canvas indisponível");
+    const tables = dailyTables(report, units).map(table => ({ title: table.title, columns: table.columns, rows: table.rows.map(row => row.map(String)) }));
+    if (!renderAgendaReportImage(canvas, { ...report, tables, scope }, { image: logo, width: logo.naturalWidth, height: logo.naturalHeight }, getComputedStyle(document.body).fontFamily)) throw new Error("Canvas indisponível");
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("Imagem indisponível")), "image/jpeg", 0.95));
     const url = URL.createObjectURL(blob), link = document.createElement("a");
     link.href = url; link.download = `agenda-${report.reportDate}.jpg`; link.click();

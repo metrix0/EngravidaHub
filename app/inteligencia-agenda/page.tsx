@@ -66,7 +66,7 @@ export default function AgendaIntelligencePage() {
         <section id="agenda-inteligencia">
             <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
         </section>
-        <AgendaReports unitIds={scopedUnitIds} doctorIds={doctorIds} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} />
+        <AgendaReports unitIds={scopedUnitIds} doctorIds={doctorIds} units={units} doctors={doctors} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} />
         </section>
     </main>;
 }
