@@ -32,12 +32,16 @@ export async function GET(request: Request) {
                 try {
                     const procedure = pickProcedure(agenda.procedures);
                     if (!procedure) throw new Error("No registered procedures");
-                    const slots = await listClinisysAvailabilityByAgenda({
-                        agendaId: agenda.external_id,
-                        procedureId: procedure.id,
-                        dateFrom: from,
-                        dateTo: to,
-                    });
+                    const slots = [];
+                    for (let offset = 0; offset <= 30; offset += 15) {
+                        const dateFrom = new Date(Date.parse(`${from}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+                        const dateTo = new Date(Date.parse(`${from}T12:00:00Z`) + Math.min(offset + 14, 30) * 86_400_000).toISOString().slice(0, 10);
+                        slots.push(...await listClinisysAvailabilityByAgenda({
+                            agendaId: agenda.external_id,
+                            procedureId: procedure.id,
+                            dateFrom, dateTo,
+                        }));
+                    }
                     const safeSlots = slots.filter(slot =>
                         typeof slot.data === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(slot.data) &&
                         typeof slot.inicio === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot.inicio) &&
