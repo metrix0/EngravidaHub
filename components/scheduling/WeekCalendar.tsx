@@ -8,10 +8,11 @@ import {
     type MouseEvent,
     type PointerEvent,
 } from "react";
-import { LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
 import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
@@ -63,6 +64,7 @@ type Confirm = {
 
 export default function WeekCalendar(props: Props) {
     const [resize, setResize] = useState<{ id: string; end: string } | null>(null);
+    const [expandedGroup, setExpandedGroup] = useState<CalendarAppointment[] | null>(null);
     const [hovered, setHovered] = useState<string | null>(null);
     const [cursorGuide, setCursorGuide] = useState<{
         dayKey: string;
@@ -102,13 +104,19 @@ export default function WeekCalendar(props: Props) {
         return grouped;
     }, [props.appointments]);
 
-    const appointmentLanesByDay = useMemo(() => {
-        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
-        appointmentsByDay.forEach((items, day) => result.set(day, layoutConcurrentEvents(
-            items.map(item => ({ id: item.id, start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) })),
-        )));
+    const groupedAppointmentsByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof splitAppointmentGroups>>();
+        appointmentsByDay.forEach((items, day) => result.set(day, splitAppointmentGroups(items)));
         return result;
     }, [appointmentsByDay]);
+
+    const appointmentLanesByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
+        groupedAppointmentsByDay.forEach(({ individual }, day) => result.set(day, layoutConcurrentEvents(
+            individual.map(item => ({ id: item.id, start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) })),
+        )));
+        return result;
+    }, [groupedAppointmentsByDay]);
 
     const freeSlotLanesByDay = useMemo(() => {
         const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
@@ -405,8 +413,8 @@ export default function WeekCalendar(props: Props) {
 
                             {props.weekDays.map((day) => {
                                 const dayKey = formatLocalDateKey(day);
-                                const appointments =
-                                    appointmentsByDay.get(dayKey) ?? [];
+                                const { individual: appointments, groups: appointmentGroups } =
+                                    groupedAppointmentsByDay.get(dayKey) ?? { individual: [], groups: [] };
 
                                 return (
                                     <div
@@ -469,9 +477,57 @@ export default function WeekCalendar(props: Props) {
                                                 className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
                                                 style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(1, slot.durationMinutes / 60 * HOUR_HEIGHT - 2), left: `calc(${lane.column / lane.columns * 100}% + 4px)`, right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`, zIndex: hovered === slot.id ? 20 : 5 + lane.column, backgroundColor: AGENDA_COLORS.available }}>
                                                 <div className="text-[10px] font-bold leading-tight opacity-90">{time(slot.startsAt)}–{time(slot.endsAt)}</div>
-                                                <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
-                                                <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div>
+                                                <div className="mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
+                                                {slot.durationMinutes >= 30 ? <div className="mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div> : null}
                                             </button>;
+                                        })}
+                                        {appointmentGroups.map(group => {
+                                            const start = minutes(group.startsAt);
+                                            const end = minutes(group.endsAt);
+                                            return (
+                                                <div
+                                                    key={group.id}
+                                                    className="absolute z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                    style={{
+                                                        top: Math.max(0, (start - START_HOUR * 60) / 60 * HOUR_HEIGHT),
+                                                        height: Math.max(1, (end - start) / 60 * HOUR_HEIGHT - 2),
+                                                        left: 4,
+                                                        right: 4,
+                                                    }}
+                                                >
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[360px]"
+                                                        text={
+                                                            <span className="block max-h-72 overflow-y-auto">
+                                                                <span className="mb-2 block font-bold text-slate-800">{group.appointments.length} agendamentos</span>
+                                                                {group.appointments.map(appointment => (
+                                                                    <span key={appointment.id} className="flex gap-2 border-t border-slate-100 py-1.5">
+                                                                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: appointmentColor(appointment) }} />
+                                                                        <span className="min-w-0">
+                                                                            <span className="block font-semibold">{time(appointment.starts_at)}–{time(appointment.ends_at)} · {appointment.doctor?.name ?? "Sem médico"}</span>
+                                                                            <span className="block break-words">{appointment.patient_name}</span>
+                                                                        </span>
+                                                                    </span>
+                                                                ))}
+                                                            </span>
+                                                        }
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`${group.appointments.length} agendamentos entre ${time(group.startsAt)} e ${time(group.endsAt)}. Clique para ver todos.`}
+                                                            onClick={() => setExpandedGroup(group.appointments)}
+                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center gap-1 overflow-hidden rounded-lg border border-white/70 bg-slate-600 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
+                                                        >
+                                                            <span className="text-[10px] font-bold">{time(group.startsAt)}–{time(group.endsAt)}</span>
+                                                            <span className="flex w-full items-center justify-between gap-1 text-[11px] font-bold">
+                                                                <span>{group.appointments.length} agendamentos</span>
+                                                                <ChevronRight size={14} className="shrink-0" />
+                                                            </span>
+                                                        </button>
+                                                    </InfoTooltip>
+                                                </div>
+                                            );
                                         })}
                                         {appointments.map((appointment) => {
                                             const endsAt =
@@ -611,6 +667,42 @@ export default function WeekCalendar(props: Props) {
                     </div>
                 )}
             </div>
+
+            <Modal
+                open={expandedGroup !== null}
+                onClose={() => setExpandedGroup(null)}
+                width={540}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                <div className="pr-10">
+                    <h2 className="text-lg font-bold text-slate-950">Agendamentos no período</h2>
+                    <p className="mt-1 text-sm text-slate-500">Selecione um agendamento para abrir os detalhes.</p>
+                </div>
+                <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
+                    {expandedGroup?.map(appointment => (
+                        <button
+                            key={appointment.id}
+                            type="button"
+                            onClick={() => {
+                                setExpandedGroup(null);
+                                props.onSelectAppointment(appointment);
+                            }}
+                            className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                        >
+                            <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: appointmentColor(appointment) }} />
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-xs font-semibold text-slate-500">{time(appointment.starts_at)}–{time(appointment.ends_at)} · {bookingTeamLabel(appointment.booking_team)}</span>
+                                <span className="mt-1 block break-words text-sm font-bold text-slate-900">{appointment.doctor?.name ?? "Sem médico"}</span>
+                                <span className="block break-words text-sm text-slate-600">{appointment.patient_name}</span>
+                            </span>
+                            <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
+                        </button>
+                    ))}
+                </div>
+            </Modal>
 
             <Modal
                 open={!!confirm}
@@ -847,6 +939,61 @@ function groupAgendaBlocks(blocks: AgendaBlock[]) {
         }
     }
     return byDay;
+}
+
+function appointmentColor(appointment: CalendarAppointment) {
+    return appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
+}
+
+type AppointmentGroup = {
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    appointments: CalendarAppointment[];
+};
+
+function splitAppointmentGroups(appointments: CalendarAppointment[]) {
+    const groups: AppointmentGroup[] = [];
+    const individual: CalendarAppointment[] = [];
+    let current: CalendarAppointment[] = [];
+    let activeEnds: number[] = [];
+    let currentEnd = -Infinity;
+    let maximumConcurrent = 0;
+
+    function finish() {
+        if (!current.length) return;
+        if (maximumConcurrent >= 3) {
+            const endsAt = current.reduce(
+                (latest, item) => Date.parse(item.ends_at) > Date.parse(latest) ? item.ends_at : latest,
+                current[0].ends_at,
+            );
+            groups.push({
+                id: `group:${current[0].id}`,
+                startsAt: current[0].starts_at,
+                endsAt,
+                appointments: current,
+            });
+        } else {
+            individual.push(...current);
+        }
+        current = [];
+        activeEnds = [];
+        currentEnd = -Infinity;
+        maximumConcurrent = 0;
+    }
+
+    for (const appointment of appointments) {
+        const startsAt = Date.parse(appointment.starts_at);
+        const endsAt = Date.parse(appointment.ends_at);
+        if (current.length && startsAt >= currentEnd) finish();
+        activeEnds = activeEnds.filter(end => end > startsAt);
+        activeEnds.push(endsAt);
+        maximumConcurrent = Math.max(maximumConcurrent, activeEnds.length);
+        currentEnd = Math.max(currentEnd, endsAt);
+        current.push(appointment);
+    }
+    finish();
+    return { groups, individual };
 }
 
 function layoutConcurrentEvents(events: Array<{ id: string; start: number; end: number }>) {
