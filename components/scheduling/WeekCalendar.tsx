@@ -65,6 +65,7 @@ type Confirm = {
 export default function WeekCalendar(props: Props) {
     const [resize, setResize] = useState<{ id: string; end: string } | null>(null);
     const [expandedGroup, setExpandedGroup] = useState<CalendarAppointment[] | null>(null);
+    const [expandedFreeSlots, setExpandedFreeSlots] = useState<AgendaFreeSlot[] | null>(null);
     const [hovered, setHovered] = useState<string | null>(null);
     const [cursorGuide, setCursorGuide] = useState<{
         dayKey: string;
@@ -118,11 +119,9 @@ export default function WeekCalendar(props: Props) {
         return result;
     }, [groupedAppointmentsByDay]);
 
-    const freeSlotLanesByDay = useMemo(() => {
-        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
-        freeSlotsByDay.forEach((items, day) => result.set(day, layoutConcurrentEvents(
-            items.map(item => ({ id: item.id, start: Date.parse(item.startsAt), end: Date.parse(item.endsAt) })),
-        )));
+    const freeSlotGroupsByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof groupFreeSlotStarts>>();
+        freeSlotsByDay.forEach((items, day) => result.set(day, groupFreeSlotStarts(items)));
         return result;
     }, [freeSlotsByDay]);
 
@@ -466,20 +465,71 @@ export default function WeekCalendar(props: Props) {
                                                 </div>
                                             );
                                         })}
-                                        {(freeSlotsByDay.get(dayKey) ?? []).map(slot => {
-                                            const lane = freeSlotLanesByDay.get(dayKey)?.get(slot.id) ?? { column: 0, columns: 1 };
-                                            const load = loads.get(`${slot.unitId}:${slot.doctorId}`);
-                                            const loadLabel = load ? `${load.total} vagas brutas · ${load.available} livres · ${percent(load.occupancy)} ocupação` : "";
-                                            const label = `${time(slot.startsAt)}–${time(slot.endsAt)} · ${formatDoctorName(slot.doctorName)} · ${slot.unitName}${loadLabel ? ` · ${loadLabel}` : ""}`;
-                                            return <button key={slot.id} type="button" onClick={() => props.onSelectFreeSlot?.(slot)}
-                                                aria-label={`Agendar ${label}`} title={label}
-                                                onMouseEnter={() => setHovered(slot.id)} onMouseLeave={() => setHovered(current => current === slot.id ? null : current)}
-                                                className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
-                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(1, slot.durationMinutes / 60 * HOUR_HEIGHT - 2), left: `calc(${lane.column / lane.columns * 100}% + 4px)`, right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`, zIndex: hovered === slot.id ? 20 : 5 + lane.column, backgroundColor: AGENDA_COLORS.available }}>
-                                                <div className="text-[10px] font-bold leading-tight opacity-90">{time(slot.startsAt)}–{time(slot.endsAt)}</div>
-                                                <div className="mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
-                                                {slot.durationMinutes >= 30 ? <div className="mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div> : null}
-                                            </button>;
+                                        {(freeSlotGroupsByDay.get(dayKey) ?? []).map(group => {
+                                            const first = group.slots[0];
+                                            const single = group.slots.length === 1;
+                                            const load = loads.get(`${first.unitId}:${first.doctorId}`);
+                                            return (
+                                                <div
+                                                    key={group.id}
+                                                    className="absolute left-1 right-1 z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                    style={{
+                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT,
+                                                        height: HOUR_HEIGHT / 2 - 2,
+                                                    }}
+                                                >
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[380px]"
+                                                        text={
+                                                            <span className="block max-h-72 overflow-y-auto">
+                                                                <span className="mb-2 block font-bold text-slate-800">
+                                                                    {group.slots.length} {group.slots.length === 1 ? "horário livre" : "horários livres"}
+                                                                </span>
+                                                                {group.slots.map(slot => {
+                                                                    const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                                                                    return (
+                                                                        <span key={slot.id} className="block border-t border-slate-100 py-1.5">
+                                                                            <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
+                                                                            <span className="block break-words">{slot.unitName}{capacity ? ` · ${percent(capacity.occupancy)} ocupação · ${capacity.available}/${capacity.total} vagas` : ""}</span>
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </span>
+                                                        }
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (single) props.onSelectFreeSlot?.(first);
+                                                                else setExpandedFreeSlots(group.slots);
+                                                            }}
+                                                            aria-label={single
+                                                                ? `Agendar ${time(first.startsAt)}–${time(first.endsAt)} · ${first.doctorName}`
+                                                                : `Ver ${group.slots.length} horários livres com início entre ${minuteLabel(group.startMinutes)} e ${minuteLabel(group.startMinutes + 29)}`}
+                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
+                                                            style={{ backgroundColor: AGENDA_COLORS.available }}
+                                                        >
+                                                            <span className="block text-[10px] font-bold leading-tight">
+                                                                {single ? `${time(first.startsAt)}–${time(first.endsAt)}` : `Inícios ${minuteLabel(group.startMinutes)}–${minuteLabel(group.startMinutes + 29)}`}
+                                                            </span>
+                                                            {single ? (
+                                                                <>
+                                                                    <span className="mt-0.5 block whitespace-normal break-words text-[11px] font-bold leading-tight">
+                                                                        {formatDoctorName(first.doctorName)}
+                                                                    </span>
+                                                                    {load ? <span className="mt-0.5 block text-[10px] font-semibold leading-tight">{percent(load.occupancy)} · {load.available}/{load.total} vagas</span> : null}
+                                                                </>
+                                                            ) : (
+                                                                <span className="mt-0.5 flex w-full items-center justify-between gap-1 text-[11px] font-bold leading-tight">
+                                                                    <span>{group.slots.length} horários livres</span>
+                                                                    <ChevronRight size={14} className="shrink-0" />
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                                    </InfoTooltip>
+                                                </div>
+                                            );
                                         })}
                                         {appointmentGroups.map(group => {
                                             const start = minutes(group.startsAt);
@@ -561,7 +611,6 @@ export default function WeekCalendar(props: Props) {
                                             return (
                                                 <div
                                                     key={appointment.id}
-                                                    title={`${bookingTeamLabel(appointment.booking_team)} · ${appointment.patient_name}`}
                                                     draggable
                                                     onDragStart={(event) => {
                                                         event.dataTransfer.effectAllowed =
@@ -589,7 +638,7 @@ export default function WeekCalendar(props: Props) {
                                                             appointment,
                                                         )
                                                     }
-                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing ${
+                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full ${
                                                         isSelected
                                                             ? "ring-2 ring-slate-950/20"
                                                             : ""
@@ -608,7 +657,19 @@ export default function WeekCalendar(props: Props) {
                                                             appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
-                                                    <button
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[340px]"
+                                                        text={
+                                                            <span className="block space-y-1 break-words">
+                                                                <span className="block font-bold text-slate-800">{time(appointment.starts_at)}–{time(endsAt)} · {bookingTeamLabel(appointment.booking_team)}</span>
+                                                                <span className="block font-semibold">{appointment.doctor?.name ?? "Sem médico"}</span>
+                                                                <span className="block">{appointment.patient_name}</span>
+                                                            </span>
+                                                        }
+                                                    >
+                                                        <span className="relative block h-full w-full">
+                                                            <button
                                                         type="button"
                                                         onClick={(event) => {
                                                             event.stopPropagation();
@@ -629,22 +690,22 @@ export default function WeekCalendar(props: Props) {
                                                         <Trash2 size={12} />
                                                     </button>
 
-                                                    <div className="pr-5 text-[10px] font-bold leading-tight opacity-90">
+                                                    <span className="block pr-5 text-[10px] font-bold leading-tight opacity-90">
                                                         {time(
                                                             appointment.starts_at,
                                                         )}
                                                         –{time(endsAt)}
-                                                    </div>
-                                                    <div className="mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
+                                                    </span>
+                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
                                                         {appointment.doctor
                                                             ?.name ??
                                                             "Sem médico"}
-                                                    </div>
-                                                    <div className="mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
+                                                    </span>
+                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
                                                         {
                                                             appointment.patient_name
                                                         }
-                                                    </div>
+                                                    </span>
                                                     <button
                                                         type="button"
                                                         aria-label="Redimensionar agendamento"
@@ -657,6 +718,8 @@ export default function WeekCalendar(props: Props) {
                                                         }
                                                         className="absolute bottom-0 left-0 h-2 w-full cursor-ns-resize bg-transparent"
                                                     />
+                                                        </span>
+                                                    </InfoTooltip>
                                                 </div>
                                             );
                                         })}
@@ -667,6 +730,45 @@ export default function WeekCalendar(props: Props) {
                     </div>
                 )}
             </div>
+
+            <Modal
+                open={expandedFreeSlots !== null}
+                onClose={() => setExpandedFreeSlots(null)}
+                width={540}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                <div className="pr-10">
+                    <h2 className="text-lg font-bold text-slate-950">Horários livres</h2>
+                    <p className="mt-1 text-sm text-slate-500">Selecione o médico e horário para agendar.</p>
+                </div>
+                <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
+                    {expandedFreeSlots?.map(slot => {
+                        const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                        return (
+                            <button
+                                key={slot.id}
+                                type="button"
+                                onClick={() => {
+                                    setExpandedFreeSlots(null);
+                                    props.onSelectFreeSlot?.(slot);
+                                }}
+                                className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                            >
+                                <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AGENDA_COLORS.available }} />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-xs font-semibold text-slate-500">{time(slot.startsAt)}–{time(slot.endsAt)} · {slot.unitName}</span>
+                                    <span className="mt-1 block break-words text-sm font-bold text-slate-900">{formatDoctorName(slot.doctorName)}</span>
+                                    {capacity ? <span className="block text-xs text-slate-600">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
+                                </span>
+                                <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
+                            </button>
+                        );
+                    })}
+                </div>
+            </Modal>
 
             <Modal
                 open={expandedGroup !== null}
@@ -941,6 +1043,17 @@ function groupAgendaBlocks(blocks: AgendaBlock[]) {
     return byDay;
 }
 
+function groupFreeSlotStarts(slots: AgendaFreeSlot[]) {
+    const groups = new Map<number, { id: string; startMinutes: number; slots: AgendaFreeSlot[] }>();
+    for (const slot of slots) {
+        const startMinutes = Math.floor(minutes(slot.startsAt) / 30) * 30;
+        const group = groups.get(startMinutes);
+        if (group) group.slots.push(slot);
+        else groups.set(startMinutes, { id: `free-start:${slot.date}:${startMinutes}`, startMinutes, slots: [slot] });
+    }
+    return [...groups.values()].sort((a, b) => a.startMinutes - b.startMinutes);
+}
+
 function appointmentColor(appointment: CalendarAppointment) {
     return appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
 }
@@ -962,7 +1075,7 @@ function splitAppointmentGroups(appointments: CalendarAppointment[]) {
 
     function finish() {
         if (!current.length) return;
-        if (maximumConcurrent >= 3) {
+        if (maximumConcurrent >= 3 || (maximumConcurrent === 2 && current.some(item => Date.parse(item.ends_at) - Date.parse(item.starts_at) <= 30 * 60_000))) {
             const endsAt = current.reduce(
                 (latest, item) => Date.parse(item.ends_at) > Date.parse(latest) ? item.ends_at : latest,
                 current[0].ends_at,
