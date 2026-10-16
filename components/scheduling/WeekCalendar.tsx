@@ -24,7 +24,7 @@ import type {
 
 const START_HOUR = 7;
 const END_HOUR = 20;
-const HOUR_HEIGHT = 144;
+const HOUR_HEIGHT = 176;
 const CALENDAR_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 const TZ = "America/Sao_Paulo";
 
@@ -474,8 +474,8 @@ export default function WeekCalendar(props: Props) {
                                                     key={group.id}
                                                     className="absolute left-1 right-1 z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
                                                     style={{
-                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT,
-                                                        height: HOUR_HEIGHT / 2 - 2,
+                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3,
+                                                        height: HOUR_HEIGHT / 2 - 6,
                                                     }}
                                                 >
                                                     <InfoTooltip
@@ -539,8 +539,8 @@ export default function WeekCalendar(props: Props) {
                                                     key={group.id}
                                                     className="absolute z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
                                                     style={{
-                                                        top: Math.max(0, (start - START_HOUR * 60) / 60 * HOUR_HEIGHT),
-                                                        height: Math.max(1, (end - start) / 60 * HOUR_HEIGHT - 2),
+                                                        top: Math.max(0, (start - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3),
+                                                        height: Math.max(1, (end - start) / 60 * HOUR_HEIGHT - 6),
                                                         left: 4,
                                                         right: 4,
                                                     }}
@@ -567,7 +567,7 @@ export default function WeekCalendar(props: Props) {
                                                             type="button"
                                                             aria-label={`${group.appointments.length} agendamentos entre ${time(group.startsAt)} e ${time(group.endsAt)}. Clique para ver todos.`}
                                                             onClick={() => setExpandedGroup(group.appointments)}
-                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center gap-1 overflow-hidden rounded-lg border border-white/70 bg-slate-600 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
+                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center gap-0.5 overflow-hidden rounded-lg border border-white/70 bg-slate-600 px-2 py-1 text-left text-white shadow-sm transition hover:shadow-md"
                                                         >
                                                             <span className="text-[10px] font-bold">{time(group.startsAt)}–{time(group.endsAt)}</span>
                                                             <span className="flex w-full items-center justify-between gap-1 text-[11px] font-bold">
@@ -595,12 +595,10 @@ export default function WeekCalendar(props: Props) {
                                                     60) *
                                                 HOUR_HEIGHT;
                                             const height = Math.max(
-                                                ((endsAtMinutes -
-                                                    startsAtMinutes) /
-                                                    60) *
-                                                    HOUR_HEIGHT,
                                                 1,
-                                            ) - 2;
+                                                ((endsAtMinutes - startsAtMinutes) / 60) * HOUR_HEIGHT - 6,
+                                            );
+                                            const compact = endsAtMinutes - startsAtMinutes <= 15;
                                             const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
@@ -638,13 +636,13 @@ export default function WeekCalendar(props: Props) {
                                                             appointment,
                                                         )
                                                     }
-                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full ${
+                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full ${
                                                         isSelected
                                                             ? "ring-2 ring-slate-950/20"
                                                             : ""
                                                     }`}
                                                     style={{
-                                                        top: Math.max(0, top),
+                                                        top: Math.max(0, top + 3),
                                                         height,
                                                         left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
                                                         right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
@@ -701,11 +699,11 @@ export default function WeekCalendar(props: Props) {
                                                             ?.name ??
                                                             "Sem médico"}
                                                     </span>
-                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
-                                                        {
-                                                            appointment.patient_name
-                                                        }
-                                                    </span>
+                                                    {!compact ? (
+                                                        <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
+                                                            {appointment.patient_name}
+                                                        </span>
+                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         aria-label="Redimensionar agendamento"
