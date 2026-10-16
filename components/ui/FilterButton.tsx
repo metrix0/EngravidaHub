@@ -40,6 +40,7 @@ export default function FilterButton({
     const [draftValues, setDraftValues] = useState<string[]>(appliedValues);
 
     const allOptionValues = options.map((option) => option.value);
+    const dropdownOptions = singleSelect ? [{ label, value: "" }, ...options] : options;
 
     const allApplied =
         appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
@@ -100,7 +101,7 @@ export default function FilterButton({
 
     function toggleOption(value: string) {
         if (singleSelect) {
-            updateAppliedValues(appliedValues.includes(value) ? [] : [value]);
+            updateAppliedValues(!value || appliedValues.includes(value) ? [] : [value]);
             setOpen(false);
             return;
         }
@@ -182,8 +183,10 @@ export default function FilterButton({
                 }}
             >
                 <div className="max-h-72 overflow-y-auto py-1">
-                    {options.map((option) => {
-                        const selected = allDraftSelected || draftValues.includes(option.value);
+                    {dropdownOptions.map((option) => {
+                        const selected = singleSelect
+                            ? option.value === "" ? appliedValues.length === 0 : appliedValues.includes(option.value)
+                            : allDraftSelected || draftValues.includes(option.value);
 
                         return (
                             <div
