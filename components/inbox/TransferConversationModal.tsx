@@ -124,7 +124,7 @@ export default function TransferConversationModal({
                         Atendente
                     </label>
                 </fieldset>
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1">
                     <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                         {mode === "queue" ? "Selecionar fila" : "Selecionar atendente"}
                     </label>
@@ -139,7 +139,6 @@ export default function TransferConversationModal({
                         icon={<Search size={16} />}
                         widthClassName="w-full"
                         dropdownWidthClassName="w-full"
-                        contained
                         disabled={loading || submitting}
                         loading={loading}
                     />
