@@ -27,7 +27,7 @@ async function loadRows(
                 .order(orderBy, { ascending: true })
                 .range(offset, offset + PAGE_SIZE - 1);
             if (error) throw error;
-            const page = (data ?? []) as JourneyRow[];
+            const page = (data ?? []) as unknown as JourneyRow[];
             rows.push(...page);
             if (page.length < PAGE_SIZE) break;
             if (offset + PAGE_SIZE >= MAX_PER_SOURCE) partial = true;
