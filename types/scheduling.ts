@@ -95,6 +95,7 @@ export type AppointmentStatus =
     | "no_show";
 
 export type CalendarAppointment = {
+    booking_team?: "ra" | "unit" | null;
     id: string;
     source: string;
     source_external_id: string | null;

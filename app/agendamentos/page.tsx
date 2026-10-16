@@ -4,9 +4,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     CalendarCheck,
+    ChartNoAxesCombined,
     ChevronLeft,
     ChevronRight,
+    Clock3,
     MapPin,
+    Info,
     RefreshCw,
     Search,
     Stethoscope,
@@ -19,8 +22,14 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
+import SingleFilterButton from "@/components/ui/SingleFilterButton";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
+import AgendaIndicators, { AGENDA_NOTE_COLOR, AgendaLegend } from "@/components/scheduling/AgendaIndicators";
+import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
+import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import WeekCalendar, {
     formatLocalDateKey,
 } from "@/components/scheduling/WeekCalendar";
@@ -54,9 +63,18 @@ export default function AppointmentsPage() {
     const [doctors, setDoctors] = useState<SchedulingDoctorOption[]>([]);
     const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
     const [notes, setNotes] = useState<AppointmentDayNote[]>([]);
+    const [noteDialog, setNoteDialog] = useState<{ dateKey: string; note?: AppointmentDayNote } | null>(null);
+    const [noteSaving, setNoteSaving] = useState(false);
+    const [noteError, setNoteError] = useState<string | null>(null);
     const [selectedAppointmentId, setSelectedAppointmentId] =
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
+    const [freeOnly, setFreeOnly] = useState(false);
+    const [metricsOpen, setMetricsOpen] = useState(false);
+    const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
+    const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
+    const [loadingReport, setLoadingReport] = useState(true);
+    const [reportError, setReportError] = useState<string | null>(null);
 
     const [unitValues, setUnitValues] = useState<string[]>(() =>
         lockedUnitId ? [lockedUnitId] : [],
@@ -245,6 +263,25 @@ export default function AppointmentsPage() {
     }, [loadCalendar, reloadKey]);
 
     useEffect(() => {
+        const controller = new AbortController();
+        const params = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+        unitValues.forEach(id => params.append("unit_ids", id));
+        doctorValues.forEach(id => params.append("doctor_ids", id));
+        setLoadingReport(true); setReportError(null);
+        void (async () => {
+            try {
+                const response = await fetch(`/api/scheduling/reports?${params}`, { cache: "no-store", signal: controller.signal });
+                const json = await response.json();
+                if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar os indicadores e horários livres.");
+                if (!controller.signal.aborted) setAgendaReport(json.report);
+            } catch (error) {
+                if (!controller.signal.aborted) { setAgendaReport(null); setReportError(error instanceof Error ? error.message : "Não foi possível carregar os indicadores e horários livres."); }
+            } finally { if (!controller.signal.aborted) setLoadingReport(false); }
+        })();
+        return () => controller.abort();
+    }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
         function handleAppointmentChanged() {
             setReloadKey((current) => current + 1);
         }
@@ -311,6 +348,7 @@ export default function AppointmentsPage() {
             setAppointments((current) =>
                 current.map((item) => (item.id === saved.id ? saved : item)),
             );
+            setReloadKey(current => current + 1);
             return saved;
         } catch (updateError) {
             if (optimisticPatch) {
@@ -399,6 +437,7 @@ export default function AppointmentsPage() {
             setSelectedAppointmentId((current) =>
                 current === appointment.id ? null : current,
             );
+            setReloadKey(current => current + 1);
         } catch (deleteError) {
             setAppointments(previous);
             throw deleteError;
@@ -406,64 +445,68 @@ export default function AppointmentsPage() {
     }
 
     async function handleAddNote(dateKey: string) {
-        const text = window.prompt("Nota para este dia:");
-        if (!text?.trim()) return;
-
-        try {
-            const response = await fetch("/api/scheduling/day-notes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    noteDate: dateKey,
-                    unitId: unitValues.length === 1 ? unitValues[0] : null,
-                    doctorId:
-                        doctorValues.length === 1 ? doctorValues[0] : null,
-                    text: text.trim(),
-                    color: "#f59e0b",
-                }),
-            });
-            const json = await response.json();
-            if (!response.ok) {
-                throw new Error(json?.error ?? "Não foi possível criar a nota.");
-            }
-            setNotes((current) => [...current, json.note]);
-        } catch (noteError) {
-            window.alert(
-                noteError instanceof Error
-                    ? noteError.message
-                    : "Não foi possível criar a nota.",
-            );
-        }
+        setNoteDialog({ dateKey });
+        setNoteError(null);
     }
 
     async function handleEditNote(note: AppointmentDayNote) {
-        const text = window.prompt("Editar nota:", note.text);
-        if (!text?.trim() || text.trim() === note.text) return;
+        setNoteDialog({ dateKey: note.note_date, note });
+        setNoteError(null);
+    }
 
+    async function handleSaveNote(value: string) {
+        if (!noteDialog || noteSaving) return;
+        const text = value.trim();
+        if (!text || text.length > 500 || text === noteDialog.note?.text) return;
+
+        setNoteSaving(true);
+        setNoteError(null);
         try {
-            const response = await fetch(
-                `/api/scheduling/day-notes/${note.id}`,
-                {
-                    method: "PATCH",
+            if (noteDialog.note) {
+                const response = await fetch(
+                    `/api/scheduling/day-notes/${noteDialog.note.id}`,
+                    {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text }),
+                    },
+                );
+                const json = await response.json();
+                if (!response.ok) {
+                    throw new Error(json?.error ?? "Não foi possível editar a nota.");
+                }
+                setNotes((current) =>
+                    current.map((item) =>
+                        item.id === noteDialog.note?.id ? json.note : item,
+                    ),
+                );
+            } else {
+                const response = await fetch("/api/scheduling/day-notes", {
+                    method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ text: text.trim() }),
-                },
-            );
-            const json = await response.json();
-            if (!response.ok) {
-                throw new Error(json?.error ?? "Não foi possível editar a nota.");
+                    body: JSON.stringify({
+                        noteDate: noteDialog.dateKey,
+                        unitId: unitValues.length === 1 ? unitValues[0] : null,
+                        doctorId: doctorValues.length === 1 ? doctorValues[0] : null,
+                        text,
+                        color: AGENDA_NOTE_COLOR,
+                    }),
+                });
+                const json = await response.json();
+                if (!response.ok) {
+                    throw new Error(json?.error ?? "Não foi possível criar a nota.");
+                }
+                setNotes((current) => [...current, json.note]);
             }
-            setNotes((current) =>
-                current.map((item) =>
-                    item.id === note.id ? json.note : item,
-                ),
+            setNoteDialog(null);
+        } catch (error) {
+            setNoteError(
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível salvar a nota.",
             );
-        } catch (noteError) {
-            window.alert(
-                noteError instanceof Error
-                    ? noteError.message
-                    : "Não foi possível editar a nota.",
-            );
+        } finally {
+            setNoteSaving(false);
         }
     }
 
@@ -505,8 +548,8 @@ export default function AppointmentsPage() {
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-3 py-4 sm:px-4 md:px-7 md:py-7">
-                <header className="mb-5 flex shrink-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+            <section className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
+                <header className="mb-5 flex shrink-0 flex-col gap-4 px-2 sm:px-3 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                             Agendamentos
@@ -519,12 +562,14 @@ export default function AppointmentsPage() {
                     <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap">
                         <button
                             type="button"
-                            onClick={() => setSchedulingPanelOpen(true)}
+                            onClick={() => { setInitialSlot(null); setSchedulingPanelOpen(true); }}
                             className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand/90"
                         >
                             <CalendarCheck size={17} />
                             Agendar
                         </button>
+                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`flex h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}><Clock3 size={17} />Horários Livres</button>
+                        <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
                             onClick={() => setWeekStart(startOfWeekSunday(new Date()))}
@@ -565,8 +610,8 @@ export default function AppointmentsPage() {
                     </div>
                 </header>
 
-                <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
-                    <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-sm">
+                <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3 px-2 sm:px-3">
+                    <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm transition focus-within:ring-2 focus-within:ring-brand/30">
                         <Search size={17} className="shrink-0 text-slate-400" />
                         <input
                             value={search}
@@ -583,7 +628,7 @@ export default function AppointmentsPage() {
                         </>
                     ) : (
                         <>
-                            <FilterButton
+                            <SingleFilterButton
                                 icon={<MapPin size={16} />}
                                 label="Todas as unidades"
                                 options={unitOptions}
@@ -606,6 +651,13 @@ export default function AppointmentsPage() {
                     <AdvancedFilterButton
                         sections={advancedFilterSections}
                     />
+                    <div className="flex shrink-0 items-center">
+                        <InfoTooltip text={<AgendaLegend />} portal widthClassName="w-[300px]">
+                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-11 w-6 items-center justify-center text-slate-500 transition hover:text-slate-700">
+                                <Info size={17} className="!h-[17px] !w-[17px]" />
+                            </span>
+                        </InfoTooltip>
+                    </div>
                 </div>
 
                 {error && (
@@ -614,12 +666,17 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
+                {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
                 <WeekCalendar
                     weekDays={weekDays}
-                    appointments={appointments}
-                    notes={visibleNotes}
+                    appointments={freeOnly ? [] : appointments}
+                    notes={freeOnly ? [] : visibleNotes}
+                    blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
+                    freeSlots={freeOnly ? agendaReport?.slots ?? [] : undefined}
+                    doctorLoads={agendaReport?.byDoctor}
+                    onSelectFreeSlot={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }}
                     selectedAppointmentId={selectedAppointmentId}
-                    loading={loadingCalendar}
+                    loading={freeOnly ? loadingReport : loadingCalendar}
                     onSelectAppointment={(appointment) =>
                         setSelectedAppointmentId(appointment.id)
                     }
@@ -632,9 +689,38 @@ export default function AppointmentsPage() {
                 />
             </section>
 
+            <Modal
+                open={noteDialog !== null}
+                onClose={() => { if (!noteSaving) setNoteDialog(null); }}
+                width={460}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                closeOnOverlayClick={!noteSaving}
+                showCloseButton={!noteSaving}
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                {noteDialog ? (
+                    <AgendaDayNoteForm
+                        key={noteDialog.note?.id ?? noteDialog.dateKey}
+                        note={noteDialog.note}
+                        saving={noteSaving}
+                        error={noteError}
+                        onCancel={() => setNoteDialog(null)}
+                        onSave={(value) => void handleSaveNote(value)}
+                    />
+                ) : null}
+            </Modal>
+
+            <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
+                <AgendaIndicators report={agendaReport} loading={loadingReport} />
+                {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+            </DetailsSidePanel>
+
             <SchedulingPanel
                 open={schedulingPanelOpen}
                 selectClient
+                initialSlot={initialSlot}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onCreated={() => setSchedulingPanelOpen(false)}
             />
@@ -648,6 +734,69 @@ export default function AppointmentsPage() {
                 onDelete={handleDeleteAppointment}
             />
         </main>
+    );
+}
+
+function AgendaDayNoteForm({
+    note,
+    saving,
+    error,
+    onCancel,
+    onSave,
+}: {
+    note?: AppointmentDayNote;
+    saving: boolean;
+    error: string | null;
+    onCancel: () => void;
+    onSave: (value: string) => void;
+}) {
+    const [text, setText] = useState(note?.text ?? "");
+
+    return (
+        <form
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSave(text);
+            }}
+        >
+            <h2 className="pr-10 text-lg font-bold text-slate-950">
+                {note ? "Editar nota" : "Nota para este dia"}
+            </h2>
+            <label htmlFor="agenda-day-note" className="mt-5 block text-sm font-semibold text-slate-700">
+                Nota
+            </label>
+            <textarea
+                id="agenda-day-note"
+                autoFocus
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                maxLength={500}
+                rows={4}
+                disabled={saving}
+                placeholder="Escreva a nota..."
+                className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
+            />
+            {error ? (
+                <p role="alert" className="mt-2 text-sm text-red">{error}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-3">
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    disabled={saving}
+                    className="h-10 cursor-pointer rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    Cancelar
+                </button>
+                <button
+                    type="submit"
+                    disabled={saving || !text.trim() || text.trim() === note?.text}
+                    className="h-10 cursor-pointer rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {saving ? "Salvando..." : "Salvar"}
+                </button>
+            </div>
+        </form>
     );
 }
 

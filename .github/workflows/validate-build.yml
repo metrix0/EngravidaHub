@@ -50,11 +50,17 @@ jobs:
       - name: Pattern signal regression checks
         run: node --import tsx scripts/test-pattern-signals.ts
 
+      - name: Inbox closing-tag regression checks
+        run: node --import tsx scripts/test-inbox-closing-tag.ts
+
       - name: Agenda intelligence regression checks
         run: node --import tsx scripts/test-agenda-intelligence.ts
 
       - name: Cadence and analysis collector regression checks
         run: node scripts/test-cadence-repair.cjs
+
+      - name: Google batch collector lease regression checks
+        run: node scripts/test-google-batch-collector-lease.cjs
 
       - name: Invoice replacement regression checks
         run: node scripts/test-invoice-replacements.cjs

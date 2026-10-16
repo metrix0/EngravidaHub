@@ -1,6 +1,7 @@
 // lib/ai/analyzeConversation.ts
 import { z } from "zod";
 import { patternSignalsSchema, PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
+import { INBOX_CLOSING_TAG_PROMPT } from "@/lib/analysis/deriveInboxClosingTag";
 
 import { getGroqClient } from "./groq";
 import { conversationAnalysisSchema } from "./conversationAnalysisSchema";
@@ -431,7 +432,8 @@ CONTRAEXEMPLOS IMPORTANTES
 2. Cliente pergunta "qual o valor?". Isso é information_requested, não price objection.
 3. Cliente recebe resposta e diz "obrigada". Isso não é abandono.
 4. Bot diz "aguarde um atendente". Isso é encaminhamento, não consulta oferecida nem informação respondida.
-5. Cliente vê horários disponíveis, mas não confirma um deles. Não houve appointment_scheduled.`;
+5. Cliente vê horários disponíveis, mas não confirma um deles. Não houve appointment_scheduled.
+${INBOX_CLOSING_TAG_PROMPT}`;
 }
 
 function analysisUserPrompt(args: {
@@ -743,6 +745,10 @@ function validateAndNormalize(
             reasoning_category: raw.resolution.reasoning_category,
             evidence_message_ids: resolutionEvidence,
         },
+        closing_tag: raw.closing_tag ? {
+            value: raw.closing_tag.value,
+            evidence_message_ids: validEvidence(raw.closing_tag.evidence_message_ids, "closing_tag"),
+        } : undefined,
         short_label: raw.short_label.trim(),
         notable: raw.notable,
         notable_reason: raw.notable ? clean(raw.notable_reason) : null,

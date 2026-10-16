@@ -9,7 +9,9 @@ import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import { MapPin, Stethoscope } from "lucide-react";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AgendaIntelligencePanel from "@/components/scheduling/AgendaIntelligencePanel";
+import AgendaReports from "@/components/scheduling/AgendaReports";
 import FilterButton from "@/components/ui/FilterButton";
+import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import type { SchedulingDoctorOption, SchedulingUnitOption } from "@/types/scheduling";
 
 const PERIOD_PRESETS = DEFAULT_CALENDAR_PRESETS.filter(preset => ["7", "30"].includes(preset.value));
@@ -54,14 +56,17 @@ export default function AgendaIntelligencePage() {
         <section className="mx-auto max-w-[1500px]">
         <DashboardHeader title="Inteligência Agenda" description="Ocupação, demanda e oportunidades para otimizar as agendas." period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={PERIOD_PRESETS} storageManaged storageReady={ready} />
         {loading ? <DashboardFilterBarSkeleton widths={["w-[220px]", "w-[220px]"]} /> : <DashboardFilterBar>
-            <FilterButton icon={<MapPin size={16} />} label="Todas as unidades"
+            <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades"
                 options={units.filter(unit => !lockedUnitId || unit.id === lockedUnitId).map(unit => ({ label: unit.name, value: unit.id }))}
                 values={scopedUnitIds} onChange={values => { setUnitIds(values); setDoctorIds([]); }} disabled={Boolean(lockedUnitId)} />
             <FilterButton icon={<Stethoscope size={16} />} label="Todos os médicos"
                 options={visibleDoctors.map(doctor => ({ label: formatDoctorName(doctor.name), value: doctor.id }))}
                 values={doctorIds} onChange={setDoctorIds} />
         </DashboardFilterBar>}
-        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
+        <section id="agenda-inteligencia">
+            <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
+        </section>
+        <AgendaReports unitIds={scopedUnitIds} doctorIds={doctorIds} units={units} doctors={doctors} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} />
         </section>
     </main>;
 }

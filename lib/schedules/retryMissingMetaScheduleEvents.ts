@@ -2,6 +2,7 @@
 import { supabase } from "@/lib";
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
+import { sendScheduleConversionOnce } from "@/lib/schedules/sendScheduleConversionOnce";
 import {
     normalizeScheduleStatus,
     scheduleIsInactive,
@@ -131,12 +132,16 @@ export async function retryMissingMetaScheduleEvents() {
             confidence: 0.95,
         };
 
-        const result = await sendMetaEvents({
-            events: [event],
-            phone: client.phone ?? schedule.phone,
-            email: client.email,
-            schedule_id: schedule.id,
-            client_id: client.id,
+        const result = await sendScheduleConversionOnce({
+            scheduleId: schedule.id,
+            platform: "Meta Ads",
+            send: () => sendMetaEvents({
+                events: [event],
+                phone: client.phone ?? schedule.phone,
+                email: client.email,
+                schedule_id: schedule.id,
+                client_id: client.id,
+            }),
         });
 
         if (isSuccessfulDelivery(result)) {

@@ -10,6 +10,7 @@ import AdvancedFilterButton from "@/components/ui/AdvancedFilterButton";
 import FilterButton, {
     type FilterOption,
 } from "@/components/ui/FilterButton";
+import SingleFilterButton from "@/components/ui/SingleFilterButton";
 
 type MainFilterKey = "units" | "attendants" | "tunnels" | "origins";
 
@@ -81,7 +82,7 @@ export function MainFilters({
     return (
         <>
             {showUnits && (
-                <FilterButton
+                <SingleFilterButton
                     icon={<MapPin size={16} />}
                     label="Todas as unidades"
                     values={setUnitValues ? effectiveUnitValues : undefined}

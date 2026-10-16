@@ -4,7 +4,11 @@ import { buildAgendaIntelligence, matchesSchedulingPreference, releasedSlotMetri
 import { replicatedAgendaCapacity } from "../lib/clinisys/replicatedAvailability";
 import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "../lib/auth/userAccess";
 import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
+import { AGENDA_REPORT_WIDGETS, agendaReportDashboardUrl } from "../lib/personal-dashboard/agendaReportWidgets";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
+import { buildOperationalAgenda, normalizeAgendaText } from "../lib/scheduling/operationalAgenda";
+import { monthlyAgendaCounts } from "../lib/scheduling/agendaReportMetrics";
+import { sectorBookingTeam, teamForAttendantName } from "../lib/scheduling/bookingOrigin";
 import { filterDashboardWidgetIds } from "../lib/personal-dashboard/registryExtended";
 
 // The separate page requires its own grant, even when appointments are allowed.
@@ -97,6 +101,31 @@ assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade") + 
 assert.equal(widgetIds.includes("inteligencia_agenda.recomendacoes"), false);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
+// Both report sections use the same dashboard permission and preserve daily/monthly scopes.
+const reportWidgetIds = AGENDA_REPORT_WIDGETS.map(widget => widget.id);
+assert.equal(reportWidgetIds.length, 15);
+assert.equal(new Set(reportWidgetIds).size, 15);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "kpi").length, 8);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "chart").length, 2);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "table").length, 5);
+assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["inteligencia_agenda"]), reportWidgetIds);
+assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["agendamentos"]), []);
+for (const widget of AGENDA_REPORT_WIDGETS) {
+    assert.equal(widget.sourcePath, "/inteligencia-agenda");
+    assert.deepEqual(widget.supportedFilters, ["units"]);
+}
+const dashboardReportParams = (source: "agenda_disponibilidade" | "agenda_indicadores", date: string) => new URL(agendaReportDashboardUrl(source, new URLSearchParams({ start_date: "2024-01-01", end_date: date }), ["unit-a", "unit-b"]), "http://localhost").searchParams;
+const dailyParams = dashboardReportParams("agenda_disponibilidade", "2024-02-29");
+assert.equal(dailyParams.get("report_date"), "2024-02-29");
+assert.equal(dailyParams.get("start"), "2024-02-01");
+assert.equal(dailyParams.get("end"), "2024-03-01");
+assert.deepEqual(dailyParams.getAll("unit_ids"), ["unit-a", "unit-b"]);
+const monthlyParams = dashboardReportParams("agenda_indicadores", "2026-12-31");
+assert.equal(monthlyParams.get("report_date"), "2026-12-01");
+assert.equal(monthlyParams.get("start"), "2026-12-01");
+assert.equal(monthlyParams.get("end"), "2027-01-01");
+assert.equal(monthlyParams.get("view"), "reports");
+
 // Interest is actionable only with enough conversations; doctors without synchronized agendas are ignored.
 const interested = Array.from({ length: 4 }, (_, index) => ({ ...analysis, client_id: `client-${index}`, conversation_id: `interest-${index}` }));
 report = buildAgendaIntelligence({ ...base, analyses: interested });
@@ -162,4 +191,80 @@ report = buildAgendaIntelligence({ ...base, analyses: twelveRequests });
 assert.equal(report.opportunities[0].contacts.length, 12); // All eligible contacts, not just the table's three examples.
 assert.equal(Object.keys(report.evidenceDetails).length, 12);
 assert.equal(buildAgendaIntelligence({ ...base, analyses: [{ ...analysis, customer_final_state: "not_qualified" }] }).preferences[0].casesToReview, 0);
-console.log("Agenda intelligence regression checks passed.");
+// Operational reports pack physical consultations; repeated agendas and 15-minute
+// alternatives must not inflate the free-slot count or the 3+ vacancies date.
+const operationalBase = { agendas: [agenda], appointments: [], start: "2026-10-04", end: "2026-10-11", reportDate: "2026-10-05", now };
+let operational = buildOperationalAgenda(operationalBase);
+assert.equal(operational.counts.available, 5);
+assert.equal(operational.slots.length, 5);
+const compactOperational = buildOperationalAgenda({ ...operationalBase, includeHistory: false });
+for (const key of ["counts", "byUnit", "byDoctor", "slots", "blocks", "availability", "daily"] as const) {
+    assert.deepEqual(compactOperational[key], operational[key], `omitting unused history must preserve ${key}`);
+}
+
+assert.equal(operational.availability[0].firstWaitDays, 0);
+assert.equal(operational.availability[0].threeWaitDays, 0);
+assert.equal(operational.availability[0].weeks[0], 5);
+// Replit's current-week count includes elapsed unfilled slots, while the
+// next-date search still returns future dates only.
+const fridayReport = buildOperationalAgenda({ ...operationalBase, reportDate: "2026-10-09", now: Date.parse("2026-10-09T13:00:00-03:00"), includeHistory: false });
+assert.equal(fridayReport.availability[0].weeks[0], 5);
+assert.equal(fridayReport.availability[0].firstDate, "2026-10-12");
+assert.equal(fridayReport.slots.length, 0);
+// A week crossing the month boundary still includes its previous-month day.
+const boundaryReport = buildOperationalAgenda({ ...operationalBase, start: "2026-06-01", end: "2026-07-01", reportDate: "2026-06-01", now: Date.parse("2026-06-01T07:00:00-03:00"), includeHistory: false,
+    agendas: [{ ...agenda, working_hours: [{ daysOfWeek: [7], startsAt: "08:00", endsAt: "12:00", validFrom: "2026-01-01", validUntil: null }] }],
+    appointments: [{ ...appointment("past-booking", "08:00", "08:45"), starts_at: "2026-05-31T08:00:00-03:00", ends_at: "2026-05-31T08:45:00-03:00", booking_team: "ra" }] });
+assert.equal(boundaryReport.availability[0].weeks[0], 4);
+assert.equal(boundaryReport.availability[0].firstDate, "2026-06-07");
+assert.equal(buildOperationalAgenda({ ...operationalBase, agendas: [agenda, agenda] }).counts.available, 5);
+operational = buildOperationalAgenda({ ...operationalBase, appointments: [{ ...appointment("ra", "08:00", "08:45"), booking_team: "ra" }, { ...appointment("unit", "08:45", "09:30"), booking_team: "unit" }, appointment("unknown", "09:30", "10:15"), appointment("cancel", "10:15", "12:00", "cancelled")] });
+assert.equal(operational.counts.ra, 1);
+assert.equal(operational.counts.unit, 1);
+assert.equal(operational.counts.unknown, 1);
+assert.equal(operational.counts.available, 2);
+assert.equal(operational.counts.occupancy, 60);
+assert.equal(monthlyAgendaCounts(operational.counts).occupancy, 40);
+assert.equal(operational.counts.occupancy, 60); // Calendar occupancy remains physical.
+// Live Replit October report, checked 16/10/2026: 1,536 total records,
+// including 10 other statuses that its four chart series do not represent.
+const referenceMonthly = monthlyAgendaCounts({ total: 1536, available: 400, open: 283, ra: 337, unit: 504, unknown: 10, blocked: 2, occupancy: null, raOccupancy: null, unitOccupancy: null });
+assert.equal(referenceMonthly.available, 683);
+assert.equal(referenceMonthly.occupancy!.toFixed(1), "54.8");
+assert.equal(referenceMonthly.raOccupancy!.toFixed(1), "21.9");
+assert.equal(referenceMonthly.unitOccupancy!.toFixed(1), "32.8");
+assert.deepEqual(monthlyAgendaCounts(referenceMonthly), referenceMonthly); // Saved snapshots are not counted twice.
+assert.equal(monthlyAgendaCounts({ ...referenceMonthly, total: 0 }).occupancy, 0);
+assert.equal(operational.availability[0].threeWaitDays, 7); // Next Monday, not the third chronological slot.
+assert.equal(operational.availability[0].nextDates[1], "2026-10-12");
+operational = buildOperationalAgenda({ ...operationalBase, agendas: [unavailable] });
+assert.equal(operational.counts.available, 2);
+assert.equal(operational.counts.blocked, 3);
+assert.equal(operational.blocks.length, 2);
+assert.ok(operational.slots.every(slot => !operational.blocks.some(block => Date.parse(slot.startsAt) < Date.parse(block.endsAt) && Date.parse(slot.endsAt) > Date.parse(block.startsAt))));
+// Blocked slots remain part of the reference occupancy denominator.
+const blockedAndBooked = buildOperationalAgenda({ ...operationalBase, agendas: [unavailable], appointments: [{ ...appointment("booked", "08:00", "08:45"), booking_team: "ra" }] });
+assert.equal(blockedAndBooked.counts.total, 5);
+assert.equal(blockedAndBooked.counts.occupancy, 20);
+assert.equal(blockedAndBooked.counts.raOccupancy, 20);
+assert.equal(normalizeAgendaText("HOR├üRIO DE ALMO├çO"), "HORÁRIO DE ALMOÇO");
+assert.equal(normalizeAgendaText("Almo├ºo 12h ├ás 14h"), "Almoço 12h às 14h");
+assert.equal(normalizeAgendaText("Férias / São Paulo / Almoço"), "Férias / São Paulo / Almoço");
+const corruptLabels = buildOperationalAgenda({ ...operationalBase, agendas: [{ ...agenda, unit_name: "S├úo Paulo", blocks: [{ id: "lunch", type: "recurring", daysOfWeek: [1], validFrom: "2026-01-01", validUntil: null, startsAt: "10:00", endsAt: "11:00", reason: "Almo├ºo 1" }] }] });
+assert.equal(corruptLabels.byUnit[0].unitName, "São Paulo");
+assert.ok(corruptLabels.blocks.every(block => block.reason === "Almoço 1"));
+const vacation = { ...agenda, blocks: [{ id: "vacation", type: "one_time", startsAt: "2026-10-04T00:00:00-03:00", endsAt: "2026-10-07T00:00:00-03:00", reason: "Férias" }] };
+operational = buildOperationalAgenda({ ...operationalBase, agendas: [vacation] });
+assert.equal(operational.counts.available, 0);
+assert.equal(operational.blocks.length, 3);
+assert.ok(operational.blocks.every(block => block.reason === "Férias"));
+assert.equal(operational.availability[0].firstWaitDays, 7);
+assert.equal(sectorBookingTeam("ra"), "ra");
+assert.equal(sectorBookingTeam("reception"), "unit");
+assert.equal(sectorBookingTeam(null), null);
+const originAttendants = [{ id: "ra", name: "Ana Silva", team: "ra" as const }, { id: "unit", name: "Ana Souza", team: "unit" as const }];
+assert.equal(teamForAttendantName("Ana da Silva", originAttendants), "ra");
+assert.equal(teamForAttendantName("Ana", originAttendants), null);
+assert.equal(teamForAttendantName("Ana Maria Silva", [...originAttendants, { id: "other", name: "Ana Maria Silva", team: "unit" as const }]), "unit");
+assert.equal(teamForAttendantName("Ana Silva", [originAttendants[0], { id: "duplicate", name: "Ana Silva", team: "unit" as const }]), null);
+console.log("Agenda intelligence and operational report regression checks passed.");

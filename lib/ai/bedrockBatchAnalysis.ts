@@ -1,3 +1,4 @@
+import { INBOX_CLOSING_TAG_PROMPT } from "@/lib/analysis/deriveInboxClosingTag";
 import { PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
 // lib/ai/bedrockBatchAnalysis.ts
 import { z } from "zod";
@@ -383,7 +384,8 @@ REGRAS ABSOLUTAS
 - Preserve exatamente IDs e timestamps recebidos nos campos de metadados.
 - short_label deve ser curto, factual e em português do Brasil.
 - Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.
-${PATTERN_SIGNALS_PROMPT}`;
+${PATTERN_SIGNALS_PROMPT}
+${INBOX_CLOSING_TAG_PROMPT}`;
 }
 
 async function persistCompletedAnalysis(conversationId: string, rawContent: string) {

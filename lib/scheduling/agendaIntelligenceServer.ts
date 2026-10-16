@@ -31,6 +31,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
                 .gte("started_at", from).lt("started_at", until).eq("conversations.channel", "WhatsApp")
                 .not("pattern_signals", "is", null).order("id").limit(500);
             if (cursor) query = query.gt("id", cursor);
+            if (unitIds.length) query = query.in("clients.unit_id", unitIds);
             return query;
         });
     const scopedAnalysisRequest = analysisRequest.then(analyses =>
@@ -43,7 +44,7 @@ export async function loadAgendaIntelligence({ days, unitIds, doctorIds, results
     const coverageRequest = loadAnalyzedConversationCount({ from, until, unitIds });
     const [agendas, appointments, analyses, history, baseline, doctorResult, evidenceMessages, analyzedConversations] = await Promise.all([
         readAll<IntelligenceAgenda>(cursor => {
-            let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, procedures, availability_snapshot")
+            let query = supabase.from("clinisys_agendas").select("id, unit_id, unit_name, doctor_id, doctor_name, timezone, slot_duration_minutes, working_hours, exceptions, blocks, availability_snapshot")
                 .eq("active", true).not("doctor_id", "is", null).not("unit_id", "is", null).order("id").limit(500);
             if (unitIds.length) query = query.in("unit_id", unitIds);
             if (doctorIds.length) query = query.in("doctor_id", doctorIds);

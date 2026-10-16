@@ -2,6 +2,7 @@
 import crypto from "crypto";
 
 import { supabase } from "@/lib";
+import { sendScheduleConversionOnce } from "@/lib/schedules/sendScheduleConversionOnce";
 
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
@@ -83,7 +84,10 @@ export async function syncBigquerySchedules({
     limit?: number;
 } = {}) {
     const rows = await getBigquerySchedules({ daysBack, limit });
+    return syncScheduleRows(rows, daysBack, limit);
+}
 
+async function syncScheduleRows(rows: BigqueryScheduleRow[], daysBack: number, limit: number) {
     console.log("[syncBigquerySchedules] FOUND schedules from BigQuery", {
         found: rows.length,
         daysBack,
@@ -210,7 +214,7 @@ export async function syncBigquerySchedules({
 
         const { data: insertedSchedule, error: scheduleError } = await supabase
             .from("schedules")
-            .insert({
+            .upsert({
                 source: CLINISYS_SCHEDULE_SOURCE,
                 source_external_id: schedule.source_external_id,
                 source_hash: schedule.source_hash,
@@ -225,11 +229,13 @@ export async function syncBigquerySchedules({
                 procedure_name: schedule.procedure_name,
                 status: schedule.status,
                 updated_at: new Date().toISOString(),
-            })
+            }, { onConflict: "source_hash", ignoreDuplicates: true })
             .select("id")
-            .single();
+            .maybeSingle();
 
         if (scheduleError) throw scheduleError;
+        // Another worker (or the creation webhook) won the same appointment ID.
+        if (!insertedSchedule) continue;
         insertedToSupabase += 1;
 
         const inactive = scheduleIsInactive(
@@ -247,46 +253,13 @@ export async function syncBigquerySchedules({
 
         if (funnelMove.updated) fivFunnelStageUpdated += 1;
 
-        let meta: unknown = {
-            ok: true,
-            skipped: true,
-            reason: "inactive_schedule_status",
-        };
-        let google: unknown = meta;
-
-        if (!inactive) {
-            const eventTime = getScheduleEventTime(
-                schedule.created_in_source_at,
-            );
-            const event: DerivedAdEvent = {
-                type: "schedule",
-                meta_event_name: "Schedule",
-                google_conversion_name: "book_appointment",
-                occurred_at: eventTime,
-                confidence: 0.95,
-            };
-
-            meta = await sendMetaEvents({
-                events: [event],
-                phone: client.phone ?? schedule.phone,
-                email: client.email,
-                schedule_id: insertedSchedule.id,
-                client_id: client.id,
-            });
-
-            if (isSuccessfulDelivery(meta)) metaSent += 1;
-
-            google = await sendGoogleEvents({
-                events: [event],
-                phone: client.phone ?? schedule.phone,
-                email: client.email,
-                name: client.name ?? schedule.patient_name,
-                schedule_id: insertedSchedule.id,
-                client_id: client.id,
-            });
-
-            if (isSuccessfulDelivery(google)) googleSent += 1;
-        }
+        const { meta, google } = await sendScheduleConversion({
+            schedule,
+            client,
+            scheduleId: insertedSchedule.id,
+        });
+        if (isSuccessfulDelivery(meta)) metaSent += 1;
+        if (isSuccessfulDelivery(google)) googleSent += 1;
 
         // Meta and Google delivery state is stored only in public.ad_events.
         results.push({
@@ -328,7 +301,7 @@ export async function syncBigquerySchedules({
         fetched: rows.length,
         normalized: schedules.length,
         existing: existing.rows.length,
-        inserted: newSchedules.length,
+        inserted: insertedToSupabase,
         updated: changedSchedules.length,
         status_updated: statusUpdated,
         unchanged: unchangedSchedules,
@@ -341,6 +314,205 @@ export async function syncBigquerySchedules({
         google_sent: googleSent,
         results,
     };
+}
+
+
+type ClinisysCreatedAppointment = {
+    externalId: string;
+    clientId: string;
+    startsAt: string;
+    status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show";
+    patientName: string;
+    patientPhone: string | null;
+    unitName: string;
+    procedureName: string;
+};
+
+const APPOINTMENT_STATUS_TO_SCHEDULE: Record<ClinisysCreatedAppointment["status"], string> = {
+    scheduled: "Não",
+    confirmed: "Sim",
+    completed: "Atendido",
+    cancelled: "Desmarcou",
+    no_show: "Faltou",
+};
+
+// BigQuery imports only first reproduction evaluations. Keep exactly that
+// conversion scope when processing the earlier creation webhook.
+export async function processClinisysAppointmentCreated(appointment: ClinisysCreatedAppointment) {
+    if (!appointment.procedureName.includes("1ª Avaliação de Reprodução Humana") ||
+        appointment.status === "cancelled") {
+        return { ok: true, skipped: true, reason: "not_an_active_first_evaluation" };
+    }
+
+    const schedule = normalizeBigquerySchedule({
+        source_schedule_id: appointment.externalId,
+        data: saoPauloDate(new Date(appointment.startsAt)),
+        agendamento_criado_em: saoPauloDate(new Date()),
+        agenda_autor_original: null,
+        agenda_paciente: appointment.patientName,
+        agenda_celular: appointment.patientPhone,
+        unidade: appointment.unitName,
+        procedimentos_procedimento: appointment.procedureName,
+        agenda_chegou: APPOINTMENT_STATUS_TO_SCHEDULE[appointment.status],
+    });
+    if (!schedule) throw new Error("Invalid schedule date from creation webhook");
+
+    const { data: client, error: clientError } = await supabase
+        .from("clients")
+        .select("id, name, phone, email, unit_id, funnel_stage_id")
+        .eq("id", appointment.clientId)
+        .single();
+    if (clientError) throw clientError;
+
+    // The external ID is the same Clinisys agenda ID supplied to BigQuery.
+    // Both paths use the same source_hash (unique in schedules) and therefore
+    // the same schedule ID / Meta event_id / Google orderId.
+    const { data: existing, error: existingError } = await supabase
+        .from("schedules")
+        .select("id, client_id")
+        .in("source", CLINISYS_SCHEDULE_SOURCES)
+        .eq("source_external_id", appointment.externalId)
+        .limit(1)
+        .maybeSingle();
+    if (existingError) throw existingError;
+
+    let scheduleId = existing?.id ?? null;
+    let linkedClientId = existing?.client_id ?? client.id;
+    let inserted = false;
+    if (!scheduleId) {
+        const { data, error } = await supabase.from("schedules")
+            .upsert({
+                source: "clinisys",
+                source_external_id: schedule.source_external_id,
+                source_hash: schedule.source_hash,
+                client_id: client.id,
+                scheduled_for: schedule.scheduled_for,
+                created_in_source_at: schedule.created_in_source_at,
+                patient_name: schedule.patient_name,
+                phone: schedule.phone,
+                normalized_phone: schedule.normalized_phone,
+                unit_name: schedule.unit_name,
+                attendant_name: schedule.attendant_name,
+                procedure_name: schedule.procedure_name,
+                status: schedule.status,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: "source_hash", ignoreDuplicates: true })
+            .select("id")
+            .maybeSingle();
+        if (error) throw error;
+        scheduleId = data?.id ?? null;
+        inserted = Boolean(data);
+    }
+    if (!scheduleId) {
+        // A concurrent BigQuery/webhook insert won the unique source_hash.
+        const { data, error } = await supabase.from("schedules")
+            .select("id, client_id")
+            .eq("source_hash", schedule.source_hash)
+            .single();
+        if (error) throw error;
+        scheduleId = data.id;
+        linkedClientId = data.client_id;
+    }
+
+    if (linkedClientId !== client.id) {
+        const { error } = await supabase.from("schedules")
+            .update({ client_id: client.id, updated_at: new Date().toISOString() })
+            .eq("id", scheduleId);
+        if (error) throw error;
+    }
+
+    if (inserted) {
+        await moveClientToFirstReproductionEvaluationStageIfEmpty({
+            client: client as ClientForSchedule,
+            schedule,
+        });
+        await syncClientUnitsFromClinisys([{
+            clientId: client.id,
+            unitName: schedule.unit_name,
+            scheduledFor: schedule.scheduled_for,
+            createdInSourceAt: schedule.created_in_source_at,
+        }]);
+    }
+
+    // Repeated webhook deliveries and BigQuery-first deliveries must not
+    // emit a second conversion for this same appointment.
+    const { meta, google } = await sendScheduleConversion({
+        schedule,
+        client: client as ClientForSchedule,
+        scheduleId,
+     });
+
+    const failed = [meta, google].some((result) =>
+        typeof result === "object" && result !== null &&
+        (result as { ok?: boolean; skipped?: boolean }).ok === false &&
+        (result as { skipped?: boolean }).skipped !== true,
+    );
+    return { ok: !failed, skipped: false, scheduleId, meta, google };
+}
+
+export async function markClinisysScheduleCancelled(externalId: string) {
+    const { error } = await supabase.from("schedules")
+        .update({ status: "Desmarcou", updated_at: new Date().toISOString() })
+        .in("source", CLINISYS_SCHEDULE_SOURCES)
+        .eq("source_external_id", externalId);
+    if (error) throw error;
+}
+
+async function sendScheduleConversion({
+    schedule,
+    client,
+    scheduleId,
+}: {
+    schedule: NormalizedSchedule;
+    client: ClientForSchedule;
+    scheduleId: string;
+}) {
+    const inactive = scheduleIsInactive(normalizeScheduleStatus(schedule.status));
+    const skipped = { ok: true, skipped: true, reason: "inactive_schedule_status" };
+    if (inactive) return { meta: skipped, google: skipped };
+
+    const event: DerivedAdEvent = {
+        type: "schedule",
+        meta_event_name: "Schedule",
+        google_conversion_name: "book_appointment",
+        occurred_at: getScheduleEventTime(schedule.created_in_source_at),
+        confidence: 0.95,
+    };
+    const meta = await sendScheduleConversionOnce({
+        scheduleId,
+        platform: "Meta Ads",
+        send: () => sendMetaEvents({
+            events: [event],
+            phone: client.phone ?? schedule.phone,
+            email: client.email,
+            schedule_id: scheduleId,
+            client_id: client.id,
+        }),
+    });
+    const google = await sendScheduleConversionOnce({
+        scheduleId,
+        platform: "Google Ads",
+        send: () => sendGoogleEvents({
+            events: [event],
+            phone: client.phone ?? schedule.phone,
+            email: client.email,
+            name: client.name ?? schedule.patient_name,
+            schedule_id: scheduleId,
+            client_id: client.id,
+        }),
+    });
+    return { meta, google };
+}
+
+function saoPauloDate(value: Date) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(value);
+    const part = (type: string) => parts.find((entry) => entry.type === type)?.value;
+    return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function normalizeBigquerySchedule(

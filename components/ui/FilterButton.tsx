@@ -9,7 +9,7 @@ export type FilterOption = {
     value: string;
 };
 
-type FilterButtonProps = {
+export type FilterButtonProps = {
     icon?: ReactNode;
     label: string;
     options?: FilterOption[];
@@ -17,6 +17,7 @@ type FilterButtonProps = {
     onChange?: (values: string[]) => void;
     widthClassName?: string;
     disabled?: boolean;
+    singleSelect?: boolean;
 };
 
 export default function FilterButton({
@@ -27,6 +28,7 @@ export default function FilterButton({
                                          onChange,
                                          widthClassName = "w-[220px]",
                                          disabled = false,
+                                         singleSelect = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -38,12 +40,13 @@ export default function FilterButton({
     const [draftValues, setDraftValues] = useState<string[]>(appliedValues);
 
     const allOptionValues = options.map((option) => option.value);
+    const dropdownOptions = singleSelect ? [{ label, value: "" }, ...options] : options;
 
     const allApplied =
-        appliedValues.length === 0 || appliedValues.length === allOptionValues.length;
+        appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
 
     const allDraftSelected =
-        draftValues.length === 0 || draftValues.length === allOptionValues.length;
+        !singleSelect && (draftValues.length === 0 || draftValues.length === allOptionValues.length);
 
     const displayLabel = allApplied
         ? label
@@ -86,15 +89,23 @@ export default function FilterButton({
 
         if (!open) {
             setDraftValues(
-                appliedValues.length === 0
-                    ? allOptionValues
-                    : [...appliedValues],
+                singleSelect
+                    ? [...appliedValues]
+                    : appliedValues.length === 0
+                        ? allOptionValues
+                        : [...appliedValues],
             );
         }
         setOpen((current) => !current);
     }
 
     function toggleOption(value: string) {
+        if (singleSelect) {
+            updateAppliedValues(!value || appliedValues.includes(value) ? [] : [value]);
+            setOpen(false);
+            return;
+        }
+
         const normalizedValues = allDraftSelected ? allOptionValues : draftValues;
 
         if (normalizedValues.includes(value)) {
@@ -106,11 +117,18 @@ export default function FilterButton({
     }
 
     function selectAllDraft() {
+        if (singleSelect) {
+            updateAppliedValues([]);
+            setOpen(false);
+            return;
+        }
         setDraftValues(allOptionValues);
     }
 
     function selectOnlyDraft(value: string) {
         setDraftValues([value]);
+        updateAppliedValues([value]);
+        setOpen(false);
     }
 
     function applySelection() {
@@ -165,8 +183,10 @@ export default function FilterButton({
                 }}
             >
                 <div className="max-h-72 overflow-y-auto py-1">
-                    {options.map((option) => {
-                        const selected = allDraftSelected || draftValues.includes(option.value);
+                    {dropdownOptions.map((option) => {
+                        const selected = singleSelect
+                            ? option.value === "" ? appliedValues.length === 0 : appliedValues.includes(option.value)
+                            : allDraftSelected || draftValues.includes(option.value);
 
                         return (
                             <div
@@ -181,24 +201,26 @@ export default function FilterButton({
                                         color: selected ? "var(--color-brand)" : "var(--color-muted)",
                                     }}
                                 >
-                                    <span
-                                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-                                        style={{
-                                            borderColor: selected
-                                                ? "var(--color-brand)"
-                                                : "var(--color-border)",
-                                            backgroundColor: selected
-                                                ? "var(--color-brand)"
-                                                : "transparent",
-                                        }}
-                                    >
-                                        {selected && <Check size={12} className="text-white" />}
-                                    </span>
+                                    {!singleSelect && (
+                                        <span
+                                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                                            style={{
+                                                borderColor: selected
+                                                    ? "var(--color-brand)"
+                                                    : "var(--color-border)",
+                                                backgroundColor: selected
+                                                    ? "var(--color-brand)"
+                                                    : "transparent",
+                                            }}
+                                        >
+                                            {selected && <Check size={12} className="text-white" />}
+                                        </span>
+                                    )}
 
                                     <span className="truncate">{option.label}</span>
                                 </button>
 
-                                <button
+                                {!singleSelect && <button
                                     type="button"
                                     onClick={() => selectOnlyDraft(option.value)}
                                     className="mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
@@ -206,29 +228,31 @@ export default function FilterButton({
                                     aria-label={`Selecionar apenas ${option.label}`}
                                 >
                                     <Crosshair size={14} />
-                                </button>
+                                </button>}
                             </div>
                         );
                     })}
                 </div>
 
-                <div className="flex items-center justify-between border-t border-border p-2">
-                    <button
-                        type="button"
-                        onClick={selectAllDraft}
-                        className="cursor-pointer rounded-lg px-3 py-2 text-xs font-medium text-muted transition hover:bg-slate-50"
-                    >
-                        Todos
-                    </button>
+                {!singleSelect && (
+                    <div className="flex items-center justify-between border-t border-border p-2">
+                        <button
+                            type="button"
+                            onClick={selectAllDraft}
+                            className="cursor-pointer rounded-lg px-3 py-2 text-xs font-medium text-muted transition hover:bg-slate-50"
+                        >
+                            Todos
+                        </button>
 
-                    <button
-                        type="button"
-                        onClick={applySelection}
-                        className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
-                    >
-                        Aplicar
-                    </button>
-                </div>
+                        <button
+                            type="button"
+                            onClick={applySelection}
+                            className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+                        >
+                            Aplicar
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

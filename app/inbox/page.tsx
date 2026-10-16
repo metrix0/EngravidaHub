@@ -19,6 +19,7 @@ import {
     Search,
     Send,
     SlidersHorizontal,
+    ArrowLeftRight,
     Smile,
     UserRound,
     X,
@@ -31,6 +32,7 @@ import {openClientProfile} from "@/components/clientes/PermanentClientProfilePan
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
+import TransferConversationModal from "@/components/inbox/TransferConversationModal";
 import SidePanel from "@/components/layout/SidePanel";
 import { supabase } from "@/lib/supabase/client";
 
@@ -159,6 +161,7 @@ export default function InboxPage() {
     const [totalThreads, setTotalThreads] = useState(0);
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
+    const [transferModalOpen, setTransferModalOpen] = useState(false);
 
     const [isLoadingThreads, setIsLoadingThreads] = useState(true);
     const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
@@ -625,6 +628,15 @@ export default function InboxPage() {
         }
     }
 
+    async function handleConversationTransferred() {
+        setTransferModalOpen(false);
+        selectedThreadRequestRef.current += 1;
+        forcedSelectionRef.current = null;
+        setSelectedId(null);
+        setSelectedThread(null);
+        await Promise.all([loadThreads(), loadQueueCount()]);
+    }
+
     async function handleStayOnline() {
         if (isSettingOnline) return;
 
@@ -995,6 +1007,7 @@ export default function InboxPage() {
                                     onSendMessage={handleSendMessage}
                                     onSendAttachment={handleSendAttachment}
                                     onFinalizeConversation={handleFinalizeConversation}
+                                    onTransferConversation={() => setTransferModalOpen(true)}
                                     canFinalize={
                                         selectedItemType === "thread" &&
                                         selectedThreadMatchesSelection &&
@@ -1037,6 +1050,13 @@ export default function InboxPage() {
                 )}
             </section>
 
+            <TransferConversationModal
+                open={transferModalOpen}
+                threadId={selectedThreadMatchesSelection ? selectedThread?.thread_id ?? null : null}
+                currentAttendantId={currentAttendant?.id ?? null}
+                onClose={() => setTransferModalOpen(false)}
+                onTransferred={handleConversationTransferred}
+            />
             <SchedulingPanel
                 open={schedulingPanelOpen}
                 threadId={
@@ -1045,6 +1065,16 @@ export default function InboxPage() {
                         : selectedListThread?.thread_id ?? null
                 }
                 clientId={selectedClientId}
+                instagramUserId={
+                    selectedThreadMatchesSelection
+                        ? selectedThread?.instagram_user_id ?? null
+                        : selectedListThread?.instagram_user_id ?? null
+                }
+                instagramName={
+                    selectedThreadMatchesSelection
+                        ? selectedThread?.name ?? null
+                        : selectedListThread?.name ?? null
+                }
                 selectClient={!selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
                 onOpenClientProfile={(clientId) => {
@@ -1320,6 +1350,7 @@ function ChatPanel({
                        onSendMessage,
                        onSendAttachment,
                        onFinalizeConversation,
+                       onTransferConversation,
                        canFinalize,
                        isFinalizingConversation,
                        onLoadPreviousConversation,
@@ -1337,6 +1368,7 @@ function ChatPanel({
     onSendMessage: (text: string) => Promise<void>;
     onSendAttachment: (file: File) => Promise<void>;
     onFinalizeConversation: () => Promise<void>;
+    onTransferConversation: () => void;
     canFinalize: boolean;
     isFinalizingConversation: boolean;
     onLoadPreviousConversation: () => Promise<void>;
@@ -1496,6 +1528,19 @@ function ChatPanel({
                     >
                         <Pin size={18} className={"rotate-45 "}/>
                     </button>
+
+                    {itemType === "thread" && (
+                        <button
+                            type="button"
+                            disabled={!canFinalize || !itemId || isFinalizingConversation}
+                            title="Transferir atendimento"
+                            aria-label="Transferir atendimento"
+                            onClick={onTransferConversation}
+                            className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <ArrowLeftRight size={18}/>
+                        </button>
+                    )}
 
                     {itemType === "thread" && (
                         <button

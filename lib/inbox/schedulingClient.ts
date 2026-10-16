@@ -34,13 +34,14 @@ export async function resolveSchedulingClient(
     primary: SchedulingPersonFields,
     address: SchedulingAddressFields,
     unitId: string,
+    deferSocialLink = false,
 ): Promise<string | null> {
     // An explicit replacement changes the appointment patient, not the conversation link.
     if (selectedClientId) {
         const { data, error } = await supabase.from("clients").select("id").eq("id", selectedClientId).maybeSingle();
         if (error) throw error;
         if (!data) throw new Error("Cliente selecionado não encontrado.");
-        if (thread.client_id || !thread.instagram_user_id) return selectedClientId;
+        if (deferSocialLink || thread.client_id || !thread.instagram_user_id) return selectedClientId;
     }
     if (thread.client_id) return thread.client_id;
     if (!thread.instagram_user_id) return null;

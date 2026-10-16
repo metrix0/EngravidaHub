@@ -1,5 +1,7 @@
 "use client";
 
+import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { agendaReportDashboardUrl } from "@/lib/personal-dashboard/agendaReportWidgets";
 import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -30,6 +32,8 @@ export type SourceData = {
     funil: unknown;
     mensagem_ativa: unknown;
     inteligencia_agenda: AgendaIntelligenceReport | null;
+    agenda_disponibilidade: OperationalAgendaReport | null;
+    agenda_indicadores: OperationalAgendaReport | null;
 };
 
 type Props = {
@@ -70,6 +74,8 @@ const EMPTY_DATA: SourceData = {
     funil: null,
     mensagem_ativa: null,
     inteligencia_agenda: null,
+    agenda_disponibilidade: null,
+    agenda_indicadores: null,
 };
 
 const FINANCIAL_SUMMARY_WIDGETS = new Set([
@@ -139,6 +145,11 @@ export function usePersonalDashboardSources({
             );
             const supports = (key: DashboardWidgetFilterKey) =>
                 filters.has(key);
+
+            if (source === "agenda_disponibilidade" || source === "agenda_indicadores") {
+                next.push(sourceRequest(source, agendaReportDashboardUrl(source, dateParams, supports("units") ? unitIds : [])));
+                continue;
+            }
 
             if (source === "inteligencia_agenda") {
                 const params = new URLSearchParams(dateParams);
@@ -372,6 +383,11 @@ async function loadSource(
     request: SourceRequest,
     signal: AbortSignal,
 ): Promise<Partial<SourceData>> {
+    if (request.source === "agenda_disponibilidade" || request.source === "agenda_indicadores") {
+        const payload = await fetchJson<{ report: OperationalAgendaReport }>(request.url, signal);
+        return request.source === "agenda_disponibilidade" ? { agenda_disponibilidade: payload.report } : { agenda_indicadores: payload.report };
+    }
+
     if (request.source === "inteligencia_agenda") {
         const payload = await fetchJson<{ report: AgendaIntelligenceReport }>(request.url, signal);
         return { inteligencia_agenda: payload.report };

@@ -38,6 +38,7 @@ type AnalysisObjection = {
 
 type InstagramAnalysisRow = {
     conversation_id: string;
+    started_at: string;
     customer_start_intent: string | null;
     conversation_goal: string | null;
     goal_status: string | null;
@@ -276,13 +277,17 @@ async function loadInstagramAnalyses(
     signal: AbortSignal,
 ) {
     const rows: InstagramAnalysisRow[] = [];
+    let cursor: Pick<InstagramAnalysisRow, "started_at" | "conversation_id"> | null = null;
 
-    for (let from = 0; from < MAX_CONVERSATIONS; from += PAGE_SIZE) {
-        const { data, error } = await supabase
+    for (let loaded = 0; loaded < MAX_CONVERSATIONS; loaded += PAGE_SIZE) {
+        // Analysis timestamps match the conversations; filter by the indexed
+        // column, then scope to Instagram conversation IDs in the caller.
+        let query = supabase
             .from("conversation_analysis")
             .select(
                 [
                     "conversation_id",
+                    "started_at",
                     "customer_start_intent",
                     "conversation_goal",
                     "goal_status",
@@ -307,14 +312,22 @@ async function loadInstagramAnalyses(
                     "resolution_score",
                     "resolution_reasoning_category",
                     "notable",
-                    "conversations!conversation_analysis_conversation_id_fkey!inner(channel, started_at)",
                 ].join(", "),
             )
-            .eq("conversations.channel", "Instagram")
-            .gte("conversations.started_at", startAt)
-            .lt("conversations.started_at", endAt)
+            .gte("started_at", cursor?.started_at ?? startAt)
+            .lt("started_at", endAt);
+
+        if (cursor) {
+            // Keyset pagination avoids re-reading every preceding page.
+            query = query.or(
+                `started_at.gt.${cursor.started_at},and(started_at.eq.${cursor.started_at},conversation_id.gt.${cursor.conversation_id})`,
+            );
+        }
+
+        const { data, error } = await query
+            .order("started_at", { ascending: true })
             .order("conversation_id", { ascending: true })
-            .range(from, from + PAGE_SIZE - 1)
+            .limit(PAGE_SIZE)
             .abortSignal(signal);
 
         if (error) throw error;
@@ -322,6 +335,12 @@ async function loadInstagramAnalyses(
         const page = (data ?? []) as unknown as InstagramAnalysisRow[];
         rows.push(...page);
         if (page.length < PAGE_SIZE) break;
+
+        const last = page[page.length - 1];
+        cursor = {
+            started_at: last.started_at,
+            conversation_id: last.conversation_id,
+        };
     }
 
     return rows;

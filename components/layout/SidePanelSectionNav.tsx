@@ -49,6 +49,17 @@ const FINANCEIRO_SECTIONS: SectionDefinition[] = [
 ];
 
 function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
+    if (pathname === "/inteligencia-agenda") {
+        return {
+            key: "inteligencia-agenda",
+            parentHref: "/inteligencia-agenda",
+            sections: [
+                { id: "agenda-inteligencia", label: "Inteligência" },
+                { id: "agenda-disponibilidade", label: "Disponibilidade", heading: "Disponibilidade da agenda" },
+                { id: "agenda-indicadores", label: "Indicadores", heading: "Indicadores da agenda" },
+            ],
+        };
+    }
     if (pathname === "/atendimento") {
         return {
             key: "dashboard",

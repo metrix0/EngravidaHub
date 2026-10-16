@@ -95,8 +95,14 @@ export async function persistConversationAdAttribution({
         referral_photo_url: referral.photo_url,
         referral_video_url: referral.video_url,
         referral_post_id: referral.post_id,
+        campaign_id: referral.campaign_id,
+        campaign_name: referral.campaign_name,
+        ad_set_id: referral.ad_set_id,
+        ad_set_name: referral.ad_set_name,
+        ad_name: referral.ad_name ?? referral.ad_title,
         referral_received_at: message.sent_at,
-        enrichment_status: "pending",
+        enrichment_status: referral.campaign_id && referral.campaign_name ? "resolved" : "pending",
+        enriched_at: referral.campaign_id && referral.campaign_name ? now : null,
         created_at: now,
         updated_at: now,
     };
@@ -126,10 +132,17 @@ export async function persistConversationAdAttribution({
         receivedAt: message.sent_at,
         values: {
             last_meta_ad_id: referral.ad_id,
-            last_ad_name: referral.ad_title,
+            last_ad_campaign_id: referral.campaign_id,
+            last_ad_campaign_name: referral.campaign_name,
+            last_ad_set_id: referral.ad_set_id,
+            last_ad_set_name: referral.ad_set_name,
+            last_ad_name: referral.ad_name ?? referral.ad_title,
         },
         requestId,
     });
+
+    // Complete campaign attribution supplied by the webhook needs no API permissions.
+    if (referral.campaign_id && referral.campaign_name) return;
 
     try {
         const ad = await resolveConversationAd(referral.ad_id);

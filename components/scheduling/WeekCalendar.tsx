@@ -8,10 +8,15 @@ import {
     type MouseEvent,
     type PointerEvent,
 } from "react";
-import { GripHorizontal, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
+import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
+import { AGENDA_NOTE_COLOR, percent } from "./AgendaIndicators";
 import type {
     AppointmentDayNote,
     CalendarAppointment,
@@ -19,15 +24,18 @@ import type {
 
 const START_HOUR = 7;
 const END_HOUR = 20;
-const HOUR_HEIGHT = 72;
+const HOUR_HEIGHT = 176;
 const CALENDAR_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
-const MIN_EVENT_HEIGHT = 34;
 const TZ = "America/Sao_Paulo";
 
 type Props = {
     weekDays: Date[];
     appointments: CalendarAppointment[];
     notes: AppointmentDayNote[];
+    blocks?: AgendaBlock[];
+    freeSlots?: AgendaFreeSlot[];
+    doctorLoads?: OperationalAgendaReport["byDoctor"];
+    onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -56,6 +64,8 @@ type Confirm = {
 
 export default function WeekCalendar(props: Props) {
     const [resize, setResize] = useState<{ id: string; end: string } | null>(null);
+    const [expandedGroup, setExpandedGroup] = useState<CalendarAppointment[] | null>(null);
+    const [expandedFreeSlots, setExpandedFreeSlots] = useState<AgendaFreeSlot[] | null>(null);
     const [hovered, setHovered] = useState<string | null>(null);
     const [cursorGuide, setCursorGuide] = useState<{
         dayKey: string;
@@ -64,6 +74,16 @@ export default function WeekCalendar(props: Props) {
     const [confirm, setConfirm] = useState<Confirm | null>(null);
     const [confirming, setConfirming] = useState(false);
     const [confirmError, setConfirmError] = useState<string | null>(null);
+    const freeOnly = props.freeSlots !== undefined;
+    const loads = useMemo(() => new Map((props.doctorLoads ?? []).map(load => [`${load.unitId}:${load.doctorId}`, load])), [props.doctorLoads]);
+    const freeSlotsByDay = useMemo(() => {
+        const grouped = new Map<string, AgendaFreeSlot[]>();
+        (props.freeSlots ?? []).forEach(slot => grouped.set(slot.date, [...(grouped.get(slot.date) ?? []), slot]));
+        grouped.forEach(slots => slots.sort((a, b) =>
+            (loads.get(`${a.unitId}:${a.doctorId}`)?.occupancy ?? 101) - (loads.get(`${b.unitId}:${b.doctorId}`)?.occupancy ?? 101)
+            || a.startsAt.localeCompare(b.startsAt) || a.doctorName.localeCompare(b.doctorName)));
+        return grouped;
+    }, [props.freeSlots, loads]);
 
     const appointmentsByDay = useMemo(() => {
         const grouped = new Map<string, CalendarAppointment[]>();
@@ -84,6 +104,35 @@ export default function WeekCalendar(props: Props) {
 
         return grouped;
     }, [props.appointments]);
+
+    const groupedAppointmentsByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof splitAppointmentGroups>>();
+        appointmentsByDay.forEach((items, day) => result.set(day, splitAppointmentGroups(items)));
+        return result;
+    }, [appointmentsByDay]);
+
+    const appointmentLanesByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
+        groupedAppointmentsByDay.forEach(({ individual }, day) => result.set(day, layoutConcurrentEvents(
+            individual.map(item => ({ id: item.id, start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) })),
+        )));
+        return result;
+    }, [groupedAppointmentsByDay]);
+
+    const freeSlotGroupsByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof groupFreeSlotStarts>>();
+        freeSlotsByDay.forEach((items, day) => result.set(day, groupFreeSlotStarts(items)));
+        return result;
+    }, [freeSlotsByDay]);
+
+    const blocksByDay = useMemo(() => groupAgendaBlocks(props.blocks ?? []), [props.blocks]);
+    const displayedBlocksByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof groupOverlappingAgendaBlocks>>();
+        blocksByDay.forEach((blocks, day) => result.set(day, groupOverlappingAgendaBlocks(
+            blocks.filter(block => dateKeyIso(block.endsAt) === day),
+        )));
+        return result;
+    }, [blocksByDay]);
 
     const notesByDay = useMemo(() => {
         const grouped = new Map<string, AppointmentDayNote[]>();
@@ -222,9 +271,9 @@ export default function WeekCalendar(props: Props) {
 
     return (
         <>
-            <div className="min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="min-h-0 w-full flex-1 touch-pan-x touch-pan-y overflow-auto border-t border-slate-200 bg-white">
                 {props.loading ? (
-                    <WeekCalendarSkeleton />
+                    <WeekCalendarSkeleton freeOnly={freeOnly} />
                 ) : (
                     <div className="min-w-[1180px]">
                         <div className="sticky top-0 z-40 grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-white">
@@ -266,7 +315,7 @@ export default function WeekCalendar(props: Props) {
                             })}
                         </div>
 
-                        <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
+                        {!freeOnly ? <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                             <div className="border-r border-slate-200 px-2 py-3 text-center text-[11px] font-bold uppercase text-slate-400">
                                 Notas
                             </div>
@@ -280,6 +329,14 @@ export default function WeekCalendar(props: Props) {
                                         className="group/day min-h-16 border-r border-slate-200 p-2 last:border-r-0"
                                     >
                                         <div className="flex flex-wrap gap-1.5">
+                                            <div className="max-h-24 w-full space-y-1 overflow-y-auto">
+                                                {(blocksByDay.get(dayKey) ?? []).filter(block => !block.isLunch).map(block => (
+                                                    <div key={block.id} className="rounded-md border-l-2 border-red-400 bg-red-50 px-2 py-1 text-[10px] text-red-700" title={`${block.doctorNames.join(", ")}: ${block.reason}`}>
+                                                        <span className="block truncate font-semibold">{block.doctorNames.length === 1 ? block.doctorNames[0] : `${block.doctorNames.length} médicos`}</span>
+                                                        <span className="block truncate">{time(block.startsAt)} – {dateKeyIso(block.endsAt) !== dayKey ? "24:00" : time(block.endsAt)} · {block.reason}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                             {(notesByDay.get(dayKey) ?? []).map(
                                                 (note) => (
                                                     <div
@@ -293,11 +350,8 @@ export default function WeekCalendar(props: Props) {
                                                                     note,
                                                                 )
                                                             }
-                                                            className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-white shadow-sm"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    note.color,
-                                                            }}
+                                                            className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-slate-900 shadow-sm"
+                                                            style={{ backgroundColor: AGENDA_NOTE_COLOR }}
                                                         >
                                                             {note.text}
                                                         </button>
@@ -308,7 +362,7 @@ export default function WeekCalendar(props: Props) {
                                                                     note,
                                                                 )
                                                             }
-                                                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-white opacity-0 hover:bg-black/15 group-hover/note:opacity-100"
+                                                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-slate-900 opacity-0 hover:bg-black/15 group-hover/note:opacity-100"
                                                         >
                                                             <X size={11} />
                                                         </button>
@@ -329,7 +383,7 @@ export default function WeekCalendar(props: Props) {
                                     </div>
                                 );
                             })}
-                        </div>
+                        </div> : null}
 
                         <div className="relative isolate z-0 grid grid-cols-[72px_repeat(7,minmax(150px,1fr))]">
                             {cursorGuide && (
@@ -353,8 +407,8 @@ export default function WeekCalendar(props: Props) {
 
                             {props.weekDays.map((day) => {
                                 const dayKey = formatLocalDateKey(day);
-                                const appointments =
-                                    appointmentsByDay.get(dayKey) ?? [];
+                                const { individual: appointments, groups: appointmentGroups } =
+                                    groupedAppointmentsByDay.get(dayKey) ?? { individual: [], groups: [] };
 
                                 return (
                                     <div
@@ -387,6 +441,157 @@ export default function WeekCalendar(props: Props) {
                                             handleDrop(event, day)
                                         }
                                     >
+                                        {(displayedBlocksByDay.get(dayKey) ?? []).map(group => {
+                                            const start = Math.max(START_HOUR * 60, minutes(group.startsAt));
+                                            const end = Math.min(END_HOUR * 60, minutes(group.endsAt));
+                                            if (end <= start) return null;
+                                            const names = [...new Set(group.blocks.flatMap(block => block.doctorNames))];
+                                            const label = group.blocks.length === 1
+                                                ? `${group.blocks[0].reason} · ${names.length === 1 ? names[0] : `${names.length} médicos`}`
+                                                : group.blocks.every(block => block.isLunch)
+                                                    ? `Almoço · ${names.length} médicos`
+                                                    : `${group.blocks.length} bloqueios`;
+                                            return (
+                                                <div key={group.id} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-2 py-1 text-[10px] font-semibold text-red-700"
+                                                    style={{
+                                                        top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT,
+                                                        height: (end - start) / 60 * HOUR_HEIGHT,
+                                                    }}>
+                                                    <div className="flex h-full min-h-0 flex-col gap-1">
+                                                        <span className="shrink-0 leading-tight">{label}</span>
+                                                        <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
+                                                            {group.blocks.flatMap(block => block.doctorNames.map((doctor, index) => (
+                                                                <div key={`${block.id}:${index}`} className="min-w-0 border-t border-red-200/60 pt-1 first:border-t-0 first:pt-0">
+                                                                    <span className="block break-words leading-tight">{doctor}</span>
+                                                                    <span className="block text-[9px] font-medium leading-tight opacity-80">
+                                                                        {time(block.startsAt)}–{time(block.endsAt)}{!block.isLunch && group.blocks.length > 1 ? ` · ${block.reason}` : ""}
+                                                                    </span>
+                                                                </div>
+                                                            )))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {(freeSlotGroupsByDay.get(dayKey) ?? []).map(group => {
+                                            const first = group.slots[0];
+                                            const single = group.slots.length === 1;
+                                            const load = loads.get(`${first.unitId}:${first.doctorId}`);
+                                            const card = (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (single) props.onSelectFreeSlot?.(first);
+                                                                else setExpandedFreeSlots(group.slots);
+                                                            }}
+                                                            aria-label={single
+                                                                ? `Agendar ${time(first.startsAt)}–${time(first.endsAt)} · ${first.doctorName}`
+                                                                : `Ver ${group.slots.length} horários livres com início entre ${minuteLabel(group.startMinutes)} e ${minuteLabel(group.startMinutes + 29)}`}
+                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
+                                                            style={{ backgroundColor: AGENDA_COLORS.available }}
+                                                        >
+                                                            <span className="block text-[10px] font-bold leading-tight">
+                                                                {single ? `${time(first.startsAt)}–${time(first.endsAt)}` : `Inícios ${minuteLabel(group.startMinutes)}–${minuteLabel(group.startMinutes + 29)}`}
+                                                            </span>
+                                                            {single ? (
+                                                                <>
+                                                                    <span className="mt-0.5 block whitespace-normal break-words text-[11px] font-bold leading-tight">
+                                                                        {formatDoctorName(first.doctorName)}
+                                                                    </span>
+                                                                    {load ? <span className="mt-0.5 block text-[10px] font-semibold leading-tight">{percent(load.occupancy)} · {load.available}/{load.total} vagas</span> : null}
+                                                                </>
+                                                            ) : (
+                                                                <span className="mt-0.5 flex w-full items-center justify-between gap-1 text-[11px] font-bold leading-tight">
+                                                                    <span>{group.slots.length} horários livres</span>
+                                                                    <ChevronRight size={14} className="shrink-0" />
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                            );
+                                            return (
+                                                <div
+                                                    key={group.id}
+                                                    className="absolute left-1 right-1 z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                    style={{
+                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3,
+                                                        height: HOUR_HEIGHT / 2 - 6,
+                                                    }}
+                                                >
+                                                    {single ? card : (
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[380px]"
+                                                        text={
+                                                            <span className="block max-h-72 overflow-y-auto">
+                                                                <span className="mb-2 block font-bold text-slate-800">
+                                                                    {group.slots.length} {group.slots.length === 1 ? "horário livre" : "horários livres"}
+                                                                </span>
+                                                                {group.slots.map(slot => {
+                                                                    const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                                                                    return (
+                                                                        <span key={slot.id} className="block border-t border-slate-100 py-1.5">
+                                                                            <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
+                                                                            {capacity ? <span className="block break-words">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </span>
+                                                        }
+                                                    >
+                                                        {card}
+                                                    </InfoTooltip>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                        {appointmentGroups.map(group => {
+                                            const start = minutes(group.startsAt);
+                                            const end = minutes(group.endsAt);
+                                            return (
+                                                <div
+                                                    key={group.id}
+                                                    className="absolute z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                    style={{
+                                                        top: Math.max(0, (start - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3),
+                                                        height: Math.max(1, (end - start) / 60 * HOUR_HEIGHT - 6),
+                                                        left: 4,
+                                                        right: 4,
+                                                    }}
+                                                >
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[360px]"
+                                                        text={
+                                                            <span className="block max-h-72 overflow-y-auto">
+                                                                <span className="mb-2 block font-bold text-slate-800">{group.appointments.length} agendamentos</span>
+                                                                {group.appointments.map(appointment => (
+                                                                    <span key={appointment.id} className="flex gap-2 border-t border-slate-100 py-1.5">
+                                                                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: appointmentColor(appointment) }} />
+                                                                        <span className="min-w-0">
+                                                                            <span className="block font-semibold">{time(appointment.starts_at)}–{time(appointment.ends_at)} · {appointment.doctor?.name ?? "Sem médico"}</span>
+                                                                            <span className="block break-words">{appointment.patient_name}</span>
+                                                                        </span>
+                                                                    </span>
+                                                                ))}
+                                                            </span>
+                                                        }
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`${group.appointments.length} agendamentos entre ${time(group.startsAt)} e ${time(group.endsAt)}. Clique para ver todos.`}
+                                                            onClick={() => setExpandedGroup(group.appointments)}
+                                                            className="flex h-full w-full cursor-pointer flex-col items-start justify-center gap-0.5 overflow-hidden rounded-lg border border-white/70 bg-slate-600 px-2 py-1 text-left text-white shadow-sm transition hover:shadow-md"
+                                                        >
+                                                            <span className="text-[10px] font-bold">{time(group.startsAt)}–{time(group.endsAt)}</span>
+                                                            <span className="flex w-full items-center justify-between gap-1 text-[11px] font-bold">
+                                                                <span>{group.appointments.length} agendamentos</span>
+                                                                <ChevronRight size={14} className="shrink-0" />
+                                                            </span>
+                                                        </button>
+                                                    </InfoTooltip>
+                                                </div>
+                                            );
+                                        })}
                                         {appointments.map((appointment) => {
                                             const endsAt =
                                                 resize?.id === appointment.id
@@ -403,16 +608,11 @@ export default function WeekCalendar(props: Props) {
                                                     60) *
                                                 HOUR_HEIGHT;
                                             const height = Math.max(
-                                                ((endsAtMinutes -
-                                                    startsAtMinutes) /
-                                                    60) *
-                                                    HOUR_HEIGHT,
-                                                MIN_EVENT_HEIGHT,
+                                                1,
+                                                ((endsAtMinutes - startsAtMinutes) / 60) * HOUR_HEIGHT - 6,
                                             );
-                                            const overlap = overlapIndex(
-                                                appointment,
-                                                appointments,
-                                            );
+                                            const compact = endsAtMinutes - startsAtMinutes <= 15;
+                                            const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
                                                 appointment.id;
@@ -449,28 +649,27 @@ export default function WeekCalendar(props: Props) {
                                                             appointment,
                                                         )
                                                     }
-                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:brightness-95 hover:shadow-xl active:cursor-grabbing ${
+                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing ${
                                                         isSelected
                                                             ? "ring-2 ring-slate-950/20"
                                                             : ""
                                                     }`}
                                                     style={{
-                                                        top: Math.max(0, top),
+                                                        top: Math.max(0, top + 3),
                                                         height,
-                                                        left: 4 + overlap * 9,
-                                                        right: 4,
+                                                        left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
+                                                        right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
                                                         zIndex: isHovered
-                                                            ? 90
+                                                            ? 20
                                                             : isSelected
                                                               ? 35
-                                                              : 5 + overlap,
+                                                              : 5 + lane.column,
                                                         backgroundColor:
-                                                            appointment.doctor
-                                                                ?.color ??
-                                                            "#7c3aed",
+                                                            appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
-                                                    <button
+                                                        <span className="relative block h-full w-full">
+                                                            <button
                                                         type="button"
                                                         onClick={(event) => {
                                                             event.stopPropagation();
@@ -486,41 +685,41 @@ export default function WeekCalendar(props: Props) {
                                                                     ),
                                                             });
                                                         }}
-                                                        className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded bg-black/10 opacity-0 hover:bg-black/20 group-hover:opacity-100"
+                                                        className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded opacity-0 hover:bg-white/20 group-hover:opacity-100"
                                                     >
                                                         <Trash2 size={12} />
                                                     </button>
 
-                                                    <div className="pr-5 text-[10px] font-bold leading-tight opacity-90">
+                                                    <span className="block pr-5 text-[10px] font-bold leading-tight opacity-90">
                                                         {time(
                                                             appointment.starts_at,
                                                         )}
                                                         –{time(endsAt)}
-                                                    </div>
-                                                    <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">
+                                                    </span>
+                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
                                                         {appointment.doctor
                                                             ?.name ??
                                                             "Sem médico"}
-                                                    </div>
-                                                    <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">
-                                                        {
-                                                            appointment.patient_name
-                                                        }
-                                                    </div>
+                                                    </span>
+                                                    {!compact ? (
+                                                        <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
+                                                            {appointment.patient_name}
+                                                        </span>
+                                                    ) : null}
                                                     <button
                                                         type="button"
+                                                        aria-label="Redimensionar agendamento"
+                                                        title="Arraste para alterar a duração"
                                                         onPointerDown={(event) =>
                                                             beginResize(
                                                                 event,
                                                                 appointment,
                                                             )
                                                         }
-                                                        className="absolute bottom-0 left-0 flex h-4 w-full cursor-ns-resize items-center justify-center bg-black/5 opacity-0 group-hover:opacity-100"
-                                                    >
-                                                        <GripHorizontal
-                                                            size={13}
-                                                        />
-                                                    </button>
+                                                        className="absolute bottom-0 left-0 h-2 w-full cursor-ns-resize bg-transparent"
+                                                    />
+                                                        </span>
+
                                                 </div>
                                             );
                                         })}
@@ -531,6 +730,81 @@ export default function WeekCalendar(props: Props) {
                     </div>
                 )}
             </div>
+
+            <Modal
+                open={expandedFreeSlots !== null}
+                onClose={() => setExpandedFreeSlots(null)}
+                width={540}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                <div className="pr-10">
+                    <h2 className="text-lg font-bold text-slate-950">Horários livres</h2>
+                    <p className="mt-1 text-sm text-slate-500">Selecione o médico e horário para agendar.</p>
+                </div>
+                <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
+                    {expandedFreeSlots?.map(slot => {
+                        const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                        return (
+                            <button
+                                key={slot.id}
+                                type="button"
+                                onClick={() => {
+                                    setExpandedFreeSlots(null);
+                                    props.onSelectFreeSlot?.(slot);
+                                }}
+                                className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                            >
+                                <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AGENDA_COLORS.available }} />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-xs font-semibold text-slate-500">{time(slot.startsAt)}–{time(slot.endsAt)} · {slot.unitName}</span>
+                                    <span className="mt-1 block break-words text-sm font-bold text-slate-900">{formatDoctorName(slot.doctorName)}</span>
+                                    {capacity ? <span className="block text-xs text-slate-600">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
+                                </span>
+                                <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
+                            </button>
+                        );
+                    })}
+                </div>
+            </Modal>
+
+            <Modal
+                open={expandedGroup !== null}
+                onClose={() => setExpandedGroup(null)}
+                width={540}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                <div className="pr-10">
+                    <h2 className="text-lg font-bold text-slate-950">Agendamentos no período</h2>
+                    <p className="mt-1 text-sm text-slate-500">Selecione um agendamento para abrir os detalhes.</p>
+                </div>
+                <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
+                    {expandedGroup?.map(appointment => (
+                        <button
+                            key={appointment.id}
+                            type="button"
+                            onClick={() => {
+                                setExpandedGroup(null);
+                                props.onSelectAppointment(appointment);
+                            }}
+                            className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                        >
+                            <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: appointmentColor(appointment) }} />
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-xs font-semibold text-slate-500">{time(appointment.starts_at)}–{time(appointment.ends_at)} · {bookingTeamLabel(appointment.booking_team)}</span>
+                                <span className="mt-1 block break-words text-sm font-bold text-slate-900">{appointment.doctor?.name ?? "Sem médico"}</span>
+                                <span className="block break-words text-sm text-slate-600">{appointment.patient_name}</span>
+                            </span>
+                            <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
+                        </button>
+                    ))}
+                </div>
+            </Modal>
 
             <Modal
                 open={!!confirm}
@@ -623,7 +897,7 @@ const SKELETON_EVENT_LAYOUTS = [
     ],
 ] as const;
 
-function WeekCalendarSkeleton() {
+function WeekCalendarSkeleton({ freeOnly }: { freeOnly: boolean }) {
     return (
         <div
             className="min-w-[1180px]"
@@ -644,7 +918,7 @@ function WeekCalendarSkeleton() {
                 ))}
             </div>
 
-            <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
+            {!freeOnly ? <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                 <div className="flex min-h-16 items-center justify-center border-r border-slate-200">
                     <Skeleton className="h-3 w-10 rounded-md" />
                 </div>
@@ -670,7 +944,7 @@ function WeekCalendarSkeleton() {
                         </div>
                     </div>
                 ))}
-            </div>
+            </div> : null}
 
             <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))]">
                 <div
@@ -745,27 +1019,132 @@ function TimeAxis() {
     );
 }
 
-function overlapIndex(
-    appointment: CalendarAppointment,
-    appointments: CalendarAppointment[],
-) {
-    const startsAt = +new Date(appointment.starts_at);
-    const overlappingAppointments = appointments.filter(
-        (item) =>
-            item.id !== appointment.id &&
-            +new Date(item.starts_at) <= startsAt &&
-            +new Date(item.ends_at) > startsAt,
-    );
-    const ordered = [...overlappingAppointments, appointment].sort(
-        (first, second) =>
-            +new Date(first.starts_at) - +new Date(second.starts_at) ||
-            first.id.localeCompare(second.id),
-    );
+type GroupedAgendaBlock = AgendaBlock & { doctorNames: string[]; isLunch: boolean };
 
-    return Math.min(
-        ordered.findIndex((item) => item.id === appointment.id),
-        5,
-    );
+function groupAgendaBlocks(blocks: AgendaBlock[]) {
+    const byDay = new Map<string, GroupedAgendaBlock[]>();
+    const groups = new Map<string, { block: GroupedAgendaBlock; doctors: Set<string> }>();
+    for (const block of blocks) {
+        const isLunch = block.reason.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("almoco");
+        const key = [block.date, block.startsAt, block.endsAt, isLunch ? "almoco" : block.reason].join("|");
+        let group = groups.get(key);
+        if (!group) {
+            const groupedBlock = { ...block, reason: isLunch ? "Almoço" : block.reason, doctorNames: [], isLunch };
+            group = { block: groupedBlock, doctors: new Set<string>() };
+            groups.set(key, group);
+            byDay.set(block.date, [...(byDay.get(block.date) ?? []), groupedBlock]);
+        }
+        const doctorKey = `${block.unitId}:${block.doctorId}`;
+        if (!group.doctors.has(doctorKey)) {
+            group.doctors.add(doctorKey);
+            group.block.doctorNames.push(block.doctorName);
+        }
+    }
+    return byDay;
+}
+
+function groupOverlappingAgendaBlocks(blocks: GroupedAgendaBlock[]) {
+    const groups: Array<{ id: string; startsAt: string; endsAt: string; blocks: GroupedAgendaBlock[] }> = [];
+    const sorted = [...blocks].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt) || a.id.localeCompare(b.id));
+    for (const block of sorted) {
+        const last = groups[groups.length - 1];
+        if (last && Date.parse(block.startsAt) < Date.parse(last.endsAt)) {
+            last.blocks.push(block);
+            if (Date.parse(block.endsAt) > Date.parse(last.endsAt)) last.endsAt = block.endsAt;
+        } else {
+            groups.push({ id: `blocked:${block.id}`, startsAt: block.startsAt, endsAt: block.endsAt, blocks: [block] });
+        }
+    }
+    return groups;
+}
+
+function groupFreeSlotStarts(slots: AgendaFreeSlot[]) {
+    const groups = new Map<number, { id: string; startMinutes: number; slots: AgendaFreeSlot[] }>();
+    for (const slot of slots) {
+        const startMinutes = Math.floor(minutes(slot.startsAt) / 30) * 30;
+        const group = groups.get(startMinutes);
+        if (group) group.slots.push(slot);
+        else groups.set(startMinutes, { id: `free-start:${slot.date}:${startMinutes}`, startMinutes, slots: [slot] });
+    }
+    return [...groups.values()].sort((a, b) => a.startMinutes - b.startMinutes);
+}
+
+function appointmentColor(appointment: CalendarAppointment) {
+    return appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
+}
+
+type AppointmentGroup = {
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    appointments: CalendarAppointment[];
+};
+
+function splitAppointmentGroups(appointments: CalendarAppointment[]) {
+    const groups: AppointmentGroup[] = [];
+    const individual: CalendarAppointment[] = [];
+    let current: CalendarAppointment[] = [];
+    let activeEnds: number[] = [];
+    let currentEnd = -Infinity;
+    let maximumConcurrent = 0;
+
+    function finish() {
+        if (!current.length) return;
+        if (maximumConcurrent >= 3 || (maximumConcurrent === 2 && current.some(item => Date.parse(item.ends_at) - Date.parse(item.starts_at) <= 30 * 60_000))) {
+            const endsAt = current.reduce(
+                (latest, item) => Date.parse(item.ends_at) > Date.parse(latest) ? item.ends_at : latest,
+                current[0].ends_at,
+            );
+            groups.push({
+                id: `group:${current[0].id}`,
+                startsAt: current[0].starts_at,
+                endsAt,
+                appointments: current,
+            });
+        } else {
+            individual.push(...current);
+        }
+        current = [];
+        activeEnds = [];
+        currentEnd = -Infinity;
+        maximumConcurrent = 0;
+    }
+
+    for (const appointment of appointments) {
+        const startsAt = Date.parse(appointment.starts_at);
+        const endsAt = Date.parse(appointment.ends_at);
+        if (current.length && startsAt >= currentEnd) finish();
+        activeEnds = activeEnds.filter(end => end > startsAt);
+        activeEnds.push(endsAt);
+        maximumConcurrent = Math.max(maximumConcurrent, activeEnds.length);
+        currentEnd = Math.max(currentEnd, endsAt);
+        current.push(appointment);
+    }
+    finish();
+    return { groups, individual };
+}
+
+function layoutConcurrentEvents(events: Array<{ id: string; start: number; end: number }>) {
+    const layout = new Map<string, { column: number; columns: number }>();
+    const sorted = [...events].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+    let group: Array<{ id: string; column: number }> = [];
+    let laneEnds: number[] = [];
+    let groupEnd = -Infinity;
+    const finish = () => {
+        for (const item of group) layout.set(item.id, { column: item.column, columns: laneEnds.length });
+        group = [];
+        laneEnds = [];
+    };
+    for (const event of sorted) {
+        if (group.length && event.start >= groupEnd) finish();
+        let column = laneEnds.findIndex(end => end <= event.start);
+        if (column === -1) column = laneEnds.length;
+        laneEnds[column] = event.end;
+        group.push({ id: event.id, column });
+        groupEnd = Math.max(groupEnd, event.end);
+    }
+    finish();
+    return layout;
 }
 
 function parts(value: string) {

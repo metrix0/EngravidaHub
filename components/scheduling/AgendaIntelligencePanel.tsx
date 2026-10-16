@@ -14,6 +14,7 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
     unitIds: string[]; doctorIds: string[]; period: CalendarPresetValue | null; selectedRange: DateRange; ready: boolean; optionsError: string | null;
 }) {
     const [result, setResult] = useState<{ query: string | null; report: AgendaIntelligenceReport | null; error: string | null }>({ query: null, report: null, error: null });
+    const [reload, setReload] = useState(0);
     const unitKey = [...unitIds].sort().join(","), doctorKey = [...doctorIds].sort().join(",");
     const { start, end } = selectedRange;
     const query = useMemo(() => {
@@ -23,27 +24,32 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
         doctorKey.split(",").filter(Boolean).forEach(id => params.append("doctor_ids", id));
         return params.toString();
     }, [period, start, end, unitKey, doctorKey]);
-    const loading = !ready || result.query !== query;
+    const requestKey = `${query}:${reload}`;
+    const loading = !ready || result.query !== requestKey;
     const report = result.report;
     const error = loading ? null : result.error;
     useEffect(() => {
         if (!ready) return;
         const controller = new AbortController();
+        const timer = window.setTimeout(() => {
+            controller.abort();
+            setResult({ query: requestKey, report: null, error: "A consulta demorou mais que o esperado. Tente novamente." });
+        }, 65_000);
         async function load() {
             try {
                 const response = await fetch(`/api/scheduling/intelligence?${query}`, { cache: "no-store", signal: controller.signal });
                 const json = await response.json();
                 if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar a inteligência de agenda.");
-                if (!controller.signal.aborted) setResult({ query, report: json.report, error: null });
+                if (!controller.signal.aborted) setResult({ query: requestKey, report: json.report, error: null });
             } catch (failure) {
                 if (!controller.signal.aborted) {
-                    setResult({ query, report: null, error: failure instanceof Error ? failure.message : "Não foi possível carregar a inteligência de agenda." });
+                    setResult({ query: requestKey, report: null, error: failure instanceof Error ? failure.message : "Não foi possível carregar a inteligência de agenda." });
                 }
-            }
+            } finally { window.clearTimeout(timer); }
         }
         void load();
-        return () => controller.abort();
-    }, [ready, query]);
+        return () => { window.clearTimeout(timer); controller.abort(); };
+    }, [ready, query, requestKey]);
 
     return <div className="relative space-y-5" aria-busy={loading}>
         {loading && !report ? <AgendaIntelligenceSkeleton /> : null}
@@ -65,6 +71,6 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
             })}
         </div> : null}
         {optionsError ? <div role="alert" className="rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</div> : null}
-        {error ? <div role="alert" className="rounded-xl border border-red/20 bg-red-soft p-4 text-sm text-red">{error}</div> : null}
+        {error ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red/20 bg-red-soft p-4 text-sm text-red"><span>{error}</span><button type="button" onClick={() => setReload(value => value + 1)} className="cursor-pointer rounded-lg border border-red/20 bg-white px-3 py-2 text-xs font-semibold">Tentar novamente</button></div> : null}
     </div>;
 }

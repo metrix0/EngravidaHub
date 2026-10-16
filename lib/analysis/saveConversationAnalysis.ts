@@ -1,5 +1,6 @@
 // lib/analysis/saveConversationAnalysis.ts
 import { supabase } from "@/lib";
+import { deriveInboxClosingTag } from "@/lib/analysis/deriveInboxClosingTag";
 import type { ConversationAnalysis } from "@/types";
 
 export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
@@ -60,6 +61,18 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
         .single();
 
     if (error) throw new Error(`Failed to save conversation analysis: ${error.message}`);
+
+    // Tag only a finalized Inbox thread, using the existing client closing-tag mechanism.
+    // Tagging failures must not discard an otherwise successfully saved AI analysis.
+    try {
+        await syncInboxClosingTag(analysis);
+    } catch (tagError) {
+        console.error("[saveConversationAnalysis] closing-tag sync failed", {
+            conversation_id: analysis.conversation_id,
+            error: tagError instanceof Error ? tagError.message : String(tagError),
+        });
+    }
+
     return data.id as string;
 }
 
@@ -68,3 +81,48 @@ function nullableUuid(value: string | null | undefined) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : null;
 }
 
+
+async function syncInboxClosingTag(analysis: ConversationAnalysis) {
+    const tag = deriveInboxClosingTag(analysis);
+    if (!tag || !analysis.client_id || !analysis.ended_at) return;
+
+    const { data: conversation, error: conversationError } = await supabase
+        .from("conversations")
+        .select("client_id, thread_id")
+        .eq("id", analysis.conversation_id)
+        .maybeSingle();
+    if (conversationError) throw conversationError;
+    if (!conversation?.thread_id || conversation.client_id !== analysis.client_id) return;
+
+    const { data: thread, error: threadError } = await supabase
+        .from("thread")
+        .select("status")
+        .eq("id", conversation.thread_id)
+        .maybeSingle();
+    if (threadError) throw threadError;
+    if (thread?.status !== "closed") return;
+
+    // Verify that the model's evidence IDs belong to this completed conversation.
+    if (analysis.closing_tag) {
+        const ids = [...new Set(analysis.closing_tag.evidence_message_ids)];
+        const { data: evidence, error: evidenceError } = await supabase
+            .from("messages")
+            .select("id")
+            .eq("conversation_id", analysis.conversation_id)
+            .in("id", ids)
+            .limit(ids.length);
+        if (evidenceError) throw evidenceError;
+        if (evidence?.length !== ids.length) return;
+    }
+
+    // The existing RPC preserves newer closing tags (including human/sheet tags)
+    // and makes repeat analysis saves idempotent.
+    const { error } = await supabase.rpc("sync_client_last_closing_tags", {
+        p_items: [{
+            client_id: analysis.client_id,
+            closing_tag: tag,
+            closing_tag_at: analysis.ended_at,
+        }],
+    });
+    if (error) throw error;
+}
