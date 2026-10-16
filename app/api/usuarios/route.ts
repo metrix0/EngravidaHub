@@ -18,6 +18,7 @@ const VALID_TAB_IDS = new Set([
     "assistente",
     "usuarios",
     "inbox",
+    "performance",
     "agendamentos",
     "inteligencia_agenda",
     "mensagem_ativa",

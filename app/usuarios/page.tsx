@@ -45,6 +45,7 @@ type TabId =
     | "assistente"
     | "usuarios"
     | "inbox"
+    | "performance"
     | "agendamentos"
     | "inteligencia_agenda"
     | "mensagem_ativa"
@@ -179,6 +180,7 @@ const TABS: PermissionTab[] = [
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
+    { id: "performance", label: "Performance", href: "/performance", color: "purple", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
     { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
@@ -203,6 +205,7 @@ const PRESETS: PermissionPreset[] = [
             "assistente",
             "usuarios",
             "inbox",
+            "performance",
             "agendamentos",
             "inteligencia_agenda",
             "mensagem_ativa",
@@ -223,6 +226,7 @@ const PRESETS: PermissionPreset[] = [
             "jornada",
             "eventos",
             "assistente",
+            "performance",
             "inteligencia_agenda",
             "internos",
             "clientes",
