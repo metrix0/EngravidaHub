@@ -1,6 +1,4 @@
 // lib/attendants/createAttendant.ts
-import { randomUUID } from "crypto";
-
 import { supabase } from "@/lib";
 import type { Attendant } from "@/types/attendant";
 import type { ParsedBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
@@ -24,62 +22,25 @@ export async function createAttendantFromParsedMessage(
         parsedMessage.external_attendant_id
     );
 
-    const { data: existingAttendant, error: findError } = await supabase
+    const { data: attendantId, error: resolveError } = await supabase.rpc(
+        "resolve_attendant_identity",
+        {
+            p_source: "blip",
+            p_name: name,
+            p_external_id: parsedMessage.external_attendant_id,
+            p_email: email,
+        },
+    );
+    if (resolveError) throw resolveError;
+    if (!attendantId) return null;
+
+    const { data: attendant, error: findError } = await supabase
         .from("attendants")
         .select("*")
-        .eq("external_attendant_id", parsedMessage.external_attendant_id)
-        .maybeSingle();
-
-    if (findError) {
-        throw findError;
-    }
-
-    if (existingAttendant) {
-        const { data: updatedAttendant, error: updateError } = await supabase
-            .from("attendants")
-            .update({
-                name,
-                email,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", existingAttendant.id)
-            .select("*")
-            .single();
-
-        if (updateError) {
-            throw updateError;
-        }
-
-        return updatedAttendant;
-    }
-
-    const now = new Date().toISOString();
-
-    const { data: createdAttendant, error: createError } = await supabase
-        .from("attendants")
-        .insert({
-            id: randomUUID(),
-
-            name,
-            email,
-
-            unit_id: null,
-
-            external_attendant_id: parsedMessage.external_attendant_id,
-
-            active: true,
-
-            created_at: now,
-            updated_at: now,
-        })
-        .select("*")
+        .eq("id", attendantId)
         .single();
-
-    if (createError) {
-        throw createError;
-    }
-
-    return createdAttendant;
+    if (findError) throw findError;
+    return attendant;
 }
 
 function extractEmailFromExternalAttendantId(

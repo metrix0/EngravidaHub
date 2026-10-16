@@ -17,8 +17,9 @@ export async function enrichBookingTeams<T extends { id: string; booking_team?: 
     const pending = appointments.filter(row => !row.booking_team);
     if (!pending.length) return appointments;
     const ids = [...new Set(pending.map(row => row.source_external_id).filter((id): id is string => Boolean(id)))];
-    const [{ data: attendants, error }, schedules] = await Promise.all([
+    const [{ data: attendants, error }, { data: aliases, error: aliasError }, schedules] = await Promise.all([
         supabase.from("attendants").select("id,name,queues!attendants_queue_id_fkey(sector)"),
+        supabase.from("attendant_aliases").select("source_name,attendant_id").eq("source", "clinisys"),
         Promise.all(Array.from({ length: Math.ceil(ids.length / 150) }, (_, index) => ids.slice(index * 150, (index + 1) * 150)).map(async batch => {
             return readAll<{ id: string; source_external_id: string; attendant_name: string | null }>(cursor => {
                 let query = supabase.from("schedules").select("id,source_external_id,attendant_name").in("source_external_id", batch).order("id").limit(500);
@@ -28,9 +29,12 @@ export async function enrichBookingTeams<T extends { id: string; booking_team?: 
         })),
     ]);
     if (error) throw error;
+    if (aliasError) throw aliasError;
     const names = (attendants ?? []).map(row => { const queue = Array.isArray(row.queues) ? row.queues[0] : row.queues; const team: BookingTeam = queue?.sector === "ra" ? "ra" : "unit"; return { id: row.id, name: row.name, team }; });
+    const attendantsById = new Map(names.map(attendant => [attendant.id, attendant.team]));
+    const aliasTeams = new Map((aliases ?? []).map(alias => [alias.source_name, attendantsById.get(alias.attendant_id) ?? null]));
     const teams = new Map<string, Set<BookingTeam>>();
-    schedules.flat().forEach(row => { const team = row.attendant_name ? teamForAttendantName(row.attendant_name, names) : null; teams.set(row.source_external_id, new Set([...(teams.get(row.source_external_id) ?? []), team])); });
+    schedules.flat().forEach(row => { const team = row.attendant_name ? (aliasTeams.get(row.attendant_name) ?? teamForAttendantName(row.attendant_name, names)) : null; teams.set(row.source_external_id, new Set([...(teams.get(row.source_external_id) ?? []), team])); });
     const directTeam = (row: T) => {
         const found = teams.get(row.source_external_id ?? "");
         return found?.size === 1 ? [...found][0] : null;
