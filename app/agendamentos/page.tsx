@@ -24,6 +24,7 @@ import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import InfoTooltip from "@/components/ui/InfoTooltip";
+import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import AgendaIndicators, { AgendaLegend } from "@/components/scheduling/AgendaIndicators";
@@ -62,6 +63,10 @@ export default function AppointmentsPage() {
     const [doctors, setDoctors] = useState<SchedulingDoctorOption[]>([]);
     const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
     const [notes, setNotes] = useState<AppointmentDayNote[]>([]);
+    const [noteDialog, setNoteDialog] = useState<{ dateKey: string; note?: AppointmentDayNote } | null>(null);
+    const [noteText, setNoteText] = useState("");
+    const [noteSaving, setNoteSaving] = useState(false);
+    const [noteError, setNoteError] = useState<string | null>(null);
     const [selectedAppointmentId, setSelectedAppointmentId] =
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
@@ -441,64 +446,70 @@ export default function AppointmentsPage() {
     }
 
     async function handleAddNote(dateKey: string) {
-        const text = window.prompt("Nota para este dia:");
-        if (!text?.trim()) return;
-
-        try {
-            const response = await fetch("/api/scheduling/day-notes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    noteDate: dateKey,
-                    unitId: unitValues.length === 1 ? unitValues[0] : null,
-                    doctorId:
-                        doctorValues.length === 1 ? doctorValues[0] : null,
-                    text: text.trim(),
-                    color: "#f59e0b",
-                }),
-            });
-            const json = await response.json();
-            if (!response.ok) {
-                throw new Error(json?.error ?? "Não foi possível criar a nota.");
-            }
-            setNotes((current) => [...current, json.note]);
-        } catch (noteError) {
-            window.alert(
-                noteError instanceof Error
-                    ? noteError.message
-                    : "Não foi possível criar a nota.",
-            );
-        }
+        setNoteDialog({ dateKey });
+        setNoteText("");
+        setNoteError(null);
     }
 
     async function handleEditNote(note: AppointmentDayNote) {
-        const text = window.prompt("Editar nota:", note.text);
-        if (!text?.trim() || text.trim() === note.text) return;
+        setNoteDialog({ dateKey: note.note_date, note });
+        setNoteText(note.text);
+        setNoteError(null);
+    }
 
+    async function handleSaveNote() {
+        if (!noteDialog || noteSaving) return;
+        const text = noteText.trim();
+        if (!text || text.length > 500 || text === noteDialog.note?.text) return;
+
+        setNoteSaving(true);
+        setNoteError(null);
         try {
-            const response = await fetch(
-                `/api/scheduling/day-notes/${note.id}`,
-                {
-                    method: "PATCH",
+            if (noteDialog.note) {
+                const response = await fetch(
+                    `/api/scheduling/day-notes/${noteDialog.note.id}`,
+                    {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text }),
+                    },
+                );
+                const json = await response.json();
+                if (!response.ok) {
+                    throw new Error(json?.error ?? "Não foi possível editar a nota.");
+                }
+                setNotes((current) =>
+                    current.map((item) =>
+                        item.id === noteDialog.note?.id ? json.note : item,
+                    ),
+                );
+            } else {
+                const response = await fetch("/api/scheduling/day-notes", {
+                    method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ text: text.trim() }),
-                },
-            );
-            const json = await response.json();
-            if (!response.ok) {
-                throw new Error(json?.error ?? "Não foi possível editar a nota.");
+                    body: JSON.stringify({
+                        noteDate: noteDialog.dateKey,
+                        unitId: unitValues.length === 1 ? unitValues[0] : null,
+                        doctorId: doctorValues.length === 1 ? doctorValues[0] : null,
+                        text,
+                        color: "#f59e0b",
+                    }),
+                });
+                const json = await response.json();
+                if (!response.ok) {
+                    throw new Error(json?.error ?? "Não foi possível criar a nota.");
+                }
+                setNotes((current) => [...current, json.note]);
             }
-            setNotes((current) =>
-                current.map((item) =>
-                    item.id === note.id ? json.note : item,
-                ),
+            setNoteDialog(null);
+        } catch (error) {
+            setNoteError(
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível salvar a nota.",
             );
-        } catch (noteError) {
-            window.alert(
-                noteError instanceof Error
-                    ? noteError.message
-                    : "Não foi possível editar a nota.",
-            );
+        } finally {
+            setNoteSaving(false);
         }
     }
 
@@ -680,6 +691,63 @@ export default function AppointmentsPage() {
                     onDeleteNote={handleDeleteNote}
                 />
             </section>
+
+            <Modal
+                open={noteDialog !== null}
+                onClose={() => { if (!noteSaving) setNoteDialog(null); }}
+                width={460}
+                height="auto"
+                maxHeight="calc(100vh - 48px)"
+                closeOnOverlayClick={!noteSaving}
+                showCloseButton={!noteSaving}
+                panelClassName="p-6"
+                zIndexClassName="z-[120]"
+            >
+                <form
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleSaveNote();
+                    }}
+                >
+                    <h2 className="pr-10 text-lg font-bold text-slate-950">
+                        {noteDialog?.note ? "Editar nota" : "Nota para este dia"}
+                    </h2>
+                    <label htmlFor="agenda-day-note" className="mt-5 block text-sm font-semibold text-slate-700">
+                        Nota
+                    </label>
+                    <textarea
+                        id="agenda-day-note"
+                        autoFocus
+                        value={noteText}
+                        onChange={(event) => setNoteText(event.target.value)}
+                        maxLength={500}
+                        rows={4}
+                        disabled={noteSaving}
+                        placeholder="Escreva a nota..."
+                        className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
+                    />
+                    {noteError ? (
+                        <p role="alert" className="mt-2 text-sm text-red">{noteError}</p>
+                    ) : null}
+                    <div className="mt-5 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setNoteDialog(null)}
+                            disabled={noteSaving}
+                            className="h-10 cursor-pointer rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={noteSaving || !noteText.trim() || noteText.trim() === noteDialog?.note?.text}
+                            className="h-10 cursor-pointer rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {noteSaving ? "Salvando..." : "Salvar"}
+                        </button>
+                    </div>
+                </form>
+            </Modal>
 
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
                 <AgendaIndicators report={agendaReport} loading={loadingReport} />
