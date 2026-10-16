@@ -21,6 +21,7 @@ type DropdownSelectProps = {
     disabled?: boolean;
     widthClassName?: string;
     dropdownWidthClassName?: string;
+    contained?: boolean;
     searchable?: boolean;
     searchValue?: string;
     onSearchChange?: (value: string) => void;
@@ -40,6 +41,7 @@ export function DropdownSelect({
     disabled = false,
     widthClassName = "w-[240px]",
     dropdownWidthClassName = "w-full",
+    contained = false,
     searchable = false,
     searchValue = "",
     onSearchChange,
@@ -113,8 +115,8 @@ export function DropdownSelect({
                 </button>
             )}
 
-            <div className={`absolute right-0 z-[80] mt-2 max-w-[calc(100vw-2rem)] origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
-                <div className="max-h-72 overflow-y-auto py-1">
+            <div className={`z-[80] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-card shadow-lg ${dropdownWidthClassName} ${contained ? (open ? "relative mt-2" : "hidden") : `absolute right-0 mt-2 origin-top transition-all duration-150 ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}`}>
+                <div className={contained ? "py-1" : "max-h-72 overflow-y-auto py-1"}>
                     {loading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-muted">
                             <LoaderCircle size={15} className="animate-spin" />
