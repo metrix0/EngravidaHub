@@ -10,6 +10,9 @@ type CalendarDatePickerProps = {
     placeholder?: string;
     disabled?: boolean;
     invalid?: boolean;
+    mode?: "date" | "month";
+    clearable?: boolean;
+    align?: "left" | "right";
 };
 
 export function CalendarDatePicker({
@@ -18,11 +21,14 @@ export function CalendarDatePicker({
     placeholder = "Selecione a data",
     disabled = false,
     invalid = false,
+    mode = "date",
+    clearable = true,
+    align = "left",
 }: CalendarDatePickerProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const [open, setOpen] = useState(false);
     const [visibleDate, setVisibleDate] = useState(() =>
-        parseDateInput(value) ?? new Date(),
+        parseDateInput(mode === "month" ? `${value}-01` : value) ?? new Date(),
     );
 
     useEffect(() => {
@@ -33,22 +39,26 @@ export function CalendarDatePicker({
                 setOpen(false);
             }
         }
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") setOpen(false);
+        }
 
         document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        document.addEventListener("keydown", handleKeyDown);
+        return () => { document.removeEventListener("mousedown", handleClickOutside); document.removeEventListener("keydown", handleKeyDown); };
     }, [open]);
 
     useEffect(() => {
-        const selectedDate = parseDateInput(value);
+        const selectedDate = parseDateInput(mode === "month" ? `${value}-01` : value);
         if (selectedDate) setVisibleDate(selectedDate);
-    }, [value]);
+    }, [value, mode]);
 
     const days = useMemo(
         () => getCalendarDays(visibleDate.getFullYear(), visibleDate.getMonth()),
         [visibleDate],
     );
 
-    const label = value ? formatDateLabel(value) : placeholder;
+    const label = value ? mode === "month" ? new Date(`${value}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" }) : formatDateLabel(value) : placeholder;
 
     return (
         <div ref={wrapperRef} className="relative w-full">
@@ -80,7 +90,7 @@ export function CalendarDatePicker({
             </button>
 
             <div
-                className={`absolute left-0 z-[70] mt-2 w-[320px] max-w-[calc(100vw-3rem)] origin-top rounded-2xl border border-border bg-white p-4 shadow-xl transition-all duration-150 ${
+                className={`absolute ${align === "right" ? "right-0" : "left-0"} z-[70] mt-2 w-[320px] max-w-[calc(100vw-3rem)] origin-top rounded-2xl border border-border bg-white p-4 shadow-xl transition-all duration-150 ${
                     open
                         ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                         : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"
@@ -88,7 +98,7 @@ export function CalendarDatePicker({
                 aria-hidden={!open}
                 inert={!open}
                 role="dialog"
-                aria-label="Selecionar data"
+                aria-label={mode === "month" ? "Selecionar mês" : "Selecionar data"}
             >
                 <div className="mb-4 flex items-center justify-between">
                     <button
@@ -96,21 +106,21 @@ export function CalendarDatePicker({
                         onClick={() =>
                             setVisibleDate(
                                 new Date(
-                                    visibleDate.getFullYear(),
-                                    visibleDate.getMonth() - 1,
+                                    visibleDate.getFullYear() - (mode === "month" ? 1 : 0),
+                                    mode === "month" ? 0 : visibleDate.getMonth() - 1,
                                     1,
                                 ),
                             )
                         }
                         className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
-                        aria-label="Mês anterior"
+                        aria-label={mode === "month" ? "Ano anterior" : "Mês anterior"}
                     >
                         <ChevronLeft size={18} />
                     </button>
 
                     <div className="text-sm font-bold capitalize text-slate-900">
                         {visibleDate.toLocaleDateString("pt-BR", {
-                            month: "long",
+                            month: mode === "month" ? undefined : "long",
                             year: "numeric",
                         })}
                     </div>
@@ -120,19 +130,27 @@ export function CalendarDatePicker({
                         onClick={() =>
                             setVisibleDate(
                                 new Date(
-                                    visibleDate.getFullYear(),
-                                    visibleDate.getMonth() + 1,
+                                    visibleDate.getFullYear() + (mode === "month" ? 1 : 0),
+                                    mode === "month" ? 0 : visibleDate.getMonth() + 1,
                                     1,
                                 ),
                             )
                         }
                         className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
-                        aria-label="Próximo mês"
+                        aria-label={mode === "month" ? "Próximo ano" : "Próximo mês"}
                     >
                         <ChevronRight size={18} />
                     </button>
                 </div>
 
+                {mode === "month" ? <div className="grid grid-cols-3 gap-2">
+                    {Array.from({ length: 12 }, (_, index) => {
+                        const monthValue = `${visibleDate.getFullYear()}-${String(index + 1).padStart(2, "0")}`;
+                        return <button key={monthValue} type="button" aria-label={new Date(visibleDate.getFullYear(), index, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })} aria-pressed={value === monthValue} onClick={() => { onChange(monthValue); setOpen(false); }} className={`h-11 cursor-pointer rounded-lg text-sm capitalize transition ${value === monthValue ? "bg-brand font-bold text-white shadow-sm" : "text-slate-700 hover:bg-slate-100"}`}>
+                            {new Date(visibleDate.getFullYear(), index, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}
+                        </button>;
+                    })}
+                </div> : <>
                 <div className="mb-2 grid grid-cols-7 text-center text-xs font-bold text-slate-400">
                     <span>D</span>
                     <span>S</span>
@@ -173,7 +191,9 @@ export function CalendarDatePicker({
                     })}
                 </div>
 
-                {value ? (
+                </>}
+
+                {value && clearable ? (
                     <div className="mt-4 border-t border-border pt-3">
                         <button
                             type="button"

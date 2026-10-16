@@ -55,7 +55,8 @@ function getNavigationConfig(pathname: string): SectionNavigationConfig | null {
             parentHref: "/inteligencia-agenda",
             sections: [
                 { id: "agenda-inteligencia", label: "Inteligência" },
-                { id: "agenda-relatorios", label: "Relatórios", heading: "Relatórios da agenda" },
+                { id: "agenda-disponibilidade", label: "Disponibilidade", heading: "Disponibilidade da agenda" },
+                { id: "agenda-indicadores", label: "Indicadores", heading: "Indicadores da agenda" },
             ],
         };
     }

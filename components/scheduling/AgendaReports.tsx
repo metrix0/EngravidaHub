@@ -3,22 +3,21 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { CalendarCheck2, CalendarDays, ChartNoAxesCombined, Download, LayoutGrid, LoaderCircle, LockKeyhole, PieChart as PieChartIcon, Save, Users } from "lucide-react";
+import { CalendarCheck2, CalendarDays, ChartNoAxesCombined, ChevronLeft, ChevronRight, Download, LayoutGrid, LoaderCircle, LockKeyhole, PieChart as PieChartIcon, Users } from "lucide-react";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
 import Skeleton from "@/components/ui/Skeleton";
 import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
-import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import HorizontalScroller from "@/components/ui/HorizontalScroller";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { AGENDA_COLORS } from "@/lib/scheduling/bookingOrigin";
-import type { AgendaCounts, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import { monthlyAgendaCounts } from "@/lib/scheduling/agendaReportMetrics";
 import { renderAgendaReportImage } from "@/lib/scheduling/agendaReportImage";
 import { AgendaCountTable, percent } from "./AgendaIndicators";
 
 type Report = OperationalAgendaReport & { missingDoctors: Array<{ doctorName: string }> };
-type Snapshot = { month: string; captured_at: string; report: { counts: AgendaCounts; byUnit: Array<AgendaCounts & { unitName: string }> } };
-type Result = { query: string; report: Report | null; snapshots: Snapshot[]; error: string | null };
+type Result = { query: string; report: Report | null; error: string | null };
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const shortDate = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
 const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1, 12)).toISOString().slice(0, 10);
@@ -28,7 +27,7 @@ const number = (value: number) => value.toLocaleString("pt-BR");
 
 function useAgendaReport(query: string, ready: boolean) {
     const [reload, setReload] = useState(0);
-    const [result, setResult] = useState<Result>({ query: "", report: null, snapshots: [], error: null });
+    const [result, setResult] = useState<Result>({ query: "", report: null, error: null });
     const requestKey = `${query}:${reload}`;
     const loading = !ready || result.query !== requestKey;
     useEffect(() => {
@@ -36,16 +35,16 @@ function useAgendaReport(query: string, ready: boolean) {
         const controller = new AbortController();
         const timer = window.setTimeout(() => {
             controller.abort();
-            setResult({ query: requestKey, report: null, snapshots: [], error: "A consulta demorou mais que o esperado. Tente novamente." });
+            setResult({ query: requestKey, report: null, error: "A consulta demorou mais que o esperado. Tente novamente." });
         }, 65_000);
         void (async () => {
             try {
                 const response = await fetch(`/api/scheduling/reports?${query}`, { cache: "no-store", signal: controller.signal });
                 const json = await response.json();
                 if (!response.ok || !json.report) throw new Error(json.error ?? "Não foi possível carregar o relatório.");
-                if (!controller.signal.aborted) setResult({ query: requestKey, report: json.report, snapshots: json.snapshots ?? [], error: null });
+                if (!controller.signal.aborted) setResult({ query: requestKey, report: json.report, error: null });
             } catch (error) {
-                if (!controller.signal.aborted) setResult({ query: requestKey, report: null, snapshots: [], error: error instanceof Error ? error.message : "Não foi possível carregar o relatório." });
+                if (!controller.signal.aborted) setResult({ query: requestKey, report: null, error: error instanceof Error ? error.message : "Não foi possível carregar o relatório." });
             } finally { window.clearTimeout(timer); }
         })();
         return () => { window.clearTimeout(timer); controller.abort(); };
@@ -55,7 +54,7 @@ function useAgendaReport(query: string, ready: boolean) {
 
 export default function AgendaReports({ unitIds, doctorIds, ready }: { unitIds: string[]; doctorIds: string[]; ready: boolean }) {
     const [date, setDate] = useState(today), [month, setMonth] = useState(() => today().slice(0, 7));
-    const [saving, setSaving] = useState(false), [saveMessage, setSaveMessage] = useState<string | null>(null), [saveFailed, setSaveFailed] = useState(false);
+    const [exporting, setExporting] = useState(false), [exportError, setExportError] = useState<string | null>(null);
     const unitKey = [...unitIds].sort().join(","), doctorKey = [...doctorIds].sort().join(",");
     const queries = useMemo(() => {
         const build = (selectedMonth: string, reportDate: string) => {
@@ -67,39 +66,43 @@ export default function AgendaReports({ unitIds, doctorIds, ready }: { unitIds: 
         return { daily: build(date.slice(0, 7), date), monthly: build(month, `${month}-01`) };
     }, [date, month, unitKey, doctorKey]);
     const daily = useAgendaReport(queries.daily, ready), monthly = useAgendaReport(queries.monthly, ready);
-    const selectedYear = Number(month.slice(0, 4)), currentYear = Number(today().slice(0, 4));
-    const years = Array.from(new Set([...Array.from({ length: 5 }, (_, i) => currentYear - 2 + i), selectedYear])).sort((a, b) => b - a);
-    async function saveSnapshot() {
-        setSaving(true); setSaveMessage(null); setSaveFailed(false);
-        const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 65_000);
-        try {
-            const response = await fetch("/api/scheduling/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month, unitIds, doctorIds }), signal: controller.signal });
-            const json = await response.json();
-            if (!response.ok) throw new Error(json.error ?? "Não foi possível salvar o histórico.");
-            setSaveMessage(`Histórico de ${month.split("-").reverse().join("/")} salvo.`); monthly.refresh();
-        } catch (error) { setSaveFailed(true); setSaveMessage(controller.signal.aborted ? "Não foi possível confirmar o salvamento. Atualize o histórico antes de tentar novamente." : error instanceof Error ? error.message : "Não foi possível salvar o histórico."); }
-        finally { window.clearTimeout(timer); setSaving(false); }
+    async function exportImage() {
+        if (!daily.report) return;
+        setExporting(true); setExportError(null);
+        try { await downloadDailyReport(daily.report); }
+        catch { setExportError("Não foi possível gerar a imagem. Tente novamente."); }
+        finally { setExporting(false); }
     }
-    return <section id="agenda-relatorios" className="mt-8 min-w-0 space-y-5">
-        <div className="px-1"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><ChartNoAxesCombined size={19} aria-hidden="true" /></span><h2 className="text-lg font-bold text-slate-900">Relatórios da agenda</h2></div><p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">Acompanhe tempo de espera, disponibilidade e distribuição dos agendamentos por unidade.</p></div>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="w-56"><p className="mb-1.5 text-xs font-semibold text-muted">Data do relatório diário</p><CalendarDatePicker value={date} onChange={value => setDate(value || today())} /></div>
-            <button type="button" disabled={daily.loading || !daily.report} onClick={() => daily.report && downloadDailyReport(daily.report)} className={buttonClass}><Download size={16} />Baixar imagem</button>
-        </div>
-        {daily.error ? <ReportError message={daily.error} onRetry={daily.refresh} /> : null}
-        {daily.loading ? <div className="grid gap-5 lg:grid-cols-2" aria-label="Carregando relatório diário">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-80 rounded-2xl" />)}</div> : daily.report ? <DailyReport report={daily.report} /> : null}
-        <div className="flex flex-wrap items-end justify-between gap-3 border-t border-slate-100 pt-5">
-            <div className="flex flex-wrap gap-3"><div><p className="mb-1.5 text-xs font-semibold text-muted">Mês dos indicadores</p><DropdownSelect value={month.slice(5, 7)} onChange={value => { setMonth(`${month.slice(0, 4)}-${value}`); setSaveMessage(null); }} options={Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1).padStart(2, "0"), label: new Intl.DateTimeFormat("pt-BR", { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, index, 1))) }))} widthClassName="w-[180px]" icon={<CalendarDays size={16} />} /></div><div><p className="mb-1.5 text-xs font-semibold text-muted">Ano</p><DropdownSelect value={month.slice(0, 4)} onChange={value => { setMonth(`${value}-${month.slice(5, 7)}`); setSaveMessage(null); }} options={years.map(year => ({ value: String(year), label: String(year) }))} widthClassName="w-[120px]" /></div></div>
-        </div>
-        {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
-        {monthly.loading ? <Skeleton className="h-64 rounded-2xl" /> : monthly.report ? <MonthlyReport report={monthly.report} /> : null}
-        <Card className="min-w-0 !p-0">
-            <div className="flex flex-wrap items-start justify-between gap-3 p-4 md:p-6"><WidgetHeading title="Histórico mensal" /><button type="button" disabled={saving || monthly.loading || !monthly.report} onClick={() => void saveSnapshot()} className={buttonClass}>{saving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}Salvar histórico</button></div>
-            {saveMessage ? <p role={saveFailed ? "alert" : "status"} className={`px-4 pb-4 text-sm md:px-6 ${saveFailed ? "text-red" : "text-green"}`}>{saveMessage}</p> : null}
-            {monthly.loading ? <div className="p-4 md:p-6"><Skeleton className="h-32 rounded-xl" /></div> : monthly.error ? <p className="px-4 pb-6 text-sm text-muted md:px-6">Atualize os indicadores para consultar o histórico.</p> : <div className="space-y-3 px-4 pb-4 md:px-6 md:pb-6">{monthly.snapshots.map(snapshot => <details key={snapshot.month} className="rounded-xl border border-slate-200"><summary className="cursor-pointer p-3 text-sm font-semibold">{snapshot.month.slice(0, 7).split("-").reverse().join("/")} · {new Date(snapshot.captured_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</summary><AgendaCountTable rows={snapshot.report.byUnit.map(monthlyAgendaCounts)} /></details>)}{!monthly.snapshots.length ? <p className="py-8 text-center text-sm text-muted">Nenhum histórico salvo para os filtros selecionados.</p> : null}</div>}
-        </Card>
-    </section>;
+    const shiftDay = (days: number) => setDate(new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10));
+    return <>
+        <section id="agenda-disponibilidade" className="mt-8 min-w-0 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} />
+                <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => shiftDay(-1)} className={`${buttonClass} !h-11 !w-11 !px-0`} aria-label="Dia anterior"><ChevronLeft size={17} /></button>
+                    <div className="w-48"><CalendarDatePicker value={date} onChange={setDate} clearable={false} /></div>
+                    <button type="button" onClick={() => shiftDay(1)} className={`${buttonClass} !h-11 !w-11 !px-0`} aria-label="Próximo dia"><ChevronRight size={17} /></button>
+                    <button type="button" onClick={() => setDate(today())} className={`${buttonClass} !h-11`}>Hoje</button>
+                    <button type="button" disabled={daily.loading || !daily.report || exporting} onClick={() => void exportImage()} className={`${buttonClass} !h-11`}>{exporting ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />}Baixar imagem</button>
+                </div>
+            </div>
+            {exportError ? <p role="alert" className="text-sm text-red">{exportError}</p> : null}
+            {daily.error ? <ReportError message={daily.error} onRetry={daily.refresh} /> : null}
+            {daily.loading ? <div className="grid gap-5 lg:grid-cols-2" aria-label="Carregando relatório diário">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-80 rounded-2xl" />)}</div> : daily.report ? <DailyReport report={daily.report} /> : null}
+        </section>
+        <section id="agenda-indicadores" className="mt-8 min-w-0 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} />
+                <div className="w-60"><CalendarDatePicker mode="month" align="right" value={month} onChange={setMonth} clearable={false} /></div>
+            </div>
+            {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
+            {monthly.loading ? <Skeleton className="h-64 rounded-2xl" /> : monthly.report ? <MonthlyReport report={monthly.report} /> : null}
+        </section>
+    </>;
+}
+
+function ReportSectionHeading({ title, description, icon }: { title: string; description: string; icon: ReactNode }) {
+    return <div className="px-1"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">{icon}</span><h2 className="text-lg font-bold text-slate-900">{title}</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">{description}</p></div>;
 }
 
 function ReportError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -113,16 +116,16 @@ function MonthlyReport({ report }: { report: OperationalAgendaReport }) {
     const units = report.byUnit.map(monthlyAgendaCounts);
     const teamsNote = "Classificação confirmada por equipe. Agendamentos sem origem identificada aparecem separadamente na tabela por unidade.";
     return <div className="min-w-0 space-y-5">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard icon={<LayoutGrid size={22} />} label="Total de vagas" currentValue={counts.total} formatter={number} color="blue" />
-            <KpiCard icon={<CalendarDays size={22} />} label="Disponíveis" currentValue={counts.available} formatter={number} color="green" tooltipText="Horários não ocupados no mês selecionado, incluindo os que já passaram." />
-            <KpiCard icon={<CalendarCheck2 size={22} />} label="Agendado RA" currentValue={counts.ra} formatter={number} color="blue" tooltipText={teamsNote} />
-            <KpiCard icon={<Users size={22} />} label="Agendado Unidade" currentValue={counts.unit} formatter={number} color="purple" tooltipText={teamsNote} />
-            <KpiCard icon={<LockKeyhole size={22} />} label="Bloqueados" currentValue={counts.blocked} formatter={number} color="orange" />
-            <KpiCard icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="RA + Unidade divididos pelo total de vagas, incluindo bloqueados na base, conforme o relatório de referência. Agendamentos sem origem identificada não entram no numerador." />
-            <KpiCard icon={<Users size={22} />} label="Ocupação RA" currentValue={counts.raOccupancy} formatter={value => percent(value)} color="blue" tooltipText={teamsNote} />
-            <KpiCard icon={<Users size={22} />} label="Ocupação Unidade" currentValue={counts.unitOccupancy} formatter={value => percent(value)} color="purple" tooltipText={teamsNote} />
-        </div>
+        <HorizontalScroller scrollAmount={400}>
+            <KpiCard freeWidth icon={<LayoutGrid size={22} />} label="Total de vagas" currentValue={counts.total} formatter={number} color="blue" />
+            <KpiCard freeWidth icon={<CalendarDays size={22} />} label="Disponíveis" currentValue={counts.available} formatter={number} color="green" tooltipText="Horários não ocupados no mês selecionado, incluindo os que já passaram." />
+            <KpiCard freeWidth icon={<CalendarCheck2 size={22} />} label="Agendado RA" currentValue={counts.ra} formatter={number} color="blue" tooltipText={teamsNote} />
+            <KpiCard freeWidth icon={<Users size={22} />} label="Agendado Unidade" currentValue={counts.unit} formatter={number} color="purple" tooltipText={teamsNote} />
+            <KpiCard freeWidth icon={<LockKeyhole size={22} />} label="Bloqueados" currentValue={counts.blocked} formatter={number} color="orange" />
+            <KpiCard freeWidth icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="RA + Unidade divididos pelo total de vagas, incluindo bloqueados na base, conforme o relatório de referência. Agendamentos sem origem identificada não entram no numerador." />
+            <KpiCard freeWidth icon={<Users size={22} />} label="Ocupação RA" currentValue={counts.raOccupancy} formatter={value => percent(value)} color="blue" tooltipText={teamsNote} />
+            <KpiCard freeWidth icon={<Users size={22} />} label="Ocupação Unidade" currentValue={counts.unitOccupancy} formatter={value => percent(value)} color="purple" tooltipText={teamsNote} />
+        </HorizontalScroller>
         <div className="grid min-w-0 gap-5 lg:grid-cols-2">
             <Card className="min-w-0"><WidgetHeading title="Agendamentos por unidade" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><BarChart data={units} margin={{ top: 8, right: 8, bottom: 12, left: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="unitName" fontSize={10} interval={0} angle={-35} textAnchor="end" height={85} axisLine={false} tickLine={false} /><YAxis fontSize={11} axisLine={false} tickLine={false} width={40} /><Tooltip /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />{SERIES.map(item => <Bar key={item.key} dataKey={item.key} name={item.label} fill={AGENDA_COLORS[item.key]} radius={[3, 3, 0, 0]} />)}</BarChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>
             <Card className="min-w-0"><WidgetHeading title="Distribuição das vagas" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><PieChart><Pie data={SERIES.map(item => ({ name: item.label, value: counts[item.key], fill: AGENDA_COLORS[item.key] })).filter(row => row.value > 0)} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="75%" paddingAngle={2} /><Tooltip formatter={value => number(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} /></PieChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>
@@ -147,9 +150,16 @@ function dailyTables(report: OperationalAgendaReport) {
 function DailyReport({ report }: { report: OperationalAgendaReport }) {
     return <div className="min-w-0 space-y-3"><div className="grid min-w-0 gap-5 lg:grid-cols-2">{dailyTables(report).map(table => <ReportTable key={table.title} {...table} />)}</div><p className="text-xs text-muted">Atualizado em {new Date(report.generatedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · Busca até {shortDate(report.horizonEnd)}</p></div>;
 }
-function downloadDailyReport(report: OperationalAgendaReport) {
+async function downloadDailyReport(report: OperationalAgendaReport) {
+    const logo = new Image();
+    logo.src = "/logo.png";
+    await logo.decode();
+    await document.fonts.ready;
     const canvas = document.createElement("canvas");
     const tables = dailyTables(report).map(table => ({ title: table.title, columns: table.columns, rows: table.rows.map(row => row.map(String)) }));
-    if (!renderAgendaReportImage(canvas, { ...report, tables }, getComputedStyle(document.body).fontFamily)) return;
-    canvas.toBlob(blob => { if (!blob) return; const url = URL.createObjectURL(blob), link = document.createElement("a"); link.href = url; link.download = `agenda-${report.reportDate}.jpg`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }, "image/jpeg", 0.95);
+    if (!renderAgendaReportImage(canvas, { ...report, tables }, { image: logo, width: logo.naturalWidth, height: logo.naturalHeight }, getComputedStyle(document.body).fontFamily)) throw new Error("Canvas indisponível");
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("Imagem indisponível")), "image/jpeg", 0.95));
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = `agenda-${report.reportDate}.jpg`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

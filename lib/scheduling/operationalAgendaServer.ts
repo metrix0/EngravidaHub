@@ -63,4 +63,3 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
     const covered = new Set(agendas.map(row => `${row.unit_id}:${row.doctor_id}`));
     return { ...report, missingDoctors: doctorUnits.flatMap(doctor => doctor.doctor_units.filter(row => !covered.has(`${row.unit_id}:${doctor.id}`)).map(row => ({ doctorId: doctor.id, doctorName: doctor.name, unitId: row.unit_id }))) };
 }
-export const agendaScopeKey = (unitIds: string[], doctorIds: string[]) => `units:${[...new Set(unitIds)].sort().join(",")}|doctors:${[...new Set(doctorIds)].sort().join(",")}`;

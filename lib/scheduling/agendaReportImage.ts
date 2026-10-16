@@ -1,7 +1,7 @@
 type ImageTable = { title: string; columns: string[]; rows: string[][] };
 type ImageReport = { reportDate: string; horizonEnd: string; generatedAt: string; tables: ImageTable[] };
 
-export function renderAgendaReportImage(canvas: HTMLCanvasElement, report: ImageReport, fontFamily = 'Inter, "Segoe UI", Arial, sans-serif') {
+export function renderAgendaReportImage(canvas: HTMLCanvasElement, report: ImageReport, logo: { image: CanvasImageSource; width: number; height: number }, fontFamily = 'Inter, "Segoe UI", Arial, sans-serif') {
     const context = canvas.getContext("2d");
     if (!context) return false;
     const width = 1600, padding = 48, gap = 24, cardWidth = (width - padding * 2 - gap) / 2;
@@ -53,7 +53,8 @@ export function renderAgendaReportImage(canvas: HTMLCanvasElement, report: Image
         context.beginPath(); context.roundRect(x, y, w, h, 20); context.fillStyle = color; context.fill();
         if (border) { context.strokeStyle = border; context.lineWidth = 1; context.stroke(); }
     };
-    text("engravida Hub", padding, 36, 25, "#ef4444", 600);
+    const logoHeight = 38;
+    context.drawImage(logo.image, padding, 30, logoHeight * logo.width / logo.height, logoHeight);
     text("Disponibilidade de agendas", padding, 80, 38, "#0f172a", 700);
     const dateLabel = new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${report.reportDate}T12:00:00Z`));
     text(dateLabel, padding, 134, 21, "#64748b");

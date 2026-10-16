@@ -455,31 +455,25 @@ async function testInboxTransfer() {
   integrationOk = true;
 
   await testPanelSelection();
-  // Report endpoints enforce the tab grant and server-side unit lock. Snapshot
-  // counts are calculated by the server, never accepted from a browser payload.
+  // Reports remain read-only and enforce the tab grant and server-side unit lock.
   let reportAccess={ok:true,user:{id:id(6)},permission:{unit_lock:{id:id(2)}}};
-  let loadedReportArgs, savedSnapshot, requestedTab, readScope;
+  let loadedReportArgs, requestedTab;
   const reportRoute=load('app/api/scheduling/reports/route.ts',{
     'next/server':next,
     '@/lib/auth/getServerTabAccess':{getServerTabAccess:async tab=>{requestedTab=tab;return reportAccess;}},
     '@/lib/scheduling/operationalAgenda':{agendaDate:()=> '2026-10-13',agendaWeekStart:()=> '2026-10-11',agendaAddDays:()=> '2026-10-18',agendaMonthStart:()=> '2026-11-01'},
-    '@/lib/scheduling/operationalAgendaServer':{agendaScopeKey:(units,doctors)=>[...units,...doctors].join(','),loadOperationalAgenda:async args=>{loadedReportArgs=args;return {counts:{total:12},byUnit:[{unitName:'Bauru',total:12}]};}},
-    '@/lib/supabase/client':{supabase:{from:()=>({select:()=>({eq:(_,value)=>{readScope=value;return {order:()=>({limit:async()=>({data:[],error:null})})};}}),upsert:async value=>{savedSnapshot=value;return {error:null};}})}},
+    '@/lib/scheduling/operationalAgendaServer':{loadOperationalAgenda:async args=>{loadedReportArgs=args;return {counts:{total:12},byUnit:[{unitName:'Bauru',total:12}]};}},
+
   });
   const reportUrl=`https://hub.test/api/scheduling/reports?view=reports&start=2026-10-01&end=2026-11-01&unit_ids=${id(999)}`;
   assert.equal((await reportRoute.GET({url:reportUrl})).status,200);
   assert.equal(requestedTab,'inteligencia_agenda');
   assert.equal(loadedReportArgs.unitIds[0],id(2),'caller cannot override unit lock');
-  assert.equal(readScope,id(2),'saved reports cannot expose another unit');
   assert.equal((await reportRoute.GET({url:'https://hub.test/api/scheduling/reports?view=calendar'})).status,200);
   assert.equal(requestedTab,'agendamentos');
-  assert.equal((await reportRoute.POST({json:async()=>({month:'2026-10',unitIds:[id(999)],doctorIds:[],report:{counts:{total:9999}}})})).status,200);
-  assert.equal(savedSnapshot.unit_ids[0],id(2));
-  assert.equal(savedSnapshot.captured_by,id(6));
-  assert.equal(savedSnapshot.report.counts.total,12,'ignore forged client-side counts');
+  assert.equal(reportRoute.POST,undefined,'reports do not expose a persistence endpoint');
   reportAccess={ok:false,status:403,error:'Tab not allowed'};
   assert.equal((await reportRoute.GET({url:reportUrl})).status,403);
-  assert.equal((await reportRoute.POST({json:async()=>({})})).status,403);
   const panel = load('components/inbox/SchedulingPanel.tsx', new Proxy({}, { has: () => true, get: () => ({}) }), '\nexports.validate = validate; exports.withInitialSlot = withInitialSlot;');
   assert.equal(Object.keys(panel.validate(form, 'congelamento')).length, 0);
 
