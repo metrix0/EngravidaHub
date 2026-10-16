@@ -22,6 +22,7 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
+import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
@@ -619,7 +620,7 @@ export default function AppointmentsPage() {
                         </>
                     ) : (
                         <>
-                            <FilterButton
+                            <SingleFilterButton
                                 icon={<MapPin size={16} />}
                                 label="Todas as unidades"
                                 options={unitOptions}

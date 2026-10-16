@@ -9,7 +9,7 @@ export type FilterOption = {
     value: string;
 };
 
-type FilterButtonProps = {
+export type FilterButtonProps = {
     icon?: ReactNode;
     label: string;
     options?: FilterOption[];
@@ -17,6 +17,7 @@ type FilterButtonProps = {
     onChange?: (values: string[]) => void;
     widthClassName?: string;
     disabled?: boolean;
+    singleSelect?: boolean;
 };
 
 export default function FilterButton({
@@ -27,6 +28,7 @@ export default function FilterButton({
                                          onChange,
                                          widthClassName = "w-[220px]",
                                          disabled = false,
+                                         singleSelect = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,10 +42,10 @@ export default function FilterButton({
     const allOptionValues = options.map((option) => option.value);
 
     const allApplied =
-        appliedValues.length === 0 || appliedValues.length === allOptionValues.length;
+        appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
 
     const allDraftSelected =
-        draftValues.length === 0 || draftValues.length === allOptionValues.length;
+        !singleSelect && (draftValues.length === 0 || draftValues.length === allOptionValues.length);
 
     const displayLabel = allApplied
         ? label
@@ -86,15 +88,23 @@ export default function FilterButton({
 
         if (!open) {
             setDraftValues(
-                appliedValues.length === 0
-                    ? allOptionValues
-                    : [...appliedValues],
+                singleSelect
+                    ? [...appliedValues]
+                    : appliedValues.length === 0
+                        ? allOptionValues
+                        : [...appliedValues],
             );
         }
         setOpen((current) => !current);
     }
 
     function toggleOption(value: string) {
+        if (singleSelect) {
+            updateAppliedValues([value]);
+            setOpen(false);
+            return;
+        }
+
         const normalizedValues = allDraftSelected ? allOptionValues : draftValues;
 
         if (normalizedValues.includes(value)) {
@@ -106,11 +116,18 @@ export default function FilterButton({
     }
 
     function selectAllDraft() {
+        if (singleSelect) {
+            updateAppliedValues([]);
+            setOpen(false);
+            return;
+        }
         setDraftValues(allOptionValues);
     }
 
     function selectOnlyDraft(value: string) {
         setDraftValues([value]);
+        updateAppliedValues([value]);
+        setOpen(false);
     }
 
     function applySelection() {
@@ -198,7 +215,7 @@ export default function FilterButton({
                                     <span className="truncate">{option.label}</span>
                                 </button>
 
-                                <button
+                                {!singleSelect && <button
                                     type="button"
                                     onClick={() => selectOnlyDraft(option.value)}
                                     className="mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 md:opacity-0 md:group-hover:opacity-100"
@@ -206,7 +223,7 @@ export default function FilterButton({
                                     aria-label={`Selecionar apenas ${option.label}`}
                                 >
                                     <Crosshair size={14} />
-                                </button>
+                                </button>}
                             </div>
                         );
                     })}
@@ -221,13 +238,13 @@ export default function FilterButton({
                         Todos
                     </button>
 
-                    <button
+                    {!singleSelect && <button
                         type="button"
                         onClick={applySelection}
                         className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
                     >
                         Aplicar
-                    </button>
+                    </button>}
                 </div>
             </div>
         </div>

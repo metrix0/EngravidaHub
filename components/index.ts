@@ -5,6 +5,7 @@ export { default as ButtonGroup } from "./ui/ButtonGroup";
 export { default as CalendarButton } from "./ui/CalendarButton";
 export { default as Card } from "./ui/Card";
 export { default as FilterButton } from "./ui/FilterButton";
+export { default as SingleFilterButton } from "./ui/SingleFilterButton";
 export { default as HorizontalScroller } from "./ui/HorizontalScroller";
 export { default as InfoTooltip } from "./ui/InfoTooltip";
 export { default as KpiCard } from "./ui/KpiCard";
