@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LoaderCircle, Search } from "lucide-react";
 
-import ButtonGroup from "@/components/ui/ButtonGroup";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { Modal } from "@/components/ui/Modal";
 
@@ -98,7 +97,33 @@ export default function TransferConversationModal({
         <Modal open={open} onClose={() => { if (!submitting) onClose(); }} width={460} height={420} maxHeight="calc(100dvh - 32px)" ariaLabelledBy="inbox-transfer-title" closeOnEscape={!submitting} closeOnOverlayClick={!submitting}>
             <div className="flex min-h-0 flex-1 flex-col gap-5 p-5 pt-6 sm:p-6">
                 <h2 id="inbox-transfer-title" className="pr-10 text-lg font-bold text-slate-950">Transferir atendimento</h2>
-                <ButtonGroup<TransferMode> value={mode} onChange={changeMode} options={[{ value: "queue", label: "Fila" }, { value: "attendant", label: "Atendente" }]} className="self-start" />
+                <fieldset className="flex items-center gap-6">
+                    <legend className="sr-only">Transferir para</legend>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
+                        <input
+                            type="radio"
+                            name="transferDestinationType"
+                            value="queue"
+                            checked={mode === "queue"}
+                            onChange={() => changeMode("queue")}
+                            disabled={submitting}
+                            className="h-4 w-4 cursor-pointer accent-brand"
+                        />
+                        Fila
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
+                        <input
+                            type="radio"
+                            name="transferDestinationType"
+                            value="attendant"
+                            checked={mode === "attendant"}
+                            onChange={() => changeMode("attendant")}
+                            disabled={submitting}
+                            className="h-4 w-4 cursor-pointer accent-brand"
+                        />
+                        Atendente
+                    </label>
+                </fieldset>
                 <div className="min-h-0 flex-1">
                     <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                         {mode === "queue" ? "Selecionar fila" : "Selecionar atendente"}
