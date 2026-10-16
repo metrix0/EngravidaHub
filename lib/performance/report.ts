@@ -5,7 +5,7 @@ export type PerformanceSource = {
     units: Array<{ id: string; name: string }>;
     period: Array<{ attendant_id: string; tickets: number; analyzed: number; first_seconds: number | null; first_count: number; response_seconds: number | null; response_count: number; score: number | null; score_count: number; resolved: number; eligible_resolution: number }>;
     monthly: Array<{ attendant_id: string; month: string; tickets: number; analyzed: number; first_seconds: number | null; response_seconds: number | null; score: number | null }>;
-    bookings: Array<{ date: string; attendant_name: string; unit_name: string | null; appointments: number }>;
+    bookings: Array<{ date: string; attendant_name: string | null; unit_name: string | null; appointments: number }>;
 };
 export type PerformanceMonth = { month: string; tickets: number; appointments: number; firstResponse: number | null; response: number | null; score: number | null };
 export type PerformanceAttendant = {
@@ -27,7 +27,8 @@ export type PerformanceReport = {
 const STOP_WORDS = new Set(["de", "da", "do", "dos", "das", "e"]);
 const tokens = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z]+/).filter(word => word.length > 1 && !STOP_WORDS.has(word));
 
-export function matchPerformanceAttendant(name: string, people: PerformanceSource["people"]) {
+export function matchPerformanceAttendant(name: string | null, people: PerformanceSource["people"]) {
+    if (typeof name !== "string") return null;
     const incoming = tokens(name);
     if (incoming.length < 2) return null;
     // Some Clinisys names separate compound first names (Ana Carolina) that
@@ -63,7 +64,7 @@ export function buildPerformanceReport(source: PerformanceSource, start: string,
     const bookingsById = new Map<string, number>();
     const unitsByName = new Map<string, { total: number; ra: number; matched: number }>();
     const unitAttributions = new Map<string, PerformanceUnitAttribution>();
-    const resolvedNames = new Map<string, PerformanceSource["people"][number] | null>();
+    const resolvedNames = new Map<string | null, PerformanceSource["people"][number] | null>();
     let totalBookings = 0, matchedBookings = 0;
     for (const booking of source.bookings) {
         const amount = Number(booking.appointments);
