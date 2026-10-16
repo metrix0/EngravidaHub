@@ -15,6 +15,7 @@ export function AgendaLegend() {
     return <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-600">{([["available", "Disponível"], ["ra", "Agendado RA"], ["unit", "Agendado Unidade"], ["blocked", "Férias / bloqueio"], ["open", "Em aberto (passado)"], ["unknown", "Origem não identificada"]] as const).map(([key, label]) => <span key={key} className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: AGENDA_COLORS[key] }} />{label}</span>)}</div>;
 }
 const number = (value: number) => value.toLocaleString("pt-BR");
+const formatReportDate = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 const barWidth = (value: number, total: number) =>
     total > 0 ? String(Math.max(0, Math.min(100, (value / total) * 100))) + "%" : "0%";
 const percentWidth = (value: number | null) =>
@@ -30,6 +31,12 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
 
     const { counts } = report;
     const booked = counts.ra + counts.unit + counts.unknown;
+    const periodEnd = new Date(`${report.end}T12:00:00Z`);
+    periodEnd.setUTCDate(periodEnd.getUTCDate() - 1);
+    const historicalBase = report.previousMonths.reduce((total, month) => total + month.total - month.blocked, 0);
+    const historicalRa = report.previousMonths.reduce((total, month) => total + month.ra, 0);
+    const historicalUnit = report.previousMonths.reduce((total, month) => total + month.unit, 0);
+    const historicalRatesAvailable = historicalBase > 0 && !report.projection.unknown;
     const summary = [
         { label: "Total de vagas", value: counts.total, icon: CalendarDays, tone: "bg-brand-soft text-brand" },
         { label: "Disponíveis", value: counts.available, icon: CalendarCheck2, tone: "bg-green-soft text-green" },
@@ -54,6 +61,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
             <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Visão geral</p>
                 <p className="mt-1 text-sm text-slate-500">Capacidade e agendamentos do período</p>
+                <p className="mt-1 text-xs text-muted">{formatReportDate(report.start)} a {formatReportDate(periodEnd.toISOString().slice(0, 10))} (Semana)</p>
             </div>
 
             <Card className="!p-5">
@@ -81,6 +89,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                             <span className={["flex h-9 w-9 items-center justify-center rounded-xl", item.tone].join(" ")}><Icon size={18} /></span>
                             <div className="mt-3 text-2xl font-bold tracking-tight tabular-nums text-slate-950">{number(item.value)}</div>
                             <div className="mt-0.5 text-xs font-medium text-muted">{item.label}</div>
+                            {item.label === "Disponíveis" ? <p className="mt-1 text-[11px] text-green">A partir de hoje</p> : null}
                         </div>
                     );
                 })}
@@ -120,6 +129,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                 <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
                     <span className="flex items-center gap-2 text-xs font-medium leading-4 text-muted"><Clock3 size={15} className="shrink-0" />Em aberto (não preenchidos)</span>
                     <p className="mt-2 text-xl font-bold tabular-nums text-slate-900">{number(counts.open)}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-muted">Horários passados sem agendamento</p>
                 </div>
                 <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" title="Média dos seis meses anteriores com capacidade, calculada pelas agendas sincronizadas e suas datas de vigência.">
                     <span className="flex items-center gap-2 text-xs font-medium leading-4 text-muted"><CalendarDays size={15} className="shrink-0" />Média meses anteriores</span>
@@ -136,12 +146,13 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                     {projectionOpen ? (
                         <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-4">
                             <p className="text-xs font-semibold text-slate-600">Projeção {report.projection.month}</p>
+                            <p className="text-xs leading-relaxed text-muted">Baseado em {report.projection.historicalMonths} meses anteriores. Taxa RA {historicalRatesAvailable ? percent(historicalRa / historicalBase * 100) : "—"} · Unidade {historicalRatesAvailable ? percent(historicalUnit / historicalBase * 100) : "—"}</p>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="rounded-xl bg-blue-soft p-3"><p className="text-xs text-blue">RA</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{report.projection.ra === null ? "—" : number(report.projection.ra)}</p></div>
                                 <div className="rounded-xl bg-purple-soft p-3"><p className="text-xs text-purple">Unidade</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{report.projection.unit === null ? "—" : number(report.projection.unit)}</p></div>
                             </div>
                             <p className="text-xs font-medium text-slate-600">Base: {number(report.projection.base)} vagas úteis</p>
-                            <p className="text-xs leading-relaxed text-muted">Taxas dos {report.projection.historicalMonths} meses anteriores com capacidade. {report.projection.unknown ? "A projeção por equipe aguarda a identificação da origem dos agendamentos históricos." : "Estimativa com base nas agendas sincronizadas."}</p>
+                            <p className="text-xs leading-relaxed text-muted">{report.projection.unknown ? "A projeção por equipe aguarda a identificação da origem dos agendamentos históricos." : "Estimativa com base nas agendas sincronizadas."}</p>
                         </div>
                     ) : null}
                 </section>
