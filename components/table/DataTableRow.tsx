@@ -41,7 +41,7 @@ export function DataTableRow<TRow,>({
     ));
 
     const className = [
-        "group grid w-full items-center border-b border-slate-100 px-6 py-4 text-left text-sm text-text transition-colors hover:bg-selection/80",
+        "group grid w-full items-center border-b border-slate-100 px-3 py-3 text-left text-xs font-normal text-slate-600 transition-colors hover:bg-selection/80",
         onClick ? "cursor-pointer" : "cursor-default",
     ].join(" ");
 
