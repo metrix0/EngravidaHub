@@ -664,7 +664,6 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
-                {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
                 <WeekCalendar
                     weekDays={weekDays}
                     appointments={freeOnly ? [] : appointments}
