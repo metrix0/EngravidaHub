@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownUp, CalendarCheck2, ChevronLeft, ChevronRight, Clock3, Headset, Info, SearchCheck, Target } from "lucide-react";
+import { Activity, ArrowDownUp, CalendarCheck2, ChevronLeft, ChevronRight, Clock3, Headset, Info, MapPin, SearchCheck, Target, UserRound, Users } from "lucide-react";
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
@@ -179,9 +179,7 @@ export default function PerformancePage() {
                                 <p className="mt-1 text-xs text-muted">Clique em um nome para detalhar. Consultas contabilizadas pela data em que foram marcadas.</p>
                                 {unitId ? <p className="mt-1 text-xs text-muted">Tickets e tempos por unidade usam o vínculo atual do cliente. Conversas sem unidade identificada não entram no filtro.</p> : null}</div>
                             <div className="flex flex-wrap gap-3">
-                                <SingleFilterButton label="Todas as unidades" options={report.unitOptions.map(unit => ({ label: unit.name, value: unit.id }))}
-                                    values={unitId ? [unitId] : []} onChange={values => setUnitId(values[0] ?? "")} widthClassName="w-[200px]" />
-                                <DropdownSelect value={attendantId} widthClassName="w-[250px]" searchable
+                                <DropdownSelect icon={<UserRound size={16} />} value={attendantId} widthClassName="w-[250px]" searchable
                                     searchValue={attendantSearch}
                                     searchPlaceholder={report.attendantOptions.find(person => person.id === attendantId)?.name ?? "Todos os atendentes"}
                                     onSearchChange={value => {
@@ -197,7 +195,9 @@ export default function PerformancePage() {
                                     options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions
                                         .filter(person => person.name.toLocaleLowerCase("pt-BR").includes(attendantSearch.trim().toLocaleLowerCase("pt-BR")))
                                         .map(person => ({ label: person.name, value: person.id }))]} />
-                                <DropdownSelect value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
+                                <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades" options={report.unitOptions.map(unit => ({ label: unit.name, value: unit.id }))}
+                                    values={unitId ? [unitId] : []} onChange={values => setUnitId(values[0] ?? "")} widthClassName="w-[200px]" />
+                                <DropdownSelect icon={<Users size={16} />} value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
                                     { value: "all", label: "Todas as equipes" }, { value: "ra", label: "RA" }, { value: "other", label: "Demais equipes" }
                                 ]} />
                             </div>
