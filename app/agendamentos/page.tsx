@@ -644,7 +644,7 @@ export default function AppointmentsPage() {
                     />
                     <div className="flex shrink-0 items-center">
                         <InfoTooltip text={<AgendaLegend />} portal widthClassName="w-[300px]">
-                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-11 w-8 items-center justify-center text-slate-500 transition hover:text-slate-700">
+                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-11 w-6 items-center justify-center text-slate-500 transition hover:text-slate-700">
                                 <Info size={17} className="!h-[17px] !w-[17px]" />
                             </span>
                         </InfoTooltip>
