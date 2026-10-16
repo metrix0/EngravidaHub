@@ -5,7 +5,7 @@ import { replicatedAgendaCapacity } from "../lib/clinisys/replicatedAvailability
 import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "../lib/auth/userAccess";
 import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
-import { buildOperationalAgenda } from "../lib/scheduling/operationalAgenda";
+import { buildOperationalAgenda, normalizeAgendaText } from "../lib/scheduling/operationalAgenda";
 import { sectorBookingTeam, teamForAttendantName } from "../lib/scheduling/bookingOrigin";
 import { filterDashboardWidgetIds } from "../lib/personal-dashboard/registryExtended";
 
@@ -187,6 +187,17 @@ assert.equal(operational.counts.available, 2);
 assert.equal(operational.counts.blocked, 3);
 assert.equal(operational.blocks.length, 2);
 assert.ok(operational.slots.every(slot => !operational.blocks.some(block => Date.parse(slot.startsAt) < Date.parse(block.endsAt) && Date.parse(slot.endsAt) > Date.parse(block.startsAt))));
+// Blocked slots remain part of the reference occupancy denominator.
+const blockedAndBooked = buildOperationalAgenda({ ...operationalBase, agendas: [unavailable], appointments: [{ ...appointment("booked", "08:00", "08:45"), booking_team: "ra" }] });
+assert.equal(blockedAndBooked.counts.total, 5);
+assert.equal(blockedAndBooked.counts.occupancy, 20);
+assert.equal(blockedAndBooked.counts.raOccupancy, 20);
+assert.equal(normalizeAgendaText("HOR├üRIO DE ALMO├çO"), "HORÁRIO DE ALMOÇO");
+assert.equal(normalizeAgendaText("Almo├ºo 12h ├ás 14h"), "Almoço 12h às 14h");
+assert.equal(normalizeAgendaText("Férias / São Paulo / Almoço"), "Férias / São Paulo / Almoço");
+const corruptLabels = buildOperationalAgenda({ ...operationalBase, agendas: [{ ...agenda, unit_name: "S├úo Paulo", blocks: [{ id: "lunch", type: "recurring", daysOfWeek: [1], validFrom: "2026-01-01", validUntil: null, startsAt: "10:00", endsAt: "11:00", reason: "Almo├ºo 1" }] }] });
+assert.equal(corruptLabels.byUnit[0].unitName, "São Paulo");
+assert.ok(corruptLabels.blocks.every(block => block.reason === "Almoço 1"));
 const vacation = { ...agenda, blocks: [{ id: "vacation", type: "one_time", startsAt: "2026-10-04T00:00:00-03:00", endsAt: "2026-10-07T00:00:00-03:00", reason: "Férias" }] };
 operational = buildOperationalAgenda({ ...operationalBase, agendas: [vacation] });
 assert.equal(operational.counts.available, 0);

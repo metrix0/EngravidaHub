@@ -13,7 +13,9 @@ import { GripHorizontal, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
 import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
-import type { AgendaBlock } from "@/lib/scheduling/operationalAgenda";
+import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
+import { percent } from "./AgendaIndicators";
 import type {
     AppointmentDayNote,
     CalendarAppointment,
@@ -31,6 +33,9 @@ type Props = {
     appointments: CalendarAppointment[];
     notes: AppointmentDayNote[];
     blocks?: AgendaBlock[];
+    freeSlots?: AgendaFreeSlot[];
+    doctorLoads?: OperationalAgendaReport["byDoctor"];
+    onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -67,6 +72,16 @@ export default function WeekCalendar(props: Props) {
     const [confirm, setConfirm] = useState<Confirm | null>(null);
     const [confirming, setConfirming] = useState(false);
     const [confirmError, setConfirmError] = useState<string | null>(null);
+    const freeOnly = props.freeSlots !== undefined;
+    const loads = useMemo(() => new Map((props.doctorLoads ?? []).map(load => [`${load.unitId}:${load.doctorId}`, load])), [props.doctorLoads]);
+    const freeSlotsByDay = useMemo(() => {
+        const grouped = new Map<string, AgendaFreeSlot[]>();
+        (props.freeSlots ?? []).forEach(slot => grouped.set(slot.date, [...(grouped.get(slot.date) ?? []), slot]));
+        grouped.forEach(slots => slots.sort((a, b) =>
+            (loads.get(`${a.unitId}:${a.doctorId}`)?.occupancy ?? 101) - (loads.get(`${b.unitId}:${b.doctorId}`)?.occupancy ?? 101)
+            || a.startsAt.localeCompare(b.startsAt) || a.doctorName.localeCompare(b.doctorName)));
+        return grouped;
+    }, [props.freeSlots, loads]);
 
     const appointmentsByDay = useMemo(() => {
         const grouped = new Map<string, CalendarAppointment[]>();
@@ -227,7 +242,7 @@ export default function WeekCalendar(props: Props) {
         <>
             <div className="min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
                 {props.loading ? (
-                    <WeekCalendarSkeleton />
+                    <WeekCalendarSkeleton freeOnly={freeOnly} />
                 ) : (
                     <div className="min-w-[1180px]">
                         <div className="sticky top-0 z-40 grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-white">
@@ -269,7 +284,7 @@ export default function WeekCalendar(props: Props) {
                             })}
                         </div>
 
-                        <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
+                        {!freeOnly ? <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                             <div className="border-r border-slate-200 px-2 py-3 text-center text-[11px] font-bold uppercase text-slate-400">
                                 Notas / bloqueios
                             </div>
@@ -333,7 +348,7 @@ export default function WeekCalendar(props: Props) {
                                     </div>
                                 );
                             })}
-                        </div>
+                        </div> : null}
 
                         <div className="relative isolate z-0 grid grid-cols-[72px_repeat(7,minmax(150px,1fr))]">
                             {cursorGuide && (
@@ -397,6 +412,23 @@ export default function WeekCalendar(props: Props) {
                                             const end = dateKeyIso(block.endsAt) !== dayKey ? END_HOUR * 60 : Math.min(END_HOUR * 60, minutes(block.endsAt));
                                             if (end <= start) return null;
                                             return <div key={block.id} title={`${block.doctorName}: ${block.reason}`} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700" style={{ top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT, height: (end - start) / 60 * HOUR_HEIGHT, marginLeft: index % 5 * 5 }}><span className="sticky top-0">{block.doctorName} · {block.reason}</span></div>;
+                                        })}
+                                        {(freeSlotsByDay.get(dayKey) ?? []).map(slot => {
+                                            const daySlots = freeSlotsByDay.get(dayKey) ?? [];
+                                            const overlapping = daySlots.filter(item => item.startsAt < slot.endsAt && item.endsAt > slot.startsAt);
+                                            const rank = overlapping.findIndex(item => item.id === slot.id);
+                                            const load = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                                            const loadLabel = load ? `${load.total} vagas brutas · ${load.available} livres · ${percent(load.occupancy)} ocupação` : "";
+                                            const label = `${time(slot.startsAt)}–${time(slot.endsAt)} · ${formatDoctorName(slot.doctorName)} · ${slot.unitName}${loadLabel ? ` · ${loadLabel}` : ""}`;
+                                            return <button key={slot.id} type="button" onClick={() => props.onSelectFreeSlot?.(slot)}
+                                                aria-label={`Agendar ${label}`} title={label}
+                                                onMouseEnter={() => setHovered(slot.id)} onMouseLeave={() => setHovered(current => current === slot.id ? null : current)}
+                                                className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:brightness-95 hover:shadow-xl focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
+                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(slot.durationMinutes / 60 * HOUR_HEIGHT, MIN_EVENT_HEIGHT), left: hovered === slot.id ? 4 : 4 + (overlapping.length - 1 - rank) * Math.min(9, 60 / overlapping.length), right: 4, zIndex: hovered === slot.id ? 90 : 5 + overlapping.length - rank, backgroundColor: AGENDA_COLORS.available }}>
+                                                <div className="text-[10px] font-bold leading-tight opacity-90">{time(slot.startsAt)}–{time(slot.endsAt)}</div>
+                                                <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
+                                                <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div>
+                                            </button>;
                                         })}
                                         {appointments.map((appointment) => {
                                             const endsAt =
@@ -633,7 +665,7 @@ const SKELETON_EVENT_LAYOUTS = [
     ],
 ] as const;
 
-function WeekCalendarSkeleton() {
+function WeekCalendarSkeleton({ freeOnly }: { freeOnly: boolean }) {
     return (
         <div
             className="min-w-[1180px]"
@@ -654,7 +686,7 @@ function WeekCalendarSkeleton() {
                 ))}
             </div>
 
-            <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
+            {!freeOnly ? <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-slate-50/60">
                 <div className="flex min-h-16 items-center justify-center border-r border-slate-200">
                     <Skeleton className="h-3 w-10 rounded-md" />
                 </div>
@@ -680,7 +712,7 @@ function WeekCalendarSkeleton() {
                         </div>
                     </div>
                 ))}
-            </div>
+            </div> : null}
 
             <div className="grid grid-cols-[72px_repeat(7,minmax(150px,1fr))]">
                 <div

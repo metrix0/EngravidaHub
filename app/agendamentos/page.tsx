@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     CalendarCheck,
+    ChartNoAxesCombined,
     ChevronLeft,
     ChevronRight,
     MapPin,
@@ -21,8 +22,8 @@ import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
-import AgendaIndicators from "@/components/scheduling/AgendaIndicators";
-import FreeAgendaSlots from "@/components/scheduling/FreeAgendaSlots";
+import AgendaIndicators, { AgendaLegend } from "@/components/scheduling/AgendaIndicators";
+import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import WeekCalendar, {
     formatLocalDateKey,
@@ -61,6 +62,7 @@ export default function AppointmentsPage() {
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
     const [freeOnly, setFreeOnly] = useState(false);
+    const [metricsOpen, setMetricsOpen] = useState(false);
     const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
     const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
     const [loadingReport, setLoadingReport] = useState(true);
@@ -555,6 +557,7 @@ export default function AppointmentsPage() {
                             Agendar
                         </button>
                         <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} className={`h-10 cursor-pointer whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>{freeOnly ? "Ver agenda" : "Horários Livres"}</button>
+                        <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
                             onClick={() => setWeekStart(startOfWeekSunday(new Date()))}
@@ -644,16 +647,18 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
-                <AgendaIndicators report={agendaReport} loading={loadingReport} />
+                <div className="mb-3 shrink-0"><AgendaLegend /></div>
                 {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
-                {agendaReport?.missingDoctors?.length ? <p className="mb-3 text-xs text-muted">{agendaReport.missingDoctors.length} médicos sem agenda sincronizada; seus horários livres não estão incluídos.</p> : null}
-                {freeOnly ? agendaReport && !loadingReport ? <FreeAgendaSlots report={agendaReport} onSelect={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }} /> : <div className="min-h-0 flex-1">{loadingReport ? <Skeleton className="h-64 rounded-2xl" /> : null}</div> : <WeekCalendar
+                <WeekCalendar
                     weekDays={weekDays}
-                    appointments={appointments}
-                    notes={visibleNotes}
-                    blocks={agendaReport?.blocks ?? []}
+                    appointments={freeOnly ? [] : appointments}
+                    notes={freeOnly ? [] : visibleNotes}
+                    blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
+                    freeSlots={freeOnly ? agendaReport?.slots ?? [] : undefined}
+                    doctorLoads={agendaReport?.byDoctor}
+                    onSelectFreeSlot={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }}
                     selectedAppointmentId={selectedAppointmentId}
-                    loading={loadingCalendar}
+                    loading={freeOnly ? loadingReport : loadingCalendar}
                     onSelectAppointment={(appointment) =>
                         setSelectedAppointmentId(appointment.id)
                     }
@@ -663,8 +668,13 @@ export default function AppointmentsPage() {
                     onAddNote={handleAddNote}
                     onEditNote={handleEditNote}
                     onDeleteNote={handleDeleteNote}
-                />}
+                />
             </section>
+
+            <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)}>
+                <AgendaIndicators report={agendaReport} loading={loadingReport} />
+                {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+            </DetailsSidePanel>
 
             <SchedulingPanel
                 open={schedulingPanelOpen}

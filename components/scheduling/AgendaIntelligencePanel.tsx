@@ -9,7 +9,6 @@ import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
 import { AgendaIntelligenceWidget } from "@/components/scheduling/AgendaIntelligenceWidgets";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "@/lib/personal-dashboard/agendaIntelligenceWidgets";
 import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
-import AgendaReports from "@/components/scheduling/AgendaReports";
 
 export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, selectedRange, ready, optionsError }: {
     unitIds: string[]; doctorIds: string[]; period: CalendarPresetValue | null; selectedRange: DateRange; ready: boolean; optionsError: string | null;
@@ -67,6 +66,5 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
         </div> : null}
         {optionsError ? <div role="alert" className="rounded-xl bg-red-soft p-3 text-sm text-red">{optionsError}</div> : null}
         {error ? <div role="alert" className="rounded-xl border border-red/20 bg-red-soft p-4 text-sm text-red">{error}</div> : null}
-        <AgendaReports unitIds={unitIds} doctorIds={doctorIds} ready={ready} />
     </div>;
 }

@@ -9,6 +9,9 @@ export type AgendaCounts = { total: number; available: number; open: number; ra:
 export type AgendaFreeSlot = { id: string; unitId: string; unitName: string; doctorId: string; doctorName: string; date: string; startsAt: string; endsAt: string; durationMinutes: number };
 export type AgendaBlock = { id: string; unitId: string; doctorId: string; doctorName: string; date: string; startsAt: string; endsAt: string; reason: string };
 type Interval = { start: number; end: number };
+// CliniSYS labels may contain UTF-8 bytes decoded as DOS CP850.
+const AGENDA_TEXT_REPAIRS: Record<string, string> = {"├ü": "Á", "├Ç": "À", "├é": "Â", "├â": "Ã", "├ä": "Ä", "├ë": "É", "├ê": "È", "├è": "Ê", "├ï": "Ë", "├ì": "Í", "├î": "Ì", "├Ä": "Î", "├Å": "Ï", "├ô": "Ó", "├Æ": "Ò", "├ö": "Ô", "├ò": "Õ", "├û": "Ö", "├Ü": "Ú", "├Ö": "Ù", "├ø": "Û", "├£": "Ü", "├ç": "Ç", "├í": "á", "├á": "à", "├ó": "â", "├ú": "ã", "├ñ": "ä", "├®": "é", "├¿": "è", "├¬": "ê", "├½": "ë", "├¡": "í", "├¼": "ì", "├«": "î", "├»": "ï", "├│": "ó", "├▓": "ò", "├┤": "ô", "├Á": "õ", "├Â": "ö", "├║": "ú", "├╣": "ù", "├╗": "û", "├╝": "ü", "├º": "ç"};
+export const normalizeAgendaText = (value: string) => value.replace(/├[\s\S]/g, pair => AGENDA_TEXT_REPAIRS[pair] ?? pair);
 const DAY = 86_400_000, MINUTE = 60_000;
 const BUSY = new Set(["scheduled", "confirmed", "completed", "no_show"]);
 export const agendaDate = (value: number | string = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
@@ -33,7 +36,8 @@ export function agendaCounts(): AgendaCounts { return { total: 0, available: 0, 
 function sum(rows: AgendaCounts[]) {
     const result = agendaCounts();
     for (const row of rows) for (const key of ["total", "available", "open", "ra", "unit", "unknown", "blocked"] as const) result[key] += row[key];
-    const useful = result.total - result.blocked;
+    // The reference uses all slots, including blocked slots, as the occupancy base.
+    const useful = result.total;
     if (useful) { result.occupancy = (result.ra + result.unit + result.unknown) / useful * 100; result.raOccupancy = result.ra / useful * 100; result.unitOccupancy = result.unit / useful * 100; }
     return result;
 }
@@ -45,7 +49,7 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     const horizonEnd = agendaMonthStart(reportDate, 2);
     const last = [input.end, horizonEnd, agendaMonthStart(input.start, 1)].sort().at(-1)!;
     const groups = new Map<string, OperationalAgenda[]>();
-    input.agendas.forEach(agenda => { const key = `${agenda.unit_id}:${agenda.doctor_id}`; groups.set(key, [...(groups.get(key) ?? []), agenda]); });
+    input.agendas.forEach(source => { const agenda = { ...source, unit_name: normalizeAgendaText(source.unit_name), doctor_name: normalizeAgendaText(source.doctor_name) }; const key = `${agenda.unit_id}:${agenda.doctor_id}`; groups.set(key, [...(groups.get(key) ?? []), agenda]); });
     const daily: Array<AgendaCounts & { date: string; unitId: string; unitName: string; doctorId: string; doctorName: string }> = [];
     const freeSlots: AgendaFreeSlot[] = [], blocks: AgendaBlock[] = [];
     const appointmentsByDoctor = new Map<string, OperationalAppointment[]>();
@@ -93,7 +97,7 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
                 const unique = new Map<string, AgendaBlock>();
                 agendas.forEach(row => replicatedAgendaRestrictions(row, date).forEach(block => {
                     const id = `${key}:${block.start}:${block.end}:${block.reason}`;
-                    unique.set(id, { id, unitId: row.unit_id, doctorId: row.doctor_id, doctorName: row.doctor_name, date, startsAt: new Date(block.start).toISOString(), endsAt: new Date(block.end).toISOString(), reason: block.reason });
+                    unique.set(id, { id, unitId: row.unit_id, doctorId: row.doctor_id, doctorName: row.doctor_name, date, startsAt: new Date(block.start).toISOString(), endsAt: new Date(block.end).toISOString(), reason: normalizeAgendaText(block.reason) });
                 }));
                 blocks.push(...unique.values());
             }
@@ -102,7 +106,7 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     freeSlots.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.doctorName.localeCompare(b.doctorName));
     const period = daily.filter(row => row.date >= input.start && row.date < input.end);
     const unitIds = [...new Set(input.agendas.map(row => row.unit_id))];
-    const byUnit = unitIds.map(unitId => ({ unitId, unitName: input.agendas.find(row => row.unit_id === unitId)!.unit_name, ...sum(period.filter(row => row.unitId === unitId)) })).sort((a, b) => a.unitName.localeCompare(b.unitName));
+    const byUnit = unitIds.map(unitId => ({ unitId, unitName: normalizeAgendaText(input.agendas.find(row => row.unit_id === unitId)!.unit_name), ...sum(period.filter(row => row.unitId === unitId)) })).sort((a, b) => a.unitName.localeCompare(b.unitName));
     const byDoctor = [...groups.values()].map(([row]) => ({ unitId: row.unit_id, unitName: row.unit_name, doctorId: row.doctor_id, doctorName: row.doctor_name, ...sum(period.filter(item => item.unitId === row.unit_id && item.doctorId === row.doctor_id)) })).sort((a, b) => (a.occupancy ?? 101) - (b.occupancy ?? 101) || b.available - a.available || a.doctorName.localeCompare(b.doctorName));
     const monthStart = agendaMonthStart(input.start), monthEnd = agendaMonthStart(input.start, 1);
     const previousMonths = Array.from({ length: 6 }, (_, index) => {

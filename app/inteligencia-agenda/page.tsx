@@ -9,6 +9,7 @@ import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import { MapPin, Stethoscope } from "lucide-react";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import AgendaIntelligencePanel from "@/components/scheduling/AgendaIntelligencePanel";
+import AgendaReports from "@/components/scheduling/AgendaReports";
 import FilterButton from "@/components/ui/FilterButton";
 import type { SchedulingDoctorOption, SchedulingUnitOption } from "@/types/scheduling";
 
@@ -61,7 +62,10 @@ export default function AgendaIntelligencePage() {
                 options={visibleDoctors.map(doctor => ({ label: formatDoctorName(doctor.name), value: doctor.id }))}
                 values={doctorIds} onChange={setDoctorIds} />
         </DashboardFilterBar>}
-        <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
+        <section id="agenda-inteligencia">
+            <AgendaIntelligencePanel unitIds={scopedUnitIds} doctorIds={doctorIds} period={period} selectedRange={selectedRange} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} optionsError={optionsError} />
+        </section>
+        <AgendaReports unitIds={scopedUnitIds} doctorIds={doctorIds} ready={ready && !isLoadingCurrentUser && Boolean(currentUser)} />
         </section>
     </main>;
 }
