@@ -153,8 +153,8 @@ export function AgendaReportWidget({ widgetId, report, freeWidth = false }: { wi
 }
 
 function ReportTable({ title, columns, rows, note }: { title: string; columns: string[]; rows: ReactNode[][]; note?: string }) {
-    const tableColumns: DataTableColumn<ReactNode[]>[] = columns.map((column, index) => ({ id: String(index), label: column, width: `${index === 0 ? 38 : 62 / (columns.length - 1)}%` as `${number}%`, align: index === 0 ? "left" : "center", render: row => <span className={index === 0 ? "block font-medium text-slate-700" : "block tabular-nums"}>{row[index]}</span> }));
-    return <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title={title} /></div><DataTable columns={tableColumns} rows={rows} getRowKey={(_, index) => String(index)} emptyMessage="Nenhuma agenda disponível para estes filtros." />{note ? <p className="px-4 py-3 text-xs leading-5 text-muted md:px-6">{note}</p> : null}</Card>;
+    const tableColumns: DataTableColumn<ReactNode[]>[] = columns.map((column, index) => ({ id: String(index), label: column, width: `${index === 0 ? 38 : 62 / (columns.length - 1)}%` as `${number}%`, align: index === 0 ? "left" : "right", render: row => <span className={index === 0 ? "block font-medium text-slate-700" : "block tabular-nums"}>{row[index]}</span> }));
+    return <Card className="min-w-0"><div className="mb-5"><WidgetHeading title={title} /></div><DataTable columns={tableColumns} rows={rows} getRowKey={(_, index) => String(index)} emptyMessage="Nenhuma agenda disponível para estes filtros." />{note ? <p className="pt-3 text-xs leading-5 text-muted">{note}</p> : null}</Card>;
 }
 function dailyTables(report: OperationalAgendaReport, units?: Array<{ id: string; name: string }>) {
     const days = (value: number | null, total: number) => value === null ? total ? "Sem vaga" : "Sem agenda vigente" : `${value} ${value === 1 ? "dia" : "dias"}`;
