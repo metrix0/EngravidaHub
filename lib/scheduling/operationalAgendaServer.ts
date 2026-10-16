@@ -1,7 +1,7 @@
 // lib/scheduling/operationalAgendaServer.ts
 import { supabase } from "@/lib/supabase/client";
 import { agendaDate, agendaMonthStart, agendaWeekStart, buildOperationalAgenda, type OperationalAgenda, type OperationalAppointment } from "./operationalAgenda";
-import { sectorBookingTeam, teamForAttendantName, type BookingTeam } from "./bookingOrigin";
+import { teamForAttendantName, type BookingTeam } from "./bookingOrigin";
 
 async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: unknown[] | null; error: unknown }>) {
     const rows: T[] = []; let cursor: string | null = null;
@@ -28,7 +28,7 @@ export async function enrichBookingTeams<T extends { id: string; booking_team?: 
         })),
     ]);
     if (error) throw error;
-    const names = (attendants ?? []).map(row => { const queue = Array.isArray(row.queues) ? row.queues[0] : row.queues; return { id: row.id, name: row.name, team: sectorBookingTeam(queue?.sector) }; });
+    const names = (attendants ?? []).map(row => { const queue = Array.isArray(row.queues) ? row.queues[0] : row.queues; const team: BookingTeam = queue?.sector === "ra" ? "ra" : "unit"; return { id: row.id, name: row.name, team }; });
     const teams = new Map<string, Set<BookingTeam>>();
     schedules.flat().forEach(row => { const team = row.attendant_name ? teamForAttendantName(row.attendant_name, names) : null; teams.set(row.source_external_id, new Set([...(teams.get(row.source_external_id) ?? []), team])); });
     const directTeam = (row: T) => {
