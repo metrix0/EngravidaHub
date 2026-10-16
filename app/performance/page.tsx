@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, Info, SearchCheck, Target } from "lucide-react";
+import { Activity, ArrowDownUp, CalendarCheck2, ChevronLeft, ChevronRight, Clock3, Headset, Info, SearchCheck, Target } from "lucide-react";
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
@@ -12,7 +12,6 @@ import Pagination from "@/components/ui/Pagination";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
-import { SearchFilter } from "@/components/ui/SearchFilter";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
@@ -49,7 +48,7 @@ export default function PerformancePage() {
     const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("current_month");
     const { currentUser, isLoadingCurrentUser } = useCurrentUser();
     const [result, setResult] = useState<{ key: string; report: PerformanceReport | null; error: string | null }>({ key: "", report: null, error: null });
-    const [search, setSearch] = useState("");
+    const [attendantSearch, setAttendantSearch] = useState("");
     const [team, setTeam] = useState("all");
     const [unitId, setUnitId] = useState("");
     const [attendantId, setAttendantId] = useState("");
@@ -89,7 +88,7 @@ export default function PerformancePage() {
 
     const ranked = useMemo(() => {
         if (!report) return [];
-        const term = search.trim().toLocaleLowerCase("pt-BR");
+        const term = attendantSearch.trim().toLocaleLowerCase("pt-BR");
         return report.attendants.filter(person => (!term || person.name.toLocaleLowerCase("pt-BR").includes(term)) &&
             (!attendantId || person.id === attendantId) &&
             (team === "all" || (team === "ra" ? person.sector === "ra" : person.sector !== "ra")))
@@ -100,16 +99,24 @@ export default function PerformancePage() {
                 const delta = sort.descending ? b - a : a - b;
                 return delta || first.name.localeCompare(second.name, "pt-BR");
             });
-    }, [report, search, team, sort, attendantId]);
+    }, [report, attendantSearch, team, sort, attendantId]);
     useEffect(() => {
         setRankingPage(1);
-    }, [search, team, unitId, attendantId, sort, start, end]);
+    }, [attendantSearch, team, unitId, attendantId, sort, start, end]);
     const rankingPages = Math.max(1, Math.ceil(ranked.length / RANKING_PAGE_SIZE));
     const currentRankingPage = Math.min(rankingPage, rankingPages);
     const rankingStart = (currentRankingPage - 1) * RANKING_PAGE_SIZE;
     const visibleRanked = ranked.slice(rankingStart, rankingStart + RANKING_PAGE_SIZE);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
-    const raOnlyContribution = team === "all" && !attendantId && !search.trim();
+    const selectedIndex = selected ? ranked.findIndex(person => person.id === selected.id) : -1;
+    function navigateAttendant(direction: -1 | 1) {
+        const nextIndex = selectedIndex + direction;
+        const next = ranked[nextIndex];
+        if (!next) return;
+        setSelectedId(next.id);
+        setRankingPage(Math.floor(nextIndex / RANKING_PAGE_SIZE) + 1);
+    }
+    const raOnlyContribution = team === "all" && !attendantId && !attendantSearch.trim();
     const unitContribution = useMemo(() => {
         if (!report) return [];
         const visibleIds = new Set(ranked.filter(person => !raOnlyContribution || person.sector === "ra").map(person => person.id));
@@ -174,9 +181,22 @@ export default function PerformancePage() {
                             <div className="flex flex-wrap gap-3">
                                 <SingleFilterButton label="Todas as unidades" options={report.unitOptions.map(unit => ({ label: unit.name, value: unit.id }))}
                                     values={unitId ? [unitId] : []} onChange={values => setUnitId(values[0] ?? "")} widthClassName="w-[200px]" />
-                                <DropdownSelect value={attendantId} onChange={setAttendantId} widthClassName="w-[230px]"
-                                    options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions.map(person => ({ label: person.name, value: person.id }))]} />
-                                <SearchFilter value={search} onChange={setSearch} placeholder="Buscar atendente" />
+                                <DropdownSelect value={attendantId} widthClassName="w-[250px]" searchable
+                                    searchValue={attendantSearch}
+                                    searchPlaceholder={report.attendantOptions.find(person => person.id === attendantId)?.name ?? "Todos os atendentes"}
+                                    onSearchChange={value => {
+                                        setAttendantSearch(value);
+                                        setAttendantId("");
+                                        setSelectedId(null);
+                                    }}
+                                    onChange={value => {
+                                        setAttendantId(value);
+                                        setSelectedId(value || null);
+                                        setAttendantSearch("");
+                                    }}
+                                    options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions
+                                        .filter(person => person.name.toLocaleLowerCase("pt-BR").includes(attendantSearch.trim().toLocaleLowerCase("pt-BR")))
+                                        .map(person => ({ label: person.name, value: person.id }))]} />
                                 <DropdownSelect value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
                                     { value: "all", label: "Todas as equipes" }, { value: "ra", label: "RA" }, { value: "other", label: "Demais equipes" }
                                 ]} />
@@ -197,10 +217,25 @@ export default function PerformancePage() {
                         </div>
                     </Card>
                     {selected ? <section className="space-y-5" aria-label={"Desempenho de " + selected.name}>
-                        <div className="flex flex-wrap items-baseline gap-3">
-                            <h2 className="text-xl font-bold">{selected.name}</h2>
-                            <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{labelForSector(selected.sector)}</span>
-                            <span className="text-xs text-muted">{number(selected.analyzed)} de {number(selected.tickets)} tickets analisados pela IA</span>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-baseline gap-3">
+                                <h2 className="text-xl font-bold">{selected.name}</h2>
+                                <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{labelForSector(selected.sector)}</span>
+                                <span className="text-xs text-muted">{number(selected.analyzed)} de {number(selected.tickets)} tickets analisados pela IA</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="mr-1 text-xs tabular-nums text-muted">{selectedIndex + 1} de {number(ranked.length)}</span>
+                                <button type="button" onClick={() => navigateAttendant(-1)} disabled={selectedIndex <= 0}
+                                    aria-label="Atendente anterior" title="Atendente anterior"
+                                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-slate-600 transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-40">
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <button type="button" onClick={() => navigateAttendant(1)} disabled={selectedIndex >= ranked.length - 1}
+                                    aria-label="Próximo atendente" title="Próximo atendente"
+                                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-slate-600 transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-40">
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
                         </div>
                         <HorizontalScroller>
                             <KpiCard freeWidth icon={<Headset size={22} />} color="blue" label="Tickets" currentValue={selected.tickets} formatter={number} />
