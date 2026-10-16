@@ -454,7 +454,7 @@ export default function WeekCalendar(props: Props) {
                                                         left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
                                                         right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
                                                     }}>
-                                                    <span className="block truncate leading-tight">{block.reason} · {doctors}</span>
+                                                    <span className="block whitespace-normal break-words leading-tight">{block.reason} · {doctors}</span>
                                                 </div>
                                             );
                                         })}
@@ -579,12 +579,12 @@ export default function WeekCalendar(props: Props) {
                                                         )}
                                                         –{time(endsAt)}
                                                     </div>
-                                                    <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">
+                                                    <div className="mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
                                                         {appointment.doctor
                                                             ?.name ??
                                                             "Sem médico"}
                                                     </div>
-                                                    <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">
+                                                    <div className="mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
                                                         {
                                                             appointment.patient_name
                                                         }
