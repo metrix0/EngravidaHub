@@ -84,7 +84,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
     return <>
         <section id="agenda-disponibilidade" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
-                <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} />
+                <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} color="green" />
                 <div className="flex flex-wrap items-center gap-2">
                     <button type="button" onClick={() => shiftDay(-1)} className={`${buttonClass} !h-11 !w-11 !px-0`} aria-label="Dia anterior"><ChevronLeft size={17} /></button>
                     <div className="w-48"><CalendarDatePicker value={date} onChange={setDate} clearable={false} /></div>
@@ -99,7 +99,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
         </section>
         <section id="agenda-indicadores" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
-                <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} />
+                <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} color="blue" />
                 <div className="w-60"><CalendarDatePicker mode="month" align="right" value={month} onChange={setMonth} clearable={false} /></div>
             </div>
             {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
@@ -108,8 +108,8 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
     </>;
 }
 
-function ReportSectionHeading({ title, description, icon }: { title: string; description: string; icon: ReactNode }) {
-    return <div className="px-1"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">{icon}</span><h2 className="text-lg font-bold text-slate-900">{title}</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">{description}</p></div>;
+function ReportSectionHeading({ title, description, icon, color }: { title: string; description: string; icon: ReactNode; color: "blue" | "green" }) {
+    return <div className="px-1"><div className="flex items-center gap-2.5"><span className={`flex h-9 w-9 items-center justify-center rounded-xl ${color === "green" ? "bg-green-soft text-green" : "bg-blue-soft text-blue"}`}>{icon}</span><h2 className="text-lg font-bold text-slate-900">{title}</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">{description}</p></div>;
 }
 
 function ReportError({ message, onRetry }: { message: string; onRetry: () => void }) {
