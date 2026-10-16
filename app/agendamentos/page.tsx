@@ -27,7 +27,7 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
-import AgendaIndicators, { AgendaLegend } from "@/components/scheduling/AgendaIndicators";
+import AgendaIndicators, { AGENDA_NOTE_COLOR, AgendaLegend } from "@/components/scheduling/AgendaIndicators";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import WeekCalendar, {
@@ -492,7 +492,7 @@ export default function AppointmentsPage() {
                         unitId: unitValues.length === 1 ? unitValues[0] : null,
                         doctorId: doctorValues.length === 1 ? doctorValues[0] : null,
                         text,
-                        color: "#f59e0b",
+                        color: AGENDA_NOTE_COLOR,
                     }),
                 });
                 const json = await response.json();

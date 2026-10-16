@@ -132,7 +132,7 @@ export function Modal({
                         <X size={18} />
                     </button>
                 ) : null}
-                {renderedChildren}
+                {open ? children : renderedChildren}
             </div>
         </div>
     );

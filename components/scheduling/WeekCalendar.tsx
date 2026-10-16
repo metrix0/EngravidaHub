@@ -16,7 +16,7 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
 import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
-import { percent } from "./AgendaIndicators";
+import { AGENDA_NOTE_COLOR, percent } from "./AgendaIndicators";
 import type {
     AppointmentDayNote,
     CalendarAppointment,
@@ -350,11 +350,8 @@ export default function WeekCalendar(props: Props) {
                                                                     note,
                                                                 )
                                                             }
-                                                            className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-white shadow-sm"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    note.color,
-                                                            }}
+                                                            className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-slate-900 shadow-sm"
+                                                            style={{ backgroundColor: AGENDA_NOTE_COLOR }}
                                                         >
                                                             {note.text}
                                                         </button>
@@ -365,7 +362,7 @@ export default function WeekCalendar(props: Props) {
                                                                     note,
                                                                 )
                                                             }
-                                                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-white opacity-0 hover:bg-black/15 group-hover/note:opacity-100"
+                                                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-slate-900 opacity-0 hover:bg-black/15 group-hover/note:opacity-100"
                                                         >
                                                             <X size={11} />
                                                         </button>
