@@ -12,8 +12,8 @@ export async function GET() {
     }
 
     const [countResult, socialCountResult] = await Promise.all([
-        getQueueCount(),
-        getQueueCount(["Instagram", "Facebook"]),
+        getQueueCount(access.attendant.queue_id),
+        getQueueCount(access.attendant.queue_id, ["Instagram", "Facebook"]),
     ]);
 
     if (!countResult.ok) {
@@ -57,8 +57,8 @@ export async function POST(request: Request) {
     }
 
     const [countResult, socialCountResult] = await Promise.all([
-        getQueueCount(),
-        getQueueCount(["Instagram", "Facebook"]),
+        getQueueCount(access.attendant.queue_id),
+        getQueueCount(access.attendant.queue_id, ["Instagram", "Facebook"]),
     ]);
 
     if (!countResult.ok) {
@@ -111,7 +111,7 @@ async function getOnlineAttendant() {
     };
 }
 
-async function getQueueCount(channels?: string[]) {
+async function getQueueCount(attendantQueueId: string | null, channels?: string[]) {
     let query = supabase
         .from("thread")
         .select("id", {
@@ -120,6 +120,10 @@ async function getQueueCount(channels?: string[]) {
         })
         .eq("status", "open")
         .is("assigned_attendant_id", null);
+
+    query = attendantQueueId
+        ? query.or(`target_queue_id.is.null,target_queue_id.eq.${attendantQueueId}`)
+        : query.is("target_queue_id", null);
 
     if (channels?.length) {
         query = query.in("channel", channels);

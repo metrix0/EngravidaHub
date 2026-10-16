@@ -302,6 +302,69 @@ async function testPanelSelection() {
   assert.equal(field('Horário').props.value,'09:00','selecting the client preserves the verified vacancy');
 }
 
+async function testInboxTransfer() {
+  tables = {
+    thread: [{ id: id(1), status: 'open', assigned_attendant_id: id(5), target_queue_id: null }],
+    attendants: [
+      { id: id(5), name: 'Atual', active: true, is_online: true },
+      { id: id(6), name: 'Destino', active: true, is_online: false },
+      { id: id(7), name: 'Inativo', active: false, is_online: true },
+    ],
+    queues: [
+      { id: id(10), name: 'RA', active: true },
+      { id: id(11), name: 'Inativa', active: false },
+    ],
+  };
+  let current = tables.attendants[0];
+  const transferRoute = load('app/api/inbox/transfer/route.ts', {
+    'next/server': next,
+    '@/lib/attendants/getCurrentAttendantFromRequest': {
+      getCurrentAttendantFromRequest: async () => ({ attendant: current }),
+    },
+    '@/lib/supabase/client': { supabase },
+  });
+
+  let response = await transferRoute.GET();
+  assert.equal(response.status, 200);
+  assert.equal(response.body.attendants.length, 1);
+  assert.equal(response.body.attendants[0].name, 'Destino');
+  assert.equal(response.body.queues.length, 1);
+
+  const transfer = async (body) => transferRoute.POST({ json: async () => body });
+  const payload = { threadId: id(1), targetType: 'attendant', targetId: id(6) };
+
+  response = await transfer({ ...payload, targetId: id(7) });
+  assert.equal(response.status, 404, 'inactive attendants cannot receive transfers');
+  response = await transfer({ ...payload, targetId: id(5) });
+  assert.equal(response.status, 400, 'cannot transfer to self');
+
+  response = await transfer(payload);
+  assert.equal(response.status, 200, 'transfer to another attendant');
+  assert.equal(tables.thread[0].assigned_attendant_id, id(6));
+  assert.equal(tables.thread[0].target_queue_id, null);
+  assert.ok(tables.thread[0].claimed_at);
+
+  response = await transfer(payload);
+  assert.equal(response.status, 409, 'stale ownership cannot be transferred twice');
+  tables.thread[0].assigned_attendant_id = id(5);
+  response = await transfer({ threadId: id(1), targetType: 'queue', targetId: id(10) });
+  assert.equal(response.status, 200, 'transfer to an active queue');
+  assert.equal(tables.thread[0].assigned_attendant_id, null, 'queue transfer removes direct ownership');
+  assert.equal(tables.thread[0].target_queue_id, id(10), 'queue handoff preserves destination');
+  assert.equal(tables.thread[0].claimed_at, null);
+  assert.ok(tables.thread[0].queued_at);
+
+  response = await transfer({ threadId: id(1), targetType: 'queue', targetId: id(11) });
+  assert.equal(response.status, 404, 'inactive queues cannot receive transfers');
+  current = null;
+  response = await transfer(payload);
+  assert.equal(response.status, 403, 'unauthenticated users cannot transfer');
+
+  const queueSource = fs.readFileSync(path.join(root, 'app/api/inbox/queue/route.ts'), 'utf8');
+  assert.ok(queueSource.includes('target_queue_id.eq.'), 'queue counters honor a destination queue');
+  console.log('PASS: Inbox transfers to attendants and queues; authorization; disabled targets; ownership race; queue counters.');
+}
+
 (async () => {
   await testAiGeneration();
   reset();
@@ -480,5 +543,6 @@ async function testPanelSelection() {
   assert.equal(filled.schedulingTime, '14:30');
   assert.equal(filled.durationMinutes,60,'missing AI duration preserves the form');
   assert.equal(filled.notes,'Preferência por consulta presencial');
+  await testInboxTransfer();
   console.log('PASS: manual social-to-CRM linking requires confirmation; AI model fallback, strict JSON, bounded output, provider/validation errors and privacy; rendered client selection, X, clearing and request races; optional address; social scheduling and profile linkage; authorization; rollback; complete history and extraction merge.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

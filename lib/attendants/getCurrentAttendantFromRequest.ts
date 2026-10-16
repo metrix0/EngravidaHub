@@ -23,6 +23,7 @@ export async function getCurrentAttendantFromRequest() {
             email,
             active,
             is_online,
+            queue_id,
             auth_user_id
         `)
         .eq("auth_user_id", claims.sub)

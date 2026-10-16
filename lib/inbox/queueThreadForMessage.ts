@@ -166,6 +166,7 @@ async function updateExistingThread({
     if (shouldRequeue) {
         updates.status = "open";
         updates.assigned_attendant_id = null;
+        updates.target_queue_id = null;
         updates.queued_at = receivedAt;
         updates.claimed_at = null;
         updates.closed_at = null;
