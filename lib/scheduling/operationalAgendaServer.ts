@@ -13,9 +13,10 @@ async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: 
     }
 }
 
-export async function enrichBookingTeams<T extends { booking_team?: BookingTeam; source_external_id?: string | null }>(appointments: T[]) {
-    const ids = [...new Set(appointments.filter(row => !row.booking_team && row.source_external_id).map(row => row.source_external_id!))];
-    if (!ids.length) return appointments;
+export async function enrichBookingTeams<T extends { id: string; booking_team?: BookingTeam; source_external_id?: string | null }>(appointments: T[]) {
+    const pending = appointments.filter(row => !row.booking_team);
+    if (!pending.length) return appointments;
+    const ids = [...new Set(pending.map(row => row.source_external_id).filter((id): id is string => Boolean(id)))];
     const [{ data: attendants, error }, schedules] = await Promise.all([
         supabase.from("attendants").select("id,name,queues!attendants_queue_id_fkey(sector)"),
         Promise.all(Array.from({ length: Math.ceil(ids.length / 150) }, (_, index) => ids.slice(index * 150, (index + 1) * 150)).map(async batch => {
@@ -30,7 +31,22 @@ export async function enrichBookingTeams<T extends { booking_team?: BookingTeam;
     const names = (attendants ?? []).map(row => { const queue = Array.isArray(row.queues) ? row.queues[0] : row.queues; return { id: row.id, name: row.name, team: sectorBookingTeam(queue?.sector) }; });
     const teams = new Map<string, Set<BookingTeam>>();
     schedules.flat().forEach(row => { const team = row.attendant_name ? teamForAttendantName(row.attendant_name, names) : null; teams.set(row.source_external_id, new Set([...(teams.get(row.source_external_id) ?? []), team])); });
-    return appointments.map(row => { const found = teams.get(row.source_external_id ?? ""); return { ...row, booking_team: row.booking_team ?? (found?.size === 1 ? [...found][0] : null) }; });
+    const directTeam = (row: T) => {
+        const found = teams.get(row.source_external_id ?? "");
+        return found?.size === 1 ? [...found][0] : null;
+    };
+    const unresolved = pending.filter(row => !directTeam(row)).map(row => row.id);
+    const inferred = new Map<string, BookingTeam>();
+    const batches = await Promise.all(Array.from({ length: Math.ceil(unresolved.length / 150) }, (_, index) =>
+        supabase.rpc("infer_appointment_booking_teams", { appointment_ids: unresolved.slice(index * 150, (index + 1) * 150) })
+    ));
+    for (const { data, error: inferenceError } of batches) {
+        if (inferenceError) throw inferenceError;
+        for (const row of (data ?? []) as Array<{ appointment_id: string; inferred_team: BookingTeam }>) {
+            if (row.inferred_team) inferred.set(row.appointment_id, row.inferred_team);
+        }
+    }
+    return appointments.map(row => ({ ...row, booking_team: row.booking_team ?? directTeam(row) ?? inferred.get(row.id) ?? null }));
 }
 
 export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, reportDate, includeHistory = true }: { start: string; end: string; unitIds: string[]; doctorIds: string[]; reportDate?: string; includeHistory?: boolean }) {
