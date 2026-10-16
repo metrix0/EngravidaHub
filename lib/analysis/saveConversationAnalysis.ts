@@ -102,6 +102,19 @@ async function syncInboxClosingTag(analysis: ConversationAnalysis) {
     if (threadError) throw threadError;
     if (thread?.status !== "closed") return;
 
+    // Verify that the model's evidence IDs belong to this completed conversation.
+    if (analysis.closing_tag) {
+        const ids = [...new Set(analysis.closing_tag.evidence_message_ids)];
+        const { data: evidence, error: evidenceError } = await supabase
+            .from("messages")
+            .select("id")
+            .eq("conversation_id", analysis.conversation_id)
+            .in("id", ids)
+            .limit(ids.length);
+        if (evidenceError) throw evidenceError;
+        if (evidence?.length !== ids.length) return;
+    }
+
     // The existing RPC preserves newer closing tags (including human/sheet tags)
     // and makes repeat analysis saves idempotent.
     const { error } = await supabase.rpc("sync_client_last_closing_tags", {

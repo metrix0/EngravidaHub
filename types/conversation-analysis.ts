@@ -24,6 +24,7 @@ export type ConversationAnalysis = {
     attendant_quality: { clarity_score?: number | null; empathy_score?: number | null; proactivity_score?: number | null; objection_handling_score?: number | null; response_speed_score?: number | null; overall_score?: number | null; evidence_message_ids: EvidenceIds };
     response_timing: { first_human_response_time_seconds?: number | null; average_human_response_time_seconds?: number | null; longest_human_delay_seconds?: number | null };
     resolution: { resolved: true | false | "partial"; resolution_score?: number | null; reasoning_category: ResolutionReasoningCategory; evidence_message_ids: EvidenceIds };
+    closing_tag?: { value?: import("@/lib/analysis/deriveInboxClosingTag").ExistingInboxClosingTag | null; evidence_message_ids: EvidenceIds };
     short_label: string; notable: boolean; notable_reason?: string | null;
     analysis_provider: "openai" | "groq" | "bedrock" | "google"; analysis_model: string; analysis_prompt_version: string; analysis_message_count: number;
 };

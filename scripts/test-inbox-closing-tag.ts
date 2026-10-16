@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { deriveInboxClosingTag } from "../lib/analysis/deriveInboxClosingTag";
+import { deriveInboxClosingTag, EXISTING_INBOX_CLOSING_TAGS } from "../lib/analysis/deriveInboxClosingTag";
+import { conversationAnalysisSchema } from "../lib/ai/conversationAnalysisSchema";
 import type { ConversationAnalysis } from "../types/conversation-analysis";
 
 type Input = Parameters<typeof deriveInboxClosingTag>[0];
@@ -122,3 +123,19 @@ for (const { name, input, expected } of cases) {
 }
 
 console.log(`Inbox closing-tag mapping: ${cases.length} regression checks passed`);
+
+const allTags = [...EXISTING_INBOX_CLOSING_TAGS];
+assert.equal(allTags.length, 49, "The existing vocabulary contains 49 stored labels");
+assert.equal(new Set(allTags).size, allTags.length, "No duplicate labels");
+const guarded = new Set(["Agendamento de 1ª avaliação", "Reagendamento de 1ª avaliação", "Confirmação de 1ª avaliação", "Sem retorno da paciente"]);
+for (const tag of allTags) {
+    const closing_tag = { value: tag, evidence_message_ids: ["message-1"] };
+    assert.ok(conversationAnalysisSchema.shape.closing_tag.safeParse(closing_tag).success, `Schema must accept ${tag}`);
+    if (!guarded.has(tag)) assert.equal(deriveInboxClosingTag({ ...base, closing_tag }), tag, `Must support ${tag}`);
+}
+assert.equal(deriveInboxClosingTag({ ...base, closing_tag: { value: "Invented" as any, evidence_message_ids: ["message-1"] } }), null, "No invented tags");
+assert.equal(deriveInboxClosingTag({ ...base, closing_tag: { value: "Financeiro", evidence_message_ids: [] } }), null, "Missing evidence");
+assert.equal(deriveInboxClosingTag({ ...base, closing_tag: { value: null, evidence_message_ids: [] } }), null, "Explicit abstention");
+assert.equal(deriveInboxClosingTag({ ...base, closing_tag: { value: "Agendamento de 1ª avaliação", evidence_message_ids: ["message-1"] } }), null, "No false booking");
+assert.equal(deriveInboxClosingTag({ ...base, closing_tag: { value: "Sem retorno da paciente", evidence_message_ids: ["message-1"] } }), null, "No false abandonment");
+console.log(`Full closing-tag catalogue verified: ${allTags.length} labels`);

@@ -1,6 +1,7 @@
 // lib/ai/conversationAnalysisSchema.ts
 import { z } from "zod";
 import { patternSignalsSchema } from "@/lib/analysis/patternSignals";
+import { EXISTING_INBOX_CLOSING_TAGS } from "@/lib/analysis/deriveInboxClosingTag";
 
 const messageIds = z.array(z.string()).default([]);
 const nullableScore = z.number().int().min(0).max(100).nullable();
@@ -95,6 +96,11 @@ export const conversationAnalysisSchema = z.object({
         ]),
         evidence_message_ids: messageIds,
     }),
+    // Optional for in-flight batches using the older schema.
+    closing_tag: z.object({
+        value: z.enum(EXISTING_INBOX_CLOSING_TAGS).nullable(),
+        evidence_message_ids: z.array(z.string()),
+    }).optional(),
     short_label: z.string().min(1),
     notable: z.boolean(),
     notable_reason: z.string().nullable(),
