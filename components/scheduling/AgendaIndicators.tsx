@@ -85,7 +85,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                 {summary.map(item => {
                     const Icon = item.icon;
                     return (
-                        <div key={item.label} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+                        <div key={item.label} className="min-w-0 rounded-2xl border border-border bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
                             <span className={["flex h-9 w-9 items-center justify-center rounded-xl", item.tone].join(" ")}><Icon size={18} /></span>
                             <div className="mt-3 text-2xl font-bold tracking-tight tabular-nums text-slate-950">{number(item.value)}</div>
                             <div className="mt-0.5 text-xs font-medium text-muted">{item.label}</div>
@@ -115,7 +115,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
                     {teamOccupancy.map(item => (
-                        <div key={item.label} className="min-w-0 rounded-xl bg-slate-50 px-3 py-3">
+                        <div key={item.label} className="min-w-0 rounded-xl border border-border bg-white px-3 py-3">
                             <p className="text-[11px] font-medium leading-4 text-muted">{item.label}</p>
                             <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{percent(item.value)}</p>
                             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full" style={{ width: percentWidth(item.value), backgroundColor: item.color }} /></div>
@@ -126,18 +126,18 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
             </Card>
 
             <div className="grid grid-cols-2 gap-3">
-                <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
+                <div className="min-w-0 rounded-xl border border-border bg-white p-4">
                     <span className="flex items-center gap-2 text-xs font-medium leading-4 text-muted"><Clock3 size={15} className="shrink-0" />Em aberto (não preenchidos)</span>
                     <p className="mt-2 text-xl font-bold tabular-nums text-slate-900">{number(counts.open)}</p>
                     <p className="mt-1 text-[11px] leading-4 text-muted">Horários passados sem agendamento</p>
                 </div>
-                <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" title="Média dos seis meses anteriores com capacidade, calculada pelas agendas sincronizadas e suas datas de vigência.">
+                <div className="min-w-0 rounded-xl border border-border bg-white p-4" title="Média dos seis meses anteriores com capacidade, calculada pelas agendas sincronizadas e suas datas de vigência.">
                     <span className="flex items-center gap-2 text-xs font-medium leading-4 text-muted"><CalendarDays size={15} className="shrink-0" />Média meses anteriores</span>
                     <p className="mt-2 text-xl font-bold tabular-nums text-slate-900">{report.averagePreviousMonths === null ? "—" : number(report.averagePreviousMonths)}</p>
                 </div>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+            <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
                 <section>
                     <button type="button" onClick={() => setProjectionOpen(value => !value)} aria-expanded={projectionOpen} className="flex w-full cursor-pointer items-center justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-slate-50">
                         <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">Projeção do mês</span><span className="mt-0.5 block text-xs text-muted">Estimativa com base no histórico</span></span>
@@ -165,7 +165,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                         <div className="space-y-3 border-t border-slate-100 px-3 pb-3 pt-3">
                             {report.byUnit.length === 0 ? <p className="px-2 py-3 text-sm text-muted">Nenhuma unidade encontrada.</p> : null}
                             {report.byUnit.map(row => (
-                                <div key={row.unitId} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5">
+                                <div key={row.unitId} className="rounded-xl border border-border bg-white p-3.5">
                                     <div className="flex items-start justify-between gap-3"><h4 className="min-w-0 text-sm font-bold text-slate-900">{row.unitName}</h4><span className="shrink-0 text-sm font-bold tabular-nums text-brand">{percent(row.occupancy)}</span></div>
                                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-brand" style={{ width: percentWidth(row.occupancy) }} /></div>
                                     <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
