@@ -642,10 +642,10 @@ export default function AppointmentsPage() {
                     <AdvancedFilterButton
                         sections={advancedFilterSections}
                     />
-                    <div className="ml-auto flex shrink-0 items-center">
+                    <div className="flex shrink-0 items-center">
                         <InfoTooltip text={<AgendaLegend />} portal widthClassName="w-[300px]">
-                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-slate-700">
-                                <Info size={17} />
+                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-11 w-8 items-center justify-center text-slate-500 transition hover:text-slate-700">
+                                <Info size={17} className="!h-[17px] !w-[17px]" />
                             </span>
                         </InfoTooltip>
                     </div>
