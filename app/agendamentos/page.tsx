@@ -679,7 +679,7 @@ export default function AppointmentsPage() {
                 />
             </section>
 
-            <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)}>
+            <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
                 <AgendaIndicators report={agendaReport} loading={loadingReport} />
                 {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
             </DetailsSidePanel>
