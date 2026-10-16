@@ -8,6 +8,7 @@ import {
     ChevronLeft,
     ChevronRight,
     MapPin,
+    Info,
     RefreshCw,
     Search,
     Stethoscope,
@@ -20,6 +21,7 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import AgendaIndicators, { AgendaLegend } from "@/components/scheduling/AgendaIndicators";
@@ -536,7 +538,7 @@ export default function AppointmentsPage() {
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-3 py-4 sm:px-4 md:px-7 md:py-7">
+            <section className="flex min-w-0 flex-1 flex-col px-2 py-2 sm:px-3 sm:py-3 md:px-3 md:py-4">
                 <header className="mb-5 flex shrink-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
@@ -556,7 +558,7 @@ export default function AppointmentsPage() {
                             <CalendarCheck size={17} />
                             Agendar
                         </button>
-                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} className={`h-10 cursor-pointer whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>{freeOnly ? "Ver agenda" : "Horários Livres"}</button>
+                        <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`h-10 shrink-0 cursor-pointer whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>Horários Livres</button>
                         <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
@@ -639,6 +641,13 @@ export default function AppointmentsPage() {
                     <AdvancedFilterButton
                         sections={advancedFilterSections}
                     />
+                    <div className="ml-auto flex shrink-0 items-center">
+                        <InfoTooltip text={<AgendaLegend />} portal widthClassName="w-[300px]">
+                            <span tabIndex={0} aria-label="Legendas da agenda" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-selection hover:text-slate-700">
+                                <Info size={17} />
+                            </span>
+                        </InfoTooltip>
+                    </div>
                 </div>
 
                 {error && (
@@ -647,7 +656,6 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
-                <div className="mb-3 shrink-0"><AgendaLegend /></div>
                 {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
                 <WeekCalendar
                     weekDays={weekDays}

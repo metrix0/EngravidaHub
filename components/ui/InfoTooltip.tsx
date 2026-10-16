@@ -16,7 +16,7 @@ type TooltipAlign = "left" | "center" | "right";
 
 type InfoTooltipProps = {
     children: ReactNode;
-    text: string;
+    text: ReactNode;
     portal?: boolean;
     fitContent?: boolean;
     widthClassName?: string;

@@ -25,7 +25,6 @@ const START_HOUR = 7;
 const END_HOUR = 20;
 const HOUR_HEIGHT = 144;
 const CALENDAR_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
-const MIN_EVENT_HEIGHT = 34;
 const TZ = "America/Sao_Paulo";
 
 type Props = {
@@ -452,8 +451,8 @@ export default function WeekCalendar(props: Props) {
                                             return <button key={slot.id} type="button" onClick={() => props.onSelectFreeSlot?.(slot)}
                                                 aria-label={`Agendar ${label}`} title={label}
                                                 onMouseEnter={() => setHovered(slot.id)} onMouseLeave={() => setHovered(current => current === slot.id ? null : current)}
-                                                className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:brightness-95 hover:shadow-xl focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
-                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(slot.durationMinutes / 60 * HOUR_HEIGHT, MIN_EVENT_HEIGHT), left: hovered === slot.id ? 4 : `calc(${lane.column / lane.columns * 100}% + 4px)`, right: hovered === slot.id ? 4 : `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`, zIndex: hovered === slot.id ? 90 : 5 + lane.column, backgroundColor: AGENDA_COLORS.available }}>
+                                                className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
+                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(1, slot.durationMinutes / 60 * HOUR_HEIGHT - 2), left: `calc(${lane.column / lane.columns * 100}% + 4px)`, right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`, zIndex: hovered === slot.id ? 20 : 5 + lane.column, backgroundColor: AGENDA_COLORS.available }}>
                                                 <div className="text-[10px] font-bold leading-tight opacity-90">{time(slot.startsAt)}–{time(slot.endsAt)}</div>
                                                 <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
                                                 <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div>
@@ -479,8 +478,8 @@ export default function WeekCalendar(props: Props) {
                                                     startsAtMinutes) /
                                                     60) *
                                                     HOUR_HEIGHT,
-                                                MIN_EVENT_HEIGHT,
-                                            );
+                                                1,
+                                            ) - 2;
                                             const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
@@ -519,7 +518,7 @@ export default function WeekCalendar(props: Props) {
                                                             appointment,
                                                         )
                                                     }
-                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:brightness-95 hover:shadow-xl active:cursor-grabbing ${
+                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing ${
                                                         isSelected
                                                             ? "ring-2 ring-slate-950/20"
                                                             : ""
@@ -527,10 +526,10 @@ export default function WeekCalendar(props: Props) {
                                                     style={{
                                                         top: Math.max(0, top),
                                                         height,
-                                                        left: isHovered ? 4 : `calc(${lane.column / lane.columns * 100}% + 4px)`,
-                                                        right: isHovered ? 4 : `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
+                                                        left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
+                                                        right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
                                                         zIndex: isHovered
-                                                            ? 90
+                                                            ? 20
                                                             : isSelected
                                                               ? 35
                                                               : 5 + lane.column,
