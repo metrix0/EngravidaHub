@@ -2,13 +2,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, SearchCheck, Target } from "lucide-react";
+import { Activity, ArrowDownUp, CalendarCheck2, Clock3, Headset, Info, SearchCheck, Target } from "lucide-react";
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
 import Skeleton from "@/components/ui/Skeleton";
 import HorizontalScroller from "@/components/ui/HorizontalScroller";
 import Pagination from "@/components/ui/Pagination";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { SearchFilter } from "@/components/ui/SearchFilter";
@@ -162,7 +163,12 @@ export default function PerformancePage() {
                 : report ? <>
                     <Card className="min-w-0 !p-0">
                         <div className="flex flex-wrap items-start justify-between gap-4 p-4 md:p-6">
-                            <div><h2 className="text-lg font-bold">Ranking comparativo</h2>
+                            <div><div className="flex items-center gap-2">
+                                <h2 className="text-lg font-bold">Ranking comparativo</h2>
+                                <InfoTooltip portal widthClassName="w-[340px]" text={`Consultas: marcações do Clinisys, pela data de criação (${number(report.coverage.matchedBookings)} de ${number(report.coverage.totalBookings)} vinculadas). Sem vínculo: só totais por unidade. Tickets sem atendente não entram no ranking. Tempos: análises válidas até 2 h. Score e resolução: apenas conversas avaliadas pela IA. Filtro de unidade: vínculo atual do cliente nos tickets e unidade Clinisys nas marcações.`}>
+                                    <Info size={15} className="text-muted" />
+                                </InfoTooltip>
+                            </div>
                                 <p className="mt-1 text-xs text-muted">Clique em um nome para detalhar. Consultas contabilizadas pela data em que foram marcadas.</p>
                                 {unitId ? <p className="mt-1 text-xs text-muted">Tickets e tempos por unidade usam o vínculo atual do cliente. Conversas sem unidade identificada não entram no filtro.</p> : null}</div>
                             <div className="flex flex-wrap gap-3">
@@ -250,12 +256,6 @@ export default function PerformancePage() {
                             </Card>
                         )}</div> : <p className="text-sm text-muted">Nenhuma marcação no período.</p>}
                     </section>
-                    <p className="pb-6 text-xs leading-5 text-muted">
-                        Fonte: conversas e análises do Hub; marcações importadas do Clinisys, pelo dia em que foram criadas.
-                        {report.coverage.totalBookings > 0 ? " " + number(report.coverage.matchedBookings) + " de " + number(report.coverage.totalBookings) + " marcações puderam ser vinculadas com segurança a atendentes." : ""}
-                        {" "}Tempos são médias apenas de análises com valores válidos até 2 horas. O score e a taxa de resolução são calculados somente sobre conversas avaliadas pela IA.
-                        Tickets sem atendente identificado não entram no ranking. Marcações sem correspondência permanecem apenas nos totais por unidade. O filtro de unidade utiliza o vínculo atual do cliente nas conversas e a unidade registrada pelo Clinisys nas marcações.
-                    </p>
                 </> : !isLoadingCurrentUser && !loading ? <p className="py-12 text-center text-sm text-muted">Não há dados para o período.</p> : null}
         </section>
     </main>;
