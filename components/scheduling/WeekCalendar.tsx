@@ -8,7 +8,7 @@ import {
     type MouseEvent,
     type PointerEvent,
 } from "react";
-import { GripHorizontal, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { LoaderCircle, Plus, Trash2, X } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
@@ -119,6 +119,15 @@ export default function WeekCalendar(props: Props) {
     }, [freeSlotsByDay]);
 
     const blocksByDay = useMemo(() => groupAgendaBlocks(props.blocks ?? []), [props.blocks]);
+    const blockLanesByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
+        blocksByDay.forEach((blocks, day) => result.set(day, layoutConcurrentEvents(
+            blocks.filter(block => dateKeyIso(block.endsAt) === day).map(block => ({
+                id: block.id, start: Date.parse(block.startsAt), end: Date.parse(block.endsAt),
+            })),
+        )));
+        return result;
+    }, [blocksByDay]);
 
     const notesByDay = useMemo(() => {
         const grouped = new Map<string, AppointmentDayNote[]>();
@@ -257,7 +266,7 @@ export default function WeekCalendar(props: Props) {
 
     return (
         <>
-            <div className="min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="min-h-0 w-full flex-1 touch-pan-x touch-pan-y overflow-auto border-t border-slate-200 bg-white">
                 {props.loading ? (
                     <WeekCalendarSkeleton freeOnly={freeOnly} />
                 ) : (
@@ -436,10 +445,16 @@ export default function WeekCalendar(props: Props) {
                                             const end = Math.min(END_HOUR * 60, minutes(block.endsAt));
                                             if (end <= start) return null;
                                             const doctors = block.doctorNames.length === 1 ? block.doctorNames[0] : `${block.doctorNames.length} médicos`;
+                                            const lane = blockLanesByDay.get(dayKey)?.get(block.id) ?? { column: 0, columns: 1 };
                                             return (
-                                                <div key={block.id} title={`${block.doctorNames.join(", ")}: ${block.reason}`} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700"
-                                                    style={{ top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT, height: (end - start) / 60 * HOUR_HEIGHT }}>
-                                                    <span className="sticky top-0">{block.reason} · {doctors}</span>
+                                                <div key={block.id} title={`${block.doctorNames.join(", ")}: ${block.reason}`} className="absolute z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700"
+                                                    style={{
+                                                        top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT,
+                                                        height: (end - start) / 60 * HOUR_HEIGHT,
+                                                        left: `calc(${lane.column / lane.columns * 100}% + 4px)`,
+                                                        right: `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
+                                                    }}>
+                                                    <span className="block truncate leading-tight">{block.reason} · {doctors}</span>
                                                 </div>
                                             );
                                         })}
@@ -553,7 +568,7 @@ export default function WeekCalendar(props: Props) {
                                                                     ),
                                                             });
                                                         }}
-                                                        className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded bg-black/10 opacity-0 hover:bg-black/20 group-hover:opacity-100"
+                                                        className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded opacity-0 hover:bg-white/20 group-hover:opacity-100"
                                                     >
                                                         <Trash2 size={12} />
                                                     </button>
@@ -576,18 +591,16 @@ export default function WeekCalendar(props: Props) {
                                                     </div>
                                                     <button
                                                         type="button"
+                                                        aria-label="Redimensionar agendamento"
+                                                        title="Arraste para alterar a duração"
                                                         onPointerDown={(event) =>
                                                             beginResize(
                                                                 event,
                                                                 appointment,
                                                             )
                                                         }
-                                                        className="absolute bottom-0 left-0 flex h-4 w-full cursor-ns-resize items-center justify-center bg-black/5 opacity-0 group-hover:opacity-100"
-                                                    >
-                                                        <GripHorizontal
-                                                            size={13}
-                                                        />
-                                                    </button>
+                                                        className="absolute bottom-0 left-0 h-2 w-full cursor-ns-resize bg-transparent"
+                                                    />
                                                 </div>
                                             );
                                         })}

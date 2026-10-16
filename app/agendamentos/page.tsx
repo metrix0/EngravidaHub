@@ -538,8 +538,8 @@ export default function AppointmentsPage() {
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-2 py-2 sm:px-3 sm:py-3 md:px-3 md:py-4">
-                <header className="mb-5 flex shrink-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+            <section className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
+                <header className="mb-5 flex shrink-0 flex-col gap-4 px-2 sm:px-3 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
                             Agendamentos
@@ -600,7 +600,7 @@ export default function AppointmentsPage() {
                     </div>
                 </header>
 
-                <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
+                <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3 px-2 sm:px-3">
                     <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-sm">
                         <Search size={17} className="shrink-0 text-slate-400" />
                         <input
