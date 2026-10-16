@@ -100,7 +100,7 @@ export default function FilterButton({
 
     function toggleOption(value: string) {
         if (singleSelect) {
-            updateAppliedValues([value]);
+            updateAppliedValues(appliedValues.includes(value) ? [] : [value]);
             setOpen(false);
             return;
         }
@@ -198,19 +198,21 @@ export default function FilterButton({
                                         color: selected ? "var(--color-brand)" : "var(--color-muted)",
                                     }}
                                 >
-                                    <span
-                                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-                                        style={{
-                                            borderColor: selected
-                                                ? "var(--color-brand)"
-                                                : "var(--color-border)",
-                                            backgroundColor: selected
-                                                ? "var(--color-brand)"
-                                                : "transparent",
-                                        }}
-                                    >
-                                        {selected && <Check size={12} className="text-white" />}
-                                    </span>
+                                    {!singleSelect && (
+                                        <span
+                                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                                            style={{
+                                                borderColor: selected
+                                                    ? "var(--color-brand)"
+                                                    : "var(--color-border)",
+                                                backgroundColor: selected
+                                                    ? "var(--color-brand)"
+                                                    : "transparent",
+                                            }}
+                                        >
+                                            {selected && <Check size={12} className="text-white" />}
+                                        </span>
+                                    )}
 
                                     <span className="truncate">{option.label}</span>
                                 </button>
@@ -229,23 +231,25 @@ export default function FilterButton({
                     })}
                 </div>
 
-                <div className="flex items-center justify-between border-t border-border p-2">
-                    <button
-                        type="button"
-                        onClick={selectAllDraft}
-                        className="cursor-pointer rounded-lg px-3 py-2 text-xs font-medium text-muted transition hover:bg-slate-50"
-                    >
-                        Todos
-                    </button>
+                {!singleSelect && (
+                    <div className="flex items-center justify-between border-t border-border p-2">
+                        <button
+                            type="button"
+                            onClick={selectAllDraft}
+                            className="cursor-pointer rounded-lg px-3 py-2 text-xs font-medium text-muted transition hover:bg-slate-50"
+                        >
+                            Todos
+                        </button>
 
-                    {!singleSelect && <button
-                        type="button"
-                        onClick={applySelection}
-                        className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
-                    >
-                        Aplicar
-                    </button>}
-                </div>
+                        <button
+                            type="button"
+                            onClick={applySelection}
+                            className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+                        >
+                            Aplicar
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
