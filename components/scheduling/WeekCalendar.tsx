@@ -23,7 +23,7 @@ import type {
 
 const START_HOUR = 7;
 const END_HOUR = 20;
-const HOUR_HEIGHT = 72;
+const HOUR_HEIGHT = 144;
 const CALENDAR_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 const MIN_EVENT_HEIGHT = 34;
 const TZ = "America/Sao_Paulo";
@@ -102,6 +102,24 @@ export default function WeekCalendar(props: Props) {
 
         return grouped;
     }, [props.appointments]);
+
+    const appointmentLanesByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
+        appointmentsByDay.forEach((items, day) => result.set(day, layoutConcurrentEvents(
+            items.map(item => ({ id: item.id, start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) })),
+        )));
+        return result;
+    }, [appointmentsByDay]);
+
+    const freeSlotLanesByDay = useMemo(() => {
+        const result = new Map<string, ReturnType<typeof layoutConcurrentEvents>>();
+        freeSlotsByDay.forEach((items, day) => result.set(day, layoutConcurrentEvents(
+            items.map(item => ({ id: item.id, start: Date.parse(item.startsAt), end: Date.parse(item.endsAt) })),
+        )));
+        return result;
+    }, [freeSlotsByDay]);
+
+    const blocksByDay = useMemo(() => groupAgendaBlocks(props.blocks ?? []), [props.blocks]);
 
     const notesByDay = useMemo(() => {
         const grouped = new Map<string, AppointmentDayNote[]>();
@@ -298,7 +316,14 @@ export default function WeekCalendar(props: Props) {
                                         className="group/day min-h-16 border-r border-slate-200 p-2 last:border-r-0"
                                     >
                                         <div className="flex flex-wrap gap-1.5">
-                                            <div className="max-h-24 w-full space-y-1 overflow-y-auto">{(props.blocks ?? []).filter(block => block.date === dayKey).map(block => <div key={block.id} className="rounded-md border-l-2 border-red-400 bg-red-50 px-2 py-1 text-[10px] text-red-700" title={`${block.doctorName}: ${block.reason}`}><span className="block truncate font-semibold">{block.doctorName}</span><span className="block truncate">{time(block.startsAt)} – {dateKeyIso(block.endsAt) !== dayKey ? "24:00" : time(block.endsAt)} · {block.reason}</span></div>)}</div>
+                                            <div className="max-h-24 w-full space-y-1 overflow-y-auto">
+                                                {(blocksByDay.get(dayKey) ?? []).filter(block => !block.isLunch).map(block => (
+                                                    <div key={block.id} className="rounded-md border-l-2 border-red-400 bg-red-50 px-2 py-1 text-[10px] text-red-700" title={`${block.doctorNames.join(", ")}: ${block.reason}`}>
+                                                        <span className="block truncate font-semibold">{block.doctorNames.length === 1 ? block.doctorNames[0] : `${block.doctorNames.length} médicos`}</span>
+                                                        <span className="block truncate">{time(block.startsAt)} – {dateKeyIso(block.endsAt) !== dayKey ? "24:00" : time(block.endsAt)} · {block.reason}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                             {(notesByDay.get(dayKey) ?? []).map(
                                                 (note) => (
                                                     <div
@@ -406,17 +431,21 @@ export default function WeekCalendar(props: Props) {
                                             handleDrop(event, day)
                                         }
                                     >
-                                        {(props.blocks ?? []).filter(block => block.date === dayKey).map((block, index) => {
+                                        {(blocksByDay.get(dayKey) ?? []).map(block => {
                                             if (dateKeyIso(block.endsAt) !== dayKey) return null;
                                             const start = Math.max(START_HOUR * 60, minutes(block.startsAt));
-                                            const end = dateKeyIso(block.endsAt) !== dayKey ? END_HOUR * 60 : Math.min(END_HOUR * 60, minutes(block.endsAt));
+                                            const end = Math.min(END_HOUR * 60, minutes(block.endsAt));
                                             if (end <= start) return null;
-                                            return <div key={block.id} title={`${block.doctorName}: ${block.reason}`} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700" style={{ top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT, height: (end - start) / 60 * HOUR_HEIGHT, marginLeft: index % 5 * 5 }}><span className="sticky top-0">{block.doctorName} · {block.reason}</span></div>;
+                                            const doctors = block.doctorNames.length === 1 ? block.doctorNames[0] : `${block.doctorNames.length} médicos`;
+                                            return (
+                                                <div key={block.id} title={`${block.doctorNames.join(", ")}: ${block.reason}`} className="absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-dashed border-red-300 bg-red-50/60 px-1 text-[10px] font-semibold text-red-700"
+                                                    style={{ top: (start - START_HOUR * 60) / 60 * HOUR_HEIGHT, height: (end - start) / 60 * HOUR_HEIGHT }}>
+                                                    <span className="sticky top-0">{block.reason} · {doctors}</span>
+                                                </div>
+                                            );
                                         })}
                                         {(freeSlotsByDay.get(dayKey) ?? []).map(slot => {
-                                            const daySlots = freeSlotsByDay.get(dayKey) ?? [];
-                                            const overlapping = daySlots.filter(item => item.startsAt < slot.endsAt && item.endsAt > slot.startsAt);
-                                            const rank = overlapping.findIndex(item => item.id === slot.id);
+                                            const lane = freeSlotLanesByDay.get(dayKey)?.get(slot.id) ?? { column: 0, columns: 1 };
                                             const load = loads.get(`${slot.unitId}:${slot.doctorId}`);
                                             const loadLabel = load ? `${load.total} vagas brutas · ${load.available} livres · ${percent(load.occupancy)} ocupação` : "";
                                             const label = `${time(slot.startsAt)}–${time(slot.endsAt)} · ${formatDoctorName(slot.doctorName)} · ${slot.unitName}${loadLabel ? ` · ${loadLabel}` : ""}`;
@@ -424,7 +453,7 @@ export default function WeekCalendar(props: Props) {
                                                 aria-label={`Agendar ${label}`} title={label}
                                                 onMouseEnter={() => setHovered(slot.id)} onMouseLeave={() => setHovered(current => current === slot.id ? null : current)}
                                                 className="group absolute cursor-pointer overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:brightness-95 hover:shadow-xl focus-visible:z-[90] focus-visible:outline-2 focus-visible:outline-slate-900"
-                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(slot.durationMinutes / 60 * HOUR_HEIGHT, MIN_EVENT_HEIGHT), left: hovered === slot.id ? 4 : 4 + (overlapping.length - 1 - rank) * Math.min(9, 60 / overlapping.length), right: 4, zIndex: hovered === slot.id ? 90 : 5 + overlapping.length - rank, backgroundColor: AGENDA_COLORS.available }}>
+                                                style={{ top: Math.max(0, (minutes(slot.startsAt) - START_HOUR * 60) / 60 * HOUR_HEIGHT), height: Math.max(slot.durationMinutes / 60 * HOUR_HEIGHT, MIN_EVENT_HEIGHT), left: hovered === slot.id ? 4 : `calc(${lane.column / lane.columns * 100}% + 4px)`, right: hovered === slot.id ? 4 : `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`, zIndex: hovered === slot.id ? 90 : 5 + lane.column, backgroundColor: AGENDA_COLORS.available }}>
                                                 <div className="text-[10px] font-bold leading-tight opacity-90">{time(slot.startsAt)}–{time(slot.endsAt)}</div>
                                                 <div className="mt-0.5 truncate text-[11px] font-bold leading-tight">{formatDoctorName(slot.doctorName)}</div>
                                                 <div className="mt-0.5 truncate text-[11px] font-semibold leading-tight opacity-95">{load ? `${percent(load.occupancy)} ocupação · ${load.total} vagas brutas` : slot.unitName}</div>
@@ -452,10 +481,7 @@ export default function WeekCalendar(props: Props) {
                                                     HOUR_HEIGHT,
                                                 MIN_EVENT_HEIGHT,
                                             );
-                                            const overlap = overlapIndex(
-                                                appointment,
-                                                appointments,
-                                            );
+                                            const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
                                                 appointment.id;
@@ -501,13 +527,13 @@ export default function WeekCalendar(props: Props) {
                                                     style={{
                                                         top: Math.max(0, top),
                                                         height,
-                                                        left: 4 + overlap * 9,
-                                                        right: 4,
+                                                        left: isHovered ? 4 : `calc(${lane.column / lane.columns * 100}% + 4px)`,
+                                                        right: isHovered ? 4 : `calc(${(lane.columns - lane.column - 1) / lane.columns * 100}% + 4px)`,
                                                         zIndex: isHovered
                                                             ? 90
                                                             : isSelected
                                                               ? 35
-                                                              : 5 + overlap,
+                                                              : 5 + lane.column,
                                                         backgroundColor:
                                                             appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
@@ -787,27 +813,51 @@ function TimeAxis() {
     );
 }
 
-function overlapIndex(
-    appointment: CalendarAppointment,
-    appointments: CalendarAppointment[],
-) {
-    const startsAt = +new Date(appointment.starts_at);
-    const overlappingAppointments = appointments.filter(
-        (item) =>
-            item.id !== appointment.id &&
-            +new Date(item.starts_at) <= startsAt &&
-            +new Date(item.ends_at) > startsAt,
-    );
-    const ordered = [...overlappingAppointments, appointment].sort(
-        (first, second) =>
-            +new Date(first.starts_at) - +new Date(second.starts_at) ||
-            first.id.localeCompare(second.id),
-    );
+type GroupedAgendaBlock = AgendaBlock & { doctorNames: string[]; isLunch: boolean };
 
-    return Math.min(
-        ordered.findIndex((item) => item.id === appointment.id),
-        5,
-    );
+function groupAgendaBlocks(blocks: AgendaBlock[]) {
+    const byDay = new Map<string, GroupedAgendaBlock[]>();
+    const groups = new Map<string, { block: GroupedAgendaBlock; doctors: Set<string> }>();
+    for (const block of blocks) {
+        const isLunch = block.reason.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("almoco");
+        const key = [block.date, block.startsAt, block.endsAt, isLunch ? "almoco" : block.reason].join("|");
+        let group = groups.get(key);
+        if (!group) {
+            const groupedBlock = { ...block, reason: isLunch ? "Almoço" : block.reason, doctorNames: [], isLunch };
+            group = { block: groupedBlock, doctors: new Set<string>() };
+            groups.set(key, group);
+            byDay.set(block.date, [...(byDay.get(block.date) ?? []), groupedBlock]);
+        }
+        const doctorKey = `${block.unitId}:${block.doctorId}`;
+        if (!group.doctors.has(doctorKey)) {
+            group.doctors.add(doctorKey);
+            group.block.doctorNames.push(block.doctorName);
+        }
+    }
+    return byDay;
+}
+
+function layoutConcurrentEvents(events: Array<{ id: string; start: number; end: number }>) {
+    const layout = new Map<string, { column: number; columns: number }>();
+    const sorted = [...events].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+    let group: Array<{ id: string; column: number }> = [];
+    let laneEnds: number[] = [];
+    let groupEnd = -Infinity;
+    const finish = () => {
+        for (const item of group) layout.set(item.id, { column: item.column, columns: laneEnds.length });
+        group = [];
+        laneEnds = [];
+    };
+    for (const event of sorted) {
+        if (group.length && event.start >= groupEnd) finish();
+        let column = laneEnds.findIndex(end => end <= event.start);
+        if (column === -1) column = laneEnds.length;
+        laneEnds[column] = event.end;
+        group.push({ id: event.id, column });
+        groupEnd = Math.max(groupEnd, event.end);
+    }
+    finish();
+    return layout;
 }
 
 function parts(value: string) {
