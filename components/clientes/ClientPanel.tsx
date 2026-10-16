@@ -25,6 +25,7 @@ import {
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import ClientInformationCard from "@/components/clientes/ClientInformationCard";
+import ClientJourneySection from "@/components/clientes/ClientJourneySection";
 import { getClientCallClosureLabel } from "@/lib/clients/callTracking";
 import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
 
@@ -251,6 +252,7 @@ export default function ClientPanel({
                         <ClientCallHistorySection clientId={data.client.id} />
                     ) : null}
                     {!data.read_only ? <ActiveMessageButton client={data.client} /> : null}
+                    <ClientJourneySection clientId={data.client.id} />
                 </div>
             )}
         </DetailsSidePanel>
