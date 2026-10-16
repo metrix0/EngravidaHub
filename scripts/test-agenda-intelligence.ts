@@ -6,6 +6,7 @@ import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "..
 import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
 import { buildOperationalAgenda, normalizeAgendaText } from "../lib/scheduling/operationalAgenda";
+import { monthlyAgendaCounts } from "../lib/scheduling/agendaReportMetrics";
 import { sectorBookingTeam, teamForAttendantName } from "../lib/scheduling/bookingOrigin";
 import { filterDashboardWidgetIds } from "../lib/personal-dashboard/registryExtended";
 
@@ -178,6 +179,18 @@ for (const key of ["counts", "byUnit", "byDoctor", "slots", "blocks", "availabil
 assert.equal(operational.availability[0].firstWaitDays, 0);
 assert.equal(operational.availability[0].threeWaitDays, 0);
 assert.equal(operational.availability[0].weeks[0], 5);
+// Replit's current-week count includes elapsed unfilled slots, while the
+// next-date search still returns future dates only.
+const fridayReport = buildOperationalAgenda({ ...operationalBase, reportDate: "2026-10-09", now: Date.parse("2026-10-09T13:00:00-03:00"), includeHistory: false });
+assert.equal(fridayReport.availability[0].weeks[0], 5);
+assert.equal(fridayReport.availability[0].firstDate, "2026-10-12");
+assert.equal(fridayReport.slots.length, 0);
+// A week crossing the month boundary still includes its previous-month day.
+const boundaryReport = buildOperationalAgenda({ ...operationalBase, start: "2026-06-01", end: "2026-07-01", reportDate: "2026-06-01", now: Date.parse("2026-06-01T07:00:00-03:00"), includeHistory: false,
+    agendas: [{ ...agenda, working_hours: [{ daysOfWeek: [7], startsAt: "08:00", endsAt: "12:00", validFrom: "2026-01-01", validUntil: null }] }],
+    appointments: [{ ...appointment("past-booking", "08:00", "08:45"), starts_at: "2026-05-31T08:00:00-03:00", ends_at: "2026-05-31T08:45:00-03:00", booking_team: "ra" }] });
+assert.equal(boundaryReport.availability[0].weeks[0], 4);
+assert.equal(boundaryReport.availability[0].firstDate, "2026-06-07");
 assert.equal(buildOperationalAgenda({ ...operationalBase, agendas: [agenda, agenda] }).counts.available, 5);
 operational = buildOperationalAgenda({ ...operationalBase, appointments: [{ ...appointment("ra", "08:00", "08:45"), booking_team: "ra" }, { ...appointment("unit", "08:45", "09:30"), booking_team: "unit" }, appointment("unknown", "09:30", "10:15"), appointment("cancel", "10:15", "12:00", "cancelled")] });
 assert.equal(operational.counts.ra, 1);
@@ -185,6 +198,17 @@ assert.equal(operational.counts.unit, 1);
 assert.equal(operational.counts.unknown, 1);
 assert.equal(operational.counts.available, 2);
 assert.equal(operational.counts.occupancy, 60);
+assert.equal(monthlyAgendaCounts(operational.counts).occupancy, 40);
+assert.equal(operational.counts.occupancy, 60); // Calendar occupancy remains physical.
+// Live Replit October report, checked 16/10/2026: 1,536 total records,
+// including 10 other statuses that its four chart series do not represent.
+const referenceMonthly = monthlyAgendaCounts({ total: 1536, available: 400, open: 283, ra: 337, unit: 504, unknown: 10, blocked: 2, occupancy: null, raOccupancy: null, unitOccupancy: null });
+assert.equal(referenceMonthly.available, 683);
+assert.equal(referenceMonthly.occupancy!.toFixed(1), "54.8");
+assert.equal(referenceMonthly.raOccupancy!.toFixed(1), "21.9");
+assert.equal(referenceMonthly.unitOccupancy!.toFixed(1), "32.8");
+assert.deepEqual(monthlyAgendaCounts(referenceMonthly), referenceMonthly); // Saved snapshots are not counted twice.
+assert.equal(monthlyAgendaCounts({ ...referenceMonthly, total: 0 }).occupancy, 0);
 assert.equal(operational.availability[0].threeWaitDays, 7); // Next Monday, not the third chronological slot.
 assert.equal(operational.availability[0].nextDates[1], "2026-10-12");
 operational = buildOperationalAgenda({ ...operationalBase, agendas: [unavailable] });

@@ -1,6 +1,6 @@
 // lib/scheduling/operationalAgendaServer.ts
 import { supabase } from "@/lib/supabase/client";
-import { agendaDate, agendaMonthStart, buildOperationalAgenda, type OperationalAgenda, type OperationalAppointment } from "./operationalAgenda";
+import { agendaDate, agendaMonthStart, agendaWeekStart, buildOperationalAgenda, type OperationalAgenda, type OperationalAppointment } from "./operationalAgenda";
 import { sectorBookingTeam, teamForAttendantName, type BookingTeam } from "./bookingOrigin";
 
 async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: unknown[] | null; error: unknown }>) {
@@ -34,7 +34,7 @@ export async function enrichBookingTeams<T extends { booking_team?: BookingTeam;
 }
 
 export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, reportDate, includeHistory = true }: { start: string; end: string; unitIds: string[]; doctorIds: string[]; reportDate?: string; includeHistory?: boolean }) {
-    const from = agendaMonthStart(start, includeHistory ? -6 : 0);
+    const from = [agendaMonthStart(start, includeHistory ? -6 : 0), agendaWeekStart(reportDate ?? agendaDate())].sort()[0];
     const horizonEnd = agendaMonthStart(reportDate ?? agendaDate(), 2);
     const until = [end, horizonEnd].sort().at(-1)!;
     const [agendas, appointments, doctorUnits] = await Promise.all([

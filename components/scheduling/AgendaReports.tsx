@@ -12,6 +12,7 @@ import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { AGENDA_COLORS } from "@/lib/scheduling/bookingOrigin";
 import type { AgendaCounts, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { monthlyAgendaCounts } from "@/lib/scheduling/agendaReportMetrics";
 import { AgendaCountTable, percent } from "./AgendaIndicators";
 
 type Report = OperationalAgendaReport & { missingDoctors: Array<{ doctorName: string }> };
@@ -96,7 +97,7 @@ export default function AgendaReports({ unitIds, doctorIds, ready }: { unitIds: 
         <Card className="min-w-0 !p-0">
             <div className="flex flex-wrap items-start justify-between gap-3 p-4 md:p-6"><WidgetHeading title="Histórico mensal" description="Salve os indicadores do mês selecionado para consultar depois." icon={<History size={18} />} /><button type="button" disabled={saving || monthly.loading || !monthly.report} onClick={() => void saveSnapshot()} className={buttonClass}>{saving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}Salvar histórico</button></div>
             {saveMessage ? <p role={saveFailed ? "alert" : "status"} className={`px-4 pb-4 text-sm md:px-6 ${saveFailed ? "text-red" : "text-green"}`}>{saveMessage}</p> : null}
-            {monthly.loading ? <div className="p-4 md:p-6"><Skeleton className="h-32 rounded-xl" /></div> : monthly.error ? <p className="px-4 pb-6 text-sm text-muted md:px-6">Atualize os indicadores para consultar o histórico.</p> : <div className="space-y-3 px-4 pb-4 md:px-6 md:pb-6">{monthly.snapshots.map(snapshot => <details key={snapshot.month} className="rounded-xl border border-slate-200"><summary className="cursor-pointer p-3 text-sm font-semibold">{snapshot.month.slice(0, 7).split("-").reverse().join("/")} · {new Date(snapshot.captured_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</summary><AgendaCountTable rows={snapshot.report.byUnit} /></details>)}{!monthly.snapshots.length ? <p className="py-8 text-center text-sm text-muted">Nenhum histórico salvo para os filtros selecionados.</p> : null}</div>}
+            {monthly.loading ? <div className="p-4 md:p-6"><Skeleton className="h-32 rounded-xl" /></div> : monthly.error ? <p className="px-4 pb-6 text-sm text-muted md:px-6">Atualize os indicadores para consultar o histórico.</p> : <div className="space-y-3 px-4 pb-4 md:px-6 md:pb-6">{monthly.snapshots.map(snapshot => <details key={snapshot.month} className="rounded-xl border border-slate-200"><summary className="cursor-pointer p-3 text-sm font-semibold">{snapshot.month.slice(0, 7).split("-").reverse().join("/")} · {new Date(snapshot.captured_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</summary><AgendaCountTable rows={snapshot.report.byUnit.map(monthlyAgendaCounts)} /></details>)}{!monthly.snapshots.length ? <p className="py-8 text-center text-sm text-muted">Nenhum histórico salvo para os filtros selecionados.</p> : null}</div>}
         </Card>
     </section>;
 }
@@ -108,9 +109,8 @@ function WidgetHeading({ title, description, icon }: { title: string; descriptio
     return <div><h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><span className="text-muted">{icon}</span>{title}</h3><p className="mt-1 text-xs leading-5 text-muted">{description}</p></div>;
 }
 function MonthlyReport({ report }: { report: OperationalAgendaReport }) {
-    // Monthly reference reports count past unfilled slots as DISPONIVEL as well.
-    const counts = { ...report.counts, available: report.counts.available + report.counts.open };
-    const units = report.byUnit.map(row => ({ ...row, available: row.available + row.open, open: 0 }));
+    const counts = monthlyAgendaCounts(report.counts);
+    const units = report.byUnit.map(monthlyAgendaCounts);
     const teamsNote = "Classificação confirmada por equipe. Agendamentos sem origem identificada aparecem separadamente na tabela por unidade.";
     return <div className="min-w-0 space-y-5">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -119,7 +119,7 @@ function MonthlyReport({ report }: { report: OperationalAgendaReport }) {
             <KpiCard icon={<CalendarCheck2 size={22} />} label="Agendado RA" currentValue={counts.ra} formatter={number} color="blue" tooltipText={teamsNote} />
             <KpiCard icon={<Users size={22} />} label="Agendado Unidade" currentValue={counts.unit} formatter={number} color="purple" tooltipText={teamsNote} />
             <KpiCard icon={<LockKeyhole size={22} />} label="Bloqueados" currentValue={counts.blocked} formatter={number} color="orange" />
-            <KpiCard icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="Vagas ocupadas divididas pelo total, incluindo bloqueios na base. A ocupação total inclui agendamentos sem origem identificada." />
+            <KpiCard icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="RA + Unidade divididos pelo total de vagas, incluindo bloqueados na base, conforme o relatório de referência. Agendamentos sem origem identificada não entram no numerador." />
             <KpiCard icon={<Users size={22} />} label="Ocupação RA" currentValue={counts.raOccupancy} formatter={value => percent(value)} color="blue" tooltipText={teamsNote} />
             <KpiCard icon={<Users size={22} />} label="Ocupação Unidade" currentValue={counts.unitOccupancy} formatter={value => percent(value)} color="purple" tooltipText={teamsNote} />
         </div>

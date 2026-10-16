@@ -5,6 +5,7 @@ import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import { supabase } from "@/lib/supabase/client";
 import { agendaAddDays, agendaDate, agendaMonthStart, agendaWeekStart } from "@/lib/scheduling/operationalAgenda";
 import { agendaScopeKey, loadOperationalAgenda } from "@/lib/scheduling/operationalAgendaServer";
+import { monthlyAgendaCounts } from "@/lib/scheduling/agendaReportMetrics";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
         const unitIds = access.permission.unit_lock ? [access.permission.unit_lock.id] : parsed.data.unitIds;
         const month = `${parsed.data.month}-01`, end = agendaMonthStart(month, 1);
         const report = await loadOperationalAgenda({ start: month, end, reportDate: month, unitIds, doctorIds: parsed.data.doctorIds, includeHistory: false });
-        const { error } = await supabase.from("agenda_monthly_snapshots").upsert({ month, scope_key: agendaScopeKey(unitIds, parsed.data.doctorIds), unit_ids: [...new Set(unitIds)].sort(), doctor_ids: [...new Set(parsed.data.doctorIds)].sort(), report: { counts: report.counts, byUnit: report.byUnit }, captured_at: new Date().toISOString(), captured_by: access.user.id }, { onConflict: "month,scope_key" });
+        const { error } = await supabase.from("agenda_monthly_snapshots").upsert({ month, scope_key: agendaScopeKey(unitIds, parsed.data.doctorIds), unit_ids: [...new Set(unitIds)].sort(), doctor_ids: [...new Set(parsed.data.doctorIds)].sort(), report: { counts: monthlyAgendaCounts(report.counts), byUnit: report.byUnit.map(monthlyAgendaCounts) }, captured_at: new Date().toISOString(), captured_by: access.user.id }, { onConflict: "month,scope_key" });
         if (error) throw error;
         return NextResponse.json({ ok: true });
     } catch (error) {

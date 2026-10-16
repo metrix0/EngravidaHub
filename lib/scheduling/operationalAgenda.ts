@@ -45,7 +45,7 @@ function sum(rows: AgendaCounts[]) {
 export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
     const reportNow = reportDate === agendaDate(now) ? now : epoch(reportDate);
-    const historyStart = input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6);
+    const historyStart = [input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6), agendaWeekStart(reportDate)].sort()[0];
     const horizonEnd = agendaMonthStart(reportDate, 2);
     const last = [input.end, horizonEnd, agendaMonthStart(input.start, 1)].sort().at(-1)!;
     const groups = new Map<string, OperationalAgenda[]>();
@@ -125,7 +125,10 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
         const wait = (date: string | null) => date ? Math.round((epoch(date) - epoch(reportDate)) / DAY) : null;
         const saturdayDates = dates.filter(date => new Date(`${date}T12:00:00Z`).getUTCDay() === 6);
         const servesSaturday = daily.some(row => row.unitId === unit.unitId && row.date >= reportDate && new Date(`${row.date}T12:00:00Z`).getUTCDay() === 6 && row.total > 0);
-        return { ...unit, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks: Array.from({ length: 4 }, (_, index) => slots.filter(slot => slot.date >= agendaAddDays(weekStart, index * 7) && slot.date < agendaAddDays(weekStart, (index + 1) * 7)).length), saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
+        // The reference's weekly totals include unfilled slots earlier in the
+        // current week; only the next-date search excludes elapsed time.
+        const weeks = Array.from({ length: 4 }, (_, index) => daily.filter(row => row.unitId === unit.unitId && row.date >= agendaAddDays(weekStart, index * 7) && row.date < agendaAddDays(weekStart, (index + 1) * 7)).reduce((total, row) => total + row.available + row.open, 0));
+        return { ...unit, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks, saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
     });
     return { generatedAt: new Date(now).toISOString(), start: input.start, end: input.end, reportDate, horizonEnd: last, counts: sum(period), byUnit, byDoctor, blocks, slots: freeSlots.filter(slot => slot.date >= input.start && slot.date < input.end), availability, daily: Array.from(new Set(period.map(row => row.date))).sort().map(date => ({ date, ...sum(period.filter(row => row.date === date)) })), previousMonths, averagePreviousMonths: previousMonths.some(row => row.total) ? Math.round(previous.total / previousMonths.filter(row => row.total).length) : null, projection, hasLiveAvailability: input.agendas.some(row => hasFreshClinisysAvailabilitySnapshot(row, reportDate, now)) };
 }
