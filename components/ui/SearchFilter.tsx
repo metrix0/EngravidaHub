@@ -8,16 +8,19 @@ export function SearchFilter({
     onChange,
     placeholder = "Buscar por cliente ou telefone...",
     widthClassName = "w-[310px]",
+    iconPosition = "right",
 }: {
     value: string;
     onChange: (value: string) => void;
     placeholder?: string;
     widthClassName?: string;
+    iconPosition?: "left" | "right";
 }) {
     return (
         <div
-            className={`flex h-11 max-w-full cursor-text items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-500 shadow-sm transition-colors hover:bg-slate-50 max-md:w-full ${widthClassName}`}
+            className={`flex h-11 max-w-full cursor-text items-center gap-3 rounded-xl border border-border bg-white px-4 text-sm text-slate-500 shadow-sm transition-colors hover:bg-slate-50 focus-within:ring-2 focus-within:ring-brand/30 max-md:w-full ${widthClassName}`}
         >
+            {iconPosition === "left" && <Search size={16} className="shrink-0 text-slate-500" />}
             <input
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
@@ -25,7 +28,7 @@ export function SearchFilter({
                 className="w-full bg-transparent outline-none placeholder:text-slate-400 focus:outline-none focus-visible:outline-none"
             />
 
-            <Search size={16} className="shrink-0 text-slate-500" />
+            {iconPosition === "right" && <Search size={16} className="shrink-0 text-slate-500" />}
         </div>
     );
 }
