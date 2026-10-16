@@ -469,35 +469,7 @@ export default function WeekCalendar(props: Props) {
                                             const first = group.slots[0];
                                             const single = group.slots.length === 1;
                                             const load = loads.get(`${first.unitId}:${first.doctorId}`);
-                                            return (
-                                                <div
-                                                    key={group.id}
-                                                    className="absolute left-1 right-1 z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
-                                                    style={{
-                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3,
-                                                        height: HOUR_HEIGHT / 2 - 6,
-                                                    }}
-                                                >
-                                                    <InfoTooltip
-                                                        portal
-                                                        widthClassName="w-[380px]"
-                                                        text={
-                                                            <span className="block max-h-72 overflow-y-auto">
-                                                                <span className="mb-2 block font-bold text-slate-800">
-                                                                    {group.slots.length} {group.slots.length === 1 ? "horário livre" : "horários livres"}
-                                                                </span>
-                                                                {group.slots.map(slot => {
-                                                                    const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
-                                                                    return (
-                                                                        <span key={slot.id} className="block border-t border-slate-100 py-1.5">
-                                                                            <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
-                                                                            <span className="block break-words">{slot.unitName}{capacity ? ` · ${percent(capacity.occupancy)} ocupação · ${capacity.available}/${capacity.total} vagas` : ""}</span>
-                                                                        </span>
-                                                                    );
-                                                                })}
-                                                            </span>
-                                                        }
-                                                    >
+                                            const card = (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -527,7 +499,40 @@ export default function WeekCalendar(props: Props) {
                                                                 </span>
                                                             )}
                                                         </button>
+                                            );
+                                            return (
+                                                <div
+                                                    key={group.id}
+                                                    className="absolute left-1 right-1 z-10 [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full"
+                                                    style={{
+                                                        top: (group.startMinutes - START_HOUR * 60) / 60 * HOUR_HEIGHT + 3,
+                                                        height: HOUR_HEIGHT / 2 - 6,
+                                                    }}
+                                                >
+                                                    {single ? card : (
+                                                    <InfoTooltip
+                                                        portal
+                                                        widthClassName="w-[380px]"
+                                                        text={
+                                                            <span className="block max-h-72 overflow-y-auto">
+                                                                <span className="mb-2 block font-bold text-slate-800">
+                                                                    {group.slots.length} {group.slots.length === 1 ? "horário livre" : "horários livres"}
+                                                                </span>
+                                                                {group.slots.map(slot => {
+                                                                    const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                                                                    return (
+                                                                        <span key={slot.id} className="block border-t border-slate-100 py-1.5">
+                                                                            <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
+                                                                            {capacity ? <span className="block break-words">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </span>
+                                                        }
+                                                    >
+                                                        {card}
                                                     </InfoTooltip>
+                                                    )}
                                                 </div>
                                             );
                                         })}
@@ -636,7 +641,7 @@ export default function WeekCalendar(props: Props) {
                                                             appointment,
                                                         )
                                                     }
-                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing [&>span]:flex [&>span]:h-full [&>span]:w-full [&>span>span]:flex [&>span>span]:h-full [&>span>span]:w-full ${
+                                                    className={`group absolute cursor-grab overflow-hidden rounded-lg border border-white/70 px-2 py-1 text-white shadow-sm transition hover:shadow-md active:cursor-grabbing ${
                                                         isSelected
                                                             ? "ring-2 ring-slate-950/20"
                                                             : ""
@@ -655,17 +660,6 @@ export default function WeekCalendar(props: Props) {
                                                             appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
-                                                    <InfoTooltip
-                                                        portal
-                                                        widthClassName="w-[340px]"
-                                                        text={
-                                                            <span className="block space-y-1 break-words">
-                                                                <span className="block font-bold text-slate-800">{time(appointment.starts_at)}–{time(endsAt)} · {bookingTeamLabel(appointment.booking_team)}</span>
-                                                                <span className="block font-semibold">{appointment.doctor?.name ?? "Sem médico"}</span>
-                                                                <span className="block">{appointment.patient_name}</span>
-                                                            </span>
-                                                        }
-                                                    >
                                                         <span className="relative block h-full w-full">
                                                             <button
                                                         type="button"
@@ -717,7 +711,7 @@ export default function WeekCalendar(props: Props) {
                                                         className="absolute bottom-0 left-0 h-2 w-full cursor-ns-resize bg-transparent"
                                                     />
                                                         </span>
-                                                    </InfoTooltip>
+
                                                 </div>
                                             );
                                         })}
