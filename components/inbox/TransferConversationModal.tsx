@@ -94,7 +94,7 @@ export default function TransferConversationModal({
     }
 
     return (
-        <Modal open={open} onClose={() => { if (!submitting) onClose(); }} width={460} height={420} maxHeight="calc(100dvh - 32px)" ariaLabelledBy="inbox-transfer-title" closeOnEscape={!submitting} closeOnOverlayClick={!submitting}>
+        <Modal open={open} onClose={() => { if (!submitting) onClose(); }} width={460} height={420} maxHeight="calc(100dvh - 32px)" panelClassName="!overflow-visible" ariaLabelledBy="inbox-transfer-title" closeOnEscape={!submitting} closeOnOverlayClick={!submitting}>
             <div className="flex min-h-0 flex-1 flex-col gap-5 p-5 pt-6 sm:p-6">
                 <h2 id="inbox-transfer-title" className="pr-10 text-lg font-bold text-slate-950">Transferir atendimento</h2>
                 <fieldset className="flex items-center gap-6">
