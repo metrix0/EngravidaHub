@@ -33,6 +33,7 @@ type ClinisysAgenda = {
     unidade_nome?: string;
     medico_id?: string | number;
     medico_nome?: string;
+    duracao_agendamento?: number;
     status?: string;
 };
 
@@ -86,6 +87,11 @@ export async function deleteClinisysAppointment(externalId: string) {
         "/Agenda/Agendamentos",
         { id: externalId },
     );
+}
+
+export async function listClinisysAgendas() {
+    const response = await clinisysRequest<ClinisysApiResponse>("GET", "/Agenda/Agendas");
+    return response.agendas ?? [];
 }
 
 export async function listClinisysProcedures(agendaId: string) {
@@ -158,6 +164,8 @@ export async function listClinisysAvailabilityByAgenda({
     const response = await clinisysRequest<ClinisysApiResponse>(
         "GET",
         `/Agenda/Agendas?${params.toString()}`,
+        undefined,
+        true,
     );
     return response.horarios ?? [];
 }
@@ -288,6 +296,7 @@ async function clinisysRequest<T>(
     method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
+    allowEmptyAvailability = false,
 ): Promise<T> {
     const baseUrl = "https://api.clinisys.com.br/Engravida";
     const token = process.env.CLINISYS_TOKEN?.trim();
@@ -313,7 +322,7 @@ async function clinisysRequest<T>(
         } catch {
             data = null;
         }
-        if (!response.ok || !data || data.status !== "OK") {
+        if (!response.ok || !data || (data.status !== "OK" && !(allowEmptyAvailability && data.status_codigo === "E1402"))) {
             const detail = data?.status_descricao || data?.status_codigo || raw || `HTTP ${response.status}`;
             throw new Error(`CliniSYS: ${detail}`);
         }
