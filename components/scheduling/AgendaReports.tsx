@@ -9,6 +9,8 @@ import KpiCard from "@/components/ui/KpiCard";
 import Skeleton from "@/components/ui/Skeleton";
 import { CalendarDatePicker } from "@/components/ui/CalendarDatePicker";
 import HorizontalScroller from "@/components/ui/HorizontalScroller";
+import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
+import { AGENDA_AVAILABILITY_WIDGETS, AGENDA_INDICATOR_WIDGETS } from "@/lib/personal-dashboard/agendaReportWidgets";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { AGENDA_COLORS } from "@/lib/scheduling/bookingOrigin";
 import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
@@ -112,26 +114,37 @@ function WidgetHeading({ title }: { title: string }) {
     return <h3 className="text-lg font-bold text-slate-900">{title}</h3>;
 }
 function MonthlyReport({ report }: { report: OperationalAgendaReport }) {
+    return <div className="min-w-0 space-y-5">
+        <HorizontalScroller scrollAmount={400}>
+            {AGENDA_INDICATOR_WIDGETS.filter(widget => widget.kind === "kpi").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id} className="shrink-0"><AgendaReportWidget widgetId={widget.id} report={report} freeWidth /></DashboardWidget>)}
+        </HorizontalScroller>
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+            {AGENDA_INDICATOR_WIDGETS.filter(widget => widget.kind === "chart").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaReportWidget widgetId={widget.id} report={report} /></DashboardWidget>)}
+        </div>
+        <DashboardWidget widgetId="agenda_indicadores.unidades"><AgendaReportWidget widgetId="agenda_indicadores.unidades" report={report} /></DashboardWidget>
+    </div>;
+}
+
+export function AgendaReportWidget({ widgetId, report, freeWidth = false }: { widgetId: string; report: OperationalAgendaReport; freeWidth?: boolean }) {
+    const dailyIndex = AGENDA_AVAILABILITY_WIDGETS.findIndex(widget => widget.id === widgetId);
+    if (dailyIndex >= 0) return <ReportTable {...dailyTables(report)[dailyIndex]} />;
     const counts = monthlyAgendaCounts(report.counts);
     const units = report.byUnit.map(monthlyAgendaCounts);
     const teamsNote = "Classificação confirmada por equipe. Agendamentos sem origem identificada aparecem separadamente na tabela por unidade.";
-    return <div className="min-w-0 space-y-5">
-        <HorizontalScroller scrollAmount={400}>
-            <KpiCard freeWidth icon={<LayoutGrid size={22} />} label="Total de vagas" currentValue={counts.total} formatter={number} color="blue" />
-            <KpiCard freeWidth icon={<CalendarDays size={22} />} label="Disponíveis" currentValue={counts.available} formatter={number} color="green" tooltipText="Horários não ocupados no mês selecionado, incluindo os que já passaram." />
-            <KpiCard freeWidth icon={<CalendarCheck2 size={22} />} label="Agendado RA" currentValue={counts.ra} formatter={number} color="blue" tooltipText={teamsNote} />
-            <KpiCard freeWidth icon={<Users size={22} />} label="Agendado Unidade" currentValue={counts.unit} formatter={number} color="purple" tooltipText={teamsNote} />
-            <KpiCard freeWidth icon={<LockKeyhole size={22} />} label="Bloqueados" currentValue={counts.blocked} formatter={number} color="orange" />
-            <KpiCard freeWidth icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="RA + Unidade divididos pelo total de vagas, incluindo bloqueados na base, conforme o relatório de referência. Agendamentos sem origem identificada não entram no numerador." />
-            <KpiCard freeWidth icon={<Users size={22} />} label="Ocupação RA" currentValue={counts.raOccupancy} formatter={value => percent(value)} color="blue" tooltipText={teamsNote} />
-            <KpiCard freeWidth icon={<Users size={22} />} label="Ocupação Unidade" currentValue={counts.unitOccupancy} formatter={value => percent(value)} color="purple" tooltipText={teamsNote} />
-        </HorizontalScroller>
-        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
-            <Card className="min-w-0"><WidgetHeading title="Agendamentos por unidade" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><BarChart data={units} margin={{ top: 8, right: 8, bottom: 12, left: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="unitName" fontSize={10} interval={0} angle={-35} textAnchor="end" height={85} axisLine={false} tickLine={false} /><YAxis fontSize={11} axisLine={false} tickLine={false} width={40} /><Tooltip /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />{SERIES.map(item => <Bar key={item.key} dataKey={item.key} name={item.label} fill={AGENDA_COLORS[item.key]} radius={[3, 3, 0, 0]} />)}</BarChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>
-            <Card className="min-w-0"><WidgetHeading title="Distribuição das vagas" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><PieChart><Pie data={SERIES.map(item => ({ name: item.label, value: counts[item.key], fill: AGENDA_COLORS[item.key] })).filter(row => row.value > 0)} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="75%" paddingAngle={2} /><Tooltip formatter={value => number(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} /></PieChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>
-        </div>
-        <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title="Indicadores por unidade" /></div><AgendaCountTable rows={units} /></Card>
-    </div>;
+    switch (widgetId) {
+        case "agenda_indicadores.total": return <KpiCard freeWidth={freeWidth} icon={<LayoutGrid size={22} />} label="Total de vagas" currentValue={counts.total} formatter={number} color="blue" />;
+        case "agenda_indicadores.disponiveis": return <KpiCard freeWidth={freeWidth} icon={<CalendarDays size={22} />} label="Disponíveis" currentValue={counts.available} formatter={number} color="green" tooltipText="Horários não ocupados no mês selecionado, incluindo os que já passaram." />;
+        case "agenda_indicadores.ra": return <KpiCard freeWidth={freeWidth} icon={<CalendarCheck2 size={22} />} label="Agendado RA" currentValue={counts.ra} formatter={number} color="blue" tooltipText={teamsNote} />;
+        case "agenda_indicadores.unidade": return <KpiCard freeWidth={freeWidth} icon={<Users size={22} />} label="Agendado Unidade" currentValue={counts.unit} formatter={number} color="purple" tooltipText={teamsNote} />;
+        case "agenda_indicadores.bloqueados": return <KpiCard freeWidth={freeWidth} icon={<LockKeyhole size={22} />} label="Bloqueados" currentValue={counts.blocked} formatter={number} color="orange" />;
+        case "agenda_indicadores.ocupacao": return <KpiCard freeWidth={freeWidth} icon={<PieChartIcon size={22} />} label="Ocupação total" currentValue={counts.occupancy} formatter={value => percent(value)} color="brand" tooltipText="RA + Unidade divididos pelo total de vagas, incluindo bloqueados na base, conforme o relatório de referência. Agendamentos sem origem identificada não entram no numerador." />;
+        case "agenda_indicadores.ocupacao_ra": return <KpiCard freeWidth={freeWidth} icon={<Users size={22} />} label="Ocupação RA" currentValue={counts.raOccupancy} formatter={value => percent(value)} color="blue" tooltipText={teamsNote} />;
+        case "agenda_indicadores.ocupacao_unidade": return <KpiCard freeWidth={freeWidth} icon={<Users size={22} />} label="Ocupação Unidade" currentValue={counts.unitOccupancy} formatter={value => percent(value)} color="purple" tooltipText={teamsNote} />;
+        case "agenda_indicadores.grafico_unidades": return <Card className="min-w-0"><WidgetHeading title="Agendamentos por unidade" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><BarChart data={units} margin={{ top: 8, right: 8, bottom: 12, left: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="unitName" fontSize={10} interval={0} angle={-35} textAnchor="end" height={85} axisLine={false} tickLine={false} /><YAxis fontSize={11} axisLine={false} tickLine={false} width={40} /><Tooltip /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />{SERIES.map(item => <Bar key={item.key} dataKey={item.key} name={item.label} fill={AGENDA_COLORS[item.key]} radius={[3, 3, 0, 0]} />)}</BarChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>;
+        case "agenda_indicadores.distribuicao": return <Card className="min-w-0"><WidgetHeading title="Distribuição das vagas" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><PieChart><Pie data={SERIES.map(item => ({ name: item.label, value: counts[item.key], fill: AGENDA_COLORS[item.key] })).filter(row => row.value > 0)} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="75%" paddingAngle={2} /><Tooltip formatter={value => number(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} /></PieChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>;
+        case "agenda_indicadores.unidades": return <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title="Indicadores por unidade" /></div><AgendaCountTable rows={units} /></Card>;
+        default: return null;
+    }
 }
 
 function ReportTable({ title, columns, rows, note }: { title: string; columns: string[]; rows: ReactNode[][]; note?: string }) {
@@ -148,7 +161,7 @@ function dailyTables(report: OperationalAgendaReport) {
     ];
 }
 function DailyReport({ report }: { report: OperationalAgendaReport }) {
-    return <div className="min-w-0 space-y-3"><div className="grid min-w-0 gap-5 lg:grid-cols-2">{dailyTables(report).map(table => <ReportTable key={table.title} {...table} />)}</div><p className="text-xs text-muted">Atualizado em {new Date(report.generatedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · Busca até {shortDate(report.horizonEnd)}</p></div>;
+    return <div className="min-w-0 space-y-3"><div className="grid min-w-0 gap-5 lg:grid-cols-2">{AGENDA_AVAILABILITY_WIDGETS.map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaReportWidget widgetId={widget.id} report={report} /></DashboardWidget>)}</div><p className="text-xs text-muted">Atualizado em {new Date(report.generatedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · Busca até {shortDate(report.horizonEnd)}</p></div>;
 }
 async function downloadDailyReport(report: OperationalAgendaReport) {
     const logo = new Image();

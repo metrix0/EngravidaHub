@@ -21,7 +21,9 @@ export type DashboardWidgetSource =
     | "funil"
     | "mensagem_ativa"
     | "gerencial"
-    | "inteligencia_agenda";
+    | "inteligencia_agenda"
+    | "agenda_disponibilidade"
+    | "agenda_indicadores";
 
 export type DashboardWidgetDefinition = {
     id: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import { AgendaReportWidget } from "@/components/scheduling/AgendaReports";
 import { AgendaIntelligenceWidget } from "@/components/scheduling/AgendaIntelligenceWidgets";
 import Skeleton from "@/components/ui/Skeleton";
 import GerencialOverview from "@/components/gerencial/GerencialOverview";
@@ -64,6 +65,15 @@ export default function PersonalDashboardWidgetView(props: Props) {
         props.errors[props.widget.source]
     ) {
         return <PersonalDashboardWidgetRenderer {...baseRendererProps(props)} />;
+    }
+
+    if (props.widget.source === "agenda_disponibilidade" || props.widget.source === "agenda_indicadores") {
+        const report = props.sources[props.widget.source];
+        if (!report) return <Skeleton className="h-40 rounded-2xl" />;
+        const label = props.widget.source === "agenda_disponibilidade"
+            ? `Data: ${report.reportDate.split("-").reverse().join("/")}`
+            : new Date(`${report.start}T12:00:00Z`).toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
+        return <div className="space-y-2"><p className="px-1 text-xs capitalize text-muted">{label}</p><AgendaReportWidget widgetId={props.widget.id} report={report} /></div>;
     }
 
     if (props.widget.source === "inteligencia_agenda") {

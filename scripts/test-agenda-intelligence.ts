@@ -4,6 +4,7 @@ import { buildAgendaIntelligence, matchesSchedulingPreference, releasedSlotMetri
 import { replicatedAgendaCapacity } from "../lib/clinisys/replicatedAvailability";
 import { canAccessPathname, getTabIdForPathname, normalizeAllowedTabs } from "../lib/auth/userAccess";
 import { formatDoctorName } from "../lib/scheduling/formatDoctorName";
+import { AGENDA_REPORT_WIDGETS, agendaReportDashboardUrl } from "../lib/personal-dashboard/agendaReportWidgets";
 import { AGENDA_INTELLIGENCE_WIDGETS } from "../lib/personal-dashboard/agendaIntelligenceWidgets";
 import { buildOperationalAgenda, normalizeAgendaText } from "../lib/scheduling/operationalAgenda";
 import { monthlyAgendaCounts } from "../lib/scheduling/agendaReportMetrics";
@@ -100,6 +101,31 @@ assert.equal(widgetIds.indexOf("inteligencia_agenda.demanda_horaria_unidade") + 
 assert.equal(widgetIds.includes("inteligencia_agenda.recomendacoes"), false);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), widgetIds);
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
+// Both report sections use the same dashboard permission and preserve daily/monthly scopes.
+const reportWidgetIds = AGENDA_REPORT_WIDGETS.map(widget => widget.id);
+assert.equal(reportWidgetIds.length, 15);
+assert.equal(new Set(reportWidgetIds).size, 15);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "kpi").length, 8);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "chart").length, 2);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "table").length, 5);
+assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["inteligencia_agenda"]), reportWidgetIds);
+assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["agendamentos"]), []);
+for (const widget of AGENDA_REPORT_WIDGETS) {
+    assert.equal(widget.sourcePath, "/inteligencia-agenda");
+    assert.deepEqual(widget.supportedFilters, ["units"]);
+}
+const dashboardReportParams = (source: "agenda_disponibilidade" | "agenda_indicadores", date: string) => new URL(agendaReportDashboardUrl(source, new URLSearchParams({ start_date: "2024-01-01", end_date: date }), ["unit-a", "unit-b"]), "http://localhost").searchParams;
+const dailyParams = dashboardReportParams("agenda_disponibilidade", "2024-02-29");
+assert.equal(dailyParams.get("report_date"), "2024-02-29");
+assert.equal(dailyParams.get("start"), "2024-02-01");
+assert.equal(dailyParams.get("end"), "2024-03-01");
+assert.deepEqual(dailyParams.getAll("unit_ids"), ["unit-a", "unit-b"]);
+const monthlyParams = dashboardReportParams("agenda_indicadores", "2026-12-31");
+assert.equal(monthlyParams.get("report_date"), "2026-12-01");
+assert.equal(monthlyParams.get("start"), "2026-12-01");
+assert.equal(monthlyParams.get("end"), "2027-01-01");
+assert.equal(monthlyParams.get("view"), "reports");
+
 // Interest is actionable only with enough conversations; doctors without synchronized agendas are ignored.
 const interested = Array.from({ length: 4 }, (_, index) => ({ ...analysis, client_id: `client-${index}`, conversation_id: `interest-${index}` }));
 report = buildAgendaIntelligence({ ...base, analyses: interested });
