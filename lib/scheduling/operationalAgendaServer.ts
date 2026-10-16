@@ -33,13 +33,13 @@ export async function enrichBookingTeams<T extends { booking_team?: BookingTeam;
     return appointments.map(row => { const found = teams.get(row.source_external_id ?? ""); return { ...row, booking_team: row.booking_team ?? (found?.size === 1 ? [...found][0] : null) }; });
 }
 
-export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, reportDate }: { start: string; end: string; unitIds: string[]; doctorIds: string[]; reportDate?: string }) {
-    const from = agendaMonthStart(start, -6);
+export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, reportDate, includeHistory = true }: { start: string; end: string; unitIds: string[]; doctorIds: string[]; reportDate?: string; includeHistory?: boolean }) {
+    const from = agendaMonthStart(start, includeHistory ? -6 : 0);
     const horizonEnd = agendaMonthStart(reportDate ?? agendaDate(), 2);
     const until = [end, horizonEnd].sort().at(-1)!;
     const [agendas, appointments, doctorUnits] = await Promise.all([
         readAll<OperationalAgenda>(cursor => {
-            let query = supabase.from("clinisys_agendas").select("id,unit_id,unit_name,doctor_id,doctor_name,timezone,slot_duration_minutes,working_hours,exceptions,blocks,procedures,availability_snapshot")
+            let query = supabase.from("clinisys_agendas").select("id,unit_id,unit_name,doctor_id,doctor_name,timezone,slot_duration_minutes,working_hours,exceptions,blocks,availability_snapshot")
                 .eq("active", true).not("unit_id", "is", null).not("doctor_id", "is", null).order("id").limit(500);
             if (unitIds.length) query = query.in("unit_id", unitIds);
             if (doctorIds.length) query = query.in("doctor_id", doctorIds);
@@ -59,7 +59,7 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
             if (cursor) query = query.gt("id", cursor); return query;
         }),
     ]);
-    const report = buildOperationalAgenda({ agendas, appointments: await enrichBookingTeams(appointments), start, end, reportDate });
+    const report = buildOperationalAgenda({ agendas, appointments: await enrichBookingTeams(appointments), start, end, reportDate, includeHistory });
     const covered = new Set(agendas.map(row => `${row.unit_id}:${row.doctor_id}`));
     return { ...report, missingDoctors: doctorUnits.flatMap(doctor => doctor.doctor_units.filter(row => !covered.has(`${row.unit_id}:${doctor.id}`)).map(row => ({ doctorId: doctor.id, doctorName: doctor.name, unitId: row.unit_id }))) };
 }

@@ -42,10 +42,10 @@ function sum(rows: AgendaCounts[]) {
     return result;
 }
 
-export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number }) {
+export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
     const reportNow = reportDate === agendaDate(now) ? now : epoch(reportDate);
-    const historyStart = agendaMonthStart(input.start, -6);
+    const historyStart = input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6);
     const horizonEnd = agendaMonthStart(reportDate, 2);
     const last = [input.end, horizonEnd, agendaMonthStart(input.start, 1)].sort().at(-1)!;
     const groups = new Map<string, OperationalAgenda[]>();

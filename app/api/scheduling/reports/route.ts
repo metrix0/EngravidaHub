@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if (access.ok === false) return NextResponse.json({ error: access.error }, { status: access.status });
     const unitIds = access.permission.unit_lock ? [access.permission.unit_lock.id] : parsed.data.unitIds;
     try {
-        const report = await loadOperationalAgenda({ ...parsed.data, unitIds });
+        const report = await loadOperationalAgenda({ ...parsed.data, unitIds, includeHistory: parsed.data.view === "calendar" });
         let snapshots: unknown[] = [];
         if (parsed.data.view === "reports") {
             const { data, error } = await supabase.from("agenda_monthly_snapshots").select("month,captured_at,report").eq("scope_key", agendaScopeKey(unitIds, parsed.data.doctorIds)).order("month", { ascending: false }).limit(120);
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
         if (!parsed.success) return NextResponse.json({ error: "Filtros inválidos." }, { status: 400 });
         const unitIds = access.permission.unit_lock ? [access.permission.unit_lock.id] : parsed.data.unitIds;
         const month = `${parsed.data.month}-01`, end = agendaMonthStart(month, 1);
-        const report = await loadOperationalAgenda({ start: month, end, reportDate: month, unitIds, doctorIds: parsed.data.doctorIds });
+        const report = await loadOperationalAgenda({ start: month, end, reportDate: month, unitIds, doctorIds: parsed.data.doctorIds, includeHistory: false });
         const { error } = await supabase.from("agenda_monthly_snapshots").upsert({ month, scope_key: agendaScopeKey(unitIds, parsed.data.doctorIds), unit_ids: [...new Set(unitIds)].sort(), doctor_ids: [...new Set(parsed.data.doctorIds)].sort(), report: { counts: report.counts, byUnit: report.byUnit }, captured_at: new Date().toISOString(), captured_by: access.user.id }, { onConflict: "month,scope_key" });
         if (error) throw error;
         return NextResponse.json({ ok: true });

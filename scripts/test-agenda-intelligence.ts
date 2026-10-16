@@ -170,6 +170,11 @@ const operationalBase = { agendas: [agenda], appointments: [], start: "2026-10-0
 let operational = buildOperationalAgenda(operationalBase);
 assert.equal(operational.counts.available, 5);
 assert.equal(operational.slots.length, 5);
+const compactOperational = buildOperationalAgenda({ ...operationalBase, includeHistory: false });
+for (const key of ["counts", "byUnit", "byDoctor", "slots", "blocks", "availability", "daily"] as const) {
+    assert.deepEqual(compactOperational[key], operational[key], `omitting unused history must preserve ${key}`);
+}
+
 assert.equal(operational.availability[0].firstWaitDays, 0);
 assert.equal(operational.availability[0].threeWaitDays, 0);
 assert.equal(operational.availability[0].weeks[0], 5);
