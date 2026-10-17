@@ -58,7 +58,7 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
     const access = await getServerTabAccess("performance");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    if (access.ok === false) return NextResponse.json({ error: access.error }, { status: access.status });
     // Historical conversations do not consistently contain unit_id: a
     // unit-restricted account must not receive cross-unit employee metrics.
     if (access.permission.unit_lock) {
