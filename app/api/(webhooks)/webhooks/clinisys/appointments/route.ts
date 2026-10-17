@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { supabase } from "@/lib/supabase/client";
+import { persistResolvedBookingTeams } from "@/lib/scheduling/bookingTeamProcessor";
 import {
     markClinisysScheduleCancelled,
     processClinisysAppointmentCreated,
@@ -206,6 +207,13 @@ export async function POST(request: Request) {
                 });
                 return NextResponse.json({ ok: false, error: "Conversion delivery failed" }, { status: 503 });
             }
+        }
+
+        // Resolve known authors during ingestion; historical conversation inference runs in the background.
+        try {
+            await persistResolvedBookingTeams([{ id: result.data.id, source_external_id: body.externalId }]);
+        } catch (resolutionError) {
+            console.warn("[clinisys-appointments] booking-team persistence deferred", resolutionError);
         }
 
         return NextResponse.json({ ok: true, appointmentId: result.data.id });

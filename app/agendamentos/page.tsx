@@ -11,7 +11,6 @@ import {
     MapPin,
     Info,
     RefreshCw,
-    Search,
     Stethoscope,
 } from "lucide-react";
 
@@ -23,6 +22,7 @@ import {
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import FilterButton from "@/components/ui/FilterButton";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
+import { SearchFilter } from "@/components/ui/SearchFilter";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
@@ -611,15 +611,13 @@ export default function AppointmentsPage() {
                 </header>
 
                 <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3 px-2 sm:px-3">
-                    <div className="flex h-11 min-w-[230px] flex-1 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm transition focus-within:ring-2 focus-within:ring-brand/30">
-                        <Search size={17} className="shrink-0 text-slate-400" />
-                        <input
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Buscar paciente ou procedimento..."
-                            className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                        />
-                    </div>
+                    <SearchFilter
+                        value={search}
+                        onChange={setSearch}
+                        placeholder="Buscar paciente ou procedimento..."
+                        widthClassName="min-w-[230px] flex-1"
+                        iconPosition="left"
+                    />
 
                     {loadingOptions ? (
                         <>
@@ -666,7 +664,6 @@ export default function AppointmentsPage() {
                     </div>
                 )}
 
-                {reportError ? <p role="alert" className="mb-3 text-sm text-red">{reportError}</p> : null}
                 <WeekCalendar
                     weekDays={weekDays}
                     appointments={freeOnly ? [] : appointments}

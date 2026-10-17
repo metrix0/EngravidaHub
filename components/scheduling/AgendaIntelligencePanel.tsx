@@ -1,7 +1,7 @@
 // components/scheduling/AgendaIntelligencePanel.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import AgendaIntelligenceSkeleton from "@/components/scheduling/AgendaIntelligenceSkeleton";
 import { applyCalendarDateParams, type CalendarPresetValue, type DateRange } from "@/components/ui/CalendarButton";
@@ -15,6 +15,7 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
 }) {
     const [result, setResult] = useState<{ query: string | null; report: AgendaIntelligenceReport | null; error: string | null }>({ query: null, report: null, error: null });
     const [reload, setReload] = useState(0);
+    const lastSuccess = useRef<{ query: string; report: AgendaIntelligenceReport } | null>(null);
     const unitKey = [...unitIds].sort().join(","), doctorKey = [...doctorIds].sort().join(",");
     const { start, end } = selectedRange;
     const query = useMemo(() => {
@@ -26,7 +27,11 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
     }, [period, start, end, unitKey, doctorKey]);
     const requestKey = `${query}:${reload}`;
     const loading = !ready || result.query !== requestKey;
-    const report = result.report;
+    // Never display a previous filter's data, but retain the last valid result
+    // for this exact filter when a refresh fails or is still loading.
+    const report = result.query === requestKey && result.report
+        ? result.report
+        : lastSuccess.current?.query === query ? lastSuccess.current.report : null;
     const error = loading ? null : result.error;
     useEffect(() => {
         if (!ready) return;
@@ -40,7 +45,10 @@ export default function AgendaIntelligencePanel({ unitIds, doctorIds, period, se
                 const response = await fetch(`/api/scheduling/intelligence?${query}`, { cache: "no-store", signal: controller.signal });
                 const json = await response.json();
                 if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar a inteligência de agenda.");
-                if (!controller.signal.aborted) setResult({ query: requestKey, report: json.report, error: null });
+                if (!controller.signal.aborted) {
+                    lastSuccess.current = { query, report: json.report };
+                    setResult({ query: requestKey, report: json.report, error: null });
+                }
             } catch (failure) {
                 if (!controller.signal.aborted) {
                     setResult({ query: requestKey, report: null, error: failure instanceof Error ? failure.message : "Não foi possível carregar a inteligência de agenda." });

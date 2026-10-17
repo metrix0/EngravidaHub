@@ -1,7 +1,6 @@
 // lib/scheduling/operationalAgendaServer.ts
 import { supabase } from "@/lib/supabase/client";
 import { agendaDate, agendaMonthStart, agendaWeekStart, buildOperationalAgenda, type OperationalAgenda, type OperationalAppointment } from "./operationalAgenda";
-import { teamForAttendantName, type BookingTeam } from "./bookingOrigin";
 
 async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: unknown[] | null; error: unknown }>) {
     const rows: T[] = []; let cursor: string | null = null;
@@ -11,42 +10,6 @@ async function readAll<T>(query: (cursor: string | null) => PromiseLike<{ data: 
         rows.push(...data as T[]); cursor = String((data.at(-1) as { id: string }).id);
         if (data.length < 500) return rows;
     }
-}
-
-export async function enrichBookingTeams<T extends { id: string; booking_team?: BookingTeam; source_external_id?: string | null }>(appointments: T[]) {
-    const pending = appointments.filter(row => !row.booking_team);
-    if (!pending.length) return appointments;
-    const ids = [...new Set(pending.map(row => row.source_external_id).filter((id): id is string => Boolean(id)))];
-    const [{ data: attendants, error }, schedules] = await Promise.all([
-        supabase.from("attendants").select("id,name,queues!attendants_queue_id_fkey(sector)"),
-        Promise.all(Array.from({ length: Math.ceil(ids.length / 150) }, (_, index) => ids.slice(index * 150, (index + 1) * 150)).map(async batch => {
-            return readAll<{ id: string; source_external_id: string; attendant_name: string | null }>(cursor => {
-                let query = supabase.from("schedules").select("id,source_external_id,attendant_name").in("source_external_id", batch).order("id").limit(500);
-                if (cursor) query = query.gt("id", cursor);
-                return query;
-            });
-        })),
-    ]);
-    if (error) throw error;
-    const names = (attendants ?? []).map(row => { const queue = Array.isArray(row.queues) ? row.queues[0] : row.queues; const team: BookingTeam = queue?.sector === "ra" ? "ra" : "unit"; return { id: row.id, name: row.name, team }; });
-    const teams = new Map<string, Set<BookingTeam>>();
-    schedules.flat().forEach(row => { const team = row.attendant_name ? teamForAttendantName(row.attendant_name, names) : null; teams.set(row.source_external_id, new Set([...(teams.get(row.source_external_id) ?? []), team])); });
-    const directTeam = (row: T) => {
-        const found = teams.get(row.source_external_id ?? "");
-        return found?.size === 1 ? [...found][0] : null;
-    };
-    const unresolved = pending.filter(row => !directTeam(row)).map(row => row.id);
-    const inferred = new Map<string, BookingTeam>();
-    const batches = await Promise.all(Array.from({ length: Math.ceil(unresolved.length / 150) }, (_, index) =>
-        supabase.rpc("infer_appointment_booking_teams", { appointment_ids: unresolved.slice(index * 150, (index + 1) * 150) })
-    ));
-    for (const { data, error: inferenceError } of batches) {
-        if (inferenceError) throw inferenceError;
-        for (const row of (data ?? []) as Array<{ appointment_id: string; inferred_team: BookingTeam }>) {
-            if (row.inferred_team) inferred.set(row.appointment_id, row.inferred_team);
-        }
-    }
-    return appointments.map(row => ({ ...row, booking_team: row.booking_team ?? directTeam(row) ?? inferred.get(row.id) ?? null }));
 }
 
 export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, reportDate, includeHistory = true }: { start: string; end: string; unitIds: string[]; doctorIds: string[]; reportDate?: string; includeHistory?: boolean }) {
@@ -75,7 +38,7 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
             if (cursor) query = query.gt("id", cursor); return query;
         }),
     ]);
-    const report = buildOperationalAgenda({ agendas, appointments: await enrichBookingTeams(appointments), start, end, reportDate, includeHistory });
+    const report = buildOperationalAgenda({ agendas, appointments, start, end, reportDate, includeHistory });
     const covered = new Set(agendas.map(row => `${row.unit_id}:${row.doctor_id}`));
     return { ...report, missingDoctors: doctorUnits.flatMap(doctor => doctor.doctor_units.filter(row => !covered.has(`${row.unit_id}:${doctor.id}`)).map(row => ({ doctorId: doctor.id, doctorName: doctor.name, unitId: row.unit_id }))) };
 }

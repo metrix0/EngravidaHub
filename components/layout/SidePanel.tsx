@@ -15,6 +15,7 @@ import {
     Flag,
     Funnel,
     Headset,
+    TrendingUp,
     LayoutDashboard,
     MapPin,
     LogOut,
@@ -125,6 +126,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/inbox",
         icon: <Headset size={18} />,
         tabId: "inbox",
+    },
+    {
+        label: "Performance",
+        href: "/performance",
+        icon: <TrendingUp size={18} />,
+        tabId: "performance",
     },
     {
         label: "Agendamentos",

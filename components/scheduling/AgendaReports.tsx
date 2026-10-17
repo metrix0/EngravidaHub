@@ -84,7 +84,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
     return <>
         <section id="agenda-disponibilidade" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
-                <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} />
+                <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} color="green" />
                 <div className="flex flex-wrap items-center gap-2">
                     <button type="button" onClick={() => shiftDay(-1)} className={`${buttonClass} !h-11 !w-11 !px-0`} aria-label="Dia anterior"><ChevronLeft size={17} /></button>
                     <div className="w-48"><CalendarDatePicker value={date} onChange={setDate} clearable={false} /></div>
@@ -99,7 +99,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
         </section>
         <section id="agenda-indicadores" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
-                <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} />
+                <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} color="blue" />
                 <div className="w-60"><CalendarDatePicker mode="month" align="right" value={month} onChange={setMonth} clearable={false} /></div>
             </div>
             {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
@@ -108,8 +108,8 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
     </>;
 }
 
-function ReportSectionHeading({ title, description, icon }: { title: string; description: string; icon: ReactNode }) {
-    return <div className="px-1"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">{icon}</span><h2 className="text-lg font-bold text-slate-900">{title}</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">{description}</p></div>;
+function ReportSectionHeading({ title, description, icon, color }: { title: string; description: string; icon: ReactNode; color: "blue" | "green" }) {
+    return <div className="px-1"><div className="flex items-center gap-2.5"><span className={`flex h-9 w-9 items-center justify-center rounded-xl ${color === "green" ? "bg-green-soft text-green" : "bg-blue-soft text-blue"}`}>{icon}</span><h2 className="text-lg font-bold text-slate-900">{title}</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">{description}</p></div>;
 }
 
 function ReportError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -153,8 +153,8 @@ export function AgendaReportWidget({ widgetId, report, freeWidth = false }: { wi
 }
 
 function ReportTable({ title, columns, rows, note }: { title: string; columns: string[]; rows: ReactNode[][]; note?: string }) {
-    const tableColumns: DataTableColumn<ReactNode[]>[] = columns.map((column, index) => ({ id: String(index), label: column, width: `${index === 0 ? 38 : 62 / (columns.length - 1)}%` as `${number}%`, align: index === 0 ? "left" : "center", render: row => <span className={`block text-xs leading-5 ${index === 0 ? "font-semibold" : "tabular-nums"}`}>{row[index]}</span> }));
-    return <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title={title} /></div><DataTable columns={tableColumns} rows={rows} getRowKey={(_, index) => String(index)} emptyMessage="Nenhuma agenda disponível para estes filtros." />{note ? <p className="px-4 py-3 text-xs leading-5 text-muted md:px-6">{note}</p> : null}</Card>;
+    const tableColumns: DataTableColumn<ReactNode[]>[] = columns.map((column, index) => ({ id: String(index), label: column, width: `${index === 0 ? 38 : 62 / (columns.length - 1)}%` as `${number}%`, align: index === 0 ? "left" : "right", render: row => <span className={index === 0 ? "block font-medium text-slate-700" : "block tabular-nums"}>{row[index]}</span> }));
+    return <Card className="min-w-0"><div className="mb-5"><WidgetHeading title={title} /></div><DataTable columns={tableColumns} rows={rows} getRowKey={(_, index) => String(index)} emptyMessage="Nenhuma agenda disponível para estes filtros." />{note ? <p className="pt-3 text-xs leading-5 text-muted">{note}</p> : null}</Card>;
 }
 function dailyTables(report: OperationalAgendaReport, units?: Array<{ id: string; name: string }>) {
     const days = (value: number | null, total: number) => value === null ? total ? "Sem vaga" : "Sem agenda vigente" : `${value} ${value === 1 ? "dia" : "dias"}`;
