@@ -296,15 +296,14 @@ export default function AppointmentsPage() {
             try {
                 const response = await fetch("/api/scheduling/recovery?" + params.toString(), { cache: "no-store", signal: controller.signal });
                 const body = await response.json();
-                if (!response.ok) throw new Error(body.error ?? "Erro ao carregar vagas recuper?veis.");
+                if (!response.ok) throw new Error(body.error ?? "Erro ao carregar vagas recuperáveis.");
                 if (!controller.signal.aborted) setRecoveryVacancies(body.vacancies ?? []);
             } catch (error) {
                 if (!controller.signal.aborted) console.error("[agenda-recovery] failed", error);
             }
         };
         void refresh();
-        const timer = window.setInterval(() => void refresh(), 60_000);
-        return () => { controller.abort(); window.clearInterval(timer); };
+        return () => controller.abort();
     }, [freeOnly, rangeStart, rangeEnd, unitValues, reloadKey, recoveryRefresh]);
 
     useEffect(() => {
@@ -746,7 +745,7 @@ export default function AppointmentsPage() {
                 {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
             </DetailsSidePanel>
 
-            <DetailsSidePanel open={recoverySelection !== null} title="Recuperar hor?rio" onClose={() => setRecoverySelection(null)} width={520}>
+            <DetailsSidePanel open={recoverySelection !== null} title="Recuperar horário" onClose={() => setRecoverySelection(null)} width={520}>
                 {recoverySelection && <VacancyRecoveryPanel key={recoverySelection.vacancyId} slot={recoverySelection.slot} vacancyId={recoverySelection.vacancyId}
                     onUpdate={() => setRecoveryRefresh(value => value + 1)}
                     onBook={slot => { setRecoverySelection(null); setInitialSlot(slot); setSchedulingPanelOpen(true); }} />}
@@ -757,8 +756,8 @@ export default function AppointmentsPage() {
                     {recoveryVacancies.filter(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))).map(v => (
                         <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-3">
                             <p className="text-sm font-bold text-slate-900">{new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date(v.startsAt))}</p>
-                            <p className="mt-1 text-xs text-slate-600">{doctors.find(d => d.id === v.doctorId)?.name ?? "M?dico"} ? {units.find(u => u.id === v.unitId)?.name ?? "Unidade"}</p>
-                            <p className="mt-2 text-xs text-green">Preenchido ? {v.contacted} contatado(s) ? {v.responded} resposta(s)</p>
+                            <p className="mt-1 text-xs text-slate-600">{doctors.find(d => d.id === v.doctorId)?.name ?? "Médico"} · {units.find(u => u.id === v.unitId)?.name ?? "Unidade"}</p>
+                            <p className="mt-2 text-xs text-green">Preenchido · {v.contacted} contatado(s) · {v.responded} resposta(s)</p>
                         </div>))}
                 </div>
             </DetailsSidePanel>

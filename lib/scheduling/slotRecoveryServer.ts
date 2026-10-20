@@ -206,17 +206,34 @@ export async function loadRecoveryCandidates(vacancy: NonNullable<Awaited<Return
         ...contacts.map(c => c.client_id),
     ])];
     if (!clientIds.length) return [] as RecoveryCandidate[];
-    const [clientsResult, messageResult] = await Promise.all([
-        supabase.from("clients").select("id,name,phone,unit_id,last_interaction_at,last_active_message_sent_at")
-            .in("id", clientIds),
-        supabase.from("messages").select("client_id,text,sent_at")
-            .eq("sender_type", "client").in("client_id", clientIds)
-            .gte("sent_at", new Date(now - 90 * DAY).toISOString())
-            .order("sent_at", { ascending: false }).limit(1500),
-    ]);
+    const clientsResult = await supabase.from("clients")
+        .select("id,name,phone,unit_id,last_interaction_at,last_active_message_sent_at")
+        .in("id", clientIds);
     if (clientsResult.error) throw clientsResult.error;
-    if (messageResult.error) throw messageResult.error;
-    const messages = (messageResult.data ?? []) as ClientMessage[];
+
+    // Large IN filters over 90 days of messages timed out on PostgREST.
+    // Use small indexed lookups with bounded concurrency instead.
+    const messages: ClientMessage[] = [];
+    const batchSize = 40;
+    let nextBatch = 0;
+    await Promise.all(Array.from({
+        length: Math.min(3, Math.ceil(clientIds.length / batchSize)),
+    }, async () => {
+        while (nextBatch < clientIds.length) {
+            const start = nextBatch;
+            nextBatch += batchSize;
+            const { data, error } = await supabase.from("messages")
+                .select("client_id,text,sent_at")
+                .eq("sender_type", "client")
+                .in("client_id", clientIds.slice(start, start + batchSize))
+                .gte("sent_at", new Date(now - 90 * DAY).toISOString())
+                .order("sent_at", { ascending: false })
+                .limit(250);
+            if (error) throw error;
+            messages.push(...((data ?? []) as ClientMessage[]));
+        }
+    }));
+    messages.sort((a, b) => b.sent_at.localeCompare(a.sent_at));
     const conflicts = new Set((conflictResult.data ?? []).map(row => row.client_id).filter(Boolean));
     const newestMessage = new Map<string, string>();
     const latestClientReply = new Map<string, string>();

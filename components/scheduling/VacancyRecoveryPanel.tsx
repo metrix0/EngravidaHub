@@ -53,8 +53,7 @@ export default function VacancyRecoveryPanel({
         setLoading(true);
         setData(null);
         void reload(controller.signal);
-        const timer = window.setInterval(() => void reload(controller.signal), 30_000);
-        return () => { controller.abort(); window.clearInterval(timer); };
+        return () => controller.abort();
     }, [reload]);
 
     async function contact(clientId: string) {
