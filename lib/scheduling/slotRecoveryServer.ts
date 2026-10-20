@@ -276,5 +276,5 @@ export async function loadRecoveryCandidates(vacancy: NonNullable<Awaited<Return
             canContact: !recentlyContacted && !conflicts.has(client.id) && (status === "available" || status === "failed"),
             error: current?.error ?? null,
         }];
-    }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 60);
+    }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 10);
 }

@@ -39,6 +39,7 @@ type Props = {
     onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
     recoveryVacancies?: RecoveryVacancy[];
     onRecoverSlot?: (slot: AgendaFreeSlot, vacancyId: number) => void;
+    onPrefetchRecovery?: (vacancyId: number) => void;
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -549,6 +550,8 @@ export default function WeekCalendar(props: Props) {
                                                     )}
                                                     {recovery && props.onRecoverSlot && <button type="button"
                                                         onClick={event => { event.stopPropagation(); props.onRecoverSlot?.(recovery.slot, recovery.vacancy.id); }}
+                                                        onMouseEnter={() => props.onPrefetchRecovery?.(recovery.vacancy.id)}
+                                                        onFocus={() => props.onPrefetchRecovery?.(recovery.vacancy.id)}
                                                         className="group/recover absolute bottom-1 right-1 z-20 inline-flex cursor-pointer items-center gap-1 rounded-lg border border-orange/30 bg-white px-2 py-1 text-[10px] font-bold text-orange shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-orange hover:bg-orange-soft hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange">
                                                         <RotateCcw size={12} className="shrink-0 transition-transform duration-150 group-hover/recover:-rotate-45" />
                                                         Recuperar{recovery.vacancy.contacted > 0 ? " · " + recovery.vacancy.contacted + " contatado(s)" : ""}
@@ -781,6 +784,8 @@ export default function WeekCalendar(props: Props) {
                             </button>
                             {vacancy && props.onRecoverSlot && <button type="button"
                                 onClick={() => { setExpandedFreeSlots(null); props.onRecoverSlot?.(slot, vacancy.id); }}
+                                onMouseEnter={() => props.onPrefetchRecovery?.(vacancy.id)}
+                                onFocus={() => props.onPrefetchRecovery?.(vacancy.id)}
                                 className="group/recover absolute right-3 top-3 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-orange/30 bg-orange-soft px-2.5 py-1.5 text-xs font-bold text-orange shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-orange hover:bg-white hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange">
                                 <RotateCcw size={14} className="shrink-0 transition-transform duration-150 group-hover/recover:-rotate-45" />
                                 Recuperar

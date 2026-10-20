@@ -22,15 +22,16 @@ const labels: Record<RecoveryCandidate["status"], string> = {
 };
 
 export default function VacancyRecoveryPanel({
-    slot, vacancyId, onUpdate, onBook,
+    slot, vacancyId, initialData, onUpdate, onBook,
 }: {
     slot: AgendaFreeSlot;
     vacancyId: number;
+    initialData?: Detail | null;
     onUpdate: () => void;
     onBook: (slot: AgendaFreeSlot) => void;
 }) {
-    const [data, setData] = useState<Detail | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<Detail | null>(initialData ?? null);
+    const [loading, setLoading] = useState(!initialData);
     const [error, setError] = useState<string | null>(null);
     const [sending, setSending] = useState<string | null>(null);
     const reload = useCallback(async (signal?: AbortSignal) => {
@@ -50,8 +51,8 @@ export default function VacancyRecoveryPanel({
 
     useEffect(() => {
         const controller = new AbortController();
-        setLoading(true);
-        setData(null);
+        setLoading(!initialData);
+        setData(initialData ?? null);
         void reload(controller.signal);
         return () => controller.abort();
     }, [reload]);
