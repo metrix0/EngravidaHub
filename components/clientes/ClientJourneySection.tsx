@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, ChevronDown, CircleCheck, Megaphone, MessageCircle, PhoneCall, Receipt, RefreshCw } from "lucide-react";
+import { CalendarClock, ChevronDown, CircleCheck, Megaphone, MessageCircle, PhoneCall, Receipt } from "lucide-react";
 import { Skeleton } from "@/components";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import type { IndividualJourney, IndividualJourneyEvent, JourneyCategory } from "@/lib/clients/individualJourney";
@@ -70,17 +70,6 @@ export default function ClientJourneySection({ clientId }: { clientId: string })
                     <h3 className="text-lg font-bold text-text">Jornada individual</h3>
                     <p className="mt-1 text-xs text-muted">Do primeiro contato aos procedimentos registrados</p>
                 </div>
-                {journey ? (
-                    <button
-                        type="button"
-                        title="Recarregar jornada"
-                        aria-label="Recarregar jornada"
-                        onClick={() => setRetry(count => count + 1)}
-                        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-                    >
-                        <RefreshCw size={15} />
-                    </button>
-                ) : null}
             </div>
             {!journey && !error ? (
                 <div className="mt-5 space-y-3" aria-busy="true">
