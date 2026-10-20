@@ -27,6 +27,8 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
+import VacancyRecoveryPanel from "@/components/scheduling/VacancyRecoveryPanel";
+import type { RecoveryVacancy } from "@/lib/scheduling/slotRecovery";
 import AgendaIndicators, { AGENDA_NOTE_COLOR, AgendaLegend } from "@/components/scheduling/AgendaIndicators";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
@@ -70,6 +72,10 @@ export default function AppointmentsPage() {
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
     const [freeOnly, setFreeOnly] = useState(false);
+    const [recoveryVacancies, setRecoveryVacancies] = useState<RecoveryVacancy[]>([]);
+    const [recoverySelection, setRecoverySelection] = useState<{ slot: AgendaFreeSlot; vacancyId: number } | null>(null);
+    const [filledOpen, setFilledOpen] = useState(false);
+    const [recoveryRefresh, setRecoveryRefresh] = useState(0);
     const [metricsOpen, setMetricsOpen] = useState(false);
     const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
     const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
@@ -280,6 +286,26 @@ export default function AppointmentsPage() {
         })();
         return () => controller.abort();
     }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
+        if (!freeOnly) return;
+        const controller = new AbortController();
+        const refresh = async () => {
+            const params = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+            unitValues.forEach(id => params.append("unit_ids", id));
+            try {
+                const response = await fetch("/api/scheduling/recovery?" + params.toString(), { cache: "no-store", signal: controller.signal });
+                const body = await response.json();
+                if (!response.ok) throw new Error(body.error ?? "Erro ao carregar vagas recuper?veis.");
+                if (!controller.signal.aborted) setRecoveryVacancies(body.vacancies ?? []);
+            } catch (error) {
+                if (!controller.signal.aborted) console.error("[agenda-recovery] failed", error);
+            }
+        };
+        void refresh();
+        const timer = window.setInterval(() => void refresh(), 60_000);
+        return () => { controller.abort(); window.clearInterval(timer); };
+    }, [freeOnly, rangeStart, rangeEnd, unitValues, reloadKey, recoveryRefresh]);
 
     useEffect(() => {
         function handleAppointmentChanged() {
@@ -569,6 +595,10 @@ export default function AppointmentsPage() {
                             Agendar
                         </button>
                         <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`flex h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}><Clock3 size={17} />Horários Livres</button>
+                        {freeOnly && recoveryVacancies.some(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))) &&
+                            <button type="button" onClick={() => setFilledOpen(true)} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-selection">
+                                Preenchidos ({recoveryVacancies.filter(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))).length})
+                            </button>}
                         <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
@@ -671,6 +701,8 @@ export default function AppointmentsPage() {
                     blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
                     freeSlots={freeOnly ? agendaReport?.slots ?? [] : undefined}
                     doctorLoads={agendaReport?.byDoctor}
+                    recoveryVacancies={freeOnly ? recoveryVacancies.filter(v => !doctorValues.length || doctorValues.includes(v.doctorId)) : undefined}
+                    onRecoverSlot={(slot, vacancyId) => setRecoverySelection({ slot, vacancyId })}
                     onSelectFreeSlot={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }}
                     selectedAppointmentId={selectedAppointmentId}
                     loading={freeOnly ? loadingReport : loadingCalendar}
@@ -712,6 +744,23 @@ export default function AppointmentsPage() {
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
                 <AgendaIndicators report={agendaReport} loading={loadingReport} />
                 {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+            </DetailsSidePanel>
+
+            <DetailsSidePanel open={recoverySelection !== null} title="Recuperar hor?rio" onClose={() => setRecoverySelection(null)} width={520}>
+                {recoverySelection && <VacancyRecoveryPanel key={recoverySelection.vacancyId} slot={recoverySelection.slot} vacancyId={recoverySelection.vacancyId}
+                    onUpdate={() => setRecoveryRefresh(value => value + 1)}
+                    onBook={slot => { setRecoverySelection(null); setInitialSlot(slot); setSchedulingPanelOpen(true); }} />}
+            </DetailsSidePanel>
+
+            <DetailsSidePanel open={filledOpen} title="Preenchidos" onClose={() => setFilledOpen(false)} width={460}>
+                <div className="space-y-3">
+                    {recoveryVacancies.filter(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))).map(v => (
+                        <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-bold text-slate-900">{new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date(v.startsAt))}</p>
+                            <p className="mt-1 text-xs text-slate-600">{doctors.find(d => d.id === v.doctorId)?.name ?? "M?dico"} ? {units.find(u => u.id === v.unitId)?.name ?? "Unidade"}</p>
+                            <p className="mt-2 text-xs text-green">Preenchido ? {v.contacted} contatado(s) ? {v.responded} resposta(s)</p>
+                        </div>))}
+                </div>
             </DetailsSidePanel>
 
             <SchedulingPanel

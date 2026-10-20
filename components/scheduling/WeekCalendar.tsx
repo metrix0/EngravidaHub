@@ -15,6 +15,7 @@ import { Modal } from "@/components/ui/Modal";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
 import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { matchesRecoveredSlot, type RecoveryVacancy } from "@/lib/scheduling/slotRecovery";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import { AGENDA_NOTE_COLOR, percent } from "./AgendaIndicators";
 import type {
@@ -36,6 +37,8 @@ type Props = {
     freeSlots?: AgendaFreeSlot[];
     doctorLoads?: OperationalAgendaReport["byDoctor"];
     onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
+    recoveryVacancies?: RecoveryVacancy[];
+    onRecoverSlot?: (slot: AgendaFreeSlot, vacancyId: number) => void;
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -476,6 +479,9 @@ export default function WeekCalendar(props: Props) {
                                         {(freeSlotGroupsByDay.get(dayKey) ?? []).map(group => {
                                             const first = group.slots[0];
                                             const single = group.slots.length === 1;
+                                            const recovery = group.slots.flatMap(slot => (props.recoveryVacancies ?? [])
+                                                .filter(vacancy => !vacancy.filled && matchesRecoveredSlot(slot, vacancy))
+                                                .map(vacancy => ({ slot, vacancy })))[0];
                                             const load = loads.get(`${first.unitId}:${first.doctorId}`);
                                             const card = (
                                                         <button
@@ -488,7 +494,7 @@ export default function WeekCalendar(props: Props) {
                                                                 ? `Agendar ${time(first.startsAt)}–${time(first.endsAt)} · ${first.doctorName}`
                                                                 : `Ver ${group.slots.length} horários livres com início entre ${minuteLabel(group.startMinutes)} e ${minuteLabel(group.startMinutes + 29)}`}
                                                             className="flex h-full w-full cursor-pointer flex-col items-start justify-center overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
-                                                            style={{ backgroundColor: AGENDA_COLORS.available }}
+                                                            style={{ backgroundColor: recovery ? "#e29229" : AGENDA_COLORS.available }}
                                                         >
                                                             <span className="block text-[10px] font-bold leading-tight">
                                                                 {single ? `${time(first.startsAt)}–${time(first.endsAt)}` : `Inícios ${minuteLabel(group.startMinutes)}–${minuteLabel(group.startMinutes + 29)}`}
@@ -541,6 +547,11 @@ export default function WeekCalendar(props: Props) {
                                                         {card}
                                                     </InfoTooltip>
                                                     )}
+                                                    {recovery && props.onRecoverSlot && <button type="button"
+                                                        onClick={event => { event.stopPropagation(); props.onRecoverSlot?.(recovery.slot, recovery.vacancy.id); }}
+                                                        className="absolute bottom-1 right-1 z-20 cursor-pointer rounded-md border border-white/60 bg-white px-1.5 py-1 text-[10px] font-bold text-orange shadow-sm hover:bg-orange-soft">
+                                                        Recuperar{recovery.vacancy.contacted > 0 ? " ? " + recovery.vacancy.contacted + " contatado(s)" : ""}
+                                                    </button>}
                                                 </div>
                                             );
                                         })}
@@ -747,7 +758,9 @@ export default function WeekCalendar(props: Props) {
                 <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
                     {expandedFreeSlots?.map(slot => {
                         const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                        const vacancy = (props.recoveryVacancies ?? []).find(item => !item.filled && matchesRecoveredSlot(slot, item));
                         return (
+                            <div key={slot.id} className="relative">
                             <button
                                 key={slot.id}
                                 type="button"
@@ -755,7 +768,7 @@ export default function WeekCalendar(props: Props) {
                                     setExpandedFreeSlots(null);
                                     props.onSelectFreeSlot?.(slot);
                                 }}
-                                className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                                className={"flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50" + (vacancy ? " pr-28" : "")}
                             >
                                 <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AGENDA_COLORS.available }} />
                                 <span className="min-w-0 flex-1">
@@ -765,6 +778,12 @@ export default function WeekCalendar(props: Props) {
                                 </span>
                                 <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
                             </button>
+                            {vacancy && props.onRecoverSlot && <button type="button"
+                                onClick={() => { setExpandedFreeSlots(null); props.onRecoverSlot?.(slot, vacancy.id); }}
+                                className="absolute right-3 top-3 cursor-pointer rounded-lg bg-orange-soft px-2 py-1.5 text-xs font-bold text-orange hover:bg-orange/10">
+                                Recuperar
+                            </button>}
+                            </div>
                         );
                     })}
                 </div>
