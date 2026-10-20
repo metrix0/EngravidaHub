@@ -177,7 +177,13 @@ export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }
     const query = data.full_pipeline.query_params === undefined ? null : params.toString();
     const requestKey = `${query}:${attempt}`;
     const loading = query !== null && loaded?.key !== requestKey && failure?.key !== requestKey;
-    const pipeline = loaded?.key === requestKey ? loaded.pipeline : data.full_pipeline;
+    const pipeline = loaded?.key === requestKey
+        ? { ...loaded.pipeline, audit: {
+            ...loaded.pipeline.audit,
+            whatsapp_coverage: data.full_pipeline.audit.whatsapp_coverage ?? loaded.pipeline.audit.whatsapp_coverage,
+            whatsapp_origins: data.full_pipeline.audit.whatsapp_origins ?? loaded.pipeline.audit.whatsapp_origins,
+        } }
+        : data.full_pipeline;
     const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
 
     useEffect(() => {

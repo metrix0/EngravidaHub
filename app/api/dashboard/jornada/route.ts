@@ -357,6 +357,17 @@ export async function GET(request: Request) {
                 new Date(new Date(range.endAt).getTime() - 1).toISOString(),
             );
         if (pipelineOnly) {
+            const { data: prepared, error: preparedError } = await supabase.rpc(
+                "dashboard_journey_prepared_v1",
+                executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+            ).abortSignal(request.signal);
+            if (!preparedError && prepared?.ready && Array.isArray(prepared.groups) && prepared.groups.length) {
+                return NextResponse.json(
+                    { full_pipeline: buildPreparedJourneyPipeline(prepared as PreparedJourneyRead, range, filters) },
+                    { headers: { "Cache-Control": "private, no-store" } },
+                );
+            }
+            console.warn("[dashboard/jornada] prepared pipeline unavailable; using existing path", preparedError?.code);
             const [paidMedia, candidateIds, social, instagramClicks] = await Promise.all([
                 loadPaidMediaTotals(startDate, endDate, request.signal),
                 loadPipelineCandidateIds(range, request.signal),
@@ -432,17 +443,17 @@ export async function GET(request: Request) {
             };
             return NextResponse.json({ full_pipeline: fullPipeline }, { headers: { "Cache-Control": "private, no-store" } });
         }
-        const [paidMedia, whatsappData, analysisRows, evaluationJourneys] = await Promise.all([
+        const [paidMedia, whatsappData, preparedAnalysis, evaluationJourneys] = await Promise.all([
             searchParams.get("summary_only") === "1"
                 ? Promise.resolve(emptyPaidMediaTotals(false))
                 : loadPaidMediaTotals(startDate, endDate, request.signal),
             loadPaidWhatsappConversations(range, filters, request.signal),
-            loadJourneyAnalysisRows(range, request.signal),
+            loadPreparedConversationMetrics(range, filters, request.signal),
             loadEvaluationJourneyFunnels(range, filters, request.signal),
         ]);
-        const payload = buildJourneyConversationMetrics({
+        const payload = preparedAnalysis ?? buildJourneyConversationMetrics({
             conversations: whatsappData.rows,
-            analyses: analysisRows,
+            analyses: await loadJourneyAnalysisRows(range, request.signal),
             filters,
         });
         const fullPipeline = searchParams.get("summary_only") === "1"
@@ -515,6 +526,181 @@ export async function GET(request: Request) {
             { status: 500 },
         );
     }
+}
+
+
+type PreparedJourneyGroup = {
+    key: "paid" | "untracked_whatsapp" | "organic";
+    clients: number | string;
+    entry_clients: number | string;
+    whatsapp_to_consultation: number | string;
+    metrics: Record<string, number | string>;
+    procedures: Array<{ key: string; procedure_name: string; event_kind: string; scheduled_appointments: number; attended_appointments: number }>;
+    platforms?: Array<{ platform: PaidMediaPlatform; clients: number | string; entry_clients: number | string; metrics: Record<string, number | string> }>;
+    sources?: Array<{ field: string; source: string; platform: PaidMediaPlatform; clients: number; percentage: number; scheduled_clients: number; attended_clients: number; schedule_rate: number | null; attendance_rate: number | null }>;
+    evidence?: Array<{ evidence: JourneyAttributionEvidence; clients: number }>;
+};
+type PreparedJourneyRead = {
+    ready: boolean;
+    through: string;
+    groups: PreparedJourneyGroup[];
+    ads: Array<{ platform: PaidMediaPlatform | "instagram_direct"; spend: number | string; impressions: number | string; clicks: number | string; conversations: number | string }>;
+    instagram?: { clicks: number | null; chats: number; unlinked_chats: number; to_whatsapp: number; to_consultation: number };
+};
+type PreparedAnalysisRead = {
+    counts: Record<"started" | "requested" | "answered" | "priced" | "offered" | "scheduled", number>;
+    dropoffs: Array<{ moment: string; n: number }>;
+    intents: Array<{ intent: string; resolved: number; partial: number; not_resolved: number; abandoned: number }>;
+    objections: Array<{ kind: string; n: number; abandoned: number }>;
+    audit: { conversations: number; clients: number; conversations_with_objections: number };
+};
+
+async function loadPreparedConversationMetrics(range: DashboardDateRange, filters: DashboardFilters, signal: AbortSignal) {
+    const { data, error } = await supabase.rpc(
+        "dashboard_journey_analysis_prepared_v1",
+        executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+    ).abortSignal(signal);
+    if (error || !data || !data.counts || !Array.isArray(data.intents)) {
+        console.warn("[dashboard/jornada] prepared analysis unavailable", error?.code);
+        return null;
+    }
+    const result = data as PreparedAnalysisRead;
+    const c = result.counts;
+    const totalDropoffs = result.dropoffs.reduce((sum, row) => sum + row.n, 0);
+    return {
+        journey_funnel: [
+            funnelStage("started", "Iniciou conversa", c.started, c.started, c.started, "#ddd6fe"),
+            funnelStage("information_requested", "Pediu informação", c.requested, c.started, c.started, "#bbf7d0"),
+            funnelStage("information_answered", "Informação respondida", c.answered, c.started, c.requested, "#bfdbfe"),
+            funnelStage("price_presented", "Preço apresentado", c.priced, c.started, c.answered, "#c4b5fd"),
+            funnelStage("consultation_offered", "Consulta oferecida", c.offered, c.started, c.priced, "#fed7aa"),
+            funnelStage("appointment_scheduled", "Agendamento mencionado", c.scheduled, c.started, c.offered, "#fbcfe8"),
+        ],
+        dropoff_moments: result.dropoffs.sort((a, b) => b.n - a.n).slice(0, 5).map(row => ({
+            moment: row.moment, label: dropoffLabel(row.moment), count: row.n,
+            percentage: integerPercentage(row.n, totalDropoffs),
+        })),
+        intent_paths: result.intents.map(row => ({
+            intent: intentLabel(row.intent), resolved: row.resolved, partial: row.partial,
+            not_resolved: row.not_resolved, abandoned: row.abandoned,
+        })).sort((a, b) =>
+            (b.resolved + b.partial + b.not_resolved + b.abandoned) -
+            (a.resolved + a.partial + a.not_resolved + a.abandoned)),
+        objections: result.objections.map(row => ({
+            type: row.kind, label: objectionLabel(row.kind), value: row.n,
+            percentage: integerPercentage(row.n, result.audit.conversations_with_objections),
+            abandonment_rate: integerPercentage(row.abandoned, row.n),
+        })).sort((a, b) => b.value - a.value),
+        audit: result.audit,
+    };
+}
+
+function buildPreparedJourneyPipeline(
+    prepared: PreparedJourneyRead,
+    range: DashboardDateRange,
+    filters: DashboardFilters,
+): FullJourneyPipeline {
+    const groups = new Map(prepared.groups.map(group => [group.key, group]));
+    const adRows = new Map(prepared.ads.map(row => [row.platform, row]));
+    const sum = (row: Record<string, number | string> | undefined, key: string) => numeric(row?.[key]);
+    const group = (key: PreparedJourneyGroup["key"], text: string) => {
+        const item = groups.get(key);
+        if (!item) return emptyFullJourneyPipeline(range, filters, "Dados preparados indisponíveis.");
+        const metric = (key: string) => sum(item.metrics, key);
+        const platformBreakdown: PipelinePlatformBreakdown[] = key === "paid"
+            ? (["google_ads", "meta_ads"] as const).map(platform => {
+                const ad = adRows.get(platform);
+                const source = item.platforms?.find(row => row.platform === platform);
+                const platformMetric = (name: string) => sum(source?.metrics, name);
+                return {
+                    platform, label: platform === "meta_ads" ? "Meta Ads" : "Google Ads",
+                    spend: numeric(ad?.spend), impressions: numeric(ad?.impressions),
+                    whatsapp_clicks: numeric(ad?.clicks),
+                    platform_whatsapp_conversations: numeric(ad?.conversations),
+                    tracked_clients: numeric(source?.entry_clients),
+                    scheduled_clients: platformMetric("scheduled"),
+                    attended_clients: platformMetric("attended"),
+                    invoiced_clients: 0, // The prepared worker does not yet expose unapproved invoices.
+                    authorized_clients: platformMetric("authorized"),
+                    authorized_revenue: platformMetric("authorized_amount"),
+                };
+            }) : [];
+        const rows: PipelineProcedureBranch[] = (item.procedures ?? []).map(row => ({
+            key: row.key, procedure_name: row.procedure_name, event_kind: row.event_kind,
+            scheduled_appointments: numeric(row.scheduled_appointments),
+            attended_appointments: numeric(row.attended_appointments),
+            schedule_to_attendance_rate: percentage(numeric(row.attended_appointments), numeric(row.scheduled_appointments)),
+            lost_appointments: Math.max(0, numeric(row.scheduled_appointments) - numeric(row.attended_appointments)),
+        }));
+        const paidEntries = numeric(item.entry_clients);
+        const clients = numeric(item.clients);
+        const linked = metric("any_scheduled");
+        const attended = metric("any_attended");
+        const pipeline = buildFullJourneyPipeline({
+            available: true,
+            adsAvailable: prepared.ads.some(row => row.platform === "google_ads" || row.platform === "meta_ads"),
+            filtersApplied: hasOperationalFilters(filters),
+            startDate: range.startDate ?? saoPauloDate(range.startAt),
+            endDate: range.endDate ?? saoPauloDate(new Date(new Date(range.endAt).getTime() - 1).toISOString()),
+            impressions: numeric(adRows.get("google_ads")?.impressions) + numeric(adRows.get("meta_ads")?.impressions),
+            clicks: numeric(adRows.get("google_ads")?.clicks) + numeric(adRows.get("meta_ads")?.clicks),
+            platformWhatsappConversations: numeric(adRows.get("google_ads")?.conversations) + numeric(adRows.get("meta_ads")?.conversations),
+            whatsappClients: paidEntries,
+            measurementReady: true, measurementNote: null,
+            trackedByEvidence: (item.evidence ?? []).filter(row => row.evidence).map(row => ({ evidence: row.evidence, clients: numeric(row.clients) })),
+            trackedSources: (item.sources ?? []).filter(row => row.platform && row.field && row.source).map(row => ({
+                platform: row.platform,
+                field: row.field as FullJourneyPipeline["audit"]["tracked_sources"][number]["field"],
+                source: row.source, clients: numeric(row.clients),
+                percentage: numeric(row.percentage),
+                scheduled_clients: numeric(row.scheduled_clients),
+                attended_clients: numeric(row.attended_clients),
+                schedule_rate: row.schedule_rate === null ? null : numeric(row.schedule_rate),
+                attendance_rate: row.attendance_rate === null ? null : numeric(row.attendance_rate),
+            })),
+            whatsappCoverage: emptyWhatsappCoverage(),
+            whatsappOrigins: [],
+            procedureLinkage: {
+                tracked_clients: clients,
+                raw_events_read: metric("raw_schedule") + metric("raw_funnel"),
+                schedule_rows_read: metric("raw_schedule"),
+                funnel_event_rows_read: metric("raw_funnel"),
+                deduped_source_events: metric("deduped"),
+                eligible_source_events: metric("eligible"),
+                linked_unique_clients: linked, attended_unique_clients: attended,
+                scheduled_branch_total: rows.reduce((n, row) => n + row.scheduled_appointments, 0),
+                attended_branch_total: rows.reduce((n, row) => n + row.attended_appointments, 0),
+                invariant_ok: true,
+            },
+            entryClientsTotal: clients,
+            whatsappToConsultationClients: numeric(item.whatsapp_to_consultation),
+            scheduledClients: metric("scheduled"),
+            attendedClients: metric("attended"),
+            procedureScheduledClients: metric("procedure_scheduled"),
+            procedureAttendedClients: metric("procedure_attended"),
+            consultationToProcedureClients: metric("consultation_to_procedure"),
+            revenueBranches: (["evaluation", "procedure"] as const).map(kind => ({
+                kind, clients: metric(kind + "_revenue_clients"), amount: metric(kind + "_revenue"),
+            })),
+            invoicedClients: 0, authorizedClients: metric("authorized"),
+            invoicedAmount: 0, authorizedAmount: metric("authorized_amount"),
+            procedureBranches: rows, platformBreakdown, error: null,
+        });
+        if (key !== "paid") {
+            pipeline.acquisition_branches = [];
+            if (pipeline.stages[0]) {
+                pipeline.stages[0].label = text;
+            }
+        }
+        return pipeline;
+    };
+    const result = group("paid", "WhatsApp rastreado");
+    result.additional_pipelines = [
+        { key: "untracked_whatsapp", pipeline: group("untracked_whatsapp", "WhatsApp não rastreado") },
+        { key: "organic", pipeline: group("organic", "Origem orgânica ou não rastreada") },
+    ];
+    result.instagram = prepared.instagram ?? { clicks: null, chats: 0, unlinked_chats: 0, to_whatsapp: 0, to_consultation: 0 };
+    return result;
 }
 
 async function loadJourneyAnalysisRows(
