@@ -128,22 +128,16 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "inbox",
     },
     {
-        label: "Performance",
-        href: "/performance",
-        icon: <TrendingUp size={18} />,
-        tabId: "performance",
-    },
-    {
         label: "Agendamentos",
         href: "/agendamentos",
         icon: <CalendarDays size={18} />,
         tabId: "agendamentos",
     },
     {
-        label: "Inteligência Agenda",
-        href: "/inteligencia-agenda",
-        icon: <CalendarSearch size={18} />,
-        tabId: "inteligencia_agenda",
+        label: "Funil",
+        href: "/funil",
+        icon: <Funnel size={18} />,
+        tabId: "funil",
     },
     {
         label: "Clientes",
@@ -158,10 +152,16 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "conversas",
     },
     {
-        label: "Funil",
-        href: "/funil",
-        icon: <Funnel size={18} />,
-        tabId: "funil",
+        label: "Inteligência Agenda",
+        href: "/inteligencia-agenda",
+        icon: <CalendarSearch size={18} />,
+        tabId: "inteligencia_agenda",
+    },
+    {
+        label: "Performance",
+        href: "/performance",
+        icon: <TrendingUp size={18} />,
+        tabId: "performance",
     },
     {
         label: "Mensagem Ativa",
