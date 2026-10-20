@@ -102,6 +102,16 @@ function readCurrentPageContext(context: AssistantChatRequest["page_context"], s
         scope === "section" ? sections.filter(section => section.id === sectionId) :
         sections.filter(section => context.visible_sections?.includes(section.id) || section.id === context.focused_section);
     const chosen = relevant.length ? relevant : scope === "section" ? [] : sections.slice(0, 2);
+    // Dashboard widgets share already-fetched sources. Include each referenced source once.
+    const references = new Set(chosen.flatMap(section => {
+        const data = section.data;
+        return data && typeof data === "object" && "dados_referencia" in data &&
+            typeof data.dados_referencia === "string" ? [data.dados_referencia] : [];
+    }));
+    const resolved = [
+        ...chosen,
+        ...sections.filter(section => references.has(section.id) && !chosen.includes(section)),
+    ];
     return {
         ok: true,
         origem: "dados já carregados no navegador",
@@ -111,9 +121,9 @@ function readCurrentPageContext(context: AssistantChatRequest["page_context"], s
         secoes_visiveis: context.visible_sections,
         filtros: context.filters,
         texto_visivel: context.visible_text,
-        secoes: chosen,
+        secoes: resolved,
         outras_secoes_disponiveis: sections.map(section => ({ id: section.id, title: section.title })),
-        aviso: chosen.some(section => section.truncated) ?
+        aviso: resolved.some(section => section.truncated) ?
             "Alguns conjuntos grandes foram limitados. Não trate uma amostra como a lista inteira." : null,
     };
 }
@@ -191,7 +201,7 @@ export async function POST(request: Request) {
     const messages = normalizeMessages(body.messages);
     const pageContext = body.page_context && typeof body.page_context.path === "string"
         && body.page_context.path.startsWith("/") && !body.page_context.path.startsWith("//")
-        && Array.isArray(body.page_context.sections) && body.page_context.sections.length <= 32
+        && Array.isArray(body.page_context.sections) && body.page_context.sections.length <= 100
         && JSON.stringify(body.page_context).length <= 120_000
         ? body.page_context : null;
 
