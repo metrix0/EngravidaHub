@@ -182,7 +182,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                     : [];
 
                 setSessions(restored);
-                const requestedSession = new URLSearchParams(window.location.search).get("session");
+                const requestedSession = compact ? null : new URLSearchParams(window.location.search).get("session");
                 setActiveSessionId(restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
             } catch (historyError) {
                 console.error(
@@ -547,6 +547,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                     {historyOpen ? (
                         <button type="button" aria-label="Fechar histórico" onClick={() => setHistoryOpen(false)} className={`absolute inset-0 z-20 bg-slate-950/20 ${compact ? "" : "md:hidden"}`} />
                     ) : null}
+                    {!compact && (
                     <aside
                         className={`absolute inset-y-0 left-0 z-30 shrink-0 overflow-hidden border-r border-border bg-card shadow-xl transition-[width] duration-300 ${compact ? "" : "md:relative md:z-auto md:shadow-none"} ${
                             historyOpen ? (compact ? "w-[260px] max-w-[86vw]" : "w-[280px] max-w-[86vw]") : "w-0 border-r-0"
@@ -608,8 +609,10 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                             </div>
                         </div>
                     </aside>
+                    )}
 
                     <section className="relative flex min-w-0 flex-1 flex-col">
+                        {!compact && (
                         <header className={`flex shrink-0 items-center justify-between border-b border-slate-200 ${compact ? "h-12 px-2" : "h-16 px-4 sm:px-6"}`}>
                             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                                 <button
@@ -656,6 +659,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                                 </button>
                             )}
                         </header>
+                        )}
 
                         <div className="min-h-0 flex-1 overflow-y-auto">
                             {historyLoading ? (
@@ -713,11 +717,52 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                             )}
                         </div>
 
-                        <div className={`shrink-0 border-t border-slate-100 bg-white ${compact ? "px-2 pb-2 pt-1" : "px-4 pb-4 pt-1.5 sm:px-8 sm:pb-6"}`}>
+                        <div className={`shrink-0 border-t border-slate-100 bg-white ${compact ? "p-2" : "px-4 pb-4 pt-1.5 sm:px-8 sm:pb-6"}`}>
                             <form
                                 onSubmit={handleSubmit}
                                 className="mx-auto w-full max-w-4xl"
                             >
+                                {compact ? (
+                                    <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                        <textarea
+                                            ref={textareaRef}
+                                            rows={1}
+                                            maxLength={8000}
+                                            value={input}
+                                            onChange={(event) => setInput(event.target.value)}
+                                            onKeyDown={handleInputKeyDown}
+                                            placeholder="Escrever mensagem..."
+                                            className="max-h-24 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
+                                            onInput={(event) => {
+                                                const target = event.currentTarget;
+                                                target.style.height = "auto";
+                                                target.style.height = `${Math.min(target.scrollHeight, 96)}px`;
+                                            }}
+                                        />
+                                        {loading ? (
+                                            <button
+                                                type="button"
+                                                onClick={stopRequest}
+                                                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm transition-colors hover:bg-slate-700"
+                                                title="Parar resposta"
+                                                aria-label="Parar resposta"
+                                            >
+                                                <Square size={14} fill="currentColor" />
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="submit"
+                                                disabled={!input.trim()}
+                                                onMouseDown={(event) => event.preventDefault()}
+                                                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                                title="Enviar"
+                                                aria-label="Enviar"
+                                            >
+                                                <Send size={17} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
                                 <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_12px_40px_-22px_rgba(15,23,42,0.38)] transition focus-within:border-brand/40 focus-within:ring-4 focus-within:ring-brand/5">
                                     <textarea
                                         ref={textareaRef}
@@ -754,6 +799,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                                         )}
                                     </div>
                                 </div>
+                                )}
                             </form>
                         </div>
                     </section>
