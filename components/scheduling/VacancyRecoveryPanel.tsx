@@ -121,11 +121,11 @@ export default function VacancyRecoveryPanel({
                     Nenhum candidato compatível encontrado.
                 </p>}
             <div className="space-y-3">
-                {data?.candidates.map((candidate, index) => (
+                {data?.candidates.map(candidate => (
                     <div key={candidate.clientId} className="rounded-xl border border-slate-200 bg-white p-3">
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-bold text-slate-900">{index + 1}. {candidate.name}</p>
+                                <p className="text-sm font-bold text-slate-900">{candidate.name}</p>
                                 <div className="mt-1 space-y-1">
                                     {candidate.reasons.map(reason =>
                                         <p key={reason} className="text-xs text-slate-500">{reason}</p>)}

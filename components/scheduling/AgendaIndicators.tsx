@@ -150,7 +150,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                             <p className="text-xs leading-relaxed text-muted">Baseado em {report.projection.historicalMonths} meses anteriores. Taxa RA {historicalRatesAvailable ? percent(historicalRa / historicalBase * 100) : "—"} · Unidade {historicalRatesAvailable ? percent(historicalUnit / historicalBase * 100) : "—"}</p>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="rounded-xl bg-blue-soft p-3"><p className="text-xs text-blue">RA</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{report.projection.ra === null ? "—" : number(report.projection.ra)}</p></div>
-                                <div className="rounded-xl bg-purple-soft p-3"><p className="text-xs text-purple">Unidade</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{report.projection.unit === null ? "—" : number(report.projection.unit)}</p></div>
+                                <div className="rounded-xl bg-pink-soft p-3"><p className="text-xs text-pink">Unidade</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{report.projection.unit === null ? "—" : number(report.projection.unit)}</p></div>
                             </div>
                             <p className="text-xs font-medium text-slate-600">Base: {number(report.projection.base)} vagas úteis</p>
                             <p className="text-xs leading-relaxed text-muted">{report.projection.unknown ? "A projeção por equipe aguarda a identificação da origem dos agendamentos históricos." : "Estimativa com base nas agendas sincronizadas."}</p>
