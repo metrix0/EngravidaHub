@@ -7,7 +7,6 @@ import {
     CalendarCheck2,
     CircleDollarSign,
     ChevronDown,
-    HelpCircle,
     MousePointerClick,
     ReceiptText,
     UserCheck,
@@ -15,7 +14,7 @@ import {
 import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { Card, InfoTooltip, Skeleton } from "@/components";
+import { Card, Skeleton } from "@/components";
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -252,14 +251,6 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
 
     return (
         <div className="min-w-0 overflow-hidden">
-            {!onSourceTooltipChange ? (
-                <div className="flex justify-end pb-2">
-                    <InfoTooltip text={buildPipelineSourceTooltip(pipeline)} portal widthClassName="w-[560px]">
-                        <HelpCircle size={16} className="text-slate-400" aria-label="Como a jornada é calculada" />
-                    </InfoTooltip>
-                </div>
-            ) : null}
-
             {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
                     A jornada completa não pôde ser carregada: {error}
@@ -279,12 +270,12 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
                 </div>
             ) : null}
 
-            <div className="py-6">
-                {loading ? <div className="px-6"><Skeleton className="h-[520px] w-full" /></div> : error ? null : pipeline.stages.length === 0 ? (
+            <div className="py-2">
+                {loading ? <div className="px-6"><Skeleton className="h-[440px] w-full" /></div> : error ? null : pipeline.stages.length === 0 ? (
                     <EmptyCardMessage message="Nenhum dado rastreável no período." />
                 ) : (
                     <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
-                        <div className="space-y-16">
+                        <div className="space-y-8">
                             <JourneyPipelineTree pipeline={pipeline} />
                             {(pipeline.additional_pipelines ?? []).map(group => (
                                 <div key={group.key} style={{ marginLeft: 644 }}>
@@ -472,7 +463,7 @@ export function WhatsappCoverageCard({
 
 type WhatsappCoverageChartItem = { key: string; label: string; value: number; percentage: number | null; color: string };
 
-const PIPELINE_TREE_ROW_HEIGHT = 210;
+const PIPELINE_TREE_ROW_HEIGHT = 182;
 const PIPELINE_TREE_ROW_GAP = 16;
 function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNode; multipleFlows?: boolean }) {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -534,7 +525,7 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
     return (
         <div
             ref={viewportRef}
-            className={`relative ${multipleFlows ? "h-[1520px]" : "h-[720px] max-h-[72vh]"} min-h-[520px] w-full cursor-move select-none overflow-hidden rounded-xl`}
+            className={`relative ${multipleFlows ? "h-[1050px] max-h-[90vh]" : "h-[560px] max-h-[72vh]"} min-h-[480px] w-full cursor-move select-none overflow-hidden rounded-xl`}
             style={{
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
@@ -586,7 +577,7 @@ function JourneyPipelineTree({
     const showInstagram = Boolean(pipeline.instagram);
     const acquisitionHeight = acquisitionBranches.length === 0 ? PIPELINE_TREE_ROW_HEIGHT :
         acquisitionRowCount * PIPELINE_TREE_ROW_HEIGHT +
-        (acquisitionRowCount - 1) * PIPELINE_TREE_ROW_GAP + (showInstagram ? 226 : 0);
+        (acquisitionRowCount - 1) * PIPELINE_TREE_ROW_GAP + (showInstagram ? 198 : 0);
     const topOffset = Math.max(
         0,
         (acquisitionHeight - PIPELINE_TREE_ROW_HEIGHT) / 2,
@@ -608,7 +599,7 @@ function JourneyPipelineTree({
     return (
             <div className="relative flex min-w-max items-start py-2">
                 {acquisitionBranches.length > 0 ? <>
-                <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? 226 : 0 }}>
+                <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? 198 : 0 }}>
                     {acquisitionBranches.map((branch) => (
                         <div
                             key={branch.platform}
@@ -652,7 +643,7 @@ function JourneyPipelineTree({
                                 })}
                             />
                             {branch.platform === "meta_ads" && pipeline.instagram ? (
-                                <div className="absolute left-[286px] top-[226px] flex items-stretch">
+                                <div className="absolute left-[286px] top-[198px] flex items-stretch">
                                     <PipelineStageCard stage={{ ...clientPipelineStage("paid_clicks", "Cliques Meta → Instagram", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
                                         eyebrow="Meta Ads" detail={pipeline.instagram.clicks === null ? "Dados ainda não disponíveis para este período" : "Conjuntos exclusivos do Instagram Direct"} />
                                     <PipelineTransitionCard transition={clientPipelineTransition({ key: "instagram_clicks_to_chat", label: "Clique → Instagram", fromValue: pipeline.instagram.clicks ?? 0, toValue: pipeline.instagram.chats, rate: null })} />
@@ -686,33 +677,33 @@ function JourneyPipelineTree({
                     <div className="flex items-start">
                         <ProcedurePipelineStages scheduled={scheduled} attended={attended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind === "evaluation")}
-                            topOffset={0} branchOffset={90} />
+                            topOffset={0} branchOffset={75} />
                         <PipelineTransitionCard transition={pipeline.transitions.find(item => item.key === "consultation_to_procedure") ?? clientPipelineTransition({ key: "consultation_to_procedure", label: "Consulta → procedimento", fromValue: 0, toValue: 0, rate: null })} />
                         <ProcedurePipelineStages scheduled={procedureScheduled} attended={procedureAttended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind !== "evaluation")}
-                            topOffset={0} branchOffset={90} />
-                        <div className="flex h-[210px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
+                            topOffset={0} branchOffset={75} />
+                        <div className="flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
                             <span className="text-xs font-bold text-emerald-700">{formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "procedure")?.amount ?? 0, pipeline.currency_code)}</span>
                             <ArrowRight size={24} className="my-3 text-emerald-600" />
                         </div>
                         <PipelineStageCard stage={authorized} width={210} />
                     </div>
-                    <svg aria-label="Receita liberada após a consulta" className="pointer-events-none absolute left-0 top-0 h-[285px] w-[1642px] overflow-visible" viewBox="0 0 1642 285">
-                        <path d="M 478 210 V 244 H 1537 V 212" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
-                        <path d="m 1532 218 5 -7 5 7" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
-                        <text x="1000" y="265" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
+                    <svg aria-label="Receita liberada após a consulta" className="pointer-events-none absolute left-0 top-0 h-[257px] w-[1642px] overflow-visible" viewBox="0 0 1642 257">
+                        <path d="M 478 182 V 216 H 1537 V 184" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <path d="m 1532 190 5 -7 5 7" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <text x="1000" y="237" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
                             {formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · após consulta
                         </text>
                     </svg>
                 </div>
-                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram" className="pointer-events-none absolute left-0 top-0 h-[680px] w-[1200px] overflow-visible" viewBox="0 0 1200 680">
-                    <path d="M 370 436 V 452" fill="none" stroke="#0866ff" strokeWidth="1.5" />
-                    <path d={`M 740 557 H 860 V ${topOffset + 113} H 812`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
-                    <path d={`m 819 ${topOffset + 108} -7 5 7 5`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
-                    <text x="820" y="580" fill="#0f9f94" fontSize="12" textAnchor="middle">{pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp</text>
-                    <path d={`M 740 557 H 918 V ${topOffset + 113} H 930`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
-                    <path d={`m 923 ${topOffset + 108} 7 5 -7 5`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
-                    <text x="1000" y="580" fill="#8b5cf6" fontSize="12" textAnchor="middle">{pipeline.instagram.to_consultation.toLocaleString("pt-BR")} agendaram pelo Instagram</text>
+                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram" className="pointer-events-none absolute left-0 top-0 h-[610px] w-[1200px] overflow-visible" viewBox="0 0 1200 610">
+                    <path d="M 370 380 V 396" fill="none" stroke="#0866ff" strokeWidth="1.5" />
+                    <path d={`M 740 487 H 860 V ${topOffset + 91} H 812`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
+                    <path d={`m 819 ${topOffset + 86} -7 5 7 5`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
+                    <text x="820" y="510" fill="#0f9f94" fontSize="12" textAnchor="middle">{pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp</text>
+                    <path d={`M 740 487 H 918 V ${topOffset + 91} H 930`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
+                    <path d={`m 923 ${topOffset + 86} 7 5 -7 5`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
+                    <text x="1000" y="510" fill="#8b5cf6" fontSize="12" textAnchor="middle">{pipeline.instagram.to_consultation.toLocaleString("pt-BR")} agendaram pelo Instagram</text>
                 </svg> : null}
             </div>
     );
@@ -963,7 +954,7 @@ function PipelineStageCard({
 
     return (
         <div
-            className="relative flex h-[210px] shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+            className="relative flex h-[182px] shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
             style={{ width }}
             title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}${detail ? ` — ${detail}` : ""}`}
         >
@@ -989,13 +980,13 @@ function PipelineStageCard({
                 </span>
             </div>
 
-            <div className="mt-5 text-xs font-semibold text-slate-500">
+            <div className="mt-3 text-xs font-semibold text-slate-500">
                 {stage.label}
             </div>
             <div className={`mt-1 font-black tracking-tight text-slate-900 ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
                 {formatPipelineStageValue(stage)}
             </div>
-            <div className="mt-3 line-clamp-3 min-h-12 text-[11px] font-medium leading-4 text-slate-500">
+            <div className="mt-2 line-clamp-3 min-h-8 text-[11px] font-medium leading-4 text-slate-500">
                 {detail ?? formatPipelineSecondary(stage)}
             </div>
         </div>
@@ -1009,7 +1000,7 @@ function PipelineTransitionCard({
     lossUnit?: "clientes" | "agendamentos";
 }) {
     return (
-        <div className="flex h-[210px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
+        <div className="flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
             <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-black ${
                     transition.rate === null
