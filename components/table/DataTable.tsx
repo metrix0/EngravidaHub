@@ -46,7 +46,7 @@ export function DataTable<TRow,>({
     onRowClick,
     emptyMessage = "Nenhum item encontrado.",
     minWidth,
-    cardPadding = false,
+    cardPadding = true,
     getRowClassName,
 }: DataTableProps<TRow>) {
     const gridTemplateColumns = columns
