@@ -589,6 +589,11 @@ function JourneyPipelineTree({
     const acquisitionRowCount = Math.max(1, acquisitionBranches.length);
     const showInstagram = Boolean(pipeline.instagram);
     const topOffset = ((acquisitionRowCount - 1) * (PIPELINE_TREE_ROW_HEIGHT + PIPELINE_TREE_ROW_GAP)) / 2;
+    const metaRowIndex = acquisitionBranches.findIndex(branch => branch.platform === "meta_ads");
+    const instagramChatMiddleY = 8 + metaRowIndex * (PIPELINE_TREE_ROW_HEIGHT + PIPELINE_TREE_ROW_GAP)
+        + PIPELINE_TREE_ROW_HEIGHT * 1.5;
+    const whatsappBottomY = 8 + topOffset + PIPELINE_TREE_ROW_HEIGHT;
+    const consultationBottomY = whatsappBottomY + 32;
     const instagramUnlinked = Boolean(pipeline.instagram && pipeline.instagram.chats > 0 &&
         pipeline.instagram.unlinked_chats >= pipeline.instagram.chats);
 
@@ -727,34 +732,36 @@ function JourneyPipelineTree({
                     </svg>
                 </div>
 
-                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram"
-                    className="pointer-events-none absolute left-0 top-0 h-[600px] w-[1200px] overflow-visible"
-                    viewBox="0 0 1200 600">
-                    <g>
-                        <title>{instagramUnlinked
-                            ? "Os chats de Instagram ainda não possuem vínculo confirmado com pacientes do CRM."
-                            : "Clientes com Instagram vinculado ao WhatsApp"}</title>
-                        <path d={`M 646 562 V 573 H 820 V 299 H 728 V ${topOffset + PIPELINE_TREE_ROW_HEIGHT}`}
-                            fill="none" stroke="#0f9f94" strokeWidth="1" />
-                        <path d={`m 723 ${topOffset + PIPELINE_TREE_ROW_HEIGHT + 6} 5 -6 5 6`}
-                            fill="none" stroke="#0f9f94" strokeWidth="1" />
-                        <text x="828" y="331" fill="#0f9f94" fontSize="11" fontWeight="600">
-                            {instagramUnlinked ? "WhatsApp: —" : `${pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp`}
-                        </text>
-                    </g>
-                    <g>
-                        <title>{instagramUnlinked
-                            ? "Sem identificação de pacientes nos chats de Instagram para confirmar agendamentos."
-                            : "Clientes que agendaram consulta a partir de Instagram"}</title>
-                        <path d={`M 686 562 V 581 H 1050 V ${topOffset + PIPELINE_TREE_ROW_HEIGHT}`}
-                            fill="none" stroke="#8b5cf6" strokeWidth="1" />
-                        <path d={`m 1045 ${topOffset + PIPELINE_TREE_ROW_HEIGHT + 6} 5 -6 5 6`}
-                            fill="none" stroke="#8b5cf6" strokeWidth="1" />
-                        <text x="1062" y="349" fill="#8b5cf6" fontSize="11" fontWeight="600">
-                            {instagramUnlinked ? "Consultas: —" : `${pipeline.instagram.to_consultation.toLocaleString("pt-BR")} consultas`}
-                        </text>
-                    </g>
-                </svg> : null}
+                {pipeline.instagram && metaRowIndex >= 0 ? (
+                    <svg aria-label="Caminhos confirmados do Instagram"
+                        className="pointer-events-none absolute left-0 top-0 h-[700px] w-[1200px] overflow-visible"
+                        viewBox="0 0 1200 700">
+                        <g>
+                            <title>{instagramUnlinked
+                                ? "Os chats de Instagram ainda não possuem vínculo confirmado com pacientes do CRM."
+                                : "Clientes com Instagram vinculado ao WhatsApp"}</title>
+                            <path d={`M 740 ${instagramChatMiddleY - 12} H 852 V ${whatsappBottomY + 22} H 728 V ${whatsappBottomY}`}
+                                fill="none" stroke="#0f9f94" strokeWidth="1" />
+                            <path d={`m 723 ${whatsappBottomY + 6} 5 -6 5 6`}
+                                fill="none" stroke="#0f9f94" strokeWidth="1" />
+                            <text x="863" y={instagramChatMiddleY - 27} fill="#0f9f94" fontSize="11" fontWeight="600">
+                                {instagramUnlinked ? "WhatsApp: —" : `${pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp`}
+                            </text>
+                        </g>
+                        <g>
+                            <title>{instagramUnlinked
+                                ? "Sem identificação de pacientes nos chats de Instagram para confirmar agendamentos."
+                                : "Clientes que agendaram consulta a partir de Instagram"}</title>
+                            <path d={`M 740 ${instagramChatMiddleY + 12} H 1050 V ${consultationBottomY}`}
+                                fill="none" stroke="#8b5cf6" strokeWidth="1" />
+                            <path d={`m 1045 ${consultationBottomY + 6} 5 -6 5 6`}
+                                fill="none" stroke="#8b5cf6" strokeWidth="1" />
+                            <text x="930" y={instagramChatMiddleY + 32} fill="#8b5cf6" fontSize="11" fontWeight="600">
+                                {instagramUnlinked ? "Consultas: —" : `${pipeline.instagram.to_consultation.toLocaleString("pt-BR")} consultas`}
+                            </text>
+                        </g>
+                    </svg>
+                ) : null}
             </div>
     );
 }
@@ -891,9 +898,8 @@ function ProcedureTransitionRow({
             >
                 {formatRate(branch.schedule_to_attendance_rate)}
             </span>
-            <div className="my-1.5 flex w-full items-center">
-                <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-blue-300" />
-                <ArrowRight size={15} className="shrink-0 text-blue-400" />
+            <div className="my-1.5 -mx-2 w-[calc(100%+16px)]">
+                <PipelineArrowLine />
             </div>
             <span className="h-3 text-[9px] text-slate-400">
                 {branch.lost_appointments > 0
@@ -918,7 +924,7 @@ function PipelineTreeConnector({
     const junctionX = direction === "merge" ? 48 : 24;
     return (
         <svg width={72} height={height} viewBox={`0 0 72 ${height}`}
-            className="shrink-0 overflow-visible" aria-hidden="true">
+            className="relative top-2 shrink-0 overflow-visible" aria-hidden="true">
             <path d={`M ${junctionX} ${firstCenter} V ${lastCenter}`}
                 fill="none" stroke="#93c5fd" strokeWidth="1" />
             {Array.from({ length: rowCount }).map((_, index) => {
@@ -1013,7 +1019,7 @@ function PipelineTransitionCard({
     lossUnit?: "clientes" | "agendamentos";
 }) {
     return (
-        <div className="flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
+        <div className="relative flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
             <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-black ${
                     transition.rate === null
@@ -1031,9 +1037,10 @@ function PipelineTransitionCard({
                 {transition.estimated && transition.rate !== null ? "~" : ""}
                 {formatRate(transition.rate)}
             </span>
-            <div className="my-3 -mx-2 flex w-[calc(100%+16px)] items-center">
-                <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-blue-300" />
-                <ArrowRight size={15} className="shrink-0 text-blue-400" />
+            <div className="my-3 h-[15px] w-full">
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                    <PipelineArrowLine />
+                </div>
             </div>
             <span className="min-h-8 text-[10px] font-bold leading-4 text-slate-500">
                 {transition.label}
@@ -1044,6 +1051,17 @@ function PipelineTransitionCard({
         </div>
     );
 }
+function PipelineArrowLine() {
+    return (
+        <svg className="block h-[15px] w-full overflow-visible" viewBox="0 0 118 15"
+            preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7.5 H 118 M 112 2.5 L 118 7.5 L 112 12.5"
+                fill="none" stroke="#93c5fd" strokeWidth="1.5"
+                strokeLinejoin="round" />
+        </svg>
+    );
+}
+
 function PipelineStageIcon({
     stageKey,
     platformLabel,
