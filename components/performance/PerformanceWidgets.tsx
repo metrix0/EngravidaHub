@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, CalendarCheck2, Clock3, Headset, SearchCheck, Target } from "lucide-react";
+import { Activity, CalendarCheck2, Clock3, Headset, SearchCheck, Target, ChartNoAxesCombined, CheckCircle2, CircleDashed } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Card from "@/components/ui/Card";
 import KpiCard from "@/components/ui/KpiCard";
@@ -34,8 +34,11 @@ export function PerformanceKpi({ widgetId, person, freeWidth = false }: { widget
         case "performance.consultas": return <KpiCard freeWidth={freeWidth} icon={<CalendarCheck2 size={22} />} color="green" label="Consultas marcadas" currentValue={person.appointments} formatter={number} tooltipText="Marcações no Clinisys atribuídas por nome único. Usa a data da marcação, não a data da consulta." />;
         case "performance.primeira_resposta": return <KpiCard freeWidth={freeWidth} icon={<Clock3 size={22} />} color="orange" label="1ª resposta" currentValue={person.firstResponse} formatter={duration} tooltipText={"Média das primeiras respostas humanas em " + number(person.firstCount) + " conversas. Segue o Dashboard: desconsidera tempos acima de 2 horas."} />;
         case "performance.resposta_media": return <KpiCard freeWidth={freeWidth} icon={<Activity size={22} />} color="purple" label="Resposta média" currentValue={person.response} formatter={duration} tooltipText={"Tempo médio de resposta humana em " + number(person.responseCount) + " análises, excluindo valores acima de 2 horas."} />;
-        case "performance.score_ia": return <KpiCard freeWidth={freeWidth} icon={<Target size={22} />} color="brand" label="Score de resolução IA" currentValue={person.score} formatter={number} tooltipText={"Nota média de resolução analisada pela IA, de 0 a 100. Amostra: " + number(person.scoreCount) + " conversas; não é um ranking de produtividade."} />;
+        case "performance.score_ia": return <KpiCard freeWidth={freeWidth} icon={<Target size={22} />} color="brand" label="Score de resolução IA" currentValue={person.score} formatter={number} tooltipText={"A IA atribui uma nota de 0 a 100 a cada conversa com base em quanto a necessidade do cliente foi resolvida. Este KPI é a média aritmética das notas: soma das notas ÷ número de conversas com nota (" + number(person.scoreCount) + "). Não é o percentual de conversas resolvidas."} />;
         case "performance.resolucao_confirmada": return <KpiCard freeWidth={freeWidth} icon={<SearchCheck size={22} />} color="green" label="Resolução confirmada IA" currentValue={person.resolutionRate} formatter={percentage} tooltipText="Percentual de conversas analisadas como resolvidas, entre as que têm um resultado classificável." />;
+        case "performance.analysis_coverage": return <KpiCard freeWidth={freeWidth} icon={<ChartNoAxesCombined size={22} />} color="blue" label="Conversas analisadas IA" currentValue={person.tickets ? 100 * person.analyzed / person.tickets : null} formatter={percentage} tooltipText={number(person.analyzed) + " de " + number(person.tickets) + " conversas analisadas no período."} />;
+        case "performance.goal_achievement": return <KpiCard freeWidth={freeWidth} icon={<CheckCircle2 size={22} />} color="green" label="Objetivos atingidos" currentValue={person.goalAchievementRate} formatter={percentage} tooltipText={number(person.goalAchieved) + " objetivos atingidos em " + number(person.goalEligible) + " conversas com objetivo classificável. Casos incertos não entram na base."} />;
+        case "performance.partial_resolutions": return <KpiCard freeWidth={freeWidth} icon={<CircleDashed size={22} />} color="orange" label="Resolução parcial" currentValue={person.partialResolutionRate} formatter={percentage} tooltipText={number(person.partiallyResolved) + " conversas parcialmente resolvidas entre " + number(person.eligibleResolution) + " com desfecho classificável pela IA."} />;
         default: return null;
     }
 }

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - preview
+      - temp-performance-analysis-20261020-a
   pull_request:
     branches:
       - main
