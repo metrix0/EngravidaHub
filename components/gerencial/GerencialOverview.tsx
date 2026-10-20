@@ -266,8 +266,8 @@ export default function GerencialOverview({
     const showedUpProjection = scheduleTotal
         ? projectScheduleMetric(
               scheduleTotal.showed_up,
-              scheduleTotal.appointments,
-              scheduleTotal.projection,
+              dateWindow?.start,
+              dateWindow?.end,
           )
         : null;
     const resgate = useMemo(
@@ -1300,13 +1300,63 @@ function summarizeResgate(history: ActiveMessageHistoryItem[]) {
     };
 }
 
+const BRAZIL_FIXED_NATIONAL_HOLIDAYS = new Set([
+    "01-01", "04-21", "05-01", "09-07", "10-12",
+    "11-02", "11-15", "11-20", "12-25",
+]);
+
+function getGoodFriday(year: number) {
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    const easter = new Date(Date.UTC(year, month - 1, day));
+    easter.setUTCDate(easter.getUTCDate() - 2);
+    return easter.toISOString().slice(0, 10);
+}
+
 function projectScheduleMetric(
     value: number,
-    appointments: number,
-    appointmentsProjection: number,
+    startDate: string | null | undefined,
+    endDate: string | null | undefined,
 ) {
-    if (appointments <= 0) return value;
-    return value * (appointmentsProjection / appointments);
+    const today = getDateStringWithOffset(0);
+    if (startDate !== `${today.slice(0, 7)}-01` || !endDate || endDate < today) {
+        return value;
+    }
+
+    const [year, month, day] = today.split("-").map(Number);
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const goodFriday = getGoodFriday(year);
+    let elapsedDays = 0;
+    let operatingDays = 0;
+
+    for (let index = 1; index <= daysInMonth; index++) {
+        const date = new Date(Date.UTC(year, month - 1, index));
+        const dateKey = date.toISOString().slice(0, 10);
+        if (
+            date.getUTCDay() === 0 ||
+            BRAZIL_FIXED_NATIONAL_HOLIDAYS.has(dateKey.slice(5)) ||
+            dateKey === goodFriday
+        ) {
+            continue;
+        }
+
+        operatingDays++;
+        if (index <= day) elapsedDays++;
+    }
+
+    return elapsedDays > 0 ? (value * operatingDays) / elapsedDays : value;
 }
 
 function formatInteger(value: number | null | undefined) {
