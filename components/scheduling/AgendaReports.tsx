@@ -17,7 +17,6 @@ import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda
 import { monthlyAgendaCounts } from "@/lib/scheduling/agendaReportMetrics";
 import { renderAgendaReportImage } from "@/lib/scheduling/agendaReportImage";
 import { AgendaCountTable, percent } from "./AgendaIndicators";
-import BookingAuthorsTable from "./BookingAuthorsTable";
 
 type Report = OperationalAgendaReport & { missingDoctors: Array<{ doctorName: string }> };
 type Result = { query: string; report: Report | null; error: string | null };
@@ -104,7 +103,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
                 <div className="w-60"><CalendarDatePicker mode="month" align="right" value={month} onChange={setMonth} clearable={false} /></div>
             </div>
             {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
-            {monthly.loading ? <Skeleton className="h-64 rounded-2xl" /> : monthly.report ? <MonthlyReport report={monthly.report} unitIds={unitIds} doctorIds={doctorIds} /> : null}
+            {monthly.loading ? <Skeleton className="h-64 rounded-2xl" /> : monthly.report ? <MonthlyReport report={monthly.report} /> : null}
         </section>
     </>;
 }
@@ -119,7 +118,7 @@ function ReportError({ message, onRetry }: { message: string; onRetry: () => voi
 function WidgetHeading({ title }: { title: string }) {
     return <h3 className="text-lg font-bold text-slate-900">{title}</h3>;
 }
-function MonthlyReport({ report, unitIds, doctorIds }: { report: OperationalAgendaReport; unitIds: string[]; doctorIds: string[] }) {
+function MonthlyReport({ report }: { report: OperationalAgendaReport }) {
     return <div className="min-w-0 space-y-5">
         <HorizontalScroller scrollAmount={400}>
             {AGENDA_INDICATOR_WIDGETS.filter(widget => widget.kind === "kpi").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id} className="shrink-0"><AgendaReportWidget widgetId={widget.id} report={report} freeWidth /></DashboardWidget>)}
@@ -128,11 +127,10 @@ function MonthlyReport({ report, unitIds, doctorIds }: { report: OperationalAgen
             {AGENDA_INDICATOR_WIDGETS.filter(widget => widget.kind === "chart").map(widget => <DashboardWidget key={widget.id} widgetId={widget.id}><AgendaReportWidget widgetId={widget.id} report={report} /></DashboardWidget>)}
         </div>
         <DashboardWidget widgetId="agenda_indicadores.unidades"><AgendaReportWidget widgetId="agenda_indicadores.unidades" report={report} /></DashboardWidget>
-        <DashboardWidget widgetId="agenda_indicadores.atendentes"><AgendaReportWidget widgetId="agenda_indicadores.atendentes" report={report} unitIds={unitIds} doctorIds={doctorIds} /></DashboardWidget>
     </div>;
 }
 
-export function AgendaReportWidget({ widgetId, report, freeWidth = false, unitIds = [], doctorIds = [] }: { widgetId: string; report: OperationalAgendaReport; freeWidth?: boolean; unitIds?: string[]; doctorIds?: string[] }) {
+export function AgendaReportWidget({ widgetId, report, freeWidth = false }: { widgetId: string; report: OperationalAgendaReport; freeWidth?: boolean }) {
     const dailyIndex = AGENDA_AVAILABILITY_WIDGETS.findIndex(widget => widget.id === widgetId);
     if (dailyIndex >= 0) return <ReportTable {...dailyTables(report)[dailyIndex]} />;
     const counts = monthlyAgendaCounts(report.counts);
@@ -150,7 +148,6 @@ export function AgendaReportWidget({ widgetId, report, freeWidth = false, unitId
         case "agenda_indicadores.grafico_unidades": return <Card className="min-w-0"><WidgetHeading title="Agendamentos por unidade" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><BarChart data={units} margin={{ top: 8, right: 8, bottom: 12, left: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="unitName" fontSize={10} interval={0} angle={-35} textAnchor="end" height={85} axisLine={false} tickLine={false} /><YAxis fontSize={11} axisLine={false} tickLine={false} width={40} /><Tooltip /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />{SERIES.map(item => <Bar key={item.key} dataKey={item.key} name={item.label} fill={AGENDA_COLORS[item.key]} radius={[3, 3, 0, 0]} />)}</BarChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>;
         case "agenda_indicadores.distribuicao": return <Card className="min-w-0"><WidgetHeading title="Distribuição das vagas" /><div className="mt-5 h-80 min-w-0">{counts.total ? <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 500, height: 320 }}><PieChart><Pie data={SERIES.map(item => ({ name: item.label, value: counts[item.key], fill: AGENDA_COLORS[item.key] })).filter(row => row.value > 0)} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="75%" paddingAngle={2} /><Tooltip formatter={value => number(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} /></PieChart></ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted">Nenhuma vaga no mês selecionado.</p>}</div></Card>;
         case "agenda_indicadores.unidades": return <Card className="min-w-0 !p-0"><div className="p-4 md:p-6"><WidgetHeading title="Indicadores por unidade" /></div><AgendaCountTable rows={units} /></Card>;
-        case "agenda_indicadores.atendentes": return <BookingAuthorsTable month={report.start.slice(0, 7)} unitIds={unitIds} doctorIds={doctorIds} />;
         default: return null;
     }
 }

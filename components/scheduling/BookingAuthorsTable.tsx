@@ -38,8 +38,8 @@ const COLUMNS: Array<{ title: string; field: keyof Row; percentage?: boolean }> 
     { title: "% Faltou", field: "missedRate", percentage: true },
 ];
 
-export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [] }: {
-    month: string; unitIds?: string[]; doctorIds?: string[];
+export default function BookingAuthorsTable({ start, end, unitIds = [], doctorIds = [] }: {
+    start: string; end: string; unitIds?: string[]; doctorIds?: string[];
 }) {
     const unitKey = [...unitIds].sort().join(",");
     const doctorKey = [...doctorIds].sort().join(",");
@@ -52,7 +52,7 @@ export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [
         setResult(null);
         setError(null);
         setPage(1);
-        const params = new URLSearchParams({ month });
+        const params = new URLSearchParams({ start, end });
         unitKey.split(",").filter(Boolean).forEach(id => params.append("unit_ids", id));
         doctorKey.split(",").filter(Boolean).forEach(id => params.append("doctor_ids", id));
         void (async () => {
@@ -68,7 +68,7 @@ export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [
             }
         })();
         return () => controller.abort();
-    }, [month, unitKey, doctorKey, reload]);
+    }, [start, end, unitKey, doctorKey, reload]);
 
     const pages = Math.max(1, Math.ceil((result?.rows.length ?? 0) / PAGE_SIZE));
     const currentPage = Math.min(page, pages);
@@ -100,7 +100,7 @@ export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [
         <Card className="min-w-0 !p-0">
             <div className="flex items-center gap-2 px-4 py-5 md:px-6">
                 <h3 className="text-lg font-bold">Marcado por atendente</h3>
-                <InfoTooltip portal widthClassName="w-[350px]" text="Agendamentos criados no mês, por autor registrado no CliniSYS ou no Hub. Remarcações: registros com status Remarcou; Remarcou: clientes únicos nessa situação. Compareceu, cancelou e faltou: status atual. Percentuais de resultados sobre clientes únicos. Projeção não disponível.">
+                <InfoTooltip portal widthClassName="w-[350px]" text="Agendamentos criados no período selecionado, por autor registrado no CliniSYS ou no Hub. Remarcações: registros com status Remarcou; Remarcou: clientes únicos nessa situação. Compareceu, cancelou e faltou: status atual. Percentuais de resultados sobre clientes únicos. Projeção não disponível.">
                     <HelpCircle size={14} className="shrink-0 text-slate-400" />
                 </InfoTooltip>
             </div>

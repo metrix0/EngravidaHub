@@ -11,10 +11,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const schema = z.object({
-    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+    start: z.iso.date().optional(),
+    end: z.iso.date().optional(),
     unitIds: z.array(z.uuid()).max(100),
     doctorIds: z.array(z.uuid()).max(100),
-});
+}).refine(({ month, start, end }) =>
+    month ? !start && !end : Boolean(start && end && start <= end &&
+        Date.parse(end) - Date.parse(start) <= 366 * 86_400_000),
+{ message: "Período inválido." });
 const PAGE_SIZE = 500;
 type ScheduleRow = {
     id: string; source_external_id: string | null; attendant_name: string | null;
@@ -70,26 +75,32 @@ function percentage(numerator: number, denominator: number) {
 export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const parsed = schema.safeParse({
-        month: params.get("month"),
+        month: params.get("month") || undefined,
+        start: params.get("start") || undefined,
+        end: params.get("end") || undefined,
         unitIds: params.getAll("unit_ids"),
         doctorIds: params.getAll("doctor_ids"),
     });
     if (!parsed.success) return NextResponse.json({ error: "Filtros inválidos." }, { status: 400 });
-    const access = await getServerTabAccess("inteligencia_agenda");
-    if (access.ok === false) return NextResponse.json({ error: access.error }, { status: access.status });
     const { month, doctorIds } = parsed.data;
+    const access = await getServerTabAccess(month ? "inteligencia_agenda" : "performance");
+    if (access.ok === false) return NextResponse.json({ error: access.error }, { status: access.status });
+    if (!month && access.permission.unit_lock) {
+        return NextResponse.json({ error: "Esta visão está disponível apenas para perfis sem restrição de unidade." }, { status: 403 });
+    }
     const unitIds = access.permission.unit_lock ? [access.permission.unit_lock.id] : parsed.data.unitIds;
-    const [year, part] = month.split("-").map(Number);
-    const nextMonth = new Date(Date.UTC(year, part, 1)).toISOString().slice(0, 10);
-    const firstDay = month + "-01";
+    const firstDay = month ? month + "-01" : parsed.data.start!;
+    const untilDay = month
+        ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 10)
+        : new Date(Date.parse(parsed.data.end! + "T12:00:00Z") + 86_400_000).toISOString().slice(0, 10);
     try {
         const [schedules, bookedInHub, attendantsResult, aliasResult, unitsResult] = await Promise.all([
             readMonth<ScheduleRow>("schedules",
                 "id,source_external_id,attendant_name,unit_name,client_id,created_in_source_at,scheduled_for,status",
-                "created_in_source_at", firstDay, nextMonth),
+                "created_in_source_at", firstDay, untilDay),
             readMonth<AppointmentRow>("appointments",
                 "id,source_external_id,created_by_attendant_id,created_by,unit_id,doctor_id,client_id,created_at,starts_at,status",
-                "created_at", firstDay + "T00:00:00-03:00", nextMonth + "T00:00:00-03:00"),
+                "created_at", firstDay + "T00:00:00-03:00", untilDay + "T00:00:00-03:00"),
             supabase.from("attendants").select("id,name"),
             supabase.from("attendant_aliases").select("source_name,attendant_id").eq("source", "clinisys"),
             supabase.from("units").select("id,name"),

@@ -15,7 +15,6 @@ const indicators = [
     ["grafico_unidades", "Agendamentos por unidade", "chart"],
     ["distribuicao", "Distribuição das vagas", "chart"],
     ["unidades", "Indicadores por unidade", "table"],
-    ["atendentes", "Marcado por atendente", "table"],
 ] as const;
 const definition = (source: AgendaReportSource, rows: ReadonlyArray<readonly [string, string, "kpi" | "chart" | "table"]>): DashboardWidgetDefinition[] => rows.map(([id, title, kind]) => ({
     id: `${source}.${id}`, title, kind, source, sourcePath: "/inteligencia-agenda", permissionTab: "inteligencia_agenda", supportedFilters: ["units"],
