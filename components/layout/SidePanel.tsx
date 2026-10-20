@@ -170,7 +170,12 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "mensagem_ativa",
     },
     { type: "separator", id: "usuarios" },
-
+    {
+        label: "Assistente IA",
+        href: "/assistente",
+        icon: <Sparkles size={18} />,
+        tabId: "assistente",
+    },
     {
         label: "Internos",
         href: "/internos",
@@ -708,31 +713,7 @@ function PersistentSidePanel({
                         </div>
                     </div>
 
-                    {allowedTabs.includes("assistente") ? (
-                        <div className="shrink-0 px-4 pt-4">
-                            <Link
-                                href="/assistente"
-                                onClick={() => setMobileOpen(false)}
-                                title="Assistente IA"
-                                className={`flex h-12 w-full cursor-pointer items-center overflow-hidden rounded-xl border px-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                    isExpanded ? "border-border" : "border-transparent"
-                                }`}
-                            >
-                                <span className="flex h-6 w-6 shrink-0 items-center justify-center text-brand">
-                                    <Sparkles size={22} />
-                                </span>
-                                <span
-                                    className={`ml-3 w-[200px] whitespace-nowrap opacity-100 transition-[width,margin,opacity] duration-150 ${
-                                        isExpanded
-                                            ? "md:ml-3 md:w-[150px] md:opacity-100"
-                                            : "md:ml-0 md:w-0 md:opacity-0"
-                                    }`}
-                                >
-                                    Assistente IA
-                                </span>
-                            </Link>
-                        </div>
-                    ) : null}
+
 
                     <div className="shrink-0 px-4 pt-4">
                         <button

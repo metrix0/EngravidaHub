@@ -12,11 +12,13 @@ import {
   Mail,
   Phone,
   Send,
+  Sparkles,
   UsersRound,
   X,
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { AssistantChat } from "@/app/assistente/page";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
@@ -122,6 +124,7 @@ type SelectedChat =
   | { kind: "ticket"; key: string }
   | { kind: "internal"; conversationId: string }
   | { kind: "group"; groupId: string }
+  | { kind: "assistant" }
   | null;
 
 type PersistedRailState = {
@@ -220,6 +223,10 @@ export function FloatingConversationPanel() {
   const { currentUser } = useCurrentUser();
   const currentUserId = currentUser?.user?.id ?? null;
   const currentUserName = currentUser?.user?.name ?? "Você";
+  const assistantAllowed = Boolean(
+    currentUser?.permission?.active &&
+    currentUser.permission.allowed_tabs.includes("assistente"),
+  );
 
   const openedSidePanelIds = useRef(new Set<string>());
   const [hydrated, setHydrated] = useState(false);
@@ -1581,6 +1588,7 @@ export function FloatingConversationPanel() {
       return;
     }
 
+    if (activeSelection.kind !== "group") return;
     const groupId = activeSelection.groupId;
     groupUnreadSnapshotRef.current.set(groupId, 0);
     setInternalGroups((current) =>
@@ -1654,6 +1662,14 @@ export function FloatingConversationPanel() {
     );
   }
 
+  function handleOpenAssistant() {
+    if (!assistantAllowed) return;
+    const nextSelection: SelectedChat = { kind: "assistant" };
+    selectedRef.current = nextSelection;
+    setSelected(nextSelection);
+    showDockExpanded();
+  }
+
   const hasUnreadChats =
     tickets.some((ticket) => (ticket.unread_count ?? 0) > 0) ||
     visibleInternalConversations.some(
@@ -1677,7 +1693,19 @@ export function FloatingConversationPanel() {
               ?.unread_count ?? 0)
           : 0;
 
-  if (!selected && !pendingOpen && !hasSavedChats) return null;
+  const launcher = assistantAllowed ? (
+    <button
+      type="button"
+      onClick={handleOpenAssistant}
+      className="fixed bottom-6 right-6 z-[46] flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-brand text-white shadow-lg transition hover:bg-brand/90 hover:shadow-xl active:scale-95"
+      aria-label="Abrir chats e assistente IA"
+      title="Abrir chats e assistente IA"
+    >
+      <Sparkles size={19} />
+    </button>
+  ) : null;
+
+  if (!selected && !pendingOpen && !hasSavedChats) return launcher;
 
   const rightOffset = sidePanelOpen ? 484 : 24;
   const hasOpenPanel = Boolean(selected || pendingOpen);
@@ -1690,6 +1718,8 @@ export function FloatingConversationPanel() {
   const dockOpacity = hasOpenPanel && visible ? 1 : 0;
 
   return (
+    <>
+    {!hasOpenPanel ? launcher : null}
     <div
       className="floating-conversation-dock fixed bottom-6 z-[45] h-[480px] w-[365px] will-change-transform"
       style={{
@@ -1709,6 +1739,7 @@ export function FloatingConversationPanel() {
         internalConversations={visibleInternalConversations}
         internalGroups={internalGroups}
         selected={selected}
+        assistantAllowed={assistantAllowed}
         collapsed={railCollapsed}
         hidden={collapsed}
         hasUnread={hasUnreadChats}
@@ -1718,6 +1749,7 @@ export function FloatingConversationPanel() {
         onSelectInternal={handleSelectInternal}
         onCloseInternal={handleCloseInternal}
         onSelectGroup={handleSelectGroup}
+        onSelectAssistant={handleOpenAssistant}
       />
 
       {pendingOpen ? (
@@ -1729,7 +1761,25 @@ export function FloatingConversationPanel() {
         />
       ) : selected ? (
         <div className="h-full w-full">
-          {selected.kind === "ticket" && selectedTicket ? (
+          {selected.kind === "assistant" ? (
+            <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-slate-200 px-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Sparkles size={17} className="text-brand" />
+                  Assistente IA
+                </div>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={handleToggleChatCollapsed} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title={collapsed ? "Expandir chat" : "Minimizar chat"} aria-label={collapsed ? "Expandir chat" : "Minimizar chat"}>
+                    <ChevronDown size={16} className={collapsed ? "rotate-180" : ""} />
+                  </button>
+                  <button type="button" onClick={handleCloseDock} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="Fechar chat" aria-label="Fechar chat">
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              {!collapsed && <div className="min-h-0 flex-1"><AssistantChat compact /></div>}
+            </div>
+          ) : selected.kind === "ticket" && selectedTicket ? (
             <TicketFloatingPanel
               target={selectedTicket}
               data={ticketData}
@@ -2006,6 +2056,7 @@ export function FloatingConversationPanel() {
         </div>
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -2014,6 +2065,7 @@ function ChatRail({
   internalConversations,
   internalGroups,
   selected,
+  assistantAllowed,
   collapsed,
   hidden,
   hasUnread,
@@ -2023,11 +2075,13 @@ function ChatRail({
   onSelectInternal,
   onCloseInternal,
   onSelectGroup,
+  onSelectAssistant,
 }: {
   tickets: SavedTicketTarget[];
   internalConversations: InternalConversationSummary[];
   internalGroups: InternalGroupSummary[];
   selected: SelectedChat;
+  assistantAllowed: boolean;
   collapsed: boolean;
   hidden: boolean;
   hasUnread: boolean;
@@ -2037,6 +2091,7 @@ function ChatRail({
   onSelectInternal: (conversation: InternalConversationSummary) => void;
   onCloseInternal: (conversationId: string) => void;
   onSelectGroup: (group: InternalGroupSummary) => void;
+  onSelectAssistant: () => void;
 }) {
   return (
     <div
@@ -2081,6 +2136,19 @@ function ChatRail({
             ) : null}
           </div>
 
+          {assistantAllowed && (
+            <>
+              <div className="my-4 h-px bg-slate-100" />
+              <RailSectionTitle label="Assistente" />
+              <SavedChatRow
+                name="Assistente IA"
+                preview="Pergunte sobre os dados do Hub"
+                active={selected?.kind === "assistant"}
+                icon="assistant"
+                onClick={onSelectAssistant}
+              />
+            </>
+          )}
           <div className="my-4 h-px bg-slate-100" />
           <RailSectionTitle label="Internos" />
           <div className="space-y-2">
@@ -2189,7 +2257,7 @@ function SavedChatRow({
   active: boolean;
   unread?: number;
   online?: boolean;
-  icon?: "avatar" | "group";
+  icon?: "avatar" | "group" | "assistant";
   onClick: () => void;
   onClose?: () => void;
 }) {
@@ -2206,9 +2274,9 @@ function SavedChatRow({
       }`}
     >
       <button type="button" onClick={onClick} className="cursor-pointer">
-        {icon === "group" ? (
+        {icon === "group" || icon === "assistant" ? (
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-soft text-purple">
-            <UsersRound size={17} />
+            {icon === "assistant" ? <Sparkles size={17} /> : <UsersRound size={17} />}
           </span>
         ) : (
           <span className="relative inline-flex shrink-0">
@@ -3127,7 +3195,8 @@ function isSelectedChat(value: unknown): value is Exclude<SelectedChat, null> {
     (selected.kind === "ticket" && typeof selected.key === "string") ||
     (selected.kind === "internal" &&
       typeof selected.conversationId === "string") ||
-    (selected.kind === "group" && typeof selected.groupId === "string")
+    (selected.kind === "group" && typeof selected.groupId === "string") ||
+    selected.kind === "assistant"
   );
 }
 
