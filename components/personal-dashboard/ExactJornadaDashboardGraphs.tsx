@@ -959,7 +959,7 @@ function PipelineStageCard({
 
     return (
         <div
-            className={`relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.06)] ${compact ? "h-[160px] p-3" : "h-[182px] p-4"}` shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+            className={`relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.06)] ${compact ? "h-[160px] p-3" : "h-[182px] p-4"}`}
             style={{ width }}
             title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}${detail ? ` — ${detail}` : ""}`}
         >
