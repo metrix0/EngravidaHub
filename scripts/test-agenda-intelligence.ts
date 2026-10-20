@@ -103,12 +103,12 @@ assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["inteligencia_agenda"]), w
 assert.deepEqual(filterDashboardWidgetIds(widgetIds, ["agendamentos"]), []);
 // Both report sections use the same dashboard permission and preserve daily/monthly scopes.
 const reportWidgetIds = AGENDA_REPORT_WIDGETS.map(widget => widget.id);
-assert.equal(reportWidgetIds.length, 16);
-assert.equal(new Set(reportWidgetIds).size, 16);
+assert.equal(reportWidgetIds.length, 15);
+assert.equal(new Set(reportWidgetIds).size, 15);
 assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "kpi").length, 8);
 assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "chart").length, 2);
-assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "table").length, 6);
-assert.equal(reportWidgetIds.includes("agenda_indicadores.atendentes"), true);
+assert.equal(AGENDA_REPORT_WIDGETS.filter(widget => widget.kind === "table").length, 5);
+assert.equal(reportWidgetIds.includes("agenda_indicadores.atendentes"), false);
 assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["inteligencia_agenda"]), reportWidgetIds);
 assert.deepEqual(filterDashboardWidgetIds(reportWidgetIds, ["agendamentos"]), []);
 for (const widget of AGENDA_REPORT_WIDGETS) {
