@@ -626,7 +626,8 @@ export default function WeekCalendar(props: Props) {
                                                 1,
                                                 ((endsAtMinutes - startsAtMinutes) / 60) * HOUR_HEIGHT - 6,
                                             );
-                                            const compact = endsAtMinutes - startsAtMinutes <= 15;
+                                            const compact = height < 60;
+                                            const showPatient = height >= 100;
                                             const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
@@ -638,6 +639,7 @@ export default function WeekCalendar(props: Props) {
                                                 <div
                                                     key={appointment.id}
                                                     draggable
+                                                    title={`${time(appointment.starts_at)}–${time(endsAt)} · ${appointment.doctor?.name ?? "Sem médico"} · ${appointment.patient_name}`}
                                                     onDragStart={(event) => {
                                                         event.dataTransfer.effectAllowed =
                                                             "move";
@@ -705,19 +707,18 @@ export default function WeekCalendar(props: Props) {
                                                         <Trash2 size={12} />
                                                     </button>
 
-                                                    <span className="block pr-5 text-[10px] font-bold leading-tight opacity-90">
-                                                        {time(
-                                                            appointment.starts_at,
-                                                        )}
-                                                        –{time(endsAt)}
-                                                    </span>
-                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
-                                                        {appointment.doctor
-                                                            ?.name ??
-                                                            "Sem médico"}
-                                                    </span>
+                                                    {height >= 22 ? (
+                                                        <span className={`block text-[10px] font-bold leading-tight opacity-90 ${compact ? "truncate" : "pr-5"}`}>
+                                                            {time(appointment.starts_at)}–{time(endsAt)}
+                                                        </span>
+                                                    ) : null}
                                                     {!compact ? (
-                                                        <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
+                                                        <span className="mt-0.5 line-clamp-2 break-words text-[11px] font-bold leading-tight">
+                                                            {appointment.doctor?.name ?? "Sem médico"}
+                                                        </span>
+                                                    ) : null}
+                                                    {showPatient ? (
+                                                        <span className="mt-0.5 line-clamp-2 break-words text-[11px] font-semibold leading-tight opacity-95">
                                                             {appointment.patient_name}
                                                         </span>
                                                     ) : null}
