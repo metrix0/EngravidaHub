@@ -53,6 +53,7 @@ import {
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
+import JourneyDeepInsights from "@/components/dashboard/JourneyDeepInsights";
 import {
     FullJourneyPipelineCard as SharedFullJourneyPipelineCard,
     WhatsappCoverageCard as SharedWhatsappCoverageCard,
@@ -514,6 +515,8 @@ export default function JourneyPage() {
                                 stages={current.evaluation_journeys.online}
                             />
                         </section>
+
+                        <JourneyDeepInsights query={pipelineParams.toString()} />
 
                         <section className="mt-6 min-w-0 max-w-full">
                             <InstagramConversationInsights
