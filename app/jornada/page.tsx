@@ -428,7 +428,7 @@ export default function JourneyPage() {
             <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
-                    <DashboardHeader title="Jornada" description="Da origem à receita liberada. Use períodos com 30+ dias para avaliar o comparecimento." period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={JOURNEY_CALENDAR_PRESETS} customRangeLabel="Personalizado" storageManaged storageReady />
+                    <DashboardHeader title="Jornada" description="Da origem à receita liberada. Use períodos com 30+ dias para avaliar o comparecimento." period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={JOURNEY_CALENDAR_PRESETS}  storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <JourneyBodySkeleton />
                 </section>
@@ -455,7 +455,7 @@ export default function JourneyPage() {
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
                     presets={JOURNEY_CALENDAR_PRESETS}
-                    customRangeLabel="Personalizado"
+                    
                     storageManaged
                     storageReady={dateFilterReady}
                 />
