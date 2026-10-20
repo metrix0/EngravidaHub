@@ -74,7 +74,6 @@ export default function AppointmentsPage() {
     const [freeOnly, setFreeOnly] = useState(false);
     const [recoveryVacancies, setRecoveryVacancies] = useState<RecoveryVacancy[]>([]);
     const [recoverySelection, setRecoverySelection] = useState<{ slot: AgendaFreeSlot; vacancyId: number } | null>(null);
-    const [filledOpen, setFilledOpen] = useState(false);
     const [recoveryRefresh, setRecoveryRefresh] = useState(0);
     const [metricsOpen, setMetricsOpen] = useState(false);
     const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
@@ -594,10 +593,6 @@ export default function AppointmentsPage() {
                             Agendar
                         </button>
                         <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`flex h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}><Clock3 size={17} />Horários Livres</button>
-                        {freeOnly && recoveryVacancies.some(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))) &&
-                            <button type="button" onClick={() => setFilledOpen(true)} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-selection">
-                                Preenchidos ({recoveryVacancies.filter(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))).length})
-                            </button>}
                         <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
                         <button
                             type="button"
@@ -749,17 +744,6 @@ export default function AppointmentsPage() {
                 {recoverySelection && <VacancyRecoveryPanel key={recoverySelection.vacancyId} slot={recoverySelection.slot} vacancyId={recoverySelection.vacancyId}
                     onUpdate={() => setRecoveryRefresh(value => value + 1)}
                     onBook={slot => { setRecoverySelection(null); setInitialSlot(slot); setSchedulingPanelOpen(true); }} />}
-            </DetailsSidePanel>
-
-            <DetailsSidePanel open={filledOpen} title="Preenchidos" onClose={() => setFilledOpen(false)} width={460}>
-                <div className="space-y-3">
-                    {recoveryVacancies.filter(v => v.filled && (!doctorValues.length || doctorValues.includes(v.doctorId))).map(v => (
-                        <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                            <p className="text-sm font-bold text-slate-900">{new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date(v.startsAt))}</p>
-                            <p className="mt-1 text-xs text-slate-600">{doctors.find(d => d.id === v.doctorId)?.name ?? "Médico"} · {units.find(u => u.id === v.unitId)?.name ?? "Unidade"}</p>
-                            <p className="mt-2 text-xs text-green">Preenchido · {v.contacted} contatado(s) · {v.responded} resposta(s)</p>
-                        </div>))}
-                </div>
             </DetailsSidePanel>
 
             <SchedulingPanel

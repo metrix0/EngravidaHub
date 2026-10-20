@@ -97,7 +97,7 @@ export default function VacancyRecoveryPanel({
 
             {data?.filled ? (
                 <div className="flex items-center gap-2 rounded-xl border border-green/20 bg-green-soft p-3 text-sm font-semibold text-green">
-                    <CheckCircle2 size={17} /> Horário preenchido. Novos contatos desativados.
+                    <CheckCircle2 size={17} /> Horário indisponível. Novos contatos desativados.
                 </div>
             ) : (
                 <button type="button" onClick={() => onBook(slot)}
