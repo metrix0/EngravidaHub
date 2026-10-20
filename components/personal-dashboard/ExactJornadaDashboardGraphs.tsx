@@ -13,7 +13,7 @@ import {
     UserCheck,
 } from "lucide-react";
 import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Card, InfoTooltip, Skeleton } from "@/components";
 
@@ -334,191 +334,132 @@ export function WhatsappCoverageCard({
 }: {
     pipeline: FullJourneyPipeline;
 }) {
-    const coverage =
-        pipeline.audit.whatsapp_coverage ?? EMPTY_WHATSAPP_COVERAGE;
+    const coverage = pipeline.audit.whatsapp_coverage ?? EMPTY_WHATSAPP_COVERAGE;
     const chartData: WhatsappCoverageChartItem[] = [
         {
             key: "meta_ads",
             ...WHATSAPP_COVERAGE_STYLE.meta_ads,
             value: coverage.meta_conversations,
-            percentage: calculateRate(
-                coverage.meta_conversations,
-                coverage.total_conversations,
-            ),
+            percentage: calculateRate(coverage.meta_conversations, coverage.total_conversations),
         },
         {
             key: "google_ads",
             ...WHATSAPP_COVERAGE_STYLE.google_ads,
             value: coverage.google_conversations,
-            percentage: calculateRate(
-                coverage.google_conversations,
-                coverage.total_conversations,
-            ),
+            percentage: calculateRate(coverage.google_conversations, coverage.total_conversations),
         },
         {
             key: "other",
             ...WHATSAPP_COVERAGE_STYLE.other,
             value: coverage.other_conversations,
-            percentage: calculateRate(
-                coverage.other_conversations,
-                coverage.total_conversations,
-            ),
+            percentage: calculateRate(coverage.other_conversations, coverage.total_conversations),
         },
         {
             key: "untracked",
             ...WHATSAPP_COVERAGE_STYLE.untracked,
             value: coverage.untracked_conversations,
-            percentage: calculateRate(
-                coverage.untracked_conversations,
-                coverage.total_conversations,
-            ),
+            percentage: calculateRate(coverage.untracked_conversations, coverage.total_conversations),
         },
     ];
 
     return (
         <Card className="min-w-0">
-            <h2 className="text-lg font-bold">
-                Cobertura das conversas no WhatsApp
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                <h2 className="text-lg font-bold">Cobertura das conversas no WhatsApp</h2>
+                {coverage.total_conversations > 0 && (
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-xs text-slate-500">Total de conversas</span>
+                        <strong className="text-xl font-bold tabular-nums text-slate-900">
+                            {coverage.total_conversations.toLocaleString("pt-BR")}
+                        </strong>
+                    </div>
+                )}
+            </div>
 
             {coverage.total_conversations === 0 ? (
-                <div className="mt-5">
+                <div className="mt-4">
                     <EmptyCardMessage message="Nenhuma conversa no período." />
                 </div>
             ) : (
-                <div className="mt-4 grid grid-cols-1 items-center gap-6 lg:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1.1fr)] lg:gap-10">
-                    <div className="relative h-[270px] min-w-0">
-                        <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                            <PieChart>
-                                <Pie
-                                    data={chartData}
-                                    dataKey="value"
-                                    nameKey="label"
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={68}
-                                    outerRadius={98}
-                                    paddingAngle={2}
-                                    stroke="none"
-                                    isAnimationActive={false}
-                                >
-                                    {chartData.map((item) => (
-                                        <Cell
-                                            key={item.key}
-                                            fill={item.color}
-                                        />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    content={
-                                        <WhatsappCoverageTooltip />
-                                    }
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
-                        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                            <span className="text-3xl font-bold text-slate-800">
-                                {coverage.total_conversations.toLocaleString(
-                                    "pt-BR",
-                                )}
-                            </span>
-                            <span className="mt-1 text-xs font-medium text-slate-500">
-                                total de conversas
-                            </span>
+                <>
+                    <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-slate-500">Rastreadas</span>
+                            <strong className="tabular-nums text-slate-800">
+                                {coverage.tracked_conversations.toLocaleString("pt-BR")}
+                            </strong>
+                            <span className="text-xs text-slate-500">{formatRate(coverage.tracking_rate)}</span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-slate-500">Clientes únicos</span>
+                            <strong className="tabular-nums text-slate-800">
+                                {coverage.identified_clients === undefined
+                                    ? "—"
+                                    : coverage.identified_clients.toLocaleString("pt-BR")}
+                            </strong>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-slate-500">Com origem paga</span>
+                            <strong className="tabular-nums text-slate-800">
+                                {coverage.paid_clients === undefined
+                                    ? "—"
+                                    : coverage.paid_clients.toLocaleString("pt-BR")}
+                            </strong>
                         </div>
                     </div>
 
-                    <div className="min-w-0">
-                        <div className="mb-3 flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3">
-                            <span className="text-sm font-medium text-slate-600">
-                                Conversas rastreadas
-                            </span>
-                            <div className="text-right">
-                                <div className="font-bold text-slate-800">
-                                    {coverage.tracked_conversations.toLocaleString(
-                                        "pt-BR",
-                                    )}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                    {formatRate(coverage.tracking_rate)} do total
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mb-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
-                            <div className="flex items-center justify-between gap-3">
-                                <span className="font-medium text-slate-600">Clientes únicos identificados</span>
-                                <span className="font-bold text-slate-800">{(coverage.identified_clients ?? 0).toLocaleString("pt-BR")}</span>
-                            </div>
-                            <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
-                                <span>Com origem paga rastreada</span>
-                                <span className="font-semibold text-slate-700">{(coverage.paid_clients ?? 0).toLocaleString("pt-BR")}</span>
-                            </div>
-                        </div>
-                        <div className="divide-y divide-slate-100">
-                            {chartData.map((item) => (
-                                <div
-                                    key={item.key}
-                                    className="flex items-center justify-between gap-4 py-3"
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <span
-                                            className="h-2.5 w-2.5 rounded-full"
-                                            style={{
-                                                backgroundColor: item.color,
-                                            }}
-                                        />
-                                        <span className="text-sm font-medium text-slate-700">
-                                            {item.label}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-baseline gap-3">
-                                        <span className="font-bold text-slate-800">
-                                            {item.value.toLocaleString("pt-BR")}
-                                        </span>
-                                        <span className="w-12 text-right text-xs text-slate-500">
-                                            {formatRate(item.percentage)}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                    <div
+                        className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-slate-100"
+                        role="img"
+                        aria-label={chartData.map(item =>
+                            item.label + ": " + item.value.toLocaleString("pt-BR") +
+                            " (" + formatRate(item.percentage) + ")"
+                        ).join("; ")}
+                    >
+                        {chartData.filter(item => item.value > 0).map(item => (
+                            <div
+                                key={item.key}
+                                className="h-full"
+                                style={{
+                                    width: String(item.percentage ?? 0) + "%",
+                                    backgroundColor: item.color,
+                                }}
+                                title={item.label + ": " + item.value.toLocaleString("pt-BR") +
+                                    " (" + formatRate(item.percentage) + ")"}
+                            />
+                        ))}
                     </div>
-                </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 lg:grid-cols-4">
+                        {chartData.map(item => (
+                            <div key={item.key} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-1 py-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span
+                                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                        style={{ backgroundColor: item.color }}
+                                    />
+                                    <span className="truncate text-xs font-medium text-slate-600" title={item.label}>
+                                        {item.label}
+                                    </span>
+                                </div>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-sm font-semibold tabular-nums text-slate-800">
+                                        {item.value.toLocaleString("pt-BR")}
+                                    </span>
+                                    <span className="text-xs tabular-nums text-slate-500">
+                                        {formatRate(item.percentage)}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
             )}
         </Card>
     );
 }
 
 type WhatsappCoverageChartItem = { key: string; label: string; value: number; percentage: number | null; color: string };
-function WhatsappCoverageTooltip({
-    active,
-    payload,
-}: {
-    active?: boolean;
-    payload?: { payload?: WhatsappCoverageChartItem }[];
-}) {
-    const item = payload?.[0]?.payload;
-    if (!active || !item) return null;
-
-    return (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
-            <div className="flex items-center gap-2">
-                <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                />
-                <span className="font-semibold text-slate-800">
-                    {item.label}
-                </span>
-            </div>
-            <div className="mt-2 text-sm text-slate-600">
-                {item.value.toLocaleString("pt-BR")} ·{" "}
-                {formatRate(item.percentage)}
-            </div>
-        </div>
-    );
-}
 
 const PIPELINE_TREE_ROW_HEIGHT = 210;
 const PIPELINE_TREE_ROW_GAP = 16;
