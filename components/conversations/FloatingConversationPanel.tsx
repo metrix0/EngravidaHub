@@ -1762,21 +1762,16 @@ export function FloatingConversationPanel() {
       ) : selected ? (
         <div className="h-full w-full">
           {selected.kind === "assistant" ? (
-            <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-              <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-slate-200 px-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <Sparkles size={17} className="text-brand" />
-                  Assistente IA
-                </div>
-                <div className="flex items-center gap-1">
-                  <button type="button" onClick={handleToggleChatCollapsed} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title={collapsed ? "Expandir chat" : "Minimizar chat"} aria-label={collapsed ? "Expandir chat" : "Minimizar chat"}>
-                    <ChevronDown size={16} className={collapsed ? "rotate-180" : ""} />
-                  </button>
-                  <button type="button" onClick={handleCloseDock} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="Fechar chat" aria-label="Fechar chat">
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
+            <div className="flex h-full w-[365px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <FloatingConversationHeader
+                name="Assistente IA"
+                subtitle="Assistente virtual"
+                subtitleIcon="assistant"
+                online
+                collapsed={collapsed}
+                onToggleCollapsed={handleToggleChatCollapsed}
+                onClose={handleCloseDock}
+              />
               {!collapsed && <div className="min-h-0 flex-1"><AssistantChat compact /></div>}
             </div>
           ) : selected.kind === "ticket" && selectedTicket ? (
@@ -2578,6 +2573,74 @@ function TicketFloatingPanel({
   );
 }
 
+function FloatingConversationHeader({
+  name,
+  subtitle,
+  subtitleIcon = "mail",
+  online,
+  loading = false,
+  hasUnread = false,
+  collapsed,
+  onToggleCollapsed,
+  onClose,
+}: {
+  name: string;
+  subtitle: string;
+  subtitleIcon?: "mail" | "assistant";
+  online?: boolean;
+  loading?: boolean;
+  hasUnread?: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={collapsed ? onToggleCollapsed : undefined}
+      className={`shrink-0 border-b border-slate-100 px-4 py-3 ${
+        collapsed ? "cursor-pointer" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="relative inline-flex shrink-0">
+            <InitialsAvatar name={name} />
+            {typeof online === "boolean" ? (
+              <span
+                className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
+                  online ? "bg-green" : "bg-slate-400"
+                }`}
+                title={online ? "Online" : "Offline"}
+              />
+            ) : null}
+          </span>
+
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <div title={name} className="truncate text-sm font-bold text-slate-950">
+                {loading ? "Carregando..." : name}
+              </div>
+              {hasUnread ? (
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand" title="Novas mensagens" />
+              ) : null}
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+              {subtitleIcon === "assistant" ? <Sparkles size={12} /> : <Mail size={12} />}
+              <span className="truncate">{subtitle}</span>
+            </div>
+          </div>
+        </div>
+
+        <PanelControls
+          collapsed={collapsed}
+          onToggleCollapsed={onToggleCollapsed}
+          onClose={onClose}
+        />
+      </div>
+    </div>
+  );
+}
+
 function InternalFloatingPanel({
   currentUserId,
   currentUserName,
@@ -2668,58 +2731,16 @@ function InternalFloatingPanel({
 
   return (
     <div className="flex h-full w-[365px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-      <div
-        onClick={collapsed ? onToggleCollapsed : undefined}
-        className={`shrink-0 border-b border-slate-100 px-4 py-3 ${
-          collapsed ? "cursor-pointer" : ""
-        }`}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="relative inline-flex shrink-0">
-              <InitialsAvatar name={peerName} />
-              {peer ? (
-                <span
-                  className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
-                    peer.online ? "bg-green" : "bg-slate-400"
-                  }`}
-                  title={peer.online ? "Online" : "Offline"}
-                />
-              ) : null}
-            </span>
-
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <div
-                  title={peerName}
-                  className="truncate text-sm font-bold text-slate-950"
-                >
-                  {loading ? "Carregando..." : peerName}
-                </div>
-
-                {hasUnread ? (
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand"
-                    title="Novas mensagens"
-                  />
-                ) : null}
-
-              </div>
-
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                <Mail size={12} />
-                <span className="truncate">{peerEmail}</span>
-              </div>
-            </div>
-          </div>
-
-          <PanelControls
-            collapsed={collapsed}
-            onToggleCollapsed={onToggleCollapsed}
-            onClose={onClose}
-          />
-        </div>
-      </div>
+      <FloatingConversationHeader
+        name={peerName}
+        subtitle={peerEmail}
+        online={peer?.online}
+        loading={loading}
+        hasUnread={hasUnread}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        onClose={onClose}
+      />
 
       <ChatMessageList
         messages={messages}
