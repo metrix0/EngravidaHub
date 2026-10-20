@@ -99,6 +99,10 @@ type FullJourneyPipeline = {
             source: string;
             clients: number;
             percentage: number;
+            scheduled_clients: number;
+            attended_clients: number;
+            schedule_rate: number | null;
+            attendance_rate: number | null;
         }[];
         whatsapp_coverage: WhatsappCoverage;
         whatsapp_origins: {
@@ -238,6 +242,8 @@ type TintimConversationAttributionRow = {
 type WhatsappCoverage = {
     total_conversations: number;
     tracked_conversations: number;
+    identified_clients: number;
+    paid_clients: number;
     tracking_rate: number | null;
     google_conversations: number;
     meta_conversations: number;
@@ -525,15 +531,17 @@ function buildJourneyConversationMetrics({
         eventsByClient.set(row.clientKey, events);
     }
 
-    const requested = firstStage(eventsByClient, ["information_requested"]);
-    const answered = nextStage(eventsByClient, requested, ["information_answered"]);
-    const priced = nextStage(eventsByClient, answered, ["price_presented"]);
-    const offered = nextStage(eventsByClient, priced, ["consultation_offered"]);
-    const scheduled = nextStage(eventsByClient, offered, [
-        "appointment_scheduled",
-        "appointment_rescheduled",
-        "attendance_confirmed",
-    ]);
+    // A later milestone also shows progress past earlier, unrecorded steps.
+    const bookingEvents = ["appointment_scheduled", "appointment_rescheduled", "attendance_confirmed"];
+    const offerEvents = ["consultation_offered", ...bookingEvents];
+    const priceEvents = ["price_presented", ...offerEvents];
+    const answerEvents = ["information_answered", ...priceEvents];
+    const requestEvents = ["information_requested", ...answerEvents];
+    const requested = firstStage(eventsByClient, requestEvents);
+    const answered = firstStage(eventsByClient, answerEvents);
+    const priced = firstStage(eventsByClient, priceEvents);
+    const offered = firstStage(eventsByClient, offerEvents);
+    const scheduled = firstStage(eventsByClient, bookingEvents);
     const started = new Set(base.map((row) => row.clientKey)).size;
 
     const journeyFunnel = [
@@ -542,7 +550,7 @@ function buildJourneyConversationMetrics({
         funnelStage("information_answered", "Informação respondida", answered.size, started, requested.size, "#bfdbfe"),
         funnelStage("price_presented", "Preço apresentado", priced.size, started, answered.size, "#c4b5fd"),
         funnelStage("consultation_offered", "Consulta oferecida", offered.size, started, priced.size, "#fed7aa"),
-        funnelStage("appointment_scheduled", "Agendamento realizado", scheduled.size, started, offered.size, "#fbcfe8"),
+        funnelStage("appointment_scheduled", "Agendamento mencionado", scheduled.size, started, offered.size, "#fbcfe8"),
     ];
 
     const dropoffCounts = new Map<string, number>();
@@ -552,6 +560,7 @@ function buildJourneyConversationMetrics({
     >();
     const objectionConversations = new Map<string, Set<string>>();
     const conversationsWithObjections = new Set<string>();
+    const abandonedConversations = new Set<string>();
 
     for (const row of base) {
         if (row.dropoffHappened && row.dropoffMoment) {
@@ -564,6 +573,7 @@ function buildJourneyConversationMetrics({
         const abandoned =
             row.dropoffHappened ||
             row.resolutionReasoningCategory === "customer_abandoned";
+        if (abandoned) abandonedConversations.add(row.conversationId);
         const intent = intentCounts.get(row.customerStartIntent) ?? {
             resolved: 0,
             partial: 0,
@@ -571,13 +581,9 @@ function buildJourneyConversationMetrics({
             abandoned: 0,
         };
         if (abandoned) intent.abandoned += 1;
-        if (!abandoned && row.resolutionResult === "resolved") intent.resolved += 1;
-        if (
-            !abandoned &&
-            row.resolutionResult !== null &&
-            row.resolutionResult !== "resolved"
-        ) intent.partial += 1;
-        if (!abandoned && row.resolutionResult === "not_resolved") intent.notResolved += 1;
+        else if (row.resolutionResult === "resolved") intent.resolved += 1;
+        else if (row.resolutionResult === "partial") intent.partial += 1;
+        else if (row.resolutionResult === "not_resolved") intent.notResolved += 1;
         intentCounts.set(row.customerStartIntent, intent);
 
         const uniqueTypes = new Set(
@@ -631,6 +637,10 @@ function buildJourneyConversationMetrics({
                 conversationIds.size,
                 conversationsWithObjections.size,
             ),
+            abandonment_rate: integerPercentage(
+                [...conversationIds].filter(id => abandonedConversations.has(id)).length,
+                conversationIds.size,
+            ),
         }))
         .sort((left, right) => right.value - left.value);
 
@@ -656,22 +666,6 @@ function firstStage(
     for (const [clientKey, events] of eventsByClient) {
         const times = events
             .filter((event) => accepted.has(event.type))
-            .map((event) => event.eventAt);
-        if (times.length > 0) result.set(clientKey, Math.min(...times));
-    }
-    return result;
-}
-
-function nextStage(
-    eventsByClient: Map<string, Array<{ type: string; eventAt: number }>>,
-    previousStage: Map<string, number>,
-    eventTypes: string[],
-) {
-    const accepted = new Set(eventTypes);
-    const result = new Map<string, number>();
-    for (const [clientKey, previousAt] of previousStage) {
-        const times = (eventsByClient.get(clientKey) ?? [])
-            .filter((event) => accepted.has(event.type) && event.eventAt >= previousAt)
             .map((event) => event.eventAt);
         if (times.length > 0) result.set(clientKey, Math.min(...times));
     }
@@ -1193,7 +1187,7 @@ async function loadFullJourneyPipeline(
         measurementReady: paidMedia.measurementReady,
         measurementNote: paidMedia.measurementNote,
         trackedByEvidence: buildEvidenceBreakdown(cohort),
-        trackedSources: buildTrackedSourceBreakdown(cohort),
+        trackedSources: buildTrackedSourceBreakdown(cohort, scheduledClients, new Set(attendedAtByClient.keys())),
         whatsappCoverage: whatsappData.coverage,
         whatsappOrigins: buildWhatsappOriginBreakdown(whatsappEntries),
         procedureLinkage: {
@@ -1514,6 +1508,8 @@ async function loadPaidWhatsappConversations(
     const selectedOrigins = new Set(filters.origins.map(normalizeText));
     const paidEntries: PaidWhatsappEntry[] = [];
     const coverageByConversation = new Map<string, WhatsappCoverageCategory>();
+    const identifiedClientIds = new Set<string>();
+    const paidClientIds = new Set<string>();
 
     for (const conversation of rows) {
         const conversationOrigin = conversation.origin?.trim();
@@ -1577,6 +1573,7 @@ async function loadPaidWhatsappConversations(
             !selectedOrigins.has(normalizeText(origin ?? ""))
         ) continue;
 
+        if (conversation.client_id) identifiedClientIds.add(conversation.client_id);
         const coverageKey =
             conversation.thread_id ?? conversation.client_id ?? conversation.id;
         const coverageCategory =
@@ -1606,6 +1603,7 @@ async function loadPaidWhatsappConversations(
             attribution,
         });
         if (!attributionSource) continue;
+        if (conversation.client_id) paidClientIds.add(conversation.client_id);
 
         paidEntries.push({
             ...conversation,
@@ -1620,7 +1618,7 @@ async function loadPaidWhatsappConversations(
     return {
         rows,
         paidEntries,
-        coverage: buildWhatsappCoverage(coverageByConversation),
+        coverage: buildWhatsappCoverage(coverageByConversation, identifiedClientIds.size, paidClientIds.size),
     };
 }
 
@@ -2278,6 +2276,8 @@ function mergeCoverageCategory(
 
 function buildWhatsappCoverage(
     coverageByConversation: Map<string, WhatsappCoverageCategory>,
+    identifiedClients: number,
+    paidClients: number,
 ): WhatsappCoverage {
     let googleConversations = 0;
     let metaConversations = 0;
@@ -2295,6 +2295,8 @@ function buildWhatsappCoverage(
     return {
         total_conversations: totalConversations,
         tracked_conversations: trackedConversations,
+        identified_clients: identifiedClients,
+        paid_clients: paidClients,
         tracking_rate: percentage(trackedConversations, totalConversations),
         google_conversations: googleConversations,
         meta_conversations: metaConversations,
@@ -2307,6 +2309,8 @@ function emptyWhatsappCoverage(): WhatsappCoverage {
     return {
         total_conversations: 0,
         tracked_conversations: 0,
+        identified_clients: 0,
+        paid_clients: 0,
         tracking_rate: null,
         google_conversations: 0,
         meta_conversations: 0,
@@ -2317,6 +2321,8 @@ function emptyWhatsappCoverage(): WhatsappCoverage {
 
 function buildTrackedSourceBreakdown(
     cohort: Map<string, PaidWhatsappCohortEntry>,
+    scheduledClients: Set<string>,
+    attendedClients: Set<string>,
 ): FullJourneyPipeline["audit"]["tracked_sources"] {
     const sources = new Map<
         string,
@@ -2325,23 +2331,31 @@ function buildTrackedSourceBreakdown(
             field: PaidWhatsappEntry["source_field"];
             source: string;
             clients: number;
+            scheduled_clients: number;
+            attended_clients: number;
         }
     >();
-    for (const entry of cohort.values()) {
+    for (const [clientId, entry] of cohort) {
         const key = [entry.platform, entry.sourceField, normalizeText(entry.sourceValue)].join(":");
         const current = sources.get(key) ?? {
             platform: entry.platform,
             field: entry.sourceField,
             source: entry.sourceValue,
             clients: 0,
+            scheduled_clients: 0,
+            attended_clients: 0,
         };
         current.clients += 1;
+        if (scheduledClients.has(clientId)) current.scheduled_clients += 1;
+        if (attendedClients.has(clientId)) current.attended_clients += 1;
         sources.set(key, current);
     }
     return [...sources.values()]
         .map((source) => ({
             ...source,
             percentage: percentage(source.clients, cohort.size) ?? 0,
+            schedule_rate: percentage(source.scheduled_clients, source.clients),
+            attendance_rate: percentage(source.attended_clients, source.clients),
         }))
         .sort(
             (first, second) =>

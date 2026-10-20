@@ -12,7 +12,7 @@ import {
     UserCheck,
 } from "lucide-react";
 import { FaGoogle, FaMeta } from "react-icons/fa6";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Card, InfoTooltip } from "@/components";
 
@@ -73,10 +73,16 @@ type FullJourneyPipeline = {
             source: string;
             clients: number;
             percentage: number;
+            scheduled_clients?: number;
+            attended_clients?: number;
+            schedule_rate?: number | null;
+            attendance_rate?: number | null;
         }>;
         whatsapp_coverage: {
             total_conversations: number;
             tracked_conversations: number;
+            identified_clients?: number;
+            paid_clients?: number;
             tracking_rate: number | null;
             google_conversations: number;
             meta_conversations: number;
@@ -103,6 +109,11 @@ type TrackedWhatsappChartSource = {
     evidence: TrackedWhatsappSourceEvidence;
     clients: number;
     percentage: number;
+    scheduled_clients: number;
+    attended_clients: number;
+    schedule_rate: number | null;
+    attendance_rate: number | null;
+    schedule_rate_label: string;
     key: string;
     label: string;
 };
@@ -409,6 +420,16 @@ export function WhatsappCoverageCard({
                             </div>
                         </div>
 
+                        <div className="mb-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="font-medium text-slate-600">Clientes únicos identificados</span>
+                                <span className="font-bold text-slate-800">{(coverage.identified_clients ?? 0).toLocaleString("pt-BR")}</span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
+                                <span>Com origem paga rastreada</span>
+                                <span className="font-semibold text-slate-700">{(coverage.paid_clients ?? 0).toLocaleString("pt-BR")}</span>
+                            </div>
+                        </div>
                         <div className="divide-y divide-slate-100">
                             {chartData.map((item) => (
                                 <div
@@ -1226,6 +1247,8 @@ export function TrackedWhatsappSourcesCard({
         const current = groupedSources.get(key);
         if (current) {
             current.clients += source.clients;
+            current.scheduled_clients += source.scheduled_clients ?? 0;
+            current.attended_clients += source.attended_clients ?? 0;
             continue;
         }
 
@@ -1235,6 +1258,11 @@ export function TrackedWhatsappSourcesCard({
             evidence,
             clients: source.clients,
             percentage: 0,
+            scheduled_clients: source.scheduled_clients ?? 0,
+            attended_clients: source.attended_clients ?? 0,
+            schedule_rate: null,
+            attendance_rate: null,
+            schedule_rate_label: "",
             key,
             label: trackedSourceAxisLabel(source.source, evidence),
         });
@@ -1244,17 +1272,36 @@ export function TrackedWhatsappSourcesCard({
         (sum, source) => sum + source.clients,
         0,
     );
-    const chartData = [...groupedSources.values()]
-        .map((source) => ({
+    const sortedSources = [...groupedSources.values()]
+        .sort((first, second) => second.clients - first.clients ||
+            first.source.localeCompare(second.source, "pt-BR"));
+    const remaining = new Map<TrackedWhatsappChartSource["platform"], TrackedWhatsappChartSource>();
+    for (const source of sortedSources.slice(12)) {
+        const current = remaining.get(source.platform);
+        if (current) {
+            current.clients += source.clients;
+            current.scheduled_clients += source.scheduled_clients;
+            current.attended_clients += source.attended_clients;
+        } else {
+            remaining.set(source.platform, {
+                ...source,
+                source: "Outras fontes",
+                label: source.platform === "meta_ads" ? "Outras fontes (Meta)" : "Outras fontes (Google)",
+                key: `other:${source.platform}`,
+            });
+        }
+    }
+    const chartData = [...sortedSources.slice(0, 12), ...remaining.values()].map(source => {
+        const rate = calculateRate(source.scheduled_clients, source.clients);
+        return {
             ...source,
             percentage: calculateRate(source.clients, totalClients) ?? 0,
-        }))
-        .sort(
-            (first, second) =>
-                second.clients - first.clients ||
-                first.source.localeCompare(second.source, "pt-BR"),
-        );
-    const chartHeight = Math.max(280, chartData.length * 30 + 40);
+            schedule_rate: rate,
+            attendance_rate: calculateRate(source.attended_clients, source.clients),
+            schedule_rate_label: `${formatRate(rate)} agendaram`,
+        };
+    });
+    const chartHeight = Math.max(280, chartData.length * 34 + 40);
 
     return (
         <Card className="min-w-0">
@@ -1262,6 +1309,7 @@ export function TrackedWhatsappSourcesCard({
                 <h2 className="text-lg font-bold">
                     De onde vem o WhatsApp rastreado
                 </h2>
+                <p className="mt-1 text-xs text-slate-500">Clientes por origem e taxa de agendamento confirmado no CliniSys.</p>
                 <div className="mt-3 flex flex-wrap items-center gap-5 text-xs text-slate-500">
                     <LegendDot
                         color={TRACKED_WHATSAPP_PLATFORM_STYLE.google_ads.color}
@@ -1283,7 +1331,7 @@ export function TrackedWhatsappSourcesCard({
                             data={chartData}
                             layout="vertical"
                             barCategoryGap="24%"
-                            margin={{ left: 0, right: 20 }}
+                            margin={{ left: 0, right: 130 }}
                         >
                             <CartesianGrid
                                 strokeDasharray="4 4"
@@ -1316,6 +1364,7 @@ export function TrackedWhatsappSourcesCard({
                                 radius={[0, 7, 7, 0]}
                                 isAnimationActive={false}
                             >
+                                <LabelList dataKey="schedule_rate_label" position="right" fontSize={11} fill="#64748b" />
                                 {chartData.map((source) => (
                                     <Cell
                                         key={source.key}
@@ -1366,6 +1415,14 @@ function TrackedWhatsappSourceTooltip({
                         {source.clients.toLocaleString("pt-BR")} ·{" "}
                         {formatRate(source.percentage)}
                     </span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <span>Agendaram</span>
+                    <span className="font-semibold text-slate-700">{source.scheduled_clients.toLocaleString("pt-BR")} · {formatRate(source.schedule_rate)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                    <span>Compareceram</span>
+                    <span className="font-semibold text-slate-700">{source.attended_clients.toLocaleString("pt-BR")} · {formatRate(source.attendance_rate)}</span>
                 </div>
             </div>
         </div>

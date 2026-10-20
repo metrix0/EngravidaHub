@@ -45,6 +45,7 @@ type JourneyData = {
         label: string;
         value: number;
         percentage: number | null;
+        abandonment_rate?: number | null;
     }>;
     audit?: { conversations_with_objections?: number } | null;
 };
@@ -67,7 +68,12 @@ export function JourneyFunnelCard({ data }: { data: JourneyDashboardData }) {
     return (
         <Card>
             <div className="mb-5">
-                <h2 className="text-lg font-bold">Jornada na Conversa</h2>
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold">Jornada na Conversa</h2>
+                    <InfoTooltip text="Etapas acumulativas: eventos posteriores também indicam avanço quando etapas anteriores não foram registradas. Agendamentos mencionados pela IA não são confirmação do CliniSys.">
+                        <HelpCircle size={16} className="text-slate-400" />
+                    </InfoTooltip>
+                </div>
             </div>
 
             <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(245px,0.65fr)] items-center gap-5">
@@ -231,7 +237,7 @@ export function DropoffCard({ data }: { data: JourneyDashboardData }) {
                             <div className="mb-2 flex items-center justify-between text-sm">
                                 <span className="font-medium text-slate-700">{item.label}</span>
                                 <span className="font-bold text-slate-700">
-                                    {formatRate(item.percentage)}
+                                    {item.count.toLocaleString("pt-BR")} · {formatRate(item.percentage)}
                                 </span>
                             </div>
                             <PercentageBar value={item.percentage ?? 0} color="purple" />
@@ -272,10 +278,15 @@ export function ObjectionsCard({ data }: { data: JourneyDashboardData }) {
                             <div className="mb-2 flex items-center justify-between text-sm">
                                 <span className="font-medium text-slate-700">{item.label}</span>
                                 <span className="font-bold text-slate-700">
-                                    {formatRate(item.percentage)}
+                                    {item.value.toLocaleString("pt-BR")} · {formatRate(item.percentage)}
                                 </span>
                             </div>
                             <PercentageBar value={item.percentage ?? 0} color="purple" />
+                            {item.abandonment_rate !== undefined && item.abandonment_rate !== null && (
+                                <p className="mt-1 text-xs text-slate-500">
+                                    {formatRate(item.abandonment_rate)} das conversas com essa objeção abandonaram
+                                </p>
+                            )}
                         </div>
                     </div>
                 ))}
