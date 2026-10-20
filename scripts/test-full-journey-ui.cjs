@@ -14,6 +14,11 @@ const components = {
 const source = ts.transpileModule(fs.readFileSync(path.join(root, "components/personal-dashboard/ExactJornadaDashboardGraphs.tsx"), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
+const connectionsSource = ts.transpileModule(fs.readFileSync(path.join(root, "lib/funnel/journeyConnections.ts"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+const connectionExports = {};
+vm.runInNewContext(connectionsSource, { exports: connectionExports });
 const fixture = {
     available: true, ads_available: true, filters_applied: false, currency_code: "BRL", acquisition_branches: [], procedure_branches: [], transitions: [],
     revenue_branches: [{ kind: "evaluation", clients: 1, amount: 100 }, { kind: "procedure", clients: 1, amount: 200 }],
@@ -26,7 +31,7 @@ fixture.additional_pipelines = [{ key: "untracked", label: "WhatsApp não rastre
 function load(react, fetch, window) {
     const exports = {};
     vm.runInNewContext(source + "\nexports.__test = ProcedurePipelineStages;", { exports, console, URLSearchParams, AbortController, fetch, window,
-        require: name => name === "react" ? react : name === "@/components" ? components : require(name),
+        require: name => name === "react" ? react : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
     });
     exports.FullJourneyPipelineCard.details = exports.__test;
     return exports.FullJourneyPipelineCard;
@@ -41,11 +46,28 @@ assert.ok(markup.includes("Agendaram Procedimento"));
 assert.ok(markup.includes("WhatsApp não rastreado"));
 assert.ok(markup.includes("Origem orgânica ou não rastreada"));
 assert.ok(markup.includes("Instagram Chat"));
-assert.ok(markup.includes("Cliques Meta → Instagram"));
+assert.ok(markup.includes("Cliques pagos"));
+assert.ok(!markup.includes("WhatsApp: —"));
+assert.ok(!markup.includes("Consultas: —"));
 assert.ok(markup.includes("Caminhos confirmados do Instagram"));
 assert.ok(markup.includes("R$ 300,00"));
 assert.ok(!markup.includes("Faturados"));
 assert.ok(markup.includes("Receita liberada após a consulta"));
+const measured = {
+    instagram_chat: { left: 560, right: 728, top: 388, bottom: 570 },
+    tracked_whatsapp: { left: 644, right: 812, top: 107, bottom: 289 },
+    scheduled: { left: 930, right: 1170, top: 107, bottom: 322 },
+    attended: { left: 1288, right: 1528, top: 107, bottom: 322 },
+    authorized: { left: 2362, right: 2572, top: 107, bottom: 289 },
+};
+const paths = connectionExports.journeyConnections(measured, { consultationRevenue: "R$ 100 · consultas", instagramWhatsapp: "0 → WhatsApp", instagramConsultations: "0 consultas" });
+assert.equal(paths.find(row => row.key === "instagram_whatsapp").label, "0 → WhatsApp");
+assert.ok(paths.find(row => row.key === "instagram_whatsapp").path.startsWith("M 728 467"));
+assert.ok(paths.find(row => row.key === "instagram_whatsapp").path.endsWith("V 289"));
+assert.ok(paths.find(row => row.key === "instagram_consultation").path.endsWith("V 322"));
+const resized = connectionExports.journeyConnections({ ...measured, scheduled: { ...measured.scheduled, left: 940, right: 1180, bottom: 350 } }, { consultationRevenue: "R$ 100", instagramConsultations: "4 consultas" });
+assert.ok(resized.find(row => row.key === "instagram_consultation").path.endsWith("H 1060 V 350"));
+assert.ok(paths.find(row => row.key === "consultation_revenue").path.endsWith("V 107"));
 let cursor = 0, slots = [], queue = [], requests = [], fail = false, defer = false, timers = new Map(), timerId = 0;
 const hooks = {
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
