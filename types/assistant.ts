@@ -1,4 +1,5 @@
 // types/assistant.ts
+import type { AssistantPageContext } from "@/lib/ai/assistantPageContext";
 export type AssistantClientCardData = {
     id: string;
     name: string;
@@ -106,6 +107,7 @@ export type AssistantChatSession = {
 
 export type AssistantChatRequest = {
     session_id: string;
+    page_context?: AssistantPageContext | null;
     messages: Array<{
         role: AssistantChatRole;
         content: string;

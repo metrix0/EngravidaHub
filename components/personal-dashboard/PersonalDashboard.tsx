@@ -23,6 +23,7 @@ import AdvancedFilterButton, {
     type AdvancedFilterSection,
 } from "@/components/ui/AdvancedFilterButton";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import PersonalDashboardWidgetRenderer from "@/components/personal-dashboard/PersonalDashboardWidgetView";
 import { usePersonalDashboard } from "@/components/personal-dashboard/PersonalDashboardProvider";
 import { usePersonalDashboardSources } from "@/components/personal-dashboard/usePersonalDashboardSources";
@@ -177,6 +178,50 @@ export default function PersonalDashboard() {
         platformValues,
         statusValues,
         eventSourceValues,
+    });
+
+    useAssistantPageContext("dashboard", () => {
+        const sources = [...new Set(definitions.map((widget) => widget.source))];
+        return {
+            title: "Dashboard",
+            filters: {
+                periodo: period,
+                intervalo: selectedRange,
+                unidades: unitIds,
+                atendentes: attendantIds,
+                funis: tunnelValues,
+                origens: originValues,
+                categorias: categories,
+                eventos: eventValues,
+                plataformas: platformValues,
+                status_eventos: statusValues,
+                origens_eventos: eventSourceValues,
+                carregando: status !== "ready" || !dateFilterReady || loadingSources.size > 0,
+            },
+            sections: [
+                ...definitions.map((widget) => ({
+                    id: `dashboard-${widget.id}`,
+                    title: widget.title,
+                    data: {
+                        fonte: widget.source,
+                        tipo: widget.kind,
+                        dados_referencia: `dashboard-source-${widget.source}`,
+                        carregando: loadingSources.has(widget.source),
+                        erro: errors[widget.source] ?? null,
+                        texto_exibido: document.querySelector<HTMLElement>(
+                            `[data-assistant-section="dashboard-${widget.id}"]`,
+                        )?.innerText.replace(/\s+/g, " ").trim().slice(0, 450) ?? null,
+                    },
+                })),
+                ...sources.map((source) => ({
+                    id: `dashboard-source-${source}`,
+                    title: `Dados carregados: ${source}`,
+                    data: source in data
+                        ? data[source as keyof typeof data]
+                        : { aviso: "Este widget carrega os próprios dados; use o texto exibido na seção." },
+                })),
+            ],
+        };
     });
 
     const unitNames = useMemo(
@@ -541,6 +586,7 @@ function DashboardItem({
 }) {
     return (
         <div
+            data-assistant-section={`dashboard-${widget.id}`}
             className={`group/personal-widget relative min-w-0 ${className}`}
             draggable={!saving}
             onDragStart={(event) => {

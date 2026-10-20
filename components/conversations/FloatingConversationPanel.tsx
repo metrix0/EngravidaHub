@@ -12,11 +12,13 @@ import {
   Mail,
   Phone,
   Send,
+  Sparkles,
   UsersRound,
   X,
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { AssistantChat } from "@/app/assistente/page";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {
@@ -122,6 +124,7 @@ type SelectedChat =
   | { kind: "ticket"; key: string }
   | { kind: "internal"; conversationId: string }
   | { kind: "group"; groupId: string }
+  | { kind: "assistant" }
   | null;
 
 type PersistedRailState = {
@@ -220,6 +223,10 @@ export function FloatingConversationPanel() {
   const { currentUser } = useCurrentUser();
   const currentUserId = currentUser?.user?.id ?? null;
   const currentUserName = currentUser?.user?.name ?? "Você";
+  const assistantAllowed = Boolean(
+    currentUser?.permission?.active &&
+    currentUser.permission.allowed_tabs.includes("assistente"),
+  );
 
   const openedSidePanelIds = useRef(new Set<string>());
   const [hydrated, setHydrated] = useState(false);
@@ -269,6 +276,8 @@ export function FloatingConversationPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
   const [visible, setVisible] = useState(false);
+  const [assistantChatKey, setAssistantChatKey] = useState(0);
+  const [assistantStartNew, setAssistantStartNew] = useState(false);
 
   const visibleInternalConversations = useMemo(() => {
     const hidden = new Set(hiddenInternalConversationIds);
@@ -1581,6 +1590,7 @@ export function FloatingConversationPanel() {
       return;
     }
 
+    if (activeSelection.kind !== "group") return;
     const groupId = activeSelection.groupId;
     groupUnreadSnapshotRef.current.set(groupId, 0);
     setInternalGroups((current) =>
@@ -1654,6 +1664,25 @@ export function FloatingConversationPanel() {
     );
   }
 
+  function handleOpenAssistant() {
+    if (!assistantAllowed) return;
+    setAssistantStartNew(false);
+    const nextSelection: SelectedChat = { kind: "assistant" };
+    selectedRef.current = nextSelection;
+    setSelected(nextSelection);
+    showDockExpanded();
+  }
+
+  function handleLaunchAssistant() {
+    if (!assistantAllowed) return;
+    setAssistantStartNew(true);
+    setAssistantChatKey(current => current + 1);
+    const nextSelection: SelectedChat = { kind: "assistant" };
+    selectedRef.current = nextSelection;
+    setSelected(nextSelection);
+    showDockExpanded();
+  }
+
   const hasUnreadChats =
     tickets.some((ticket) => (ticket.unread_count ?? 0) > 0) ||
     visibleInternalConversations.some(
@@ -1677,7 +1706,19 @@ export function FloatingConversationPanel() {
               ?.unread_count ?? 0)
           : 0;
 
-  if (!selected && !pendingOpen && !hasSavedChats) return null;
+  const launcher = assistantAllowed ? (
+    <button
+      type="button"
+      onClick={handleLaunchAssistant}
+      className="fixed bottom-6 right-6 z-[46] flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-brand text-white shadow-lg transition hover:bg-brand/90 hover:shadow-xl active:scale-95"
+      aria-label="Abrir chats e assistente IA"
+      title="Abrir chats e assistente IA"
+    >
+      <Sparkles size={19} />
+    </button>
+  ) : null;
+
+  if (!selected && !pendingOpen && !hasSavedChats) return launcher;
 
   const rightOffset = sidePanelOpen ? 484 : 24;
   const hasOpenPanel = Boolean(selected || pendingOpen);
@@ -1690,6 +1731,8 @@ export function FloatingConversationPanel() {
   const dockOpacity = hasOpenPanel && visible ? 1 : 0;
 
   return (
+    <>
+    {!hasOpenPanel ? launcher : null}
     <div
       className="floating-conversation-dock fixed bottom-6 z-[45] h-[480px] w-[365px] will-change-transform"
       style={{
@@ -1709,6 +1752,7 @@ export function FloatingConversationPanel() {
         internalConversations={visibleInternalConversations}
         internalGroups={internalGroups}
         selected={selected}
+        assistantAllowed={assistantAllowed}
         collapsed={railCollapsed}
         hidden={collapsed}
         hasUnread={hasUnreadChats}
@@ -1718,6 +1762,7 @@ export function FloatingConversationPanel() {
         onSelectInternal={handleSelectInternal}
         onCloseInternal={handleCloseInternal}
         onSelectGroup={handleSelectGroup}
+        onSelectAssistant={handleOpenAssistant}
       />
 
       {pendingOpen ? (
@@ -1729,7 +1774,19 @@ export function FloatingConversationPanel() {
         />
       ) : selected ? (
         <div className="h-full w-full">
-          {selected.kind === "ticket" && selectedTicket ? (
+          {selected.kind === "assistant" ? (
+            <div className="flex h-full w-[365px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <FloatingConversationHeader
+                name="Assistente IA"
+                assistantAvatar
+                online
+                collapsed={collapsed}
+                onToggleCollapsed={handleToggleChatCollapsed}
+                onClose={handleCloseDock}
+              />
+              {!collapsed && <div className="min-h-0 flex-1"><AssistantChat key={assistantChatKey} compact startNew={assistantStartNew} /></div>}
+            </div>
+          ) : selected.kind === "ticket" && selectedTicket ? (
             <TicketFloatingPanel
               target={selectedTicket}
               data={ticketData}
@@ -2006,6 +2063,7 @@ export function FloatingConversationPanel() {
         </div>
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -2014,6 +2072,7 @@ function ChatRail({
   internalConversations,
   internalGroups,
   selected,
+  assistantAllowed,
   collapsed,
   hidden,
   hasUnread,
@@ -2023,11 +2082,13 @@ function ChatRail({
   onSelectInternal,
   onCloseInternal,
   onSelectGroup,
+  onSelectAssistant,
 }: {
   tickets: SavedTicketTarget[];
   internalConversations: InternalConversationSummary[];
   internalGroups: InternalGroupSummary[];
   selected: SelectedChat;
+  assistantAllowed: boolean;
   collapsed: boolean;
   hidden: boolean;
   hasUnread: boolean;
@@ -2037,6 +2098,7 @@ function ChatRail({
   onSelectInternal: (conversation: InternalConversationSummary) => void;
   onCloseInternal: (conversationId: string) => void;
   onSelectGroup: (group: InternalGroupSummary) => void;
+  onSelectAssistant: () => void;
 }) {
   return (
     <div
@@ -2081,6 +2143,19 @@ function ChatRail({
             ) : null}
           </div>
 
+          {assistantAllowed && (
+            <>
+              <div className="my-4 h-px bg-slate-100" />
+              <RailSectionTitle label="Assistente" />
+              <SavedChatRow
+                name="Assistente IA"
+                preview="Pergunte sobre os dados do Hub"
+                active={selected?.kind === "assistant"}
+                icon="assistant"
+                onClick={onSelectAssistant}
+              />
+            </>
+          )}
           <div className="my-4 h-px bg-slate-100" />
           <RailSectionTitle label="Internos" />
           <div className="space-y-2">
@@ -2189,7 +2264,7 @@ function SavedChatRow({
   active: boolean;
   unread?: number;
   online?: boolean;
-  icon?: "avatar" | "group";
+  icon?: "avatar" | "group" | "assistant";
   onClick: () => void;
   onClose?: () => void;
 }) {
@@ -2206,9 +2281,9 @@ function SavedChatRow({
       }`}
     >
       <button type="button" onClick={onClick} className="cursor-pointer">
-        {icon === "group" ? (
+        {icon === "group" || icon === "assistant" ? (
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-soft text-purple">
-            <UsersRound size={17} />
+            {icon === "assistant" ? <Sparkles size={17} /> : <UsersRound size={17} />}
           </span>
         ) : (
           <span className="relative inline-flex shrink-0">
@@ -2510,6 +2585,78 @@ function TicketFloatingPanel({
   );
 }
 
+function FloatingConversationHeader({
+  name,
+  subtitle,
+  subtitleIcon = "mail",
+  online,
+  assistantAvatar = false,
+  loading = false,
+  hasUnread = false,
+  collapsed,
+  onToggleCollapsed,
+  onClose,
+}: {
+  name: string;
+  subtitle?: string;
+  subtitleIcon?: "mail" | "assistant";
+  online?: boolean;
+  assistantAvatar?: boolean;
+  loading?: boolean;
+  hasUnread?: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={collapsed ? onToggleCollapsed : undefined}
+      className={`shrink-0 border-b border-slate-100 px-4 py-3 ${
+        collapsed ? "cursor-pointer" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="relative inline-flex shrink-0">
+            {assistantAvatar ? (
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-soft text-purple"><Sparkles size={18} /></span>
+            ) : <InitialsAvatar name={name} />}
+            {typeof online === "boolean" ? (
+              <span
+                className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
+                  online ? "bg-green" : "bg-slate-400"
+                }`}
+                title={online ? "Online" : "Offline"}
+              />
+            ) : null}
+          </span>
+
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <div title={name} className="truncate text-sm font-bold text-slate-950">
+                {loading ? "Carregando..." : name}
+              </div>
+              {hasUnread ? (
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand" title="Novas mensagens" />
+              ) : null}
+            </div>
+            {subtitle ? <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+              {subtitleIcon === "assistant" ? <Sparkles size={12} /> : <Mail size={12} />}
+              <span className="truncate">{subtitle}</span>
+            </div> : null}
+          </div>
+        </div>
+
+        <PanelControls
+          collapsed={collapsed}
+          onToggleCollapsed={onToggleCollapsed}
+          onClose={onClose}
+        />
+      </div>
+    </div>
+  );
+}
+
 function InternalFloatingPanel({
   currentUserId,
   currentUserName,
@@ -2600,58 +2747,16 @@ function InternalFloatingPanel({
 
   return (
     <div className="flex h-full w-[365px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-      <div
-        onClick={collapsed ? onToggleCollapsed : undefined}
-        className={`shrink-0 border-b border-slate-100 px-4 py-3 ${
-          collapsed ? "cursor-pointer" : ""
-        }`}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="relative inline-flex shrink-0">
-              <InitialsAvatar name={peerName} />
-              {peer ? (
-                <span
-                  className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
-                    peer.online ? "bg-green" : "bg-slate-400"
-                  }`}
-                  title={peer.online ? "Online" : "Offline"}
-                />
-              ) : null}
-            </span>
-
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <div
-                  title={peerName}
-                  className="truncate text-sm font-bold text-slate-950"
-                >
-                  {loading ? "Carregando..." : peerName}
-                </div>
-
-                {hasUnread ? (
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand"
-                    title="Novas mensagens"
-                  />
-                ) : null}
-
-              </div>
-
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                <Mail size={12} />
-                <span className="truncate">{peerEmail}</span>
-              </div>
-            </div>
-          </div>
-
-          <PanelControls
-            collapsed={collapsed}
-            onToggleCollapsed={onToggleCollapsed}
-            onClose={onClose}
-          />
-        </div>
-      </div>
+      <FloatingConversationHeader
+        name={peerName}
+        subtitle={peerEmail}
+        online={peer?.online}
+        loading={loading}
+        hasUnread={hasUnread}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        onClose={onClose}
+      />
 
       <ChatMessageList
         messages={messages}
@@ -3127,7 +3232,8 @@ function isSelectedChat(value: unknown): value is Exclude<SelectedChat, null> {
     (selected.kind === "ticket" && typeof selected.key === "string") ||
     (selected.kind === "internal" &&
       typeof selected.conversationId === "string") ||
-    (selected.kind === "group" && typeof selected.groupId === "string")
+    (selected.kind === "group" && typeof selected.groupId === "string") ||
+    selected.kind === "assistant"
   );
 }
 

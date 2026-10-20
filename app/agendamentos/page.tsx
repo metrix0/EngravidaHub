@@ -1,7 +1,7 @@
 // app/agendamentos/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     CalendarCheck,
     ChartNoAxesCombined,
@@ -20,6 +20,7 @@ import {
     Skeleton,
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import FilterButton from "@/components/ui/FilterButton";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { SearchFilter } from "@/components/ui/SearchFilter";
@@ -27,6 +28,9 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { Modal } from "@/components/ui/Modal";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
+import VacancyRecoveryPanel from "@/components/scheduling/VacancyRecoveryPanel";
+import { matchesRecoveredSlot, type RecoveryVacancy } from "@/lib/scheduling/slotRecovery";
+import type { RecoveryCandidate } from "@/lib/scheduling/slotRecoveryServer";
 import AgendaIndicators, { AGENDA_NOTE_COLOR, AgendaLegend } from "@/components/scheduling/AgendaIndicators";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
@@ -54,6 +58,8 @@ const FORMAT_OPTIONS = [
     { label: "Casal", value: "casal" },
 ];
 
+type RecoveryDetail = { filled: boolean; candidates: RecoveryCandidate[] };
+
 export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
     const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
@@ -70,6 +76,13 @@ export default function AppointmentsPage() {
         useState<string | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
     const [freeOnly, setFreeOnly] = useState(false);
+    const [recoveryVacancies, setRecoveryVacancies] = useState<RecoveryVacancy[]>([]);
+    const [recoverySelection, setRecoverySelection] = useState<{ slot: AgendaFreeSlot; vacancyId: number } | null>(null);
+    const [recoveryRefresh, setRecoveryRefresh] = useState(0);
+    const [prefetchedRecovery, setPrefetchedRecovery] = useState<Record<number, RecoveryDetail>>({});
+    const recoveryCache = useRef(new Map<number, RecoveryDetail>());
+    const recoveryRequests = useRef(new Map<number, Promise<void>>());
+    const recoveryFailures = useRef(new Map<number, number>());
     const [metricsOpen, setMetricsOpen] = useState(false);
     const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
     const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
@@ -280,6 +293,81 @@ export default function AppointmentsPage() {
         })();
         return () => controller.abort();
     }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
+        if (!freeOnly) return;
+        const controller = new AbortController();
+        const refresh = async () => {
+            const params = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+            unitValues.forEach(id => params.append("unit_ids", id));
+            try {
+                const response = await fetch("/api/scheduling/recovery?" + params.toString(), { cache: "no-store", signal: controller.signal });
+                const body = await response.json();
+                if (!response.ok) throw new Error(body.error ?? "Erro ao carregar vagas recuperáveis.");
+                if (!controller.signal.aborted) setRecoveryVacancies(body.vacancies ?? []);
+            } catch (error) {
+                if (!controller.signal.aborted) console.error("[agenda-recovery] failed", error);
+            }
+        };
+        void refresh();
+        return () => controller.abort();
+    }, [freeOnly, rangeStart, rangeEnd, unitValues, reloadKey, recoveryRefresh]);
+
+    const prefetchRecovery = useCallback((vacancyId: number): Promise<void> => {
+        if (recoveryCache.current.has(vacancyId)) return Promise.resolve();
+        const pending = recoveryRequests.current.get(vacancyId);
+        if (pending) return pending;
+        if (Date.now() - (recoveryFailures.current.get(vacancyId) ?? 0) < 60_000) {
+            return Promise.resolve();
+        }
+
+        const request = (async () => {
+            try {
+                const response = await fetch(`/api/scheduling/recovery?vacancy_id=${vacancyId}`, {
+                    cache: "no-store",
+                });
+                if (!response.ok) throw new Error("Unable to prefetch recovery candidates");
+                const detail = await response.json() as RecoveryDetail;
+                recoveryCache.current.set(vacancyId, detail);
+                recoveryFailures.current.delete(vacancyId);
+                setPrefetchedRecovery(current => ({ ...current, [vacancyId]: detail }));
+            } catch {
+                // Keep normal on-open loading as the fallback if prefetch fails.
+                recoveryFailures.current.set(vacancyId, Date.now());
+            }
+        })().finally(() => recoveryRequests.current.delete(vacancyId));
+        recoveryRequests.current.set(vacancyId, request);
+        return request;
+    }, []);
+
+    useEffect(() => {
+        if (!freeOnly || loadingCalendar || loadingReport || !agendaReport?.slots?.length || recoverySelection) return;
+        const upcoming = recoveryVacancies
+            .filter(vacancy => !vacancy.filled &&
+                (!doctorValues.length || doctorValues.includes(vacancy.doctorId)) &&
+                agendaReport.slots.some(slot => matchesRecoveredSlot(slot, vacancy)))
+            .slice(0, 4);
+        if (!upcoming.length) return;
+
+        let cancelled = false;
+        const start = () => {
+            void (async () => {
+                for (const vacancy of upcoming) {
+                    if (cancelled) return;
+                    await prefetchRecovery(vacancy.id);
+                }
+            })();
+        };
+        const idleId = typeof window.requestIdleCallback === "function"
+            ? window.requestIdleCallback(start) : null;
+        const timeoutId = idleId === null ? window.setTimeout(start, 0) : null;
+        return () => {
+            cancelled = true;
+            if (idleId !== null) window.cancelIdleCallback(idleId);
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+        };
+    }, [freeOnly, loadingCalendar, loadingReport, agendaReport, recoveryVacancies,
+        doctorValues, recoverySelection, prefetchRecovery]);
 
     useEffect(() => {
         function handleAppointmentChanged() {
@@ -544,11 +632,21 @@ export default function AppointmentsPage() {
         value: doctor.id,
     }));
 
+    useAssistantPageContext("agendamentos", () => ({
+        title: "Agendamentos",
+        filters: { semana_inicio: rangeStart, semana_fim: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, carregando: loadingCalendar || loadingReport },
+        sections: [
+            { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
+            { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
+            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport },
+        ],
+    }));
+
     return (
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
+            <section data-assistant-section="agenda-semana" className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
                 <header className="mb-5 flex shrink-0 flex-col gap-4 px-2 sm:px-3 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
@@ -671,6 +769,9 @@ export default function AppointmentsPage() {
                     blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
                     freeSlots={freeOnly ? agendaReport?.slots ?? [] : undefined}
                     doctorLoads={agendaReport?.byDoctor}
+                    recoveryVacancies={freeOnly ? recoveryVacancies.filter(v => !doctorValues.length || doctorValues.includes(v.doctorId)) : undefined}
+                    onRecoverSlot={(slot, vacancyId) => setRecoverySelection({ slot, vacancyId })}
+                    onPrefetchRecovery={vacancyId => { void prefetchRecovery(vacancyId); }}
                     onSelectFreeSlot={slot => { setInitialSlot(slot); setSchedulingPanelOpen(true); }}
                     selectedAppointmentId={selectedAppointmentId}
                     loading={freeOnly ? loadingReport : loadingCalendar}
@@ -712,6 +813,21 @@ export default function AppointmentsPage() {
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
                 <AgendaIndicators report={agendaReport} loading={loadingReport} />
                 {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+            </DetailsSidePanel>
+
+            <DetailsSidePanel open={recoverySelection !== null} title="Recuperar horário" onClose={() => setRecoverySelection(null)} width={520}>
+                {recoverySelection && <VacancyRecoveryPanel key={recoverySelection.vacancyId} slot={recoverySelection.slot} vacancyId={recoverySelection.vacancyId}
+                    initialData={prefetchedRecovery[recoverySelection.vacancyId] ?? null}
+                    onUpdate={() => {
+                        recoveryCache.current.delete(recoverySelection.vacancyId);
+                        setPrefetchedRecovery(current => {
+                            const next = { ...current };
+                            delete next[recoverySelection.vacancyId];
+                            return next;
+                        });
+                        setRecoveryRefresh(value => value + 1);
+                    }}
+                    onBook={slot => { setRecoverySelection(null); setInitialSlot(slot); setSchedulingPanelOpen(true); }} />}
             </DetailsSidePanel>
 
             <SchedulingPanel

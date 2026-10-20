@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import {
     ADS_FINANCE_SYNC_VERSION,
+    backfillInstagramDirectMetrics,
     syncAdsFinance,
     type AdsFinancePlatformFilter,
 } from "@/lib/ads/finance/syncAdsFinance";
@@ -27,6 +28,15 @@ export async function GET(request: Request) {
             1,
             730,
         );
+        if (searchParams.get("scope") === "instagram_direct") {
+            // Historical imports are expensive; require an explicit configured secret.
+            const secret = process.env.ADS_FINANCE_CRON_SECRET?.trim() || process.env.CRON_SECRET?.trim();
+            if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+                return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+            }
+            const result = await backfillInstagramDirectMetrics(daysBack);
+            return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
+        }
         const platform = readPlatform(searchParams.get("platform"));
         const result = await syncAdsFinance({ daysBack, platform });
 

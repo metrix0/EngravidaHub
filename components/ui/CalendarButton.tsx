@@ -53,6 +53,17 @@ export const DEFAULT_CALENDAR_PRESETS: CalendarPreset[] = [
     },
 ];
 
+export function isCompletedCalendarPeriod(
+    period: CalendarPresetValue | null,
+    selectedRange: DateRange,
+) {
+    const preset = DEFAULT_CALENDAR_PRESETS.find((item) => item.value === period);
+    const end = period === null
+        ? selectedRange.end ?? selectedRange.start
+        : preset ? getDateRangeFromPreset(preset).end : null;
+    return end !== null && end < getDateStringWithOffset(0);
+}
+
 export function getDateStringWithOffset(offsetDays: number) {
     const date = new Date();
 
@@ -104,6 +115,13 @@ export function getDateRangeFromPreset(preset: CalendarPreset): DateRange {
                 new Date(today.getFullYear(), today.getMonth(), 1),
             ),
             end: formatLocalDate(today),
+        };
+    }
+
+    if (preset.value === "previous_two_months") {
+        return {
+            start: formatLocalDate(new Date(today.getFullYear(), today.getMonth() - 2, 1)),
+            end: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 0)),
         };
     }
 
@@ -175,6 +193,7 @@ type CalendarButtonProps = {
     onApply?: (value: DateRange) => void;
     className?: string;
     allowFutureDates?: boolean;
+    placeholderLabel?: string;
 };
 
 export default function CalendarButton({
@@ -183,6 +202,7 @@ export default function CalendarButton({
                                            onApply,
                                            className = "",
                                            allowFutureDates = false,
+                                           placeholderLabel,
                                        }: CalendarButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -284,14 +304,14 @@ export default function CalendarButton({
                 className={`ml-1 flex cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-l px-4 py-3 text-sm font-semibold transition-[width,background-color,color] duration-300 ${
                     hasSelectedDate
                         ? "w-[245px] bg-brand text-white"
-                        : "w-[52px] text-muted hover:bg-slate-50"
+                        : placeholderLabel ? "w-[165px] text-muted hover:bg-slate-50" : "w-[52px] text-muted hover:bg-slate-50"
                 }`}
                 style={{borderColor: "var(--color-border)"}}
             >
                 <Calendar size={16} className="shrink-0"/>
 
-                <span className="min-w-[175px] whitespace-nowrap">
-                    {formatRangeLabel(appliedRange)}
+                <span className={`${hasSelectedDate || !placeholderLabel ? "min-w-[175px]" : ""} whitespace-nowrap`}>
+                    {hasSelectedDate ? formatRangeLabel(appliedRange) : placeholderLabel}
                 </span>
             </button>
 

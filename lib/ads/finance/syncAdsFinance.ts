@@ -51,6 +51,7 @@ type PlatformSyncResult = {
     city_matched: number;
     city_unmatched: number;
     unmatched_subdivisions: string[];
+    instagram_direct?: { ok: boolean; rows?: number; link_clicks?: number; exclusive_adsets?: number; error?: string };
 };
 
 type GoogleAdsRow = {
@@ -463,9 +464,23 @@ async function syncMetaAdsFinance({
     const cityRows = dedupeCityMetricRows(cityRowsByAccount.flat());
     const cityUpserted = await upsertCityMetricRows(cityRows);
     const cityDiagnostics = summarizeCityRows(cityRows);
+    let instagramDirect: PlatformSyncResult["instagram_direct"];
+    try {
+        const detail = await syncInstagramDirectAccounts({
+            accountIds: config.accountIds,
+            accessToken: config.accessToken!,
+            startDate,
+            endDate,
+        });
+        instagramDirect = { ok: true, ...detail };
+    } catch (error) {
+        console.error("[syncAdsFinance] Instagram Direct detail failed", error);
+        instagramDirect = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
 
     return {
         platform: "meta_ads",
+        instagram_direct: instagramDirect,
         ok: true,
         skipped: false,
         accounts: config.accountIds.length,
@@ -710,6 +725,172 @@ async function fetchMetaAdsRows({
             },
         ];
     });
+}
+
+
+type MetaAdSetDestination = {
+    id?: string;
+    destination_type?: string;
+};
+
+type MetaAdSetInsights = {
+    adset_id?: string;
+    campaign_id?: string;
+    date_start?: string;
+    impressions?: number | string;
+    inline_link_clicks?: number | string;
+    spend?: number | string;
+};
+
+type InstagramDirectMetricRow = {
+    account_id: string;
+    adset_id: string;
+    campaign_id: string;
+    metric_date: string;
+    destination_type: "INSTAGRAM_DIRECT";
+    impressions: number;
+    link_clicks: number;
+    spend: number;
+    synced_at: string;
+};
+
+type InstagramDirectSync = {
+    exclusive_adsets: number;
+    rows: number;
+    link_clicks: number;
+};
+
+async function syncInstagramDirectAccounts({
+    accountIds,
+    accessToken,
+    startDate,
+    endDate,
+}: {
+    accountIds: string[];
+    accessToken: string;
+    startDate: string;
+    endDate: string;
+}): Promise<InstagramDirectSync> {
+    const batches = await Promise.all(accountIds.map(accountId =>
+        fetchInstagramDirectAdSetMetrics({ accountId, accessToken, startDate, endDate }),
+    ));
+    const rows = batches.flatMap(batch => batch.rows);
+    for (const batch of chunk(rows, UPSERT_BATCH_SIZE)) {
+        const { error } = await supabase.from("ad_daily_instagram_direct_metrics").upsert(batch, {
+            onConflict: "account_id,adset_id,metric_date",
+        });
+        if (error) throw new Error(`Failed to save Instagram Direct metrics: ${error.message}`);
+    }
+    return {
+        exclusive_adsets: batches.reduce((count, batch) => count + batch.exclusiveAdsets, 0),
+        rows: rows.length,
+        link_clicks: rows.reduce((count, row) => count + row.link_clicks, 0),
+    };
+}
+
+async function fetchInstagramDirectAdSetMetrics({
+    accountId,
+    accessToken,
+    startDate,
+    endDate,
+}: {
+    accountId: string;
+    accessToken: string;
+    startDate: string;
+    endDate: string;
+}) {
+    // Destination is NOT the placement. A Facebook-placed ad can open Instagram Direct.
+    // Mixed messaging destinations are deliberately excluded.
+    const adSetsUrl = new URL(`https://graph.facebook.com/${META_API_VERSION}/act_${accountId}/adsets`);
+    adSetsUrl.searchParams.set("fields", "id,destination_type");
+    adSetsUrl.searchParams.set("limit", "500");
+    const adSets = await fetchMetaPages<MetaAdSetDestination>(adSetsUrl, accessToken, "adsets");
+    const exclusiveIds = new Set(adSets
+        .filter(row => row.destination_type === "INSTAGRAM_DIRECT")
+        .map(row => cleanText(row.id))
+        .filter((id): id is string => Boolean(id)));
+
+    if (!exclusiveIds.size) return { exclusiveAdsets: 0, rows: [] as InstagramDirectMetricRow[] };
+
+    const insightsUrl = new URL(`https://graph.facebook.com/${META_API_VERSION}/act_${accountId}/insights`);
+    insightsUrl.searchParams.set(
+        "fields",
+        "adset_id,campaign_id,date_start,impressions,inline_link_clicks,spend",
+    );
+    insightsUrl.searchParams.set("level", "adset");
+    insightsUrl.searchParams.set("time_increment", "1");
+    insightsUrl.searchParams.set("limit", "500");
+    // Meta rejects large day-by-day ad-set reports. Keep each request to one week.
+    const daily: MetaAdSetInsights[] = [];
+    for (let windowStart = startDate; windowStart <= endDate; windowStart = addCalendarDays(windowStart, 7)) {
+        const windowEnd = [endDate, addCalendarDays(windowStart, 6)].sort()[0];
+        insightsUrl.searchParams.set("time_range", JSON.stringify({ since: windowStart, until: windowEnd }));
+        daily.push(...await fetchMetaPages<MetaAdSetInsights>(insightsUrl, accessToken, "adset insights"));
+    }
+    const syncedAt = new Date().toISOString();
+    const rows = daily.flatMap((row): InstagramDirectMetricRow[] => {
+        const adsetId = cleanText(row.adset_id);
+        const campaignId = cleanText(row.campaign_id);
+        const metricDate = cleanText(row.date_start);
+        if (!adsetId || !exclusiveIds.has(adsetId) || !campaignId || !isDate(metricDate)) return [];
+        return [{
+            account_id: accountId,
+            adset_id: adsetId,
+            campaign_id: campaignId,
+            metric_date: metricDate,
+            destination_type: "INSTAGRAM_DIRECT",
+            impressions: nonNegativeInteger(row.impressions),
+            link_clicks: nonNegativeInteger(row.inline_link_clicks),
+            spend: roundMoney(numberValue(row.spend)),
+            synced_at: syncedAt,
+        }];
+    });
+    return { exclusiveAdsets: exclusiveIds.size, rows };
+}
+
+async function fetchMetaPages<T>(endpoint: URL, accessToken: string, label: string): Promise<T[]> {
+    const rows: T[] = [];
+    let after: string | null = null;
+    const seen = new Set<string>();
+    for (let page = 0; page < 200; page += 1) {
+        if (after) endpoint.searchParams.set("after", after);
+        else endpoint.searchParams.delete("after");
+        const response = await fetch(endpoint, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(90_000),
+        });
+        const json = await response.json() as {
+            data?: T[];
+            paging?: { next?: string; cursors?: { after?: string } };
+            error?: { message?: string; type?: string };
+        };
+        if (!response.ok || json.error) {
+            throw new Error(`Meta ${label} failed (${response.status}): ${json.error?.message ?? json.error?.type ?? "unknown error"}`);
+        }
+        rows.push(...(json.data ?? []));
+        if (!json.paging?.next) return rows;
+        const next = cleanText(json.paging.cursors?.after);
+        if (!next || seen.has(next)) throw new Error(`Invalid Meta ${label} pagination cursor`);
+        seen.add(next);
+        after = next;
+    }
+    throw new Error(`Too many pages loading Meta ${label}`);
+}
+
+// A historical backfill can be requested separately without re-syncing
+// the existing campaign or city totals.
+export async function backfillInstagramDirectMetrics(daysBack: number) {
+    const config = metaAdsConfig();
+    if (config.missing.length) throw new Error(`Missing Meta Ads envs: ${config.missing.join(", ")}`);
+    const endDate = saoPauloToday();
+    const startDate = addCalendarDays(endDate, -(daysBack - 1));
+    const data = await syncInstagramDirectAccounts({
+        accountIds: config.accountIds,
+        accessToken: config.accessToken!,
+        startDate,
+        endDate,
+    });
+    return { ok: true, start_date: startDate, end_date: endDate, ...data };
 }
 
 function selectMetaReportedResult(actions: MetaAction[] | undefined) {

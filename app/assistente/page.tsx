@@ -38,6 +38,7 @@ import {
     getCachedCurrentAttendant,
 } from "@/lib/attendants/currentAttendantApi";
 import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
+import { captureAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import type {
     AssistantCard,
     AssistantChatMessage,
@@ -67,6 +68,10 @@ const FEEDBACK_REASONS: Array<{
 ];
 
 export default function AssistentePage() {
+    return <AssistantChat />;
+}
+
+export function AssistantChat({ compact = false, startNew = false }: { compact?: boolean; startNew?: boolean }) {
     const { currentUser } = useCurrentUser();
     const currentUserId = currentUser?.user?.id ?? null;
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
@@ -79,7 +84,7 @@ export default function AssistentePage() {
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(true);
-    const [historyOpen, setHistoryOpen] = useState(true);
+    const [historyOpen, setHistoryOpen] = useState(!compact);
     const [error, setError] = useState<string | null>(null);
     const [streamStatus, setStreamStatus] = useState<string | null>(null);
     const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
@@ -178,8 +183,8 @@ export default function AssistentePage() {
                     : [];
 
                 setSessions(restored);
-                const requestedSession = new URLSearchParams(window.location.search).get("session");
-                setActiveSessionId(restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
+                const requestedSession = compact ? null : new URLSearchParams(window.location.search).get("session");
+                setActiveSessionId(startNew ? null : restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
             } catch (historyError) {
                 console.error(
                     "[assistente] failed to load database history",
@@ -355,6 +360,7 @@ export default function AssistentePage() {
                 },
                 body: JSON.stringify({
                     session_id: sessionWithUser.id,
+                    page_context: compact ? captureAssistantPageContext() : null,
                     messages: messagesWithUser.map((message) => ({
                         role: message.role,
                         content: message.content,
@@ -537,18 +543,19 @@ export default function AssistentePage() {
     }
 
     return (
-        <main className="flex h-full min-h-0 w-full overflow-hidden bg-white text-slate-900">
+        <main className={`flex h-full min-h-0 w-full overflow-hidden bg-white text-slate-900 ${compact ? "rounded-b-2xl" : ""}`}>
             <section className="flex min-w-0 flex-1 overflow-hidden">
                 <div className="relative flex min-w-0 flex-1 overflow-hidden bg-white">
                     {historyOpen ? (
-                        <button type="button" aria-label="Fechar histórico" onClick={() => setHistoryOpen(false)} className="absolute inset-0 z-20 bg-slate-950/20 md:hidden" />
+                        <button type="button" aria-label="Fechar histórico" onClick={() => setHistoryOpen(false)} className={`absolute inset-0 z-20 bg-slate-950/20 ${compact ? "" : "md:hidden"}`} />
                     ) : null}
+                    {!compact && (
                     <aside
-                        className={`absolute inset-y-0 left-0 z-30 shrink-0 overflow-hidden border-r border-border bg-card shadow-xl transition-[width] duration-300 md:relative md:z-auto md:shadow-none ${
-                            historyOpen ? "w-[280px] max-w-[86vw]" : "w-0 border-r-0"
+                        className={`absolute inset-y-0 left-0 z-30 shrink-0 overflow-hidden border-r border-border bg-card shadow-xl transition-[width] duration-300 ${compact ? "" : "md:relative md:z-auto md:shadow-none"} ${
+                            historyOpen ? (compact ? "w-[260px] max-w-[86vw]" : "w-[280px] max-w-[86vw]") : "w-0 border-r-0"
                         }`}
                     >
-                        <div className="flex h-full w-[280px] flex-col px-3 pb-3 pt-5">
+                        <div className={`flex h-full flex-col px-3 pb-3 pt-5 ${compact ? "w-[260px]" : "w-[280px]"}`}>
                             <button
                                 type="button"
                                 onClick={createNewChat}
@@ -604,9 +611,11 @@ export default function AssistentePage() {
                             </div>
                         </div>
                     </aside>
+                    )}
 
                     <section className="relative flex min-w-0 flex-1 flex-col">
-                        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4 sm:px-6">
+                        {!compact && (
+                        <header className={`flex shrink-0 items-center justify-between border-b border-slate-200 ${compact ? "h-12 px-2" : "h-16 px-4 sm:px-6"}`}>
                             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                                 <button
                                     type="button"
@@ -652,6 +661,7 @@ export default function AssistentePage() {
                                 </button>
                             )}
                         </header>
+                        )}
 
                         <div className="min-h-0 flex-1 overflow-y-auto">
                             {historyLoading ? (
@@ -661,10 +671,11 @@ export default function AssistentePage() {
                                 <EmptyAssistant
                                     name={profileName || null}
                                     onSuggestion={submitSuggestion}
+                                    compact={compact}
                                 />
                             ) : (
-                                <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8">
-                                    <div className="space-y-8">
+                                <div className={`mx-auto w-full max-w-4xl ${compact ? "px-2 py-3" : "px-4 py-8 sm:px-8"}`}>
+                                    <div className={compact ? "space-y-4" : "space-y-8"}>
                                         {activeSession.messages.map(
                                             (message) => (
                                                 <ChatMessage
@@ -708,11 +719,52 @@ export default function AssistentePage() {
                             )}
                         </div>
 
-                        <div className="shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-1.5 sm:px-8 sm:pb-6">
+                        <div className={`shrink-0 border-t border-slate-100 bg-white ${compact ? "p-2" : "px-4 pb-4 pt-1.5 sm:px-8 sm:pb-6"}`}>
                             <form
                                 onSubmit={handleSubmit}
                                 className="mx-auto w-full max-w-4xl"
                             >
+                                {compact ? (
+                                    <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                        <textarea
+                                            ref={textareaRef}
+                                            rows={1}
+                                            maxLength={8000}
+                                            value={input}
+                                            onChange={(event) => setInput(event.target.value)}
+                                            onKeyDown={handleInputKeyDown}
+                                            placeholder="Escrever mensagem..."
+                                            className="max-h-24 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
+                                            onInput={(event) => {
+                                                const target = event.currentTarget;
+                                                target.style.height = "auto";
+                                                target.style.height = `${Math.min(target.scrollHeight, 96)}px`;
+                                            }}
+                                        />
+                                        {loading ? (
+                                            <button
+                                                type="button"
+                                                onClick={stopRequest}
+                                                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm transition-colors hover:bg-slate-700"
+                                                title="Parar resposta"
+                                                aria-label="Parar resposta"
+                                            >
+                                                <Square size={14} fill="currentColor" />
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="submit"
+                                                disabled={!input.trim()}
+                                                onMouseDown={(event) => event.preventDefault()}
+                                                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                                title="Enviar"
+                                                aria-label="Enviar"
+                                            >
+                                                <Send size={17} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
                                 <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_12px_40px_-22px_rgba(15,23,42,0.38)] transition focus-within:border-brand/40 focus-within:ring-4 focus-within:ring-brand/5">
                                     <textarea
                                         ref={textareaRef}
@@ -749,6 +801,7 @@ export default function AssistentePage() {
                                         )}
                                     </div>
                                 </div>
+                                )}
                             </form>
                         </div>
                     </section>
@@ -866,32 +919,34 @@ function MainChatSkeleton() {
 function EmptyAssistant({
     name,
     onSuggestion,
+    compact = false,
 }: {
     name: string | null;
     onSuggestion: (value: string) => void;
+    compact?: boolean;
 }) {
     return (
-        <div className="flex min-h-full items-start justify-center px-5 pb-12 pt-20 sm:pt-24">
+        <div className={`flex min-h-full items-start justify-center ${compact ? "px-3 pb-4 pt-5" : "px-5 pb-12 pt-20 sm:pt-24"}`}>
             <div className="w-full max-w-3xl text-center">
-                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-soft text-purple shadow-sm">
+                <span className={`mx-auto flex items-center justify-center rounded-2xl bg-purple-soft text-purple shadow-sm ${compact ? "h-10 w-10" : "h-14 w-14"}`}>
                     <Sparkles size={25} />
                 </span>
 
-                <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+                <h2 className={`font-bold tracking-tight text-slate-950 ${compact ? "mt-3 text-base" : "mt-5 text-2xl sm:text-3xl"}`}>
                     {name ? `Olá, ${name}` : "Como posso ajudar?"}
                 </h2>
-                <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                <p className={`mx-auto max-w-xl text-slate-500 ${compact ? "mt-2 text-xs leading-5" : "mt-3 text-sm leading-6"}`}>
                     Pergunte sobre clientes, médicos, agendamentos,
                     conversas, unidades e indicadores do Engravida Hub.
                 </p>
 
-                <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
+                <div className={`grid text-left ${compact ? "mt-4 gap-2" : "mt-8 gap-3 sm:grid-cols-2"}`}>
                     {SUGGESTIONS.map((suggestion) => (
                         <button
                             key={suggestion}
                             type="button"
                             onClick={() => onSuggestion(suggestion)}
-                            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-medium leading-6 text-slate-700 shadow-sm transition hover:border-purple/25 hover:bg-purple-soft/30 hover:text-slate-950"
+                            className={`cursor-pointer rounded-2xl border border-slate-200 bg-white font-medium text-slate-700 shadow-sm transition hover:border-purple/25 hover:bg-purple-soft/30 hover:text-slate-950 ${compact ? "px-3 py-2 text-xs leading-5" : "px-4 py-4 text-sm leading-6"}`}
                         >
                             {suggestion}
                         </button>

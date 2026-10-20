@@ -39,6 +39,7 @@ import {
 import {
     applyArrayParams,
     applyCalendarDateParams,
+    isCompletedCalendarPeriod,
 } from "@/components/ui/CalendarButton";
 import {
     Card,
@@ -508,7 +509,7 @@ export default function ExecutiveDashboardPage() {
                                     Acompanhe marcações, agendamentos e resultados das consultas no período.
                                 </p>
                             </div>
-                            <ConsultationKpis data={data} />
+                            <ConsultationKpis data={data} hideProjection={isCompletedCalendarPeriod(period, selectedRange)} />
                         </section>
 
                         <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -567,7 +568,7 @@ function DailyEvolutionCard({ data }: { data: ExecutiveDashboardData }) {
     return <SharedDailyEvolutionCard data={data} />;
 }
 
-function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
+function ConsultationKpis({ data, hideProjection }: { data: ExecutiveDashboardData; hideProjection: boolean }) {
     const total = data.schedule_unit_table.total;
     const previousTotal = data.previous_schedule_unit_table.total;
     const formatNumber = (value: number) =>
@@ -653,7 +654,7 @@ function ConsultationKpis({ data }: { data: ExecutiveDashboardData }) {
                         currentValue={card.value}
                         previousValue={card.previousValue}
                         formatter={formatNumber}
-                        projectionText={card.projectionText}
+                        projectionText={hideProjection ? null : card.projectionText}
                         valueAddon={
                             card.label === "Compareceu" && total.showed_up_rate !== null
                                 ? `${total.showed_up_rate.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`

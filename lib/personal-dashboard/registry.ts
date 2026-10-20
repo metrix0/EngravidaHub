@@ -21,6 +21,7 @@ export type DashboardWidgetSource =
     | "funil"
     | "mensagem_ativa"
     | "gerencial"
+    | "performance"
     | "inteligencia_agenda"
     | "agenda_disponibilidade"
     | "agenda_indicadores";
@@ -116,7 +117,6 @@ export const DASHBOARD_WIDGETS = [
     { id: "financeiro.campanhas", title: "Campanhas com maior investimento", kind: "table", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.verba_cidade", title: "Verba de mídia por cidade", kind: "table", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
     { id: "financeiro.retorno_cidade", title: "Retorno real da mídia por cidade", kind: "chart", source: "financeiro", sourcePath: "/financeiro", permissionTab: "financeiro", supportedFilters: FINANCEIRO_FILTERS },
-    { id: "jornada.jornada_completa", title: "Jornada completa", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada", supportedFilters: JORNADA_FILTERS },
     { id: "jornada.cobertura_whatsapp", title: "Cobertura das conversas no WhatsApp", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada", supportedFilters: JORNADA_FILTERS },
     { id: "jornada.fontes_whatsapp", title: "De onde vem o WhatsApp rastreado", kind: "table", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada", supportedFilters: JORNADA_FILTERS },
     { id: "jornada.funil_conversa", title: "Jornada na Conversa", kind: "chart", source: "jornada", sourcePath: "/jornada", permissionTab: "jornada", supportedFilters: JORNADA_FILTERS },

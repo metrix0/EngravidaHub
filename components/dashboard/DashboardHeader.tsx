@@ -39,11 +39,13 @@ const useBrowserLayoutEffect =
 type DashboardHeaderProps = {
     title: string;
     description: string;
+    descriptionSuffix?: ReactNode;
     period: CalendarPresetValue | null;
     setPeriod: (value: CalendarPresetValue | null) => void;
     selectedRange: DateRange;
     setSelectedRange: (value: DateRange) => void;
     presets?: typeof DEFAULT_CALENDAR_PRESETS;
+    customRangeLabel?: string;
     storageManaged?: boolean;
     storageReady?: boolean;
     meta?: ReactNode;
@@ -166,11 +168,13 @@ export function useDashboardDateFilter(
 export function DashboardHeader({
     title,
     description,
+    descriptionSuffix,
     period,
     setPeriod,
     selectedRange,
     setSelectedRange,
     presets = DEFAULT_CALENDAR_PRESETS,
+    customRangeLabel,
     storageManaged = false,
     storageReady = true,
     meta,
@@ -260,7 +264,7 @@ export function DashboardHeader({
                     {resolvedTitle}
                 </h1>
 
-                <p className="mt-2 text-sm text-slate-500">{description}</p>
+                <p className="mt-2 text-sm text-slate-500">{description}{descriptionSuffix ? <>{" "}{descriptionSuffix}</> : null}</p>
                 {meta}
             </div>
 
@@ -285,6 +289,7 @@ export function DashboardHeader({
                         }))}
                     >
                         <CalendarButton
+                            placeholderLabel={customRangeLabel}
                             value={selectedRange}
                             onChange={setSelectedRange}
                             onApply={(range) => {

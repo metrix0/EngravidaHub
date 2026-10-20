@@ -71,6 +71,10 @@ export async function POST(request: Request) {
     try {
         const { user, attendant } = await getCurrentAttendantFromRequest();
         if (!user) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+        if (!attendant) return NextResponse.json({
+            ok: false,
+            error: "Sua conta não possui atendente vinculado. Solicite a vinculação antes de agendar.",
+        }, { status: 403 });
         const parsed = createSchema.safeParse(await request.json());
         if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid appointment data", issues: parsed.error.issues }, { status: 400 });
         const body = parsed.data;
@@ -115,7 +119,7 @@ export async function POST(request: Request) {
             address_complement: body.address.complement || null, address_neighborhood: body.address.neighborhood || null,
             address_city: body.address.city || null, address_state: body.address.state || null,
             address_cep: onlyDigits(body.address.cep) || null, address_country: body.address.country || null,
-            notes: body.notes || null, created_by: user.id, created_by_attendant_id: attendant?.id ?? null,
+            notes: body.notes || null, created_by: user.id, created_by_attendant_id: attendant.id,
         }).select("id").single();
         if (insertError) throw insertError;
 

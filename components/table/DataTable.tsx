@@ -34,6 +34,9 @@ type DataTableProps<TRow> = {
         event: MouseEvent<HTMLElement>,
     ) => void;
     emptyMessage?: string;
+    minWidth?: number;
+    cardPadding?: boolean;
+    getRowClassName?: (row: TRow) => string;
 };
 
 export function DataTable<TRow,>({
@@ -42,16 +45,22 @@ export function DataTable<TRow,>({
     getRowKey,
     onRowClick,
     emptyMessage = "Nenhum item encontrado.",
+    minWidth,
+    cardPadding = true,
+    getRowClassName,
 }: DataTableProps<TRow>) {
     const gridTemplateColumns = columns
         .map((column) => `minmax(0, ${column.width})`)
         .join(" ");
 
     return (
-        <div className="overflow-x-auto md:overflow-hidden">
-            <div className="min-w-[860px] md:min-w-0">
+        <div className={minWidth ? "overflow-x-auto" : "overflow-x-auto md:overflow-hidden"}>
             <div
-                className="grid border-b border-slate-100 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-500"
+                className={minWidth ? "min-w-[860px]" : "min-w-[860px] md:min-w-0"}
+                style={minWidth ? { minWidth } : undefined}
+            >
+            <div
+                className={`grid border-b border-slate-100 bg-slate-50 py-3 text-xs font-bold text-slate-500 ${cardPadding ? "px-4 md:px-6" : "px-3"}`}
                 style={{ gridTemplateColumns }}
             >
                 {columns.map((column, index) => (
@@ -80,6 +89,8 @@ export function DataTable<TRow,>({
                         columns={columns}
                         gridTemplateColumns={gridTemplateColumns}
                         onClick={onRowClick}
+                        cardPadding={cardPadding}
+                        rowClassName={getRowClassName?.(row)}
                     />
                 ))
             ) : (

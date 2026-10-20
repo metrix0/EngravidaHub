@@ -8,13 +8,14 @@ import {
     type MouseEvent,
     type PointerEvent,
 } from "react";
-import { ChevronRight, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, RotateCcw, Trash2, X } from "lucide-react";
 
 import Skeleton from "@/components/ui/Skeleton";
 import { Modal } from "@/components/ui/Modal";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { AGENDA_COLORS, bookingTeamLabel } from "@/lib/scheduling/bookingOrigin";
 import type { AgendaBlock, AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { matchesRecoveredSlot, type RecoveryVacancy } from "@/lib/scheduling/slotRecovery";
 import { formatDoctorName } from "@/lib/scheduling/formatDoctorName";
 import { AGENDA_NOTE_COLOR, percent } from "./AgendaIndicators";
 import type {
@@ -36,6 +37,9 @@ type Props = {
     freeSlots?: AgendaFreeSlot[];
     doctorLoads?: OperationalAgendaReport["byDoctor"];
     onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
+    recoveryVacancies?: RecoveryVacancy[];
+    onRecoverSlot?: (slot: AgendaFreeSlot, vacancyId: number) => void;
+    onPrefetchRecovery?: (vacancyId: number) => void;
     selectedAppointmentId: string | null;
     loading: boolean;
     onSelectAppointment: (appointment: CalendarAppointment) => void;
@@ -476,6 +480,9 @@ export default function WeekCalendar(props: Props) {
                                         {(freeSlotGroupsByDay.get(dayKey) ?? []).map(group => {
                                             const first = group.slots[0];
                                             const single = group.slots.length === 1;
+                                            const recovery = group.slots.flatMap(slot => (props.recoveryVacancies ?? [])
+                                                .filter(vacancy => !vacancy.filled && matchesRecoveredSlot(slot, vacancy))
+                                                .map(vacancy => ({ slot, vacancy })))[0];
                                             const load = loads.get(`${first.unitId}:${first.doctorId}`);
                                             const card = (
                                                         <button
@@ -488,7 +495,7 @@ export default function WeekCalendar(props: Props) {
                                                                 ? `Agendar ${time(first.startsAt)}–${time(first.endsAt)} · ${first.doctorName}`
                                                                 : `Ver ${group.slots.length} horários livres com início entre ${minuteLabel(group.startMinutes)} e ${minuteLabel(group.startMinutes + 29)}`}
                                                             className="flex h-full w-full cursor-pointer flex-col items-start justify-center overflow-hidden rounded-lg border border-white/70 px-2 py-1.5 text-left text-white shadow-sm transition hover:shadow-md"
-                                                            style={{ backgroundColor: AGENDA_COLORS.available }}
+                                                            style={{ backgroundColor: recovery ? "#e29229" : AGENDA_COLORS.available }}
                                                         >
                                                             <span className="block text-[10px] font-bold leading-tight">
                                                                 {single ? `${time(first.startsAt)}–${time(first.endsAt)}` : `Inícios ${minuteLabel(group.startMinutes)}–${minuteLabel(group.startMinutes + 29)}`}
@@ -541,6 +548,14 @@ export default function WeekCalendar(props: Props) {
                                                         {card}
                                                     </InfoTooltip>
                                                     )}
+                                                    {recovery && props.onRecoverSlot && <button type="button"
+                                                        onClick={event => { event.stopPropagation(); props.onRecoverSlot?.(recovery.slot, recovery.vacancy.id); }}
+                                                        onMouseEnter={() => props.onPrefetchRecovery?.(recovery.vacancy.id)}
+                                                        onFocus={() => props.onPrefetchRecovery?.(recovery.vacancy.id)}
+                                                        className="group/recover absolute bottom-1 right-1 z-20 inline-flex cursor-pointer items-center gap-1 rounded-lg border border-orange/30 bg-white px-2 py-1 text-[10px] font-bold text-orange shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-orange hover:bg-orange-soft hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange">
+                                                        <RotateCcw size={12} className="shrink-0 transition-transform duration-150 group-hover/recover:-rotate-45" />
+                                                        Recuperar{recovery.vacancy.contacted > 0 ? " · " + recovery.vacancy.contacted + " contatado(s)" : ""}
+                                                    </button>}
                                                 </div>
                                             );
                                         })}
@@ -611,7 +626,8 @@ export default function WeekCalendar(props: Props) {
                                                 1,
                                                 ((endsAtMinutes - startsAtMinutes) / 60) * HOUR_HEIGHT - 6,
                                             );
-                                            const compact = endsAtMinutes - startsAtMinutes <= 15;
+                                            const compact = height < 60;
+                                            const showPatient = height >= 100;
                                             const lane = appointmentLanesByDay.get(dayKey)?.get(appointment.id) ?? { column: 0, columns: 1 };
                                             const isSelected =
                                                 props.selectedAppointmentId ===
@@ -623,6 +639,7 @@ export default function WeekCalendar(props: Props) {
                                                 <div
                                                     key={appointment.id}
                                                     draggable
+                                                    title={`${time(appointment.starts_at)}–${time(endsAt)} · ${appointment.doctor?.name ?? "Sem médico"} · ${appointment.patient_name}`}
                                                     onDragStart={(event) => {
                                                         event.dataTransfer.effectAllowed =
                                                             "move";
@@ -665,7 +682,7 @@ export default function WeekCalendar(props: Props) {
                                                               ? 35
                                                               : 5 + lane.column,
                                                         backgroundColor:
-                                                            appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
+                                                            appointment.status === "cancelled" ? AGENDA_COLORS.cancelled : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
                                                         <span className="relative block h-full w-full">
@@ -690,19 +707,18 @@ export default function WeekCalendar(props: Props) {
                                                         <Trash2 size={12} />
                                                     </button>
 
-                                                    <span className="block pr-5 text-[10px] font-bold leading-tight opacity-90">
-                                                        {time(
-                                                            appointment.starts_at,
-                                                        )}
-                                                        –{time(endsAt)}
-                                                    </span>
-                                                    <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-bold leading-tight">
-                                                        {appointment.doctor
-                                                            ?.name ??
-                                                            "Sem médico"}
-                                                    </span>
+                                                    {height >= 22 ? (
+                                                        <span className={`block text-[10px] font-bold leading-tight opacity-90 ${compact ? "truncate" : "pr-5"}`}>
+                                                            {time(appointment.starts_at)}–{time(endsAt)}
+                                                        </span>
+                                                    ) : null}
                                                     {!compact ? (
-                                                        <span className="block mt-0.5 whitespace-normal break-words text-[11px] font-semibold leading-tight opacity-95">
+                                                        <span className="mt-0.5 line-clamp-2 break-words text-[11px] font-bold leading-tight">
+                                                            {appointment.doctor?.name ?? "Sem médico"}
+                                                        </span>
+                                                    ) : null}
+                                                    {showPatient ? (
+                                                        <span className="mt-0.5 line-clamp-2 break-words text-[11px] font-semibold leading-tight opacity-95">
                                                             {appointment.patient_name}
                                                         </span>
                                                     ) : null}
@@ -747,7 +763,9 @@ export default function WeekCalendar(props: Props) {
                 <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto">
                     {expandedFreeSlots?.map(slot => {
                         const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                        const vacancy = (props.recoveryVacancies ?? []).find(item => !item.filled && matchesRecoveredSlot(slot, item));
                         return (
+                            <div key={slot.id} className="relative">
                             <button
                                 key={slot.id}
                                 type="button"
@@ -755,7 +773,7 @@ export default function WeekCalendar(props: Props) {
                                     setExpandedFreeSlots(null);
                                     props.onSelectFreeSlot?.(slot);
                                 }}
-                                className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50"
+                                className={"flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:bg-slate-50" + (vacancy ? " pr-28" : "")}
                             >
                                 <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AGENDA_COLORS.available }} />
                                 <span className="min-w-0 flex-1">
@@ -765,6 +783,15 @@ export default function WeekCalendar(props: Props) {
                                 </span>
                                 <ChevronRight size={16} className="mt-2 shrink-0 text-slate-400" />
                             </button>
+                            {vacancy && props.onRecoverSlot && <button type="button"
+                                onClick={() => { setExpandedFreeSlots(null); props.onRecoverSlot?.(slot, vacancy.id); }}
+                                onMouseEnter={() => props.onPrefetchRecovery?.(vacancy.id)}
+                                onFocus={() => props.onPrefetchRecovery?.(vacancy.id)}
+                                className="group/recover absolute right-3 top-3 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-orange/30 bg-orange-soft px-2.5 py-1.5 text-xs font-bold text-orange shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-orange hover:bg-white hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange">
+                                <RotateCcw size={14} className="shrink-0 transition-transform duration-150 group-hover/recover:-rotate-45" />
+                                Recuperar
+                            </button>}
+                            </div>
                         );
                     })}
                 </div>
@@ -1070,7 +1097,7 @@ function groupFreeSlotStarts(slots: AgendaFreeSlot[]) {
 }
 
 function appointmentColor(appointment: CalendarAppointment) {
-    return appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
+    return appointment.status === "cancelled" ? AGENDA_COLORS.cancelled : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
 }
 
 type AppointmentGroup = {

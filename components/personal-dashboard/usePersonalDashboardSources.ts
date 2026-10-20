@@ -1,6 +1,7 @@
 "use client";
 
 import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import type { PerformanceReport } from "@/lib/performance/report";
 import { agendaReportDashboardUrl } from "@/lib/personal-dashboard/agendaReportWidgets";
 import type { AgendaIntelligenceReport } from "@/lib/scheduling/agendaIntelligence";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +35,7 @@ export type SourceData = {
     inteligencia_agenda: AgendaIntelligenceReport | null;
     agenda_disponibilidade: OperationalAgendaReport | null;
     agenda_indicadores: OperationalAgendaReport | null;
+    performance: PerformanceReport | null;
 };
 
 type Props = {
@@ -76,6 +78,7 @@ const EMPTY_DATA: SourceData = {
     inteligencia_agenda: null,
     agenda_disponibilidade: null,
     agenda_indicadores: null,
+    performance: null,
 };
 
 const FINANCIAL_SUMMARY_WIDGETS = new Set([
@@ -146,6 +149,19 @@ export function usePersonalDashboardSources({
             const supports = (key: DashboardWidgetFilterKey) =>
                 filters.has(key);
 
+            if (source === "performance") {
+                // The booking-authors table keeps its own request and does not need the full report.
+                if (sourceDefinitions.some(widget => widget.id !== "performance.marcado_por_atendente") && unitIds.length <= 1) {
+                    const params = new URLSearchParams({
+                        start: dateParams.get("start_date") ?? "",
+                        end: dateParams.get("end_date") ?? "",
+                    });
+                    if (unitIds.length === 1) params.set("unit_id", unitIds[0]);
+                    next.push(sourceRequest(source, "/api/performance?" + params.toString()));
+                }
+                continue;
+            }
+
             if (source === "agenda_disponibilidade" || source === "agenda_indicadores") {
                 next.push(sourceRequest(source, agendaReportDashboardUrl(source, dateParams, supports("units") ? unitIds : [])));
                 continue;
@@ -196,6 +212,8 @@ export function usePersonalDashboardSources({
 
             if (source === "jornada") {
                 const params = new URLSearchParams(dateParams);
+                params.set("summary_only", "1");
+                if (sourceDefinitions.some(widget => widget.id === "jornada.fontes_whatsapp")) params.set("source_conversions", "1");
                 applyArrayParams(params, {
                     unit_ids: supports("units") ? unitIds : [],
                     attendant_ids: supports("attendants")
@@ -383,6 +401,10 @@ async function loadSource(
     request: SourceRequest,
     signal: AbortSignal,
 ): Promise<Partial<SourceData>> {
+    if (request.source === "performance") {
+        const payload = await fetchJson<{ report: PerformanceReport }>(request.url, signal);
+        return { performance: payload.report };
+    }
     if (request.source === "agenda_disponibilidade" || request.source === "agenda_indicadores") {
         const payload = await fetchJson<{ report: OperationalAgendaReport }>(request.url, signal);
         return request.source === "agenda_disponibilidade" ? { agenda_disponibilidade: payload.report } : { agenda_indicadores: payload.report };
