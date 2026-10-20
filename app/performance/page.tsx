@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDownUp, ChevronLeft, ChevronRight, Info, MapPin, UserRound, Users } from "lucide-react";
+import { ArrowDownUp, Info, MapPin, UserRound, Users } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 import HorizontalScroller from "@/components/ui/HorizontalScroller";
@@ -103,14 +103,6 @@ export default function PerformancePage() {
     const rankingStart = (currentRankingPage - 1) * RANKING_PAGE_SIZE;
     const visibleRanked = ranked.slice(rankingStart, rankingStart + RANKING_PAGE_SIZE);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
-    const selectedIndex = selected ? ranked.findIndex(person => person.id === selected.id) : -1;
-    function navigateAttendant(direction: -1 | 1) {
-        const nextIndex = selectedIndex + direction;
-        const next = ranked[nextIndex];
-        if (!next) return;
-        setSelectedId(next.id);
-        setRankingPage(Math.floor(nextIndex / RANKING_PAGE_SIZE) + 1);
-    }
     const raOnlyContribution = team === "all" && !attendantId && !attendantSearch.trim();
     const unitContribution = useMemo(
         () => report ? computePerformanceUnitContribution(report, ranked, raOnlyContribution) : [],
@@ -210,32 +202,20 @@ export default function PerformancePage() {
                     {selected ? <section data-assistant-section="performance-atendente" className="space-y-5" aria-label={"Desempenho de " + selected.name}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-baseline gap-3">
-                                <DropdownSelect icon={<UserRound size={16} />} searchable value={selected.id} widthClassName="w-[300px]"
-                                    searchValue={detailSearch} searchPlaceholder={selected.name}
-                                    onSearchChange={setDetailSearch}
-                                    onChange={value => {
-                                        setSelectedId(value);
-                                        setDetailSearch("");
-                                        const index = ranked.findIndex(person => person.id === value);
-                                        if (index >= 0) setRankingPage(Math.floor(index / RANKING_PAGE_SIZE) + 1);
-                                    }}
-                                    options={ranked.filter(person => person.name.toLocaleLowerCase("pt-BR").includes(detailSearch.trim().toLocaleLowerCase("pt-BR")))
-                                        .map(person => ({ label: person.name, value: person.id, description: labelForSector(person.sector) }))} />
+                                <h2 className="text-xl font-bold">{selected.name}</h2>
                                 <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{labelForSector(selected.sector)}</span>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="mr-1 text-xs tabular-nums text-muted">{selectedIndex + 1} de {number(ranked.length)}</span>
-                                <button type="button" onClick={() => navigateAttendant(-1)} disabled={selectedIndex <= 0}
-                                    aria-label="Atendente anterior" title="Atendente anterior"
-                                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-slate-600 transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-40">
-                                    <ChevronLeft size={18} />
-                                </button>
-                                <button type="button" onClick={() => navigateAttendant(1)} disabled={selectedIndex >= ranked.length - 1}
-                                    aria-label="Próximo atendente" title="Próximo atendente"
-                                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-slate-600 transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-40">
-                                    <ChevronRight size={18} />
-                                </button>
-                            </div>
+                            <DropdownSelect icon={<UserRound size={16} />} searchable value={selected.id} widthClassName="w-[300px]"
+                                searchValue={detailSearch} searchPlaceholder={selected.name}
+                                onSearchChange={setDetailSearch}
+                                onChange={value => {
+                                    setSelectedId(value);
+                                    setDetailSearch("");
+                                    const index = ranked.findIndex(person => person.id === value);
+                                    if (index >= 0) setRankingPage(Math.floor(index / RANKING_PAGE_SIZE) + 1);
+                                }}
+                                options={ranked.filter(person => person.name.toLocaleLowerCase("pt-BR").includes(detailSearch.trim().toLocaleLowerCase("pt-BR")))
+                                    .map(person => ({ label: person.name, value: person.id, description: labelForSector(person.sector) }))} />
                         </div>
                         <HorizontalScroller>
                             {PERFORMANCE_KPI_IDS.map(widgetId => (
