@@ -13,7 +13,8 @@ jobs:
   sync-preview:
     if: >
       github.event.pull_request.merged == true &&
-      github.event.pull_request.head.ref == 'preview'
+      (github.event.pull_request.head.ref == 'preview' ||
+       startsWith(github.event.pull_request.head.ref, 'merge-snapshot-'))
     runs-on: ubuntu-latest
 
     steps:
@@ -24,4 +25,27 @@ jobs:
           fetch-depth: 0
 
       - name: Reset preview to main
-        run: git push origin HEAD:preview --force
+        env:
+          SNAPSHOT_SHA: ${{ startsWith(github.event.pull_request.head.ref, 'merge-snapshot-') && github.event.pull_request.head.sha || '' }}
+        run: |
+          if [ -z "$SNAPSHOT_SHA" ]; then
+            git push origin HEAD:preview --force
+            exit 0
+          fi
+          set -euo pipefail
+          MAIN_SHA="$(git rev-parse HEAD)"
+          git fetch origin +refs/heads/preview:refs/remotes/origin/preview
+          PREVIEW_SHA="$(git rev-parse refs/remotes/origin/preview)"
+          if ! git merge-base --is-ancestor "$SNAPSHOT_SHA" "$PREVIEW_SHA"; then
+            echo "Snapshot is not an ancestor of preview; refusing to overwrite newer work."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$PREVIEW_SHA" != "$SNAPSHOT_SHA" ]; then
+            git checkout -B snapshot-preview origin/preview
+            git rebase --onto "$MAIN_SHA" "$SNAPSHOT_SHA" snapshot-preview
+          else
+            git checkout -B snapshot-preview "$MAIN_SHA"
+          fi
+          git push origin HEAD:preview --force-with-lease="refs/heads/preview:$PREVIEW_SHA"
