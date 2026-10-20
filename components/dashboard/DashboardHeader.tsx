@@ -44,6 +44,7 @@ type DashboardHeaderProps = {
     selectedRange: DateRange;
     setSelectedRange: (value: DateRange) => void;
     presets?: typeof DEFAULT_CALENDAR_PRESETS;
+    customRangeLabel?: string;
     storageManaged?: boolean;
     storageReady?: boolean;
     meta?: ReactNode;
@@ -171,6 +172,7 @@ export function DashboardHeader({
     selectedRange,
     setSelectedRange,
     presets = DEFAULT_CALENDAR_PRESETS,
+    customRangeLabel,
     storageManaged = false,
     storageReady = true,
     meta,
@@ -285,6 +287,7 @@ export function DashboardHeader({
                         }))}
                     >
                         <CalendarButton
+                            placeholderLabel={customRangeLabel}
                             value={selectedRange}
                             onChange={setSelectedRange}
                             onApply={(range) => {

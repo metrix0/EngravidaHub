@@ -196,6 +196,8 @@ export function usePersonalDashboardSources({
 
             if (source === "jornada") {
                 const params = new URLSearchParams(dateParams);
+                params.set("summary_only", "1");
+                if (sourceDefinitions.some(widget => widget.id === "jornada.fontes_whatsapp")) params.set("source_conversions", "1");
                 applyArrayParams(params, {
                     unit_ids: supports("units") ? unitIds : [],
                     attendant_ids: supports("attendants")

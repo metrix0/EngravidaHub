@@ -1,20 +1,21 @@
 "use client";
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
     ArrowRight,
     BadgeCheck,
     CalendarCheck2,
     CircleDollarSign,
+    ChevronDown,
     HelpCircle,
     MousePointerClick,
     ReceiptText,
     UserCheck,
 } from "lucide-react";
-import { FaGoogle, FaMeta } from "react-icons/fa6";
+import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { Card, InfoTooltip } from "@/components";
+import { Card, InfoTooltip, Skeleton } from "@/components";
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -22,10 +23,16 @@ type PipelineStageKey =
     | "tracked_whatsapp"
     | "scheduled"
     | "attended"
+    | "procedure_scheduled"
+    | "procedure_attended"
     | "invoiced"
     | "authorized";
 
 type FullJourneyPipeline = {
+    query_params?: string;
+    additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
+    instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
+    revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
     available: boolean;
     ads_available: boolean;
     ads_scope_global: boolean;
@@ -38,6 +45,7 @@ type FullJourneyPipeline = {
         secondary_value: number | null;
         secondary_kind: "count" | "currency" | null;
         secondary_label: string | null;
+        metric_available?: boolean;
     }>;
     transitions: Array<{
         key: string;
@@ -89,6 +97,9 @@ type FullJourneyPipeline = {
             other_conversations: number;
             untracked_conversations: number;
         };
+        entry_clients_total?: number;
+        cohort_start_date?: string;
+        cohort_end_date?: string;
         matured_through: string;
         error: string | null;
     };
@@ -127,6 +138,8 @@ const PIPELINE_STAGE_STYLE: Record<PipelineStageKey, { accent: string; soft: str
     tracked_whatsapp: { accent: "#0f9f94", soft: "#e6f8f6", eyebrow: "CRM" },
     scheduled: { accent: "#8b5cf6", soft: "#f1ebff", eyebrow: "Conversão" },
     attended: { accent: "#0f9f94", soft: "#e6f8f6", eyebrow: "Clínica" },
+    procedure_scheduled: { accent: "#8b5cf6", soft: "#f1ebff", eyebrow: "Conversão" },
+    procedure_attended: { accent: "#0f9f94", soft: "#e6f8f6", eyebrow: "Clínica" },
     invoiced: { accent: "#d98916", soft: "#fff3df", eyebrow: "Receita" },
     authorized: { accent: "#0f9f61", soft: "#e6f8ef", eyebrow: "Receita" },
 };
@@ -149,20 +162,45 @@ const EMPTY_WHATSAPP_COVERAGE: FullJourneyPipeline["audit"]["whatsapp_coverage"]
 };
 
 export default function ExactJornadaDashboardGraphs({ widgetId, data }: Props) {
-    if (widgetId === "jornada.jornada_completa") return <FullJourneyPipelineCard data={data} />;
     if (widgetId === "jornada.cobertura_whatsapp") return <WhatsappCoverageCard pipeline={data.full_pipeline} />;
     if (widgetId === "jornada.fontes_whatsapp") return <TrackedWhatsappSourcesCard pipeline={data.full_pipeline} />;
     return null;
 }
 
-export function FullJourneyPipelineCard({
-    data,
-    onSelectRecommendedMonth,
-}: {
-    data: JourneyDashboardData;
-    onSelectRecommendedMonth?: () => void;
-}) {
-    const pipeline = data.full_pipeline;
+export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
+    const [attempt, setAttempt] = useState(0);
+    const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
+    const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+    const params = new URLSearchParams(data.full_pipeline.query_params);
+    params.delete("summary_only");
+    params.set("full_pipeline_only", "1");
+    const query = data.full_pipeline.query_params === undefined ? null : params.toString();
+    const requestKey = `${query}:${attempt}`;
+    const loading = query !== null && loaded?.key !== requestKey && failure?.key !== requestKey;
+    const pipeline = loaded?.key === requestKey ? loaded.pipeline : data.full_pipeline;
+    const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
+
+    useEffect(() => {
+        if (query === null) return;
+        const controller = new AbortController();
+        let timedOut = false;
+        const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+        void (async () => {
+            try {
+                const response = await fetch(`/api/dashboard/jornada?${query}`, { signal: controller.signal });
+                const json = await response.json();
+                if (!response.ok || !json.full_pipeline || !Array.isArray(json.full_pipeline.stages) ||
+                    !Array.isArray(json.full_pipeline.transitions) || !json.full_pipeline.audit || json.full_pipeline.audit.error) {
+                    throw new Error(json.error ?? json.full_pipeline?.audit?.error ?? "Falha ao carregar a jornada completa.");
+                }
+                if (!controller.signal.aborted) setLoaded({ key: requestKey, pipeline: json.full_pipeline });
+            } catch (error) {
+                if (controller.signal.aborted && !timedOut) return;
+                setFailure({ key: requestKey, message: timedOut ? "A consulta demorou mais que o esperado." : error instanceof Error ? error.message : "Falha ao carregar a jornada completa." });
+            } finally { window.clearTimeout(timeout); }
+        })();
+        return () => { window.clearTimeout(timeout); controller.abort(); };
+    }, [query, requestKey]);
     const clinicalTransitions = (pipeline.transitions ?? []).filter(
         (transition) =>
             !transition.estimated &&
@@ -200,47 +238,25 @@ export function FullJourneyPipelineCard({
     );
     const endToEndRate = calculateRate(
         authorizedStage?.value ?? 0,
-        trackedWhatsappStage?.value ?? 0,
+        pipeline.audit.entry_clients_total ?? trackedWhatsappStage?.value ?? 0,
     );
 
     return (
-        <Card className="min-w-0 overflow-hidden p-0">
-            <div className="border-b border-slate-100 bg-white px-6 py-5">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-xl font-bold text-slate-900">
-                            Jornada completa
-                        </h2>
-                        <InfoTooltip
-                            text={buildPipelineSourceTooltip(pipeline)}
-                            portal
-                            widthClassName="w-[560px]"
-                        >
-                            <HelpCircle size={16} className="text-slate-400" />
-                        </InfoTooltip>
-                    </div>
-                    <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                        Para precisão no comparecimento, selecione datas com ao 30+ dias de maturação.
-                    </p>
-                    {onSelectRecommendedMonth ? (
-                        <button
-                            type="button"
-                            onClick={onSelectRecommendedMonth}
-                            className="mt-3 block cursor-pointer text-sm underline underline-offset-2"
-                        >
-                            Clique aqui para selecionar o mês recomendado
-                        </button>
-                    ) : null}
-                </div>
+        <div className="min-w-0 overflow-hidden">
+            <div className="flex justify-end pb-2">
+                <InfoTooltip text={buildPipelineSourceTooltip(pipeline)} portal widthClassName="w-[560px]">
+                    <HelpCircle size={16} className="text-slate-400" aria-label="Como a jornada é calculada" />
+                </InfoTooltip>
             </div>
 
-            {pipeline.audit.error ? (
+            {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
-                    A jornada completa não pôde ser carregada: {pipeline.audit.error}
+                    A jornada completa não pôde ser carregada: {error}
+                    <button type="button" onClick={() => setAttempt(value => value + 1)} className="ml-2 cursor-pointer underline">Tentar novamente</button>
                 </div>
             ) : null}
 
-            {!pipeline.ads_available ? (
+            {!loading && !error && !pipeline.ads_available ? (
                 <div className="border-b border-amber-100 bg-amber-50 px-6 py-3 text-sm text-amber-800">
                     Sem dados de Meta ou Google Ads neste período. As etapas do WhatsApp em diante continuam válidas.
                 </div>
@@ -252,14 +268,23 @@ export function FullJourneyPipelineCard({
                 </div>
             ) : null}
 
-            <div className="px-6 py-6">
-                {pipeline.stages.length === 0 ? (
+            <div className="py-6">
+                {loading ? <div className="px-6"><Skeleton className="h-[520px] w-full" /></div> : error ? null : pipeline.stages.length === 0 ? (
                     <EmptyCardMessage message="Nenhum dado rastreável no período." />
                 ) : (
-                    <JourneyPipelineTree pipeline={pipeline} />
+                    <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
+                        <div className="space-y-16">
+                            <JourneyPipelineTree pipeline={pipeline} />
+                            {(pipeline.additional_pipelines ?? []).map(group => (
+                                <div key={group.key} style={{ marginLeft: 644 }}>
+                                    <JourneyPipelineTree pipeline={group.pipeline} groupKey={group.key} />
+                                </div>
+                            ))}
+                        </div>
+                    </PipelineCanvas>
                 )}
 
-                <div className="mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
+                {!loading && !error ? <div className="mx-6 mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
                     <PipelineInsight
                         label="Maior gargalo clínico"
                         value={
@@ -286,7 +311,7 @@ export function FullJourneyPipelineCard({
                     <PipelineInsight
                         label="Conversão ponta a ponta"
                         value={formatRate(endToEndRate)}
-                        detail="WhatsApp rastreado → liberado"
+                        detail="Entradas do fluxo pago → liberado"
                     />
                     <PipelineInsight
                         label="Receita liberada"
@@ -298,9 +323,9 @@ export function FullJourneyPipelineCard({
                             pipeline.audit.matured_through,
                         )}`}
                     />
-                </div>
+                </div> : null}
             </div>
-        </Card>
+        </div>
     );
 }
 
@@ -497,7 +522,7 @@ function WhatsappCoverageTooltip({
 
 const PIPELINE_TREE_ROW_HEIGHT = 210;
 const PIPELINE_TREE_ROW_GAP = 16;
-function PipelineCanvas({ children }: { children: ReactNode }) {
+function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNode; multipleFlows?: boolean }) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const offsetRef = useRef(offset);
@@ -516,6 +541,7 @@ function PipelineCanvas({ children }: { children: ReactNode }) {
 
     function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
         if (event.pointerType !== "mouse" || event.button !== 0) return;
+        if ((event.target as HTMLElement).closest("button, a, input, summary")) return;
         const viewport = viewportRef.current;
         if (!viewport) return;
 
@@ -556,7 +582,7 @@ function PipelineCanvas({ children }: { children: ReactNode }) {
     return (
         <div
             ref={viewportRef}
-            className="relative h-[720px] max-h-[72vh] min-h-[520px] w-full cursor-move select-none overflow-hidden rounded-xl"
+            className={`relative ${multipleFlows ? "h-[1520px]" : "h-[720px] max-h-[72vh]"} min-h-[520px] w-full cursor-move select-none overflow-hidden rounded-xl`}
             style={{
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
@@ -585,8 +611,10 @@ function PipelineCanvas({ children }: { children: ReactNode }) {
 
 function JourneyPipelineTree({
     pipeline,
+    groupKey = "paid",
 }: {
     pipeline: FullJourneyPipeline;
+    groupKey?: string;
 }) {
     const stages = new Map(
         pipeline.stages.map((stage) => [stage.key, stage]),
@@ -594,23 +622,19 @@ function JourneyPipelineTree({
     const tracked = stages.get("tracked_whatsapp");
     const scheduled = stages.get("scheduled");
     const attended = stages.get("attended");
-    const invoiced = stages.get("invoiced");
+    const procedureScheduled = stages.get("procedure_scheduled");
+    const procedureAttended = stages.get("procedure_attended");
     const authorized = stages.get("authorized");
     const acquisitionBranches = pipeline.acquisition_branches ?? [];
     const procedureBranches = pipeline.procedure_branches ?? [];
     const whatsappToSchedule = pipeline.transitions.find(
         (transition) => transition.key === "whatsapp_to_schedule",
     );
-    const attendanceToInvoice = pipeline.transitions.find(
-        (transition) => transition.key === "attendance_to_invoice",
-    );
-    const invoiceTransition = pipeline.transitions.find(
-        (transition) => transition.key === "invoice_to_authorized",
-    );
     const acquisitionRowCount = Math.max(1, acquisitionBranches.length);
-    const acquisitionHeight =
+    const showInstagram = Boolean(pipeline.instagram);
+    const acquisitionHeight = acquisitionBranches.length === 0 ? PIPELINE_TREE_ROW_HEIGHT :
         acquisitionRowCount * PIPELINE_TREE_ROW_HEIGHT +
-        (acquisitionRowCount - 1) * PIPELINE_TREE_ROW_GAP;
+        (acquisitionRowCount - 1) * PIPELINE_TREE_ROW_GAP + (showInstagram ? 226 : 0);
     const topOffset = Math.max(
         0,
         (acquisitionHeight - PIPELINE_TREE_ROW_HEIGHT) / 2,
@@ -620,7 +644,8 @@ function JourneyPipelineTree({
         !tracked ||
         !scheduled ||
         !attended ||
-        !invoiced ||
+        !procedureScheduled ||
+        !procedureAttended ||
         !authorized
     ) {
         return (
@@ -629,13 +654,13 @@ function JourneyPipelineTree({
     }
 
     return (
-        <PipelineCanvas>
-            <div className="flex min-w-max items-start py-2">
-                <div className="space-y-4">
+            <div className="relative flex min-w-max items-start py-2">
+                {acquisitionBranches.length > 0 ? <>
+                <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? 226 : 0 }}>
                     {acquisitionBranches.map((branch) => (
                         <div
                             key={branch.platform}
-                            className="flex items-stretch"
+                            className="relative flex items-stretch"
                         >
                             <PipelineStageCard
                                 stage={clientPipelineStage(
@@ -674,6 +699,15 @@ function JourneyPipelineTree({
                                     rate: branch.click_to_tracked_rate,
                                 })}
                             />
+                            {branch.platform === "meta_ads" && pipeline.instagram ? (
+                                <div className="absolute left-[286px] top-[226px] flex items-stretch">
+                                    <PipelineStageCard stage={{ ...clientPipelineStage("paid_clicks", "Cliques Meta → Instagram", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
+                                        eyebrow="Meta Ads" detail={pipeline.instagram.clicks === null ? "Dados ainda não disponíveis para este período" : "Conjuntos exclusivos do Instagram Direct"} />
+                                    <PipelineTransitionCard transition={clientPipelineTransition({ key: "instagram_clicks_to_chat", label: "Clique → Instagram", fromValue: pipeline.instagram.clicks ?? 0, toValue: pipeline.instagram.chats, rate: null })} />
+                                    <PipelineStageCard stage={clientPipelineStage("tracked_whatsapp", "Instagram Chat", pipeline.instagram.chats)}
+                                        eyebrow="Instagram" detail={`${pipeline.instagram.unlinked_chats.toLocaleString("pt-BR")} sem vínculo confirmado com o CRM`} />
+                                </div>
+                            ) : null}
                         </div>
                     ))}
                 </div>
@@ -682,6 +716,7 @@ function JourneyPipelineTree({
                     direction="merge"
                     rowCount={acquisitionRowCount}
                 />
+                </> : null}
 
                 <div style={{ marginTop: topOffset }}>
                     <PipelineStageCard stage={tracked} />
@@ -695,35 +730,39 @@ function JourneyPipelineTree({
                     </div>
                 ) : null}
 
-                <ProcedurePipelineStages
-                    scheduled={scheduled}
-                    attended={attended}
-                    branches={procedureBranches}
-                    topOffset={topOffset}
-                />
-
-                {attendanceToInvoice ? (
-                    <div style={{ marginTop: topOffset }}>
-                        <PipelineTransitionCard
-                            transition={attendanceToInvoice}
-                        />
+                <div className="relative" style={{ marginTop: topOffset }}>
+                    <div className="flex items-start">
+                        <ProcedurePipelineStages scheduled={scheduled} attended={attended} idPrefix={groupKey}
+                            branches={procedureBranches.filter(branch => branch.event_kind === "evaluation")}
+                            topOffset={0} branchOffset={90} />
+                        <PipelineTransitionCard transition={pipeline.transitions.find(item => item.key === "consultation_to_procedure") ?? clientPipelineTransition({ key: "consultation_to_procedure", label: "Consulta → procedimento", fromValue: 0, toValue: 0, rate: null })} />
+                        <ProcedurePipelineStages scheduled={procedureScheduled} attended={procedureAttended} idPrefix={groupKey}
+                            branches={procedureBranches.filter(branch => branch.event_kind !== "evaluation")}
+                            topOffset={0} branchOffset={90} />
+                        <div className="flex h-[210px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
+                            <span className="text-xs font-bold text-emerald-700">{formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "procedure")?.amount ?? 0, pipeline.currency_code)}</span>
+                            <ArrowRight size={24} className="my-3 text-emerald-600" />
+                        </div>
+                        <PipelineStageCard stage={authorized} width={210} />
                     </div>
-                ) : null}
-
-                <div
-                    className="flex items-stretch"
-                    style={{ marginTop: topOffset }}
-                >
-                    <PipelineStageCard stage={invoiced} />
-                    {invoiceTransition ? (
-                        <PipelineTransitionCard
-                            transition={invoiceTransition}
-                        />
-                    ) : null}
-                    <PipelineStageCard stage={authorized} />
+                    <svg aria-label="Receita liberada após a consulta" className="pointer-events-none absolute left-0 top-0 h-[285px] w-[1642px] overflow-visible" viewBox="0 0 1642 285">
+                        <path d="M 478 210 V 244 H 1537 V 212" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <path d="m 1532 218 5 -7 5 7" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <text x="1000" y="265" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
+                            {formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · após consulta
+                        </text>
+                    </svg>
                 </div>
+                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram" className="pointer-events-none absolute left-0 top-0 h-[680px] w-[1200px] overflow-visible" viewBox="0 0 1200 680">
+                    <path d="M 370 436 V 452" fill="none" stroke="#0866ff" strokeWidth="1.5" />
+                    <path d={`M 740 557 H 860 V ${topOffset + 113} H 812`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
+                    <path d={`m 819 ${topOffset + 108} -7 5 7 5`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
+                    <text x="820" y="580" fill="#0f9f94" fontSize="12" textAnchor="middle">{pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp</text>
+                    <path d={`M 740 557 H 918 V ${topOffset + 113} H 930`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
+                    <path d={`m 923 ${topOffset + 108} 7 5 -7 5`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
+                    <text x="1000" y="580" fill="#8b5cf6" fontSize="12" textAnchor="middle">{pipeline.instagram.to_consultation.toLocaleString("pt-BR")} agendaram pelo Instagram</text>
+                </svg> : null}
             </div>
-        </PipelineCanvas>
     );
 }
 
@@ -732,12 +771,18 @@ function ProcedurePipelineStages({
     attended,
     branches,
     topOffset,
+    branchOffset = 16,
+    idPrefix,
 }: {
     scheduled: FullJourneyPipeline["stages"][number];
     attended: FullJourneyPipeline["stages"][number];
     branches: FullJourneyPipeline["procedure_branches"];
     topOffset: number;
+    branchOffset?: number;
+    idPrefix: string;
 }) {
+    const [expanded, setExpanded] = useState(false);
+    const detailsId = `journey-details-${idPrefix}-${scheduled.key}`;
     const aggregateTransition = clientPipelineTransition({
         key: "procedure_schedule_to_attendance",
         label: "Agenda → presença",
@@ -768,8 +813,16 @@ function ProcedurePipelineStages({
                 />
             </div>
 
+            <div style={{ marginTop: branchOffset }}>
+                <button type="button" aria-expanded={expanded} aria-controls={detailsId}
+                    onClick={() => setExpanded(value => !value)}
+                    className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">
+                    <ChevronDown size={16} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+                    {scheduled.key === "scheduled" ? "Consultas" : "Procedimentos"} ({branches.length})
+                </button>
+                {expanded ? <div id={detailsId} className="mt-3">
             {branches.length > 0 ? (
-                <div className="mt-4 space-y-2">
+                <div className="space-y-2">
                     {branches.map((branch) => (
                         <div
                             key={branch.key}
@@ -790,10 +843,12 @@ function ProcedurePipelineStages({
                     ))}
                 </div>
             ) : (
-                <div className="mt-4 flex h-[86px] w-[598px] items-center justify-center rounded-2xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-400">
+                <div className="flex h-[86px] w-[598px] items-center justify-center rounded-2xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-400">
                     Nenhum procedimento dessa coorte foi encontrado no CliniSys.
                 </div>
             )}
+                </div> : null}
+            </div>
         </div>
     );
 }
@@ -985,7 +1040,7 @@ function PipelineStageCard({
             <div className="mt-5 text-xs font-semibold text-slate-500">
                 {stage.label}
             </div>
-            <div className="mt-1 text-[28px] font-black tracking-tight text-slate-900">
+            <div className={`mt-1 font-black tracking-tight text-slate-900 ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
                 {formatPipelineStageValue(stage)}
             </div>
             <div className="mt-3 line-clamp-3 min-h-12 text-[11px] font-medium leading-4 text-slate-500">
@@ -1002,7 +1057,7 @@ function PipelineTransitionCard({
     lossUnit?: "clientes" | "agendamentos";
 }) {
     return (
-        <div className="flex w-[118px] flex-col items-center justify-center px-2 text-center">
+        <div className="flex h-[210px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
             <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-black ${
                     transition.rate === null
@@ -1042,6 +1097,7 @@ function PipelineStageIcon({
     stageKey: PipelineStageKey;
     platformLabel?: string;
 }) {
+    if (platformLabel === "Instagram") return <FaInstagram size={20} />;
     if (stageKey === "paid_impressions") {
         if (platformLabel === "Meta Ads") return <FaMeta size={20} />;
         if (platformLabel === "Google Ads") return <FaGoogle size={20} />;
@@ -1054,8 +1110,8 @@ function PipelineStageIcon({
     }
     if (stageKey === "paid_clicks") return <MousePointerClick size={20} />;
     if (stageKey === "tracked_whatsapp") return <UserCheck size={20} />;
-    if (stageKey === "scheduled") return <CalendarCheck2 size={20} />;
-    if (stageKey === "attended") return <UserCheck size={20} />;
+    if (stageKey === "scheduled" || stageKey === "procedure_scheduled") return <CalendarCheck2 size={20} />;
+    if (stageKey === "attended" || stageKey === "procedure_attended") return <UserCheck size={20} />;
     if (stageKey === "invoiced") return <ReceiptText size={20} />;
     if (stageKey === "authorized") return <BadgeCheck size={20} />;
     return <CircleDollarSign size={20} />;
@@ -1135,6 +1191,8 @@ function formatRate(value: number | null): string {
 function formatPipelineStageValue(
     stage: FullJourneyPipeline["stages"][number],
 ) {
+    if (stage.metric_available === false) return "—";
+    if (stage.key === "authorized") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 }).format(stage.secondary_value ?? 0);
     if (stage.key === "paid_impressions" && stage.value >= 1_000_000) {
         return `${Math.round(stage.value / 1_000_000).toLocaleString("pt-BR")}m`;
     }
@@ -1144,6 +1202,7 @@ function formatPipelineStageValue(
 function formatPipelineSecondary(
     stage: FullJourneyPipeline["stages"][number],
 ) {
+    if (stage.key === "authorized") return `${stage.value.toLocaleString("pt-BR")} clientes · notas autorizadas`;
     if (stage.secondary_value === null || !stage.secondary_kind) {
         return stage.key === "paid_impressions"
             ? ""
@@ -1201,9 +1260,13 @@ function buildPipelineSourceTooltip(pipeline: FullJourneyPipeline) {
         `Meta Ads: ${(meta?.impressions ?? 0).toLocaleString("pt-BR")} impressões e ${(meta?.clicks ?? 0).toLocaleString("pt-BR")} cliques — dados da API Meta Ads.`,
         `Google Ads: ${(google?.impressions ?? 0).toLocaleString("pt-BR")} impressões e ${(google?.clicks ?? 0).toLocaleString("pt-BR")} cliques — dados da API Google Ads.`,
         `WhatsApp rastreado ${count("tracked_whatsapp")} — clientes únicos atribuídos por evidência da própria conversa. Primeiro usamos a Origem registrada; depois, a plataforma e a origem enviadas pelo TinTim para o mesmo cliente e a conversa mais próxima. Na ausência desses sinais, usamos somente UTM paga ou ID de clique salvo no cliente até 7 dias antes ou depois da conversa.`,
-        `Agendamentos por procedimento — cada ramo conta todos os eventos de avaliação ou procedimento importados do CliniSys no período selecionado. ${count("scheduled")} clientes únicos da coorte rastreada tiveram ao menos um evento.`,
-        `Presenças por procedimento — cada ramo conta todos os eventos com presença confirmada pelo status do CliniSys no período selecionado. ${count("attended")} clientes únicos da coorte rastreada compareceram ao menos uma vez.`,
-        `Faturados ${count("invoiced")} · ${money("invoiced")} — clientes presentes com nota emitida no CliniSys após a entrada paga.`,
+        `Agendamentos por procedimento — cada ramo conta os eventos deduplicados da agenda do Hub e do CliniSys após a entrada rastreada. ${count("scheduled")} clientes únicos da coorte rastreada tiveram ao menos um evento.`,
+        `Presenças por procedimento — cada ramo conta os eventos com presença confirmada após a entrada rastreada. ${count("attended")} clientes únicos da coorte rastreada compareceram ao menos uma vez.`,
+        "Impressões e cliques correspondem ao período de entrada. A origem dos pacientes pode ser recuperada de contatos anteriores; a relação clique → WhatsApp compara agregados, não cliques individuais.",
+        "A coorte inclui clientes com conversa, agendamento, atendimento ou nota no período. O histórico anterior de WhatsApp recupera a origem; os desfechos são acompanhados até hoje. Consultas e procedimentos seguem as classificações do Hub, incluindo registros sem nome.",
+        "Os três grupos são exclusivos: evidência paga (WhatsApp ou Instagram), WhatsApp sem origem identificada, e origens orgânicas confirmadas ou pacientes sem conversa vinculada. Vínculos entre Instagram, WhatsApp e consultas usam apenas IDs confirmados; nomes não são usados para inferir identidade.",
+        pipeline.instagram?.clicks === null ? "Os cliques específicos de Instagram Direct ainda não foram sincronizados para este período." : "Os cliques para Instagram contam somente conjuntos exclusivos de Instagram Direct. Os chats podem incluir outras campanhas; por isso não calculamos uma taxa entre essas duas populações.",
+        "A receita é atribuída ao último atendimento confirmado até a data da nota. Cada nota liberada entra uma única vez, pela consulta ou pelo procedimento. Os ramos contam clientes que geraram receita, não todos os pacientes presentes.",
         `Liberados ${count("authorized")} · ${money("authorized")} — notas dessa coorte com autorização fiscal confirmada no CliniSys.`,
     ].join("\n");
 }

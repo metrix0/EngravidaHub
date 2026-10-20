@@ -1,4 +1,5 @@
 // app/api/dashboard/jornada/route.ts
+import { getMatureJourneyRange, journeyProcedureKind } from "@/lib/funnel/fullJourney";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
@@ -46,6 +47,8 @@ type PipelineStageKey =
     | "tracked_whatsapp"
     | "scheduled"
     | "attended"
+    | "procedure_scheduled"
+    | "procedure_attended"
     | "invoiced"
     | "authorized";
 
@@ -69,6 +72,10 @@ type PipelineTransition = {
 };
 
 type FullJourneyPipeline = {
+    query_params?: string;
+    additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
+    instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
+    revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
     available: boolean;
     ads_available: boolean;
     ads_scope_global: true;
@@ -123,6 +130,7 @@ type FullJourneyPipeline = {
             attended_branch_total: number;
             invariant_ok: boolean;
         };
+        entry_clients_total?: number;
         cohort_start_date: string;
         cohort_end_date: string;
         matured_through: string;
@@ -227,7 +235,7 @@ type PaidWhatsappEntry = WhatsappConversationRow & {
 
 type PaidWhatsappCohortEntry = {
     enteredAt: string;
-    platform: PaidMediaPlatform;
+    platform: PaidMediaPlatform | null;
     evidence: JourneyAttributionEvidence;
     sourceField: PaidWhatsappEntry["source_field"];
     sourceValue: string;
@@ -289,9 +297,12 @@ type PaidMediaTotals = {
 
 type PipelineProcedureEventSource =
     | "schedules"
-    | "funnel_clinisys_events";
+    | "funnel_clinisys_events"
+    | "appointments";
 
 type PipelineProcedureEventRow = {
+    booking_channel?: string | null;
+    booking_social_id?: string | null;
     source_table: PipelineProcedureEventSource;
     source_external_id: string | null;
     source_hash: string | null;
@@ -332,7 +343,10 @@ type EvaluationJourneyEventRow = {
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const range = resolveDashboardDateRange(searchParams);
+    const pipelineOnly = searchParams.get("full_pipeline_only") === "1";
+    const range = pipelineOnly && !searchParams.has("start_date")
+        ? resolveDashboardDateRange(new URLSearchParams(getMatureJourneyRange()))
+        : resolveDashboardDateRange(searchParams);
     const filters = readDashboardFilters(searchParams);
 
     try {
@@ -342,19 +356,98 @@ export async function GET(request: Request) {
             saoPauloDate(
                 new Date(new Date(range.endAt).getTime() - 1).toISOString(),
             );
-        const [paidMedia, whatsappData, analysisRows, evaluationJourneys] =
-            await Promise.all([
+        if (pipelineOnly) {
+            const [paidMedia, candidateIds, social, instagramClicks] = await Promise.all([
                 loadPaidMediaTotals(startDate, endDate, request.signal),
-                loadPaidWhatsappConversations(range, filters, request.signal),
-                loadJourneyAnalysisRows(range, request.signal),
-                loadEvaluationJourneyFunnels(range, filters, request.signal),
+                loadPipelineCandidateIds(range, request.signal),
+                loadInstagramJourney(range, filters, request.signal),
+                loadInstagramDestinationClicks(startDate, endDate, request.signal),
             ]);
+            for (const clientId of social.activeClients) candidateIds.add(clientId);
+            const [history, sources] = await Promise.all([
+                loadPaidWhatsappHistory([...candidateIds], range, filters, request.signal),
+                loadJourneyOutcomes([...candidateIds], request.signal),
+            ]);
+            const paid = paidJourneyCohort(history.paidEntries);
+            for (const [id, entry] of social.paidClients) {
+                if (candidateIds.has(id) && (!paid.has(id) || entry.enteredAt < paid.get(id)!.enteredAt)) paid.set(id, entry);
+            }
+            for (const event of sources.procedureEventLoad.events) {
+                const entry = event.booking_social_id ? social.paidProfiles.get(event.booking_social_id) : null;
+                if (event.booking_channel === "Instagram" && event.client_id && entry && !paid.has(event.client_id)) paid.set(event.client_id, entry);
+            }
+            const whatsappIds = new Set(history.acceptedRows.flatMap(row => row.client_id ? [row.client_id] : []));
+            const organicIds = new Set(history.organicClientIds);
+            const untracked = new Map<string, PaidWhatsappCohortEntry>();
+            for (const row of history.acceptedRows) {
+                if (!row.client_id || paid.has(row.client_id) || organicIds.has(row.client_id)) continue;
+                const entry = untracked.get(row.client_id);
+                if (!entry || row.started_at < entry.enteredAt) untracked.set(row.client_id, nonPaidEntry(row.started_at));
+            }
+            const remaining = new Map<string, PaidWhatsappCohortEntry>();
+            const earliestByClient = new Map<string, string>();
+            function rememberDate(id: string | null, date: string | null) {
+                if (id && date && (!earliestByClient.has(id) || date < earliestByClient.get(id)!)) earliestByClient.set(id, date);
+            }
+            for (const row of history.acceptedRows) rememberDate(row.client_id, row.started_at);
+            for (const event of sources.procedureEventLoad.events) {
+                rememberDate(event.client_id, procedureEventCreatedAt(event));
+                rememberDate(event.client_id, event.scheduled_for);
+            }
+            for (const invoice of sources.invoices) rememberDate(invoice.client_id, invoice.issued_at);
+            for (const client of sources.clients) {
+                if (paid.has(client.id) || untracked.has(client.id)) continue;
+                if (!whatsappIds.has(client.id)) {
+                    if (filters.unitIds.length && !filters.unitIds.includes(client.unit_id ?? "")) continue;
+                    if (filters.attendantIds.length || filters.serviceIds.length || filters.tunnels.length) continue;
+                    if (filters.origins.length && !filters.origins.some(origin => normalizeText(origin) === normalizeText(client.last_origin))) continue;
+                }
+                const enteredAt = earliestByClient.get(client.id) ?? range.startAt;
+                remaining.set(client.id, nonPaidEntry(enteredAt));
+            }
+            const paidWhatsappIds = new Set(history.acceptedRows.filter(row => row.client_id && paid.has(row.client_id) && row.started_at >= paid.get(row.client_id)!.enteredAt).map(row => row.client_id!));
+            const [fullPipeline, untrackedPipeline, organicPipeline] = await Promise.all([
+                loadFullJourneyPipeline(range, filters, request.signal, paidMedia, history, { cohort: paid, sources, entryClientIds: paidWhatsappIds }),
+                loadFullJourneyPipeline(range, filters, request.signal, emptyPaidMediaTotals(false), history, { cohort: untracked, sources }),
+                loadFullJourneyPipeline(range, filters, request.signal, emptyPaidMediaTotals(false), history, { cohort: remaining, sources }),
+            ]);
+            for (const branch of fullPipeline.acquisition_branches) {
+                branch.tracked_clients = [...paidWhatsappIds].filter(id => paid.get(id)?.platform === branch.platform).length;
+                branch.click_to_tracked_rate = percentage(branch.tracked_clients, branch.clicks);
+            }
+            untrackedPipeline.stages[0].label = "WhatsApp não rastreado";
+            organicPipeline.stages[0].label = "Origem orgânica ou não rastreada";
+            untrackedPipeline.acquisition_branches = [];
+            organicPipeline.acquisition_branches = [];
+            fullPipeline.additional_pipelines = [{ key: "untracked_whatsapp", pipeline: untrackedPipeline }, { key: "organic", pipeline: organicPipeline }];
+            const directBookings = new Set(sources.procedureEventLoad.events.filter(event =>
+                event.client_id && paid.has(event.client_id) && event.booking_channel === "Instagram" &&
+                journeyProcedureKind(event) === "evaluation" && procedureEventBelongsToCohort(event, paid.get(event.client_id)!),
+            ).map(event => event.client_id));
+            fullPipeline.instagram = {
+                clicks: instagramClicks, chats: social.paidProfiles.size,
+                to_whatsapp: [...social.paidClients].filter(([id, entry]) => candidateIds.has(id) && history.acceptedRows.some(row => row.client_id === id && row.started_at >= entry.enteredAt)).length,
+                to_consultation: directBookings.size,
+                unlinked_chats: social.unlinkedPaidProfiles,
+            };
+            return NextResponse.json({ full_pipeline: fullPipeline }, { headers: { "Cache-Control": "private, no-store" } });
+        }
+        const [paidMedia, whatsappData, analysisRows, evaluationJourneys] = await Promise.all([
+            searchParams.get("summary_only") === "1"
+                ? Promise.resolve(emptyPaidMediaTotals(false))
+                : loadPaidMediaTotals(startDate, endDate, request.signal),
+            loadPaidWhatsappConversations(range, filters, request.signal),
+            loadJourneyAnalysisRows(range, request.signal),
+            loadEvaluationJourneyFunnels(range, filters, request.signal),
+        ]);
         const payload = buildJourneyConversationMetrics({
             conversations: whatsappData.rows,
             analyses: analysisRows,
             filters,
         });
-        const fullPipeline = await loadFullJourneyPipeline(
+        const fullPipeline = searchParams.get("summary_only") === "1"
+            ? emptyFullJourneyPipeline(range, filters, "")
+            : await loadFullJourneyPipeline(
             range,
             filters,
             request.signal,
@@ -370,6 +463,32 @@ export async function GET(request: Request) {
                     : "Falha ao carregar a jornada completa.",
             );
         });
+
+        fullPipeline.query_params = searchParams.toString();
+        if (searchParams.get("summary_only") === "1") {
+            const cohort = new Map<string, PaidWhatsappCohortEntry>();
+            for (const entry of whatsappData.paidEntries) {
+                if (entry.client_id && !cohort.has(entry.client_id)) cohort.set(entry.client_id, {
+                    enteredAt: entry.started_at, platform: entry.platform, evidence: entry.evidence,
+                    sourceField: entry.source_field, sourceValue: entry.source_value,
+                });
+            }
+            fullPipeline.audit.whatsapp_coverage = whatsappData.coverage;
+            const scheduled = new Set<string>();
+            const attended = new Set<string>();
+            if (searchParams.get("source_conversions") === "1" && cohort.size) {
+                const sources = await loadJourneyOutcomes([...cohort.keys()], request.signal);
+                for (const event of sources.procedureEventLoad.events) {
+                    const entry = event.client_id ? cohort.get(event.client_id) : null;
+                    const created = procedureEventCreatedAt(event);
+                    if (!event.client_id || !entry || !created || !procedureEventBelongsToCohort(event, entry)) continue;
+                    if (pipelineCalendarDate(created) < startDate || pipelineCalendarDate(created) > endDate) continue;
+                    scheduled.add(event.client_id);
+                    if (scheduleShowedUp(normalizeScheduleStatus(event.status))) attended.add(event.client_id);
+                }
+            }
+            fullPipeline.audit.tracked_sources = buildTrackedSourceBreakdown(cohort, scheduled, attended);
+        }
 
         return NextResponse.json(
             {
@@ -1058,6 +1177,7 @@ async function loadFullJourneyPipeline(
     signal: AbortSignal,
     paidMedia: PaidMediaTotals,
     whatsappData: Awaited<ReturnType<typeof loadPaidWhatsappConversations>>,
+    options?: { cohort: Map<string, PaidWhatsappCohortEntry>; sources: Awaited<ReturnType<typeof loadJourneyOutcomes>>; entryClientIds?: Set<string> },
 ): Promise<FullJourneyPipeline> {
     const startDate = range.startDate ?? saoPauloDate(range.startAt);
     const endDate =
@@ -1066,29 +1186,16 @@ async function loadFullJourneyPipeline(
             new Date(new Date(range.endAt).getTime() - 1).toISOString(),
         );
     const whatsappEntries = whatsappData.paidEntries;
-    const cohort = new Map<string, PaidWhatsappCohortEntry>();
-
-    for (const entry of whatsappEntries) {
-        const clientId = normalizeClientId(entry.client_id);
-        if (!clientId) continue;
-        const current = cohort.get(clientId);
-        if (!current || entry.started_at < current.enteredAt) {
-            cohort.set(clientId, {
-                enteredAt: entry.started_at,
-                platform: entry.platform,
-                evidence: entry.evidence,
-                sourceField: entry.source_field,
-                sourceValue: entry.source_value,
-            });
-        }
-    }
+    const cohort = options?.cohort ?? paidJourneyCohort(whatsappEntries);
 
     const clientIds = [...cohort.keys()];
-    const [procedureEventLoad, invoices] = await Promise.all([
+    const [procedureEventLoad, invoices] = options?.sources
+        ? [options.sources.procedureEventLoad, options.sources.invoices] as const
+        : await Promise.all([
         loadPipelineProcedureEvents(
             clientIds,
-            startDate,
-            endDate,
+            "1900-01-01",
+            saoPauloDate(new Date().toISOString()),
             signal,
         ),
         loadPipelineInvoices(clientIds, signal),
@@ -1107,7 +1214,8 @@ async function loadFullJourneyPipeline(
         if (!cohortEntry) return [];
         if (!procedureEventBelongsToCohort(event, cohortEntry)) return [];
 
-        return [{ ...event, client_id: clientId }];
+        return [{ ...event, client_id: clientId, event_kind: journeyProcedureKind(event),
+            status: event.scheduled_for > saoPauloDate(new Date().toISOString()) ? "Não" : event.status }];
     });
     const scheduledClients = new Set(
         eligibleProcedureEvents.flatMap((event) =>
@@ -1145,6 +1253,23 @@ async function loadFullJourneyPipeline(
         procedureBranches,
     });
 
+    const consultationEvents = eligibleProcedureEvents.filter((event) => event.event_kind === "evaluation");
+    const treatmentEvents = eligibleProcedureEvents.filter((event) => event.event_kind === "procedure");
+    const consultationClients = new Set(consultationEvents.map((event) => event.client_id));
+    const treatmentClients = new Set(treatmentEvents.map((event) => event.client_id));
+    const attendedConsultations = new Set(consultationEvents.filter(event => scheduleShowedUp(normalizeScheduleStatus(event.status))).map(event => event.client_id));
+    const attendedTreatments = new Set(treatmentEvents.filter(event => scheduleShowedUp(normalizeScheduleStatus(event.status))).map(event => event.client_id));
+    const revenueByKind = { evaluation: { clients: new Set<string>(), amount: 0 }, procedure: { clients: new Set<string>(), amount: 0 } };
+    const attendanceByClient = new Map<string, typeof eligibleProcedureEvents>();
+    for (const event of eligibleProcedureEvents) {
+        if (!scheduleShowedUp(normalizeScheduleStatus(event.status))) continue;
+        const events = attendanceByClient.get(event.client_id) ?? [];
+        events.push(event);
+        attendanceByClient.set(event.client_id, events);
+    }
+    for (const events of attendanceByClient.values()) events.sort((a, b) =>
+        b.scheduled_for.localeCompare(a.scheduled_for) || (a.event_kind === "procedure" ? -1 : 1));
+    const countedInvoices = new Set<string>();
     const invoicedClients = new Set<string>();
     const authorizedClients = new Set<string>();
     let invoicedAmount = 0;
@@ -1157,12 +1282,22 @@ async function loadFullJourneyPipeline(
             continue;
         }
 
+        const invoiceId = String(invoice.source_invoice_id);
+        if (countedInvoices.has(invoiceId)) continue;
+        const invoiceDate = saoPauloDate(invoice.issued_at);
+        if (invoiceDate > saoPauloDate(new Date().toISOString())) continue;
+        const attendance = attendanceByClient.get(clientId)?.find(event => event.scheduled_for <= invoiceDate);
+        if (!attendance || invoiceDate < pipelineCalendarDate(cohort.get(clientId)!.enteredAt)) continue;
+        countedInvoices.add(invoiceId);
         const amount = numeric(invoice.amount);
         invoicedClients.add(clientId);
         invoicedAmount += amount;
         if (invoiceStatusIsAuthorized(invoice.status)) {
             authorizedClients.add(clientId);
             authorizedAmount += amount;
+            const branch = revenueByKind[attendance.event_kind];
+            branch.clients.add(clientId);
+            branch.amount += amount;
         }
     }
 
@@ -1171,7 +1306,8 @@ async function loadFullJourneyPipeline(
         cohort,
         scheduledClients,
         attendedClients: new Set(attendedAtByClient.keys()),
-        invoices,
+        invoices: [...new Map(invoices.filter(invoice => countedInvoices.has(String(invoice.source_invoice_id)))
+            .map(invoice => [String(invoice.source_invoice_id), invoice])).values()],
     });
 
     return buildFullJourneyPipeline({
@@ -1183,7 +1319,7 @@ async function loadFullJourneyPipeline(
         impressions: paidMedia.impressions,
         clicks: paidMedia.clicks,
         platformWhatsappConversations: paidMedia.whatsappConversations,
-        whatsappClients: cohort.size,
+        whatsappClients: options?.entryClientIds?.size ?? cohort.size,
         measurementReady: paidMedia.measurementReady,
         measurementNote: paidMedia.measurementNote,
         trackedByEvidence: buildEvidenceBreakdown(cohort),
@@ -1211,8 +1347,17 @@ async function loadFullJourneyPipeline(
             ),
             invariant_ok: true,
         },
-        scheduledClients: scheduledClients.size,
-        attendedClients: attendedAtByClient.size,
+        entryClientsTotal: cohort.size,
+        whatsappToConsultationClients: options?.entryClientIds ? [...consultationClients].filter(id => options.entryClientIds!.has(id)).length : consultationClients.size,
+        scheduledClients: consultationClients.size,
+        attendedClients: attendedConsultations.size,
+        procedureScheduledClients: treatmentClients.size,
+        procedureAttendedClients: attendedTreatments.size,
+        consultationToProcedureClients: [...attendedConsultations].filter(id => treatmentClients.has(id)).length,
+        revenueBranches: ["evaluation", "procedure"].map(kind => ({
+            kind, clients: revenueByKind[kind as "evaluation" | "procedure"].clients.size,
+            amount: roundMoney(revenueByKind[kind as "evaluation" | "procedure"].amount),
+        })),
         invoicedClients: invoicedClients.size,
         authorizedClients: authorizedClients.size,
         invoicedAmount,
@@ -1227,13 +1372,18 @@ function procedureEventBelongsToCohort(
     event: PipelineProcedureEventRow,
     cohortEntry: PaidWhatsappCohortEntry,
 ) {
-    const effectiveCreatedAt = procedureEventCreatedAt(event);
+    const effectiveCreatedAt = procedureEventCreatedAt(event) ?? event.scheduled_for;
     if (!effectiveCreatedAt) return false;
 
     return (
-        saoPauloDate(effectiveCreatedAt) >=
-        saoPauloDate(cohortEntry.enteredAt)
+        pipelineCalendarDate(effectiveCreatedAt) >= pipelineCalendarDate(cohortEntry.enteredAt) &&
+        event.scheduled_for >= pipelineCalendarDate(cohortEntry.enteredAt)
     );
+}
+
+function pipelineCalendarDate(value: string) {
+    // PostgreSQL DATE values are already local calendar dates.
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : saoPauloDate(value);
 }
 
 function procedureEventCreatedAt(event: PipelineProcedureEventRow) {
@@ -1464,23 +1614,27 @@ async function loadPaidWhatsappConversations(
     range: DashboardDateRange,
     filters: DashboardFilters,
     signal: AbortSignal,
+    clientIds?: string[],
 ) {
     const rows: WhatsappConversationSourceRow[] = [];
+    const historicalTintim = clientIds ? loadHistoricalTintimAttribution(clientIds, signal)
+        .catch(error => () => { throw error; }) : null;
     const tintimAttributionPromise =
-        loadTintimConversationAttribution(range, filters, signal);
+        clientIds ? Promise.resolve(new Map<string, TintimConversationAttributionRow>())
+            : loadTintimConversationAttribution(range, filters, signal);
 
     async function loadPage(from: number) {
-        const query = supabase
+        let query = supabase
             .from("conversations")
             .select(
                 "id, thread_id, client_id, started_at, origin, tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
             .eq("channel", "WhatsApp")
-            .gte("started_at", range.startAt)
             .lt("started_at", range.endAt)
             .order("started_at", { ascending: true })
             .order("id", { ascending: true })
             .range(from, from + PAGE_SIZE - 1);
+        query = clientIds ? query.in("client_id", clientIds) : query.gte("started_at", range.startAt);
         const { data, error } = await query.abortSignal(signal);
         if (error) throw error;
         return (data ?? []) as WhatsappConversationSourceRow[];
@@ -1491,22 +1645,26 @@ async function loadPaidWhatsappConversations(
     if (firstPage.length === PAGE_SIZE) {
         for (
             let from = PAGE_SIZE;
-            from < MAX_PIPELINE_ROWS;
+            ;
             from += PAGE_SIZE * CONVERSATION_PAGE_CONCURRENCY
         ) {
             const offsets = Array.from(
                 { length: CONVERSATION_PAGE_CONCURRENCY },
                 (_, index) => from + index * PAGE_SIZE,
-            ).filter((offset) => offset < MAX_PIPELINE_ROWS);
+            );
             const pages = await Promise.all(offsets.map(loadPage));
             for (const page of pages) rows.push(...page);
             if (pages.some((page) => page.length < PAGE_SIZE)) break;
         }
     }
 
-    const tintimByConversation = await tintimAttributionPromise;
+    const tintimByConversation = historicalTintim
+        ? (await historicalTintim)(rows)
+        : await tintimAttributionPromise;
     const selectedOrigins = new Set(filters.origins.map(normalizeText));
     const paidEntries: PaidWhatsappEntry[] = [];
+    const acceptedRows: WhatsappConversationSourceRow[] = [];
+    const organicClientIds = new Set<string>();
     const coverageByConversation = new Map<string, WhatsappCoverageCategory>();
     const identifiedClientIds = new Set<string>();
     const paidClientIds = new Set<string>();
@@ -1594,6 +1752,8 @@ async function loadPaidWhatsappConversations(
             ),
         );
 
+        acceptedRows.push({ ...conversation, origin });
+        if (coverageCategory === "other" && conversation.client_id && !/^(?:|sem origem|nao informado|nao identificad[ao]|desconhecid[ao]|unknown|untracked|n a)$/.test(normalizeText(origin))) organicClientIds.add(conversation.client_id);
         if (!attribution) continue;
         const attributionSource = resolveAttributionSource({
             directPlatform,
@@ -1617,6 +1777,8 @@ async function loadPaidWhatsappConversations(
 
     return {
         rows,
+        acceptedRows,
+        organicClientIds: [...organicClientIds],
         paidEntries,
         coverage: buildWhatsappCoverage(coverageByConversation, identifiedClientIds.size, paidClientIds.size),
     };
@@ -1654,6 +1816,208 @@ async function loadTintimConversationAttribution(
     return byConversation;
 }
 
+function nonPaidEntry(enteredAt: string): PaidWhatsappCohortEntry {
+    return { enteredAt, platform: null, evidence: "origin", sourceField: "conversation_origin", sourceValue: "Orgânica ou não rastreada" };
+}
+
+function paidJourneyCohort(entries: PaidWhatsappEntry[]) {
+    const cohort = new Map<string, PaidWhatsappCohortEntry>();
+    for (const entry of entries) {
+        const id = normalizeClientId(entry.client_id);
+        if (!id || (cohort.has(id) && cohort.get(id)!.enteredAt <= entry.started_at)) continue;
+        cohort.set(id, { enteredAt: entry.started_at, platform: entry.platform, evidence: entry.evidence, sourceField: entry.source_field, sourceValue: entry.source_value });
+    }
+    return cohort;
+}
+
+async function loadJourneyOutcomes(clientIds: string[], signal: AbortSignal) {
+    const { data, error } = await supabase.rpc("dashboard_journey_outcomes_v1", {
+        p_client_ids: clientIds, p_through: saoPauloDate(new Date().toISOString()),
+    }).abortSignal(signal);
+    if (error) throw error;
+    const value = asObject(data);
+    if (!Array.isArray(value.schedule_rows) || !Array.isArray(value.funnel_rows) || !Array.isArray(value.invoices) || !Array.isArray(value.clients)) throw new Error("Resposta de desfechos da jornada inválida.");
+    const scheduleRows = value.schedule_rows as PipelineProcedureEventRow[];
+    const funnelRows = value.funnel_rows as PipelineProcedureEventRow[];
+    const events = dedupePipelineProcedureEvents([...scheduleRows, ...funnelRows]);
+    return {
+        clients: value.clients as Array<{ id: string; unit_id: string | null; last_origin: string | null }>,
+        invoices: value.invoices as PipelineInvoiceRow[],
+        procedureEventLoad: { events, scheduleRowsRead: scheduleRows.length, funnelEventRowsRead: funnelRows.length, dedupedSourceEvents: events.length },
+    };
+}
+
+type InstagramJourneyProfile = { id: string; client_id: string | null; last_meta_ad_id: string | null; last_paid_attribution_at: string | null };
+type InstagramJourneyRow = Omit<WhatsappConversationRow, "client_id"> & { instagram_user_id: string | null; instagram_users: InstagramJourneyProfile | InstagramJourneyProfile[] | null };
+async function loadInstagramDestinationClicks(startDate: string, endDate: string, signal: AbortSignal) {
+    let clicks = 0;
+    let measured = false;
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase.from("ad_daily_instagram_direct_metrics")
+            .select("account_id,adset_id,metric_date,link_clicks")
+            .eq("destination_type", "INSTAGRAM_DIRECT").gte("metric_date", startDate).lte("metric_date", endDate)
+            .order("metric_date").order("account_id").order("adset_id")
+            .range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+        if (error) throw error;
+        for (const row of data ?? []) { measured = true; clicks += numeric(row.link_clicks); }
+        if ((data?.length ?? 0) < PAGE_SIZE) break;
+    }
+    return measured ? clicks : null;
+}
+
+async function loadInstagramJourney(range: DashboardDateRange, filters: DashboardFilters, signal: AbortSignal) {
+    const select = "id,thread_id,instagram_user_id,started_at,origin,tunnel,unit_id,service_id,attendant_id,instagram_users!conversations_instagram_user_id_fkey(id,client_id,last_meta_ad_id,last_paid_attribution_at)";
+    const { data: linked, error: linkError } = await supabase.from("instagram_users")
+        .select("id,client_id,last_meta_ad_id,last_paid_attribution_at").not("client_id", "is", null).abortSignal(signal);
+    if (linkError) throw linkError;
+    const linkedProfiles = (linked ?? []) as InstagramJourneyProfile[];
+    const rows: InstagramJourneyRow[] = [];
+    for (const historical of [false, true]) {
+        if (historical && !linkedProfiles.length) continue;
+        for (let from = 0; ; from += PAGE_SIZE) {
+            let query = supabase.from("conversations").select(select).eq("channel", "Instagram").lt("started_at", range.endAt);
+            query = historical ? query.in("instagram_user_id", linkedProfiles.map(profile => profile.id)) : query.gte("started_at", range.startAt);
+            const { data, error } = await query.order("started_at").order("id").range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+            if (error) throw error;
+            rows.push(...(data ?? []) as unknown as InstagramJourneyRow[]);
+            if ((data?.length ?? 0) < PAGE_SIZE) break;
+        }
+    }
+    const referrals = new Map<string, string>();
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase.from("conversation_ad_attributions")
+            .select("id,instagram_user_id,meta_ad_id,referral_received_at").eq("channel", "Instagram")
+            .lt("referral_received_at", range.endAt).not("meta_ad_id", "is", null)
+            .order("referral_received_at").order("id").range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+        if (error) throw error;
+        for (const row of data ?? []) if (!referrals.has(row.instagram_user_id)) referrals.set(row.instagram_user_id, row.referral_received_at);
+        if ((data?.length ?? 0) < PAGE_SIZE) break;
+    }
+    const activeClients = new Set<string>();
+    const paidClients = new Map<string, PaidWhatsappCohortEntry>();
+    const paidProfiles = new Map<string, PaidWhatsappCohortEntry>();
+    const unlinked = new Set<string>();
+    for (const row of rows) {
+        if (!row.instagram_user_id) continue;
+        if (filters.unitIds.length && !filters.unitIds.includes(row.unit_id ?? "")) continue;
+        if (filters.serviceIds.length && !filters.serviceIds.includes(row.service_id ?? "")) continue;
+        if (filters.attendantIds.length && !filters.attendantIds.includes(row.attendant_id ?? "")) continue;
+        if (filters.tunnels.length && !filters.tunnels.includes(row.tunnel?.trim() || "__NULL__")) continue;
+        if (filters.origins.length && !filters.origins.some(origin => normalizeText(origin) === normalizeText(row.origin))) continue;
+        const profile = Array.isArray(row.instagram_users) ? row.instagram_users[0] : row.instagram_users;
+        if (profile?.client_id && row.started_at >= range.startAt) activeClients.add(profile.client_id);
+        const profilePaidAt = profile?.last_meta_ad_id && profile.last_paid_attribution_at && profile.last_paid_attribution_at < range.endAt ? profile.last_paid_attribution_at : null;
+        const paidAt = referrals.get(row.instagram_user_id) ?? profilePaidAt;
+        if (!paidAt) continue;
+        const enteredAt = paidAt > row.started_at ? paidAt : row.started_at;
+        const entry: PaidWhatsappCohortEntry = { enteredAt, platform: "meta_ads", evidence: "origin", sourceField: "conversation_origin", sourceValue: "Meta Ads · Instagram" };
+        if (!paidProfiles.has(row.instagram_user_id) || enteredAt < paidProfiles.get(row.instagram_user_id)!.enteredAt) paidProfiles.set(row.instagram_user_id, entry);
+        if (!profile?.client_id) unlinked.add(row.instagram_user_id);
+        else if (!paidClients.has(profile.client_id) || enteredAt < paidClients.get(profile.client_id)!.enteredAt) paidClients.set(profile.client_id, entry);
+    }
+    return { activeClients, paidClients, paidProfiles, unlinkedPaidProfiles: unlinked.size };
+}
+
+async function loadPipelineCandidateIds(range: DashboardDateRange, signal: AbortSignal) {
+    const ids = new Set<string>();
+    const start = range.startDate ?? saoPauloDate(range.startAt);
+    const end = range.endDate ?? saoPauloDate(range.endAt);
+    await Promise.all(["conversations", "schedules", "funnel_clinisys_events", "appointments", "clinisys_invoices"].map(async table => {
+        for (let from = 0; ; from += PAGE_SIZE) {
+            let query = supabase.from(table).select("client_id");
+            if (table === "conversations") query = query.eq("channel", "WhatsApp").gte("started_at", range.startAt).lt("started_at", range.endAt);
+            else if (table === "appointments") query = query.or(`and(created_at.gte.${range.startAt},created_at.lt.${range.endAt}),and(starts_at.gte.${range.startAt},starts_at.lt.${range.endAt})`);
+            else if (table === "clinisys_invoices") query = query.gte("issued_at", range.startAt).lt("issued_at", range.endAt);
+            else query = query.or(`${procedureCreationDateFilter(start, addDaysToDateString(end, 1))},and(scheduled_for.gte.${start},scheduled_for.lte.${end})`);
+            const { data, error } = await query.order(table === "clinisys_invoices" ? "source_invoice_id" : "id")
+                .range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+            if (error) throw error;
+            for (const row of data ?? []) if (row.client_id) ids.add(row.client_id);
+            if ((data?.length ?? 0) < PAGE_SIZE) break;
+        }
+    }));
+    return ids;
+}
+
+async function loadPaidWhatsappHistory(clientIds: string[], range: DashboardDateRange, filters: DashboardFilters, signal: AbortSignal) {
+    const results = await mapWithConcurrency(chunk(clientIds, 250), CLINISYS_QUERY_CONCURRENCY,
+        ids => loadPaidWhatsappConversations(range, filters, signal, ids));
+    return {
+        rows: results.flatMap(result => result.rows),
+        acceptedRows: results.flatMap(result => result.acceptedRows),
+        organicClientIds: [...new Set(results.flatMap(result => result.organicClientIds))],
+        paidEntries: results.flatMap(result => result.paidEntries),
+        coverage: emptyWhatsappCoverage(),
+    };
+}
+
+async function loadHistoricalTintimAttribution(clientIds: string[], signal: AbortSignal) {
+    const byClient = new Map<string, Array<{ id: number; occurred_at: string; source: string | null; platform: PaidMediaPlatform | null }>>();
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await supabase.from("tintim_attribution_events")
+            .select("id,client_id,occurred_at,source,platform").in("client_id", clientIds)
+            .order("occurred_at").order("id").range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const events = byClient.get(row.client_id) ?? [];
+            events.push(row);
+            byClient.set(row.client_id, events);
+        }
+        if ((data?.length ?? 0) < PAGE_SIZE) break;
+    }
+    return (conversations: WhatsappConversationSourceRow[]) => {
+    const result = new Map<string, TintimConversationAttributionRow>();
+    for (const conversation of conversations) {
+        const at = new Date(conversation.started_at).getTime();
+        const nearest = (byClient.get(conversation.client_id ?? "") ?? [])
+            .map(event => ({ event, distance: Math.abs(new Date(event.occurred_at).getTime() - at) }))
+            .filter(match => match.distance <= 2 * 86_400_000)
+            .sort((a, b) => a.distance - b.distance || Number(b.event.id) - Number(a.event.id))[0];
+        if (nearest) result.set(conversation.id, normalizeTintimAttribution({ ...nearest.event, conversation_id: conversation.id }));
+    }
+    return result;
+    };
+}
+
+async function loadHubAppointmentRows(clientIds: string[], signal: AbortSignal) {
+    const rows: PipelineProcedureEventRow[] = [];
+    const { data: clients, error: clientError } = await supabase.from("clients").select("id,phone,phone_identity").in("id", clientIds).abortSignal(signal);
+    if (clientError) throw clientError;
+    const byPhone = new Map<string, string | null>();
+    const normalize = (value: string | null) => (value ?? "").replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+    for (const client of clients ?? []) for (const value of [client.phone, client.phone_identity]) {
+        const phone = normalize(value);
+        if (!phone) continue;
+        byPhone.set(phone, byPhone.has(phone) && byPhone.get(phone) !== client.id ? null : client.id);
+    }
+    const phones = [...byPhone.keys()].flatMap(phone => [phone, "55" + phone, "+55" + phone]);
+    const seen = new Set<string>();
+    for (const phoneBatch of [null, ...chunk(phones, ID_FILTER_BATCH_SIZE)]) {
+        for (let from = 0; ; from += PAGE_SIZE) {
+            let query = supabase.from("appointments").select("id,client_id,source_external_id,created_at,starts_at,status,procedure_name,patient_phone,units(name)");
+            query = phoneBatch ? query.is("client_id", null).in("patient_phone", phoneBatch) : query.in("client_id", clientIds);
+            const { data, error } = await query.order("id").range(from, from + PAGE_SIZE - 1).abortSignal(signal);
+            if (error) throw error;
+            for (const row of data ?? []) {
+                if (seen.has(row.id)) continue;
+                const clientId = row.client_id ?? byPhone.get(normalize(row.patient_phone));
+                if (!clientId) continue;
+                seen.add(row.id);
+                const unit = Array.isArray(row.units) ? row.units[0] : row.units;
+                rows.push({
+                    source_table: "appointments", source_external_id: row.source_external_id,
+                    source_hash: row.source_external_id ? null : `hub:${row.id}`, client_id: clientId,
+                    created_in_source_at: null, created_at: row.created_at, scheduled_for: saoPauloDate(row.starts_at),
+                    status: ({ completed: "Atendido", confirmed: "Não", scheduled: "Não", cancelled: "Desmarcou", no_show: "Faltou" } as Record<string, string>)[row.status] ?? row.status,
+                    procedure_name: row.procedure_name, event_kind: null, unit_name: unit?.name ?? null,
+                });
+            }
+            if ((data?.length ?? 0) < PAGE_SIZE) break;
+        }
+    }
+    return rows;
+}
+
 async function loadPipelineProcedureEvents(
     clientIds: string[],
     startDate: string,
@@ -1674,7 +2038,7 @@ async function loadPipelineProcedureEvents(
         chunk(clientIds, ID_FILTER_BATCH_SIZE),
         CLINISYS_QUERY_CONCURRENCY,
         async (ids) => {
-            const [scheduleRows, funnelEventRows] = await Promise.all([
+            const [scheduleRows, funnelEventRows, appointmentRows] = await Promise.all([
                 loadScheduleProcedureRows(
                     ids,
                     startDate,
@@ -1687,8 +2051,9 @@ async function loadPipelineProcedureEvents(
                     endExclusiveDate,
                     signal,
                 ),
+                loadHubAppointmentRows(ids, signal),
             ]);
-            return { scheduleRows, funnelEventRows };
+            return { scheduleRows: [...scheduleRows, ...appointmentRows], funnelEventRows };
         },
     );
     const scheduleRows = sourceBatches.flatMap(
@@ -1854,7 +2219,7 @@ function pipelineProcedureEventIdentities(
     const unitName = normalizeText(event.unit_name);
     const effectiveCreatedAt = procedureEventCreatedAt(event);
     const createdDate = effectiveCreatedAt
-        ? saoPauloDate(effectiveCreatedAt)
+        ? pipelineCalendarDate(effectiveCreatedAt)
         : "";
 
     if (externalId) identities.push(`external:${externalId}`);
@@ -1930,6 +2295,8 @@ function mergePipelineProcedureEvents(
         status: preferredStatus,
         procedure_name: preferredProcedureName,
         event_kind: current.event_kind ?? candidate.event_kind,
+        booking_channel: current.booking_channel ?? candidate.booking_channel,
+        booking_social_id: current.booking_social_id ?? candidate.booking_social_id,
         unit_name: current.unit_name ?? candidate.unit_name,
     };
 }
@@ -2014,6 +2381,12 @@ function buildFullJourneyPipeline(values: {
     procedureLinkage: FullJourneyPipeline["audit"]["procedure_linkage"];
     scheduledClients: number;
     attendedClients: number;
+    procedureScheduledClients?: number;
+    procedureAttendedClients?: number;
+    consultationToProcedureClients?: number;
+    entryClientsTotal?: number;
+    whatsappToConsultationClients?: number;
+    revenueBranches?: Array<{ kind: string; clients: number; amount: number }>;
     invoicedClients: number;
     authorizedClients: number;
     invoicedAmount: number;
@@ -2024,16 +2397,10 @@ function buildFullJourneyPipeline(values: {
 }): FullJourneyPipeline {
     const stages: PipelineStage[] = [
         stage("tracked_whatsapp", "WhatsApp rastreado", values.whatsappClients),
-        stage("scheduled", "Agendaram", values.scheduledClients),
+        stage("scheduled", "Agendaram Consulta", values.scheduledClients),
         stage("attended", "Compareceram", values.attendedClients),
-        stage(
-            "invoiced",
-            "Faturados",
-            values.invoicedClients,
-            roundMoney(values.invoicedAmount),
-            "currency",
-            "emitidos",
-        ),
+        stage("procedure_scheduled", "Agendaram Procedimento", values.procedureScheduledClients ?? 0),
+        stage("procedure_attended", "Compareceram", values.procedureAttendedClients ?? 0),
         stage(
             "authorized",
             "Liberados",
@@ -2067,14 +2434,16 @@ function buildFullJourneyPipeline(values: {
             ),
         })),
         procedure_branches: values.procedureBranches,
+        revenue_branches: values.revenueBranches ?? [],
         platform_breakdown: values.platformBreakdown,
         transitions: [
-            transition("whatsapp_to_schedule", "Rastreado → agenda", values.whatsappClients, values.scheduledClients, false, true),
+            transition("whatsapp_to_schedule", "Rastreado → agenda", values.whatsappClients, values.whatsappToConsultationClients ?? values.scheduledClients, false, true),
             transition("schedule_to_attendance", "Agenda → presença", values.scheduledClients, values.attendedClients, false, true),
-            transition("attendance_to_invoice", "Presença → R$", values.attendedClients, values.invoicedClients, false, true),
-            transition("invoice_to_authorized", "R$ → liberado", values.invoicedClients, values.authorizedClients, false, true),
+            transition("consultation_to_procedure", "Consulta → procedimento", values.attendedClients, values.consultationToProcedureClients ?? 0, false, true),
+            transition("procedure_to_attendance", "Procedimento → presença", values.procedureScheduledClients ?? 0, values.procedureAttendedClients ?? 0, false, true),
         ],
         audit: {
+            entry_clients_total: values.entryClientsTotal ?? values.whatsappClients,
             platform_whatsapp_conversations: values.platformWhatsappConversations,
             tracked_whatsapp_clients: values.whatsappClients,
             measurement_ready: values.measurementReady,
@@ -2336,6 +2705,7 @@ function buildTrackedSourceBreakdown(
         }
     >();
     for (const [clientId, entry] of cohort) {
+        if (!entry.platform) continue;
         const key = [entry.platform, entry.sourceField, normalizeText(entry.sourceValue)].join(":");
         const current = sources.get(key) ?? {
             platform: entry.platform,
@@ -2392,7 +2762,7 @@ function buildPlatformBreakdown({
     );
 
     for (const [clientId, entry] of cohort) {
-        const outcome = outcomes.get(entry.platform);
+        const outcome = entry.platform ? outcomes.get(entry.platform) : null;
         if (!outcome) continue;
         outcome.tracked.add(clientId);
         if (scheduledClients.has(clientId)) outcome.scheduled.add(clientId);
@@ -2404,7 +2774,7 @@ function buildPlatformBreakdown({
         if (!clientId || !attendedClients.has(clientId)) continue;
         const entry = cohort.get(clientId);
         if (!entry) continue;
-        const outcome = outcomes.get(entry.platform);
+        const outcome = entry.platform ? outcomes.get(entry.platform) : null;
         if (!outcome) continue;
         outcome.invoiced.add(clientId);
         if (invoiceStatusIsAuthorized(invoice.status)) {

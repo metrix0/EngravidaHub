@@ -66,6 +66,7 @@ import {
     ObjectionsCard as SharedJourneyObjectionsCard,
 } from "@/components/personal-dashboard/ExactJornadaSimpleDashboardGraphs";
 
+import { JOURNEY_CALENDAR_PRESETS } from "@/lib/funnel/fullJourney";
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
 
@@ -290,7 +291,7 @@ export default function JourneyPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("current_month");
+    } = useDashboardDateFilter("mature_journey", JOURNEY_CALENDAR_PRESETS);
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -332,11 +333,12 @@ export default function JourneyPage() {
             else setLoadingData(true);
 
             try {
-                const params = new URLSearchParams();
+                const params = new URLSearchParams({ summary_only: "1", source_conversions: "1" });
                 applyCalendarDateParams({
                     params,
                     selectedRange,
                     selectedPreset: period,
+                    presets: JOURNEY_CALENDAR_PRESETS,
                 });
                 applyArrayParams(params, {
                     unit_ids: unitIds,
@@ -420,12 +422,12 @@ export default function JourneyPage() {
         dateFilterReady,
     ]);
 
-    if (!dateFilterReady || loadingFilters || loadingData) {
+    if (!dateFilterReady) {
         return (
             <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
                 <SidePanel />
                 <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
-                    <DashboardHeader title="Jornada" description="Entenda o caminho dos clientes ao longo do atendimento" period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady />
+                    <DashboardHeader title="Jornada" description="Da origem à receita liberada. Use períodos com 30+ dias para avaliar o comparecimento." period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} presets={JOURNEY_CALENDAR_PRESETS} customRangeLabel="Personalizado" storageManaged storageReady />
                     <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
                     <JourneyBodySkeleton />
                 </section>
@@ -433,16 +435,12 @@ export default function JourneyPage() {
         );
     }
 
-    if (!data) {
-        return (
-            <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
-                <SidePanel />
-                <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">Nenhum dado encontrado.</section>
-            </main>
-        );
-    }
+    const current = data ?? EMPTY_DATA;
+    const pipelineParams = new URLSearchParams();
+    applyCalendarDateParams({ params: pipelineParams, selectedRange, selectedPreset: period, presets: JOURNEY_CALENDAR_PRESETS });
+    applyArrayParams(pipelineParams, { unit_ids: unitIds, attendant_ids: attendantIds, tunnels: tunnelValues, origins: originValues });
 
-    const current = data;
+    const resolvedRange = { start: pipelineParams.get("start_date"), end: pipelineParams.get("end_date") };
 
     return (
         <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
@@ -450,11 +448,13 @@ export default function JourneyPage() {
             <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                 <DashboardHeader
                     title="Jornada"
-                    description="Entenda o caminho dos clientes ao longo do atendimento"
+                    description="Da origem à receita liberada. Use períodos com 30+ dias para avaliar o comparecimento."
                     period={period}
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
                     setSelectedRange={setSelectedRange}
+                    presets={JOURNEY_CALENDAR_PRESETS}
+                    customRangeLabel="Personalizado"
                     storageManaged
                     storageReady={dateFilterReady}
                 />
@@ -476,21 +476,11 @@ export default function JourneyPage() {
                     />
                 </DashboardFilterBar>
 
-                {isRefreshing ? (
-                    <JourneyBodySkeleton />
-                ) : (
-                    <div className="overflow-x-hidden pb-12">
-                        <section className="mb-6 min-w-0 max-w-full">
-                            <FullJourneyPipelineCard
-                                data={current}
-                                onSelectRecommendedMonth={() => {
-                                    setPeriod(null);
-                                    setSelectedRange(
-                                        getRecommendedMatureMonthRange(),
-                                    );
-                                }}
-                            />
-                        </section>
+                <div className="overflow-x-hidden pb-12">
+                    <section className="mb-6 min-w-0 max-w-full">
+                        <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} />
+                    </section>
+                    {isRefreshing || loadingData || loadingFilters ? <JourneyBodySkeleton /> : <>
 
                         <section className="mb-6 min-w-0 max-w-full">
                             <WhatsappCoverageCard
@@ -528,65 +518,23 @@ export default function JourneyPage() {
                         <section className="mt-6 min-w-0 max-w-full">
                             <InstagramConversationInsights
                                 mode="share"
-                                period={period}
-                                selectedRange={selectedRange}
+                                period={null}
+                                selectedRange={resolvedRange}
                             />
                         </section>
 
                         <section className="mt-6 min-w-0 max-w-full">
                             <MessengerConversationInsights
                                 mode="share"
-                                period={period}
-                                selectedRange={selectedRange}
+                                period={null}
+                                selectedRange={resolvedRange}
                             />
                         </section>
-                    </div>
-                )}
+                    </>}
+                </div>
             </section>
         </main>
     );
-}
-
-function getRecommendedMatureMonthRange() {
-    const today = new Date();
-    const maturityLimit = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        today.getDate(),
-    );
-    maturityLimit.setDate(maturityLimit.getDate() - 30);
-
-    let monthEnd = new Date(
-        maturityLimit.getFullYear(),
-        maturityLimit.getMonth() + 1,
-        0,
-    );
-
-    if (monthEnd.getTime() > maturityLimit.getTime()) {
-        monthEnd = new Date(
-            maturityLimit.getFullYear(),
-            maturityLimit.getMonth(),
-            0,
-        );
-    }
-
-    const monthStart = new Date(
-        monthEnd.getFullYear(),
-        monthEnd.getMonth(),
-        1,
-    );
-
-    return {
-        start: formatJourneyLocalDate(monthStart),
-        end: formatJourneyLocalDate(monthEnd),
-    };
-}
-
-function formatJourneyLocalDate(date: Date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
 }
 
 const PIPELINE_STAGE_STYLE: Record<
@@ -630,19 +578,8 @@ const PIPELINE_STAGE_STYLE: Record<
     },
 };
 
-function FullJourneyPipelineCard({
-    data,
-    onSelectRecommendedMonth,
-}: {
-    data: JourneyDashboardData;
-    onSelectRecommendedMonth: () => void;
-}) {
-    return (
-        <SharedFullJourneyPipelineCard
-            data={data}
-            onSelectRecommendedMonth={onSelectRecommendedMonth}
-        />
-    );
+function FullJourneyPipelineCard({ data, queryParams }: { data: JourneyDashboardData; queryParams: string }) {
+    return <SharedFullJourneyPipelineCard data={{ ...data, full_pipeline: { ...data.full_pipeline, query_params: queryParams } }} />;
 }
 
 function procedureBottleneckDetail(

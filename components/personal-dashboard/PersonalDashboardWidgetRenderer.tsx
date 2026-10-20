@@ -874,16 +874,6 @@ function renderJornada(id: string, data: JourneyData | null) {
     const coverage = data.full_pipeline.audit?.whatsapp_coverage;
 
     switch (id) {
-        case "jornada.jornada_completa":
-            return (
-                <HorizontalValueChart
-                    title="Jornada completa"
-                    rows={data.full_pipeline.stages.map((item) => ({
-                        label: item.label,
-                        value: item.value,
-                    }))}
-                />
-            );
         case "jornada.cobertura_whatsapp":
             return (
                 <PieValueCard
