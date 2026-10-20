@@ -613,7 +613,7 @@ function JourneyPipelineTree({
         return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
     }, [pipeline]);
     const connections = journeyConnections(anchors, {
-        consultationRevenue: `${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · consultas`,
+        consultationRevenue: `${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} consultas`,
         instagramWhatsapp: pipeline.instagram ? `${pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp` : undefined,
         instagramConsultations: pipeline.instagram ? `${pipeline.instagram.to_consultation.toLocaleString("pt-BR")} consultas` : undefined,
     });
@@ -671,13 +671,14 @@ function JourneyPipelineTree({
                                 {branch.platform === "meta_ads" && pipeline.instagram ? (
                                     <div className="absolute left-3 top-[182px] flex items-center">
                                         <PipelineStageCard
-                                            stage={{ ...clientPipelineStage("paid_clicks", "Cliques pagos", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
+                                            stage={{ ...clientPipelineStage("paid_clicks", "Cliques para Insta", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
                                             eyebrow="Meta Ads"
                                             width={144}
                                             linkedTop
+                                            hideHeader
                                             detail={pipeline.instagram.clicks === null
                                                 ? "Instagram Direct · dados indisponíveis"
-                                                : "Instagram Direct · já incluídos acima"}
+                                                : "Instagram Direct"}
                                         />
                                         <PipelineTransitionCard transition={{
                                             ...clientPipelineTransition({
@@ -952,6 +953,7 @@ function PipelineStageCard({
     embedded = false,
     linkedTop = false,
     linkedBottom = false,
+    hideHeader = false,
     nodeKey,
 }: {
     stage: FullJourneyPipeline["stages"][number];
@@ -962,6 +964,7 @@ function PipelineStageCard({
     embedded?: boolean;
     linkedTop?: boolean;
     linkedBottom?: boolean;
+    hideHeader?: boolean;
     nodeKey?: string;
 }) {
     const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
@@ -988,23 +991,25 @@ function PipelineStageCard({
                 className="absolute inset-x-0 top-0 h-1"
                 style={{ backgroundColor: style.accent }}
             /> : null}
-            <div className="flex items-start justify-between gap-3">
-                <span
-                    className="flex h-9 w-9 items-center justify-center rounded-xl"
-                    style={{ backgroundColor: style.soft, color: style.accent }}
-                >
-                    <PipelineStageIcon
-                        stageKey={stage.key}
-                        platformLabel={eyebrow}
-                    />
-                </span>
-                <span
-                    className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
-                    style={{ backgroundColor: style.soft, color: style.accent }}
-                >
-                    {eyebrow ?? style.eyebrow}
-                </span>
-            </div>
+            {!hideHeader ? (
+                <div className="flex items-start justify-between gap-3">
+                    <span
+                        className="flex h-9 w-9 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: style.soft, color: style.accent }}
+                    >
+                        <PipelineStageIcon
+                            stageKey={stage.key}
+                            platformLabel={eyebrow}
+                        />
+                    </span>
+                    <span
+                        className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
+                        style={{ backgroundColor: style.soft, color: style.accent }}
+                    >
+                        {eyebrow ?? style.eyebrow}
+                    </span>
+                </div>
+            ) : null}
 
             <div className="mt-2 text-xs font-semibold leading-4 text-slate-500">
                 {stage.label}
