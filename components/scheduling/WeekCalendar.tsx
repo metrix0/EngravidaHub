@@ -680,7 +680,7 @@ export default function WeekCalendar(props: Props) {
                                                               ? 35
                                                               : 5 + lane.column,
                                                         backgroundColor:
-                                                            appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
+                                                            appointment.status === "cancelled" ? AGENDA_COLORS.cancelled : AGENDA_COLORS[appointment.booking_team ?? "unknown"],
                                                     }}
                                                 >
                                                         <span className="relative block h-full w-full">
@@ -1096,7 +1096,7 @@ function groupFreeSlotStarts(slots: AgendaFreeSlot[]) {
 }
 
 function appointmentColor(appointment: CalendarAppointment) {
-    return appointment.status === "cancelled" ? "#94a3b8" : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
+    return appointment.status === "cancelled" ? AGENDA_COLORS.cancelled : AGENDA_COLORS[appointment.booking_team ?? "unknown"];
 }
 
 type AppointmentGroup = {
