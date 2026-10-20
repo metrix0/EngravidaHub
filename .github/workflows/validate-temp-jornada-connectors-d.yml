@@ -1,0 +1,106 @@
+name: Validate Jornada connectors
+
+on:
+  push:
+    branches:
+      - temp-jornada-connector-endpoints-20261020-d
+
+concurrency:
+  group: validate-jornada-connectors-d-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder"
+      SUPABASE_SERVICE_ROLE_KEY: "ci-placeholder"
+      OPENAI_API_KEY: "ci-placeholder"
+      GROQ_API_KEY: "ci-placeholder"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Pattern signal regression checks
+        run: node --import tsx scripts/test-pattern-signals.ts
+
+      - name: Inbox closing-tag regression checks
+        run: node --import tsx scripts/test-inbox-closing-tag.ts
+
+      - name: Agenda intelligence regression checks
+        run: node --import tsx scripts/test-agenda-intelligence.ts
+
+      - name: Cadence and analysis collector regression checks
+        run: node scripts/test-cadence-repair.cjs
+
+      - name: Google batch collector lease regression checks
+        run: node scripts/test-google-batch-collector-lease.cjs
+
+      - name: Invoice replacement regression checks
+        run: node scripts/test-invoice-replacements.cjs
+
+      - name: Inbox scheduling regression checks
+        run: node scripts/test-inbox-scheduling.cjs
+
+      - name: User invitation regression checks
+        run: node scripts/test-user-invitations.cjs
+
+      - name: Build
+        run: pnpm build
+
+  merge-typecheck:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder"
+      SUPABASE_SERVICE_ROLE_KEY: "ci-placeholder"
+      OPENAI_API_KEY: "ci-placeholder"
+      GROQ_API_KEY: "ci-placeholder"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
