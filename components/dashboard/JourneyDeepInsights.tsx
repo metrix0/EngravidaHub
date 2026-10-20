@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock3, MessageCircle, RotateCcw, Megaphone, AlertCircle } from "lucide-react";
 import { Card, Skeleton } from "@/components";
 import { getDropoffMomentLabel } from "@/lib/conversationAnalysisLabels";
 import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
@@ -66,20 +65,11 @@ const formatDuration = (value: number | null) =>
 const percent = (numerator: number, denominator: number) =>
     denominator ? (100 * numerator / denominator).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%" : "—";
 
-function MetricTitle({ icon: Icon, children }: { icon: typeof Clock3; children: string }) {
-    return (
-        <div className="mb-4 flex items-center gap-2">
-            <Icon size={18} className="text-slate-500" />
-            <h3 className="text-lg font-bold text-slate-900">{children}</h3>
-        </div>
-    );
-}
-
 export default function JourneyDeepInsights({ query }: { query: string }) {
     const [data, setData] = useState<Response | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [sort, setSort] = useState<"authorized_revenue" | "contacts" | "completed_procedures" | "attended_consultations">("authorized_revenue");
+    const [sort, setSort] = useState<"authorized_revenue" | "contacts" | "linked_clients" | "completed_procedures" | "attended_consultations">("linked_clients");
     const [minimum, setMinimum] = useState(0);
 
     useEffect(() => {
@@ -118,15 +108,21 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
     const creatives = useMemo(() => {
         const rows = data?.creatives?.creatives ?? [];
         return rows.filter(creative => creative.contacts >= minimum)
-            .sort((left, right) => right[sort] - left[sort] || right.contacts - left.contacts);
+            .sort((left, right) => right[sort] - left[sort] || right.linked_clients - left.linked_clients || right.contacts - left.contacts);
     }, [data, sort, minimum]);
 
+
+    const maxTimelineDays = Math.max(1, ...(data?.analytics.timelines ?? []).map(item => item.p75 ?? 0));
+    const hasClinicalOutcomes = (data?.creatives?.creatives ?? []).some(item =>
+        item.consultations > 0 || item.attended_consultations > 0 ||
+        item.completed_procedures > 0 || item.authorized_revenue > 0);
+
     return (
-        <section data-assistant-section="jornada-tempos" className="mt-6 min-w-0 space-y-5">
+        <section className="mt-6 min-w-0 space-y-5">
             <div>
                 <h2 className="text-xl font-bold text-slate-900">Análises da jornada</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                    Caminhos de clientes que entraram no período selecionado. Resultados clínicos posteriores são acompanhados até hoje.
+                    Clientes que chegaram no período selecionado. Os resultados clínicos são acompanhados até hoje.
                 </p>
             </div>
             {loading ? (
@@ -146,206 +142,268 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
             ) : data ? (
                 <>
                     <p className="text-xs text-slate-500">
-                        Base: {formatCount(data.analytics.scope.clients)} clientes únicos com WhatsApp no período. Dias clínicos são datas de calendário, não horários inferidos.
+                        {formatCount(data.analytics.scope.clients)} clientes únicos com WhatsApp na base · Tempo em dias de calendário
                     </p>
-                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                        <Card>
-                            <MetricTitle icon={Clock3}>Tempo até a conversão</MetricTitle>
-                            <p className="mb-4 text-xs text-slate-500">Medianas e intervalo P25–P75, somente eventos vinculados com data válida.</p>
-                            <div className="divide-y divide-slate-100">
-                                {data.analytics.timelines.map(timeline => (
-                                    <div key={timeline.metric} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-700">{durationLabels[timeline.metric] ?? timeline.metric}</p>
-                                            <p className="mt-1 text-xs text-slate-500">
-                                                {formatCount(timeline.sample)} clientes · P25 {formatDuration(timeline.p25)} / P75 {formatDuration(timeline.p75)}
-                                            </p>
-                                        </div>
-                                        <span className="text-lg font-bold tabular-nums text-slate-900">{formatDuration(timeline.median)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="mt-4 border-t border-slate-100 pt-4">
-                                <h4 className="mb-2 text-sm font-semibold text-slate-700">Agendamentos por origem registrada</h4>
-                                <div className="space-y-2">
-                                    {data.analytics.sources.map(source => (
-                                        <div key={source.origin} className="flex items-center justify-between gap-3 text-xs">
-                                            <span className="min-w-0 truncate text-slate-600" title={source.origin}>{source.origin}</span>
-                                            <span className="shrink-0 font-semibold tabular-nums text-slate-700">
-                                                {formatCount(source.bookings)} / {formatCount(source.clients)} · {percent(source.bookings, source.clients)}
-                                            </span>
-                                        </div>
-                                    ))}
+                    <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+                        <div data-assistant-section="jornada-tempos" className="min-w-0">
+                            <Card>
+                                <h3 className="text-base font-bold text-slate-900">Tempo até a conversão</h3>
+                                <p className="mt-1 text-xs text-slate-500">Mediana e faixa entre 25% e 75% dos clientes.</p>
+                                <div className="mt-4 divide-y divide-slate-100">
+                                    {data.analytics.timelines.map(item => {
+                                        const low = Math.max(0, item.p25 ?? 0);
+                                        const high = Math.max(low, item.p75 ?? low);
+                                        const median = Math.max(0, item.median ?? 0);
+                                        return (
+                                            <div key={item.metric} className="py-3 first:pt-0 last:pb-0">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-medium text-slate-700">
+                                                            {durationLabels[item.metric] ?? item.metric}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500">{formatCount(item.sample)} clientes</p>
+                                                    </div>
+                                                    <div className="shrink-0 text-right">
+                                                        <p className="text-xl font-bold tabular-nums text-slate-950">{formatDuration(item.median)}</p>
+                                                        <p className="mt-0.5 text-xs tabular-nums text-slate-400">P25 {formatDuration(item.p25)} · P75 {formatDuration(item.p75)}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="relative mt-2 h-1.5 rounded-full bg-slate-100" aria-hidden="true">
+                                                    <div className="absolute h-full rounded-full bg-brand/30"
+                                                        style={{ left: (low / maxTimelineDays * 100) + "%", width: (Math.min(high, maxTimelineDays) - Math.min(low, maxTimelineDays)) / maxTimelineDays * 100 + "%" }} />
+                                                    {item.median !== null && (
+                                                        <div className="absolute -top-0.5 h-2.5 w-1 rounded-full bg-brand"
+                                                            style={{ left: Math.min(median / maxTimelineDays * 100, 99) + "%" }} />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            </div>
-                        </Card>
-
-                        <Card>
-                            <MetricTitle icon={MessageCircle}>Interações até o agendamento</MetricTitle>
-                            <p className="mb-4 text-xs text-slate-500">
-                                Mediana de interações desde a entrada no período até o primeiro agendamento; sem agendamento, janela de 30 dias.
-                            </p>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs">
-                                    <thead className="border-b border-slate-200 text-slate-500">
-                                        <tr>
-                                            <th className="py-3 pr-2">Grupo</th>
-                                            <th className="p-2 text-right">Conversas</th>
-                                            <th className="p-2 text-right">Atendentes</th>
-                                            <th className="p-2 text-right">Ligações</th>
-                                            <th className="py-3 pl-2 text-right">Retornos*</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {data.analytics.touchpoints.map(item => (
-                                            <tr key={item.segment} className="border-b border-slate-100 last:border-0">
-                                                <td className="py-3 pr-2">
-                                                    <span className="font-semibold text-slate-800">
-                                                        {item.segment === "agendaram" ? "Agendaram" : "Sem agendamento em 30 dias"}
+                                <div className="mt-5 border-t border-slate-100 pt-4">
+                                    <h4 className="text-sm font-semibold text-slate-900">Agendamentos por origem</h4>
+                                    <p className="mt-1 text-xs text-slate-500">Clientes com agendamento / clientes da origem</p>
+                                    <div className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-1">
+                                        {data.analytics.sources.map(source => (
+                                            <div key={source.origin}>
+                                                <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                                                    <span className="min-w-0 truncate text-slate-600" title={source.origin}>{source.origin}</span>
+                                                    <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+                                                        {formatCount(source.bookings)} / {formatCount(source.clients)} · {percent(source.bookings, source.clients)}
                                                     </span>
-                                                    <span className="block text-slate-400">{formatCount(item.sample)} clientes</span>
-                                                </td>
-                                                {[item.conversations, item.attendants, item.calls, item.followups].map((value, index) => (
-                                                    <td key={index} className="p-2 text-right tabular-nums text-slate-700">{value ?? "—"}</td>
-                                                ))}
-                                            </tr>
+                                                </div>
+                                                <div className="h-1 rounded-full bg-slate-100">
+                                                    <div className="h-full rounded-full bg-brand/70"
+                                                        style={{ width: Math.min(100, source.clients ? source.bookings / source.clients * 100 : 0) + "%" }} />
+                                                </div>
+                                            </div>
                                         ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <p className="mt-3 text-xs text-slate-500">
-                                *Conversas com acompanhamento identificado pela IA. Atendentes são pessoas distintas registradas, não atribuição de crédito.
-                                Clientes recentes sem agendamento aguardam 30 dias antes de entrar na comparação.
-                            </p>
-                        </Card>
-
-                        <Card>
-                            <MetricTitle icon={RotateCcw}>Abandono e recuperação</MetricTitle>
-                            <p className="mb-4 text-xs text-slate-500">
-                                Após abandono identificado pela IA: nova conversa entre 1 e 30 dias depois. Só clientes com janela completa entram nas taxas.
-                            </p>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                                {[
-                                    ["Abandonos", formatCount(data.analytics.recovery.total)],
-                                    ["Retornaram", formatCount(data.analytics.recovery.returned)],
-                                    ["Taxa de retorno", percent(data.analytics.recovery.returned, data.analytics.recovery.mature)],
-                                    ["Mediana até voltar", formatDuration(data.analytics.recovery.median_days)],
-                                ].map(([label, value]) => (
-                                    <div key={label} className="rounded-xl bg-slate-50 px-3 py-4">
-                                        <p className="text-xs text-slate-500">{label}</p>
-                                        <p className="mt-2 text-xl font-bold tabular-nums text-slate-800">{value}</p>
                                     </div>
-                                ))}
-                            </div>
-                            <p className="mt-3 text-xs text-slate-500">
-                                {formatCount(data.analytics.recovery.mature)} abandonos com 30 dias completos ·{" "}
-                                {formatCount(data.analytics.recovery.booked)} agendaram depois de retornar.
-                            </p>
-                            {data.analytics.recovery_moments.some(item => item.eligible > 0) && (
-                                <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-                                    <h4 className="mb-2 text-sm font-semibold text-slate-700">Retorno por ponto de abandono</h4>
-                                    {data.analytics.recovery_moments.filter(item => item.eligible > 0).map(item => (
-                                        <div key={item.moment} className="flex items-center justify-between gap-3 text-xs">
-                                            <span className="min-w-0 truncate text-slate-600" title={getDropoffMomentLabel(item.moment)}>
-                                                {getDropoffMomentLabel(item.moment)}
-                                            </span>
-                                            <span className="shrink-0 font-semibold tabular-nums text-slate-700">
-                                                {formatCount(item.returned)} / {formatCount(item.eligible)} · {percent(item.returned, item.eligible)}
-                                            </span>
+                                </div>
+                            </Card>
+                        </div>
+
+                        <div data-assistant-section="jornada-touchpoints" className="min-w-0">
+                            <Card>
+                                <h3 className="text-base font-bold text-slate-900">Interações até o agendamento</h3>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Medianas por cliente. Sem agendamento, consideramos até 30 dias após o contato.
+                                </p>
+                                <div className="mt-4 space-y-3">
+                                    {data.analytics.touchpoints.map(item => (
+                                        <div key={item.segment} className="rounded-xl border border-slate-100 p-4">
+                                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                                <h4 className="text-sm font-semibold text-slate-900">
+                                                    {item.segment === "agendaram" ? "Agendaram" : "Sem agendamento em 30 dias"}
+                                                </h4>
+                                                <span className="text-xs font-medium tabular-nums text-slate-500">{formatCount(item.sample)} clientes</span>
+                                            </div>
+                                            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                                                {([
+                                                    ["Conversas", item.conversations],
+                                                    ["Atendentes", item.attendants],
+                                                    ["Ligações", item.calls],
+                                                    ["Retornos", item.followups],
+                                                ] as const).map(([label, value]) => (
+                                                    <div key={label}>
+                                                        <p className="text-xs text-slate-500">{label}</p>
+                                                        <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{value ?? "—"}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
-                            )}
-                        </Card>
+                                <p className="mt-3 text-xs text-slate-500">
+                                    Retornos = conversas com acompanhamento detectado pela IA. Atendentes = pessoas distintas.
+                                </p>
+                            </Card>
+                        </div>
 
-                        <Card>
-                            <MetricTitle icon={Megaphone}>Criativos com resultados clínicos</MetricTitle>
-                            <div className="mb-3 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-600">
-                                <AlertCircle size={16} className="mt-0.5 shrink-0 text-slate-500" />
-                                <span>
-                                    Meta (Instagram/Facebook). Somente vínculos comprovados ao CRM geram resultados clínicos ou receita.
-                                    Sem custo por anúncio, ROAS não está disponível. A atribuição usa o primeiro criativo vinculado por cliente.
-                                </span>
-                            </div>
-                            {data.creative_error ? (
-                                <p className="text-sm text-red">Não foi possível carregar os criativos.</p>
-                            ) : data.creatives ? (
-                                <>
-                                    <div className="mb-3 space-y-1 text-xs text-slate-500">
-                                        <p>{formatCount(data.creatives.scope.creatives)} criativos · {formatCount(data.creatives.scope.ad_contacts)} contatos por anúncio</p>
-                                        <p>
-                                            <strong className="text-slate-700">{formatCount(data.creatives.scope.verified_clients)} clientes</strong> vinculados ao CRM nesta amostra.
-                                            Contatos sem vínculo não recebem valores presumidos.
+                        <div data-assistant-section="jornada-recuperacao" className="min-w-0">
+                            <Card>
+                                <h3 className="text-base font-bold text-slate-900">Abandono e recuperação</h3>
+                                <p className="mt-1 text-xs text-slate-500">Retorno entre 1 e 30 dias após o abandono, apenas com janela completa.</p>
+                                <div className="mt-4 grid grid-cols-2 gap-4 border-b border-slate-100 pb-4 sm:grid-cols-4">
+                                    {([
+                                        ["Abandonos", formatCount(data.analytics.recovery.total)],
+                                        ["Retornaram", formatCount(data.analytics.recovery.returned)],
+                                        ["Taxa de retorno", percent(data.analytics.recovery.returned, data.analytics.recovery.mature)],
+                                        ["Tempo até voltar", formatDuration(data.analytics.recovery.median_days)],
+                                    ] as const).map(([label, value]) => (
+                                        <div key={label}>
+                                            <p className="text-xs text-slate-500">{label}</p>
+                                            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="mt-3 text-xs text-slate-500">
+                                    {formatCount(data.analytics.recovery.mature)} com janela completa · {formatCount(data.analytics.recovery.booked)} agendaram após retornar
+                                </p>
+                                {data.analytics.recovery_moments.some(item => item.eligible > 0) && (
+                                    <div className="mt-5">
+                                        <h4 className="mb-3 text-sm font-semibold text-slate-900">Retorno por ponto de abandono</h4>
+                                        <div className="space-y-3">
+                                            {data.analytics.recovery_moments.filter(item => item.eligible > 0).map(item => (
+                                                <div key={item.moment}>
+                                                    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                                                        <span className="min-w-0 truncate text-slate-600" title={getDropoffMomentLabel(item.moment)}>
+                                                            {getDropoffMomentLabel(item.moment)}
+                                                        </span>
+                                                        <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+                                                            {formatCount(item.returned)} / {formatCount(item.eligible)} · {percent(item.returned, item.eligible)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="h-1 rounded-full bg-slate-100">
+                                                        <div className="h-full rounded-full bg-brand/70"
+                                                            style={{ width: Math.min(100, item.returned / item.eligible * 100) + "%" }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </Card>
+                        </div>
+
+                        <div data-assistant-section="jornada-criativos" className="min-w-0">
+                            <Card>
+                                <h3 className="text-base font-bold text-slate-900">Criativos Meta</h3>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Contatos atribuídos aos anúncios do Instagram e Facebook no período.
+                                </p>
+                                {data.creative_error ? (
+                                    <p className="mt-4 text-sm text-red">Não foi possível carregar os criativos.</p>
+                                ) : data.creatives ? (
+                                    <>
+                                        <div className="mt-5 grid grid-cols-2 gap-5 border-b border-slate-100 pb-5 sm:grid-cols-3">
+                                            <div>
+                                                <p className="text-xs text-slate-500">Contatos de anúncios</p>
+                                                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{formatCount(data.creatives.scope.ad_contacts)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-slate-500">Criativos</p>
+                                                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{formatCount(data.creatives.scope.creatives)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-slate-500">Clientes vinculados</p>
+                                                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{formatCount(data.creatives.scope.verified_clients)}</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4">
+                                            <h4 className="text-sm font-semibold text-slate-900">Mais contatos</h4>
+                                            <div className="mt-3 space-y-3">
+                                                {[...data.creatives.creatives].sort((a, b) => b.contacts - a.contacts).slice(0, 5).map(item => (
+                                                    <div key={item.ad_id} className="flex items-center justify-between gap-3 text-xs">
+                                                        <span className="min-w-0 truncate text-slate-600" title={item.name}>{item.name}</span>
+                                                        <span className="shrink-0 font-semibold tabular-nums text-slate-900">{formatCount(item.contacts)} contatos</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                                            Resultados clínicos exigem vínculo individual entre anúncio, cliente e CliniSys.
+                                            {data.creatives.scope.verified_clients === 0
+                                                ? " Nenhum vínculo comprovado neste período."
+                                                : " Vínculo não significa que houve agendamento ou procedimento."}
                                         </p>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <label className="flex items-center gap-2 text-xs text-slate-500">
-                                            Ordenar
-                                            <select className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700" value={sort}
-                                                onChange={event => setSort(event.target.value as typeof sort)}>
-                                                <option value="authorized_revenue">Receita autorizada</option>
-                                                <option value="completed_procedures">Procedimentos</option>
-                                                <option value="attended_consultations">Comparecimentos</option>
-                                                <option value="contacts">Contatos</option>
-                                            </select>
-                                        </label>
-                                        <label className="flex items-center gap-2 text-xs text-slate-500">
-                                            Mínimo
-                                            <select className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700" value={minimum}
-                                                onChange={event => setMinimum(Number(event.target.value))}>
-                                                <option value={0}>Todos</option>
-                                                <option value={10}>10 contatos</option>
-                                                <option value={30}>30 contatos</option>
-                                                <option value={100}>100 contatos</option>
-                                            </select>
-                                        </label>
-                                    </div>
-                                </>
-                            ) : null}
-                        </Card>
+                                    </>
+                                ) : (
+                                    <p className="mt-4 text-sm text-slate-500">Sem dados de criativos disponíveis.</p>
+                                )}
+                            </Card>
+                        </div>
                     </div>
 
                     {data.creatives && !data.creative_error && (
                         <Card>
-                            <h3 className="mb-1 text-lg font-bold text-slate-900">Ranking de criativos</h3>
-                            <p className="mb-4 text-xs text-slate-500">
-                                Contatos do criativo não são consultas. Valores clínicos são exibidos apenas quando o cliente está vinculado ao anúncio e ao CliniSys.
-                                Receita = faturas autorizadas, não pagamento confirmado.
-                            </p>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <h3 className="text-base font-bold text-slate-900">Ranking de criativos</h3>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Vínculos ao CRM comprovados, sem atribuir receita ou consultas a contatos não identificados.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <label className="text-xs text-slate-500">
+                                        <span className="sr-only">Ordenar criativos</span>
+                                        <select className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700"
+                                            value={sort} onChange={event => setSort(event.target.value as typeof sort)}>
+                                            <option value="linked_clients">Clientes vinculados</option>
+                                            <option value="contacts">Contatos</option>
+                                            {hasClinicalOutcomes && <option value="authorized_revenue">Receita autorizada</option>}
+                                            {hasClinicalOutcomes && <option value="completed_procedures">Procedimentos</option>}
+                                            {hasClinicalOutcomes && <option value="attended_consultations">Comparecimentos</option>}
+                                        </select>
+                                    </label>
+                                    <label className="text-xs text-slate-500">
+                                        <span className="sr-only">Filtrar pelo mínimo de contatos</span>
+                                        <select className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700"
+                                            value={minimum} onChange={event => setMinimum(Number(event.target.value))}>
+                                            <option value={0}>Todos os contatos</option>
+                                            <option value={10}>10+ contatos</option>
+                                            <option value={30}>30+ contatos</option>
+                                            <option value={100}>100+ contatos</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                            {!hasClinicalOutcomes && (
+                                <p className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-xs text-slate-600">
+                                    Não há consultas, procedimentos ou faturamento vinculados a estes criativos no CRM.
+                                    Essas colunas ficam ocultas até existirem dados comprovados. O investimento individual também não está disponível.
+                                </p>
+                            )}
                             {creatives.length ? (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[940px] text-left text-xs">
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[480px] text-left text-xs">
                                         <thead className="border-b border-slate-200 text-slate-500">
                                             <tr>
                                                 <th className="py-3 pr-3">Criativo</th>
-                                                <th className="p-2 text-right">Contatos</th>
-                                                <th className="p-2 text-right">Clientes vinculados</th>
-                                                <th className="p-2 text-right">Consultas</th>
-                                                <th className="p-2 text-right">Compareceram</th>
-                                                <th className="p-2 text-right">Procedimentos</th>
-                                                <th className="p-2 text-right">Receita</th>
-                                                <th className="p-2 text-right">Investimento</th>
-                                                <th className="py-3 pl-2 text-right">ROAS</th>
+                                                <th className="px-2 py-3 text-right">Contatos</th>
+                                                <th className="px-2 py-3 text-right">Vinculados</th>
+                                                <th className="px-2 py-3 text-right">Taxa de vínculo</th>
+                                                {hasClinicalOutcomes && <th className="px-2 py-3 text-right">Consultas</th>}
+                                                {hasClinicalOutcomes && <th className="px-2 py-3 text-right">Compareceram</th>}
+                                                {hasClinicalOutcomes && <th className="px-2 py-3 text-right">Procedimentos</th>}
+                                                {hasClinicalOutcomes && <th className="py-3 pl-2 text-right">Receita</th>}
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {creatives.map(creative => (
-                                                <tr key={creative.ad_id} className="border-b border-slate-100 last:border-0">
-                                                    <td className="max-w-[250px] py-3 pr-3">
-                                                        <div className="truncate font-semibold text-slate-800" title={creative.name}>{creative.name}</div>
-                                                        <div className="mt-1 truncate text-slate-400" title={creative.ad_id}>ID {creative.ad_id}</div>
-                                                        {creative.campaign_name && <div className="truncate text-slate-500" title={creative.campaign_name}>{creative.campaign_name}</div>}
+                                            {creatives.map(item => (
+                                                <tr key={item.ad_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
+                                                    <td className="max-w-[320px] py-3 pr-3">
+                                                        <div className="truncate font-semibold text-slate-800" title={item.name}>{item.name}</div>
+                                                        {item.campaign_name && <div className="mt-0.5 truncate text-slate-500" title={item.campaign_name}>{item.campaign_name}</div>}
+                                                        <div className="mt-0.5 truncate text-slate-400" title={item.ad_id}>ID {item.ad_id}</div>
                                                     </td>
-                                                    <td className="p-2 text-right tabular-nums">{formatCount(creative.contacts)}</td>
-                                                    <td className="p-2 text-right tabular-nums">{formatCount(creative.linked_clients)}</td>
-                                                    <td className="p-2 text-right tabular-nums">{creative.linked_clients ? formatCount(creative.consultations) : "—"}</td>
-                                                    <td className="p-2 text-right tabular-nums">{creative.linked_clients ? formatCount(creative.attended_consultations) : "—"}</td>
-                                                    <td className="p-2 text-right tabular-nums">{creative.linked_clients ? formatCount(creative.completed_procedures) : "—"}</td>
-                                                    <td className="p-2 text-right font-semibold tabular-nums">
-                                                        {creative.linked_clients ? currencyFormatter.format(creative.authorized_revenue) : "—"}
-                                                    </td>
-                                                    <td className="p-2 text-right">—</td>
-                                                    <td className="py-3 pl-2 text-right">—</td>
+                                                    <td className="px-2 py-3 text-right font-semibold tabular-nums text-slate-800">{formatCount(item.contacts)}</td>
+                                                    <td className="px-2 py-3 text-right tabular-nums text-slate-700">{formatCount(item.linked_clients)}</td>
+                                                    <td className="px-2 py-3 text-right tabular-nums text-slate-700">{percent(item.linked_clients, item.contacts)}</td>
+                                                    {hasClinicalOutcomes && <td className="px-2 py-3 text-right tabular-nums">{item.linked_clients ? formatCount(item.consultations) : "—"}</td>}
+                                                    {hasClinicalOutcomes && <td className="px-2 py-3 text-right tabular-nums">{item.linked_clients ? formatCount(item.attended_consultations) : "—"}</td>}
+                                                    {hasClinicalOutcomes && <td className="px-2 py-3 text-right tabular-nums">{item.linked_clients ? formatCount(item.completed_procedures) : "—"}</td>}
+                                                    {hasClinicalOutcomes && <td className="py-3 pl-2 text-right font-semibold tabular-nums">{item.linked_clients ? currencyFormatter.format(item.authorized_revenue) : "—"}</td>}
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -354,11 +412,11 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
                             ) : (
                                 <p className="py-8 text-center text-sm text-slate-500">Nenhum criativo atende ao filtro.</p>
                             )}
-                            <p className="mt-3 text-xs text-slate-500">Miniaturas e investimento individual não estão presentes nos dados atuais; nenhum valor foi estimado.</p>
                         </Card>
                     )}
                 </>
             ) : null}
         </section>
     );
+
 }
