@@ -924,7 +924,7 @@ function PipelineTreeConnector({
     const junctionX = direction === "merge" ? 48 : 24;
     return (
         <svg width={72} height={height} viewBox={`0 0 72 ${height}`}
-            className="shrink-0 overflow-visible" aria-hidden="true">
+            className="relative top-2 shrink-0 overflow-visible" aria-hidden="true">
             <path d={`M ${junctionX} ${firstCenter} V ${lastCenter}`}
                 fill="none" stroke="#93c5fd" strokeWidth="1" />
             {Array.from({ length: rowCount }).map((_, index) => {
@@ -1019,7 +1019,7 @@ function PipelineTransitionCard({
     lossUnit?: "clientes" | "agendamentos";
 }) {
     return (
-        <div className="flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
+        <div className="relative flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
             <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-black ${
                     transition.rate === null
@@ -1037,8 +1037,10 @@ function PipelineTransitionCard({
                 {transition.estimated && transition.rate !== null ? "~" : ""}
                 {formatRate(transition.rate)}
             </span>
-            <div className="my-3 -mx-2 w-[calc(100%+16px)]">
-                <PipelineArrowLine />
+            <div className="my-3 h-[15px] w-full">
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                    <PipelineArrowLine />
+                </div>
             </div>
             <span className="min-h-8 text-[10px] font-bold leading-4 text-slate-500">
                 {transition.label}
