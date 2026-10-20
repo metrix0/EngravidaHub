@@ -73,7 +73,7 @@ export default function PersonalDashboardWidgetView(props: Props) {
         const label = props.widget.source === "agenda_disponibilidade"
             ? `Data: ${report.reportDate.split("-").reverse().join("/")}`
             : new Date(`${report.start}T12:00:00Z`).toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
-        return <div className="space-y-2"><p className="px-1 text-xs capitalize text-muted">{label}</p><AgendaReportWidget widgetId={props.widget.id} report={report} /></div>;
+        return <div className="space-y-2"><p className="px-1 text-xs capitalize text-muted">{label}</p><AgendaReportWidget widgetId={props.widget.id} report={report} unitIds={props.unitIds} /></div>;
     }
 
     if (props.widget.source === "inteligencia_agenda") {

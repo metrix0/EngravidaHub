@@ -24,6 +24,7 @@ type AppointmentForClinisys = {
         email: string | null;
     };
     notes: string | null;
+    attendantName?: string | null;
 };
 
 type ClinisysAgenda = {
@@ -281,7 +282,9 @@ function buildAppointmentBody(
         email: appointment.patient.email || undefined,
         status,
         confirmado: appointment.status === "confirmed" ? "1" : "0",
-        observacoes: appointment.notes || undefined,
+        observacoes: appointment.attendantName
+            ? [`(${appointment.attendantName})`, appointment.notes?.trim()].filter(Boolean).join("\n")
+            : appointment.notes || undefined,
     };
 }
 

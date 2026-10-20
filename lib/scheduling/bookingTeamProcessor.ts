@@ -57,6 +57,13 @@ export async function persistResolvedBookingTeams(
     });
     const byId = new Map(names.map(row => [row.id, row.team]));
     const aliasTeams = new Map((aliases ?? []).map(row => [row.source_name, byId.get(row.attendant_id) ?? null]));
+    const byExactName = new Map<string, string | null>();
+    for (const row of names) {
+        const key = row.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        byExactName.set(key, byExactName.has(key) ? null : row.id);
+    }
+    const aliasAuthors = new Map((aliases ?? []).map(row => [row.source_name, row.attendant_id]));
+    const directAuthors = new Map<string, Set<string | null>>();
     const directTeams = new Map<string, Set<BookingTeam>>();
     (scheduleResult.data ?? []).forEach(row => {
         if (!row.source_external_id) return;
@@ -66,6 +73,11 @@ export async function persistResolvedBookingTeams(
         const existing = directTeams.get(row.source_external_id) ?? new Set<BookingTeam>();
         existing.add(team);
         directTeams.set(row.source_external_id, existing);
+        const key = (row.attendant_name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        const authorId = row.attendant_name ? (aliasAuthors.get(row.attendant_name) ?? byExactName.get(key) ?? null) : null;
+        const authors = directAuthors.get(row.source_external_id) ?? new Set<string | null>();
+        authors.add(authorId);
+        directAuthors.set(row.source_external_id, authors);
     });
     const directTeam = (row: BookingCandidate): BookingTeam => {
         const found = directTeams.get(row.source_external_id ?? "");
@@ -101,9 +113,13 @@ export async function persistResolvedBookingTeams(
         await Promise.all(pending.slice(offset, offset + RPC_BATCH_SIZE).map(async row => {
             const team = directTeam(row) ?? inferred.get(row.id) ?? null;
             if (!team && !recordAttempt) return;
-            const values = team
-                ? { booking_team: team, booking_team_checked_at: checkedAt }
-                : { booking_team_checked_at: checkedAt };
+            const authors = directAuthors.get(row.source_external_id ?? "");
+            const authorId = authors?.size === 1 ? [...authors][0] : null;
+            const values = {
+                ...(team ? { booking_team: team } : {}),
+                ...(authorId ? { created_by_attendant_id: authorId } : {}),
+                booking_team_checked_at: checkedAt,
+            };
             const { error } = await supabase.from("appointments").update(values)
                 .eq("id", row.id).eq("source", "clinisys").is("booking_team", null);
             if (error) throw error;

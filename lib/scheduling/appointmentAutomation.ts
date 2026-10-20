@@ -130,8 +130,17 @@ export async function sendAppointmentIntegration(
             return { ok: true, status: 200, externalId };
         }
 
+        const { data: stored, error: authorError } = await supabase
+            .from("appointments")
+            .select("booker:attendants!appointments_created_by_attendant_id_fkey(name)")
+            .eq("id", payload.appointment.id)
+            .maybeSingle();
+        if (authorError) throw authorError;
+        const booker = Array.isArray(stored?.booker) ? stored.booker[0] : stored?.booker;
+        const outgoing = { ...payload.appointment, attendantName: booker?.name ?? null };
+
         if (!payload.appointment.sourceExternalId) {
-            const created = await createClinisysAppointment(payload.appointment);
+            const created = await createClinisysAppointment(outgoing);
             const { error } = await supabase
                 .from("appointments")
                 .update({
@@ -145,7 +154,7 @@ export async function sendAppointmentIntegration(
         }
 
         if (payload.event === "appointment.updated") {
-            await updateClinisysAppointment(payload.appointment);
+            await updateClinisysAppointment(outgoing);
         }
 
         return {
