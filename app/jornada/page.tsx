@@ -499,8 +499,8 @@ export default function JourneyPage() {
                     />
                 </DashboardFilterBar>
 
-                <div className="overflow-x-hidden pb-12">
-                    <section data-assistant-section="jornada-pipeline" className="mb-6 min-w-0 max-w-full">
+                <div className="pb-12">
+                    <section data-assistant-section="jornada-pipeline" className="-mx-4 mb-6 min-w-0 md:-mx-8">
                         <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology} />
                     </section>
                     {isRefreshing || loadingData || loadingFilters ? <JourneyBodySkeleton /> : <>

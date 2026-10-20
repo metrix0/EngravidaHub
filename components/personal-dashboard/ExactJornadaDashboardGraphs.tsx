@@ -275,7 +275,7 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
                     <EmptyCardMessage message="Nenhum dado rastreável no período." />
                 ) : (
                     <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
-                        <div className="space-y-8">
+                        <div className="space-y-3">
                             <JourneyPipelineTree pipeline={pipeline} />
                             {(pipeline.additional_pipelines ?? []).map(group => (
                                 <div key={group.key} style={{ marginLeft: 644 }}>
@@ -525,7 +525,7 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
     return (
         <div
             ref={viewportRef}
-            className={`relative ${multipleFlows ? "h-[1050px] max-h-[90vh]" : "h-[560px] max-h-[72vh]"} min-h-[480px] w-full cursor-move select-none overflow-hidden rounded-xl`}
+            className={`relative ${multipleFlows ? "h-[1020px]" : "h-[560px]"} min-h-[480px] w-full cursor-move select-none overflow-hidden`}
             style={{
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
@@ -575,13 +575,9 @@ function JourneyPipelineTree({
     );
     const acquisitionRowCount = Math.max(1, acquisitionBranches.length);
     const showInstagram = Boolean(pipeline.instagram);
-    const acquisitionHeight = acquisitionBranches.length === 0 ? PIPELINE_TREE_ROW_HEIGHT :
-        acquisitionRowCount * PIPELINE_TREE_ROW_HEIGHT +
-        (acquisitionRowCount - 1) * PIPELINE_TREE_ROW_GAP + (showInstagram ? 198 : 0);
-    const topOffset = Math.max(
-        0,
-        (acquisitionHeight - PIPELINE_TREE_ROW_HEIGHT) / 2,
-    );
+    const topOffset = ((acquisitionRowCount - 1) * (PIPELINE_TREE_ROW_HEIGHT + PIPELINE_TREE_ROW_GAP)) / 2;
+    const instagramUnlinked = Boolean(pipeline.instagram && pipeline.instagram.chats > 0 &&
+        pipeline.instagram.unlinked_chats >= pipeline.instagram.chats);
 
     if (
         !tracked ||
@@ -599,7 +595,7 @@ function JourneyPipelineTree({
     return (
             <div className="relative flex min-w-max items-start py-2">
                 {acquisitionBranches.length > 0 ? <>
-                <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? 198 : 0 }}>
+                <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? PIPELINE_TREE_ROW_HEIGHT : 0 }}>
                     {acquisitionBranches.map((branch) => (
                         <div
                             key={branch.platform}
@@ -643,10 +639,17 @@ function JourneyPipelineTree({
                                 })}
                             />
                             {branch.platform === "meta_ads" && pipeline.instagram ? (
-                                <div className="absolute left-[286px] top-[198px] flex items-stretch">
-                                    <PipelineStageCard stage={{ ...clientPipelineStage("paid_clicks", "Cliques Meta → Instagram", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
-                                        eyebrow="Meta Ads" detail={pipeline.instagram.clicks === null ? "Dados ainda não disponíveis para este período" : "Conjuntos exclusivos do Instagram Direct"} />
-                                    <PipelineTransitionCard transition={clientPipelineTransition({ key: "instagram_clicks_to_chat", label: "Clique → Instagram", fromValue: pipeline.instagram.clicks ?? 0, toValue: pipeline.instagram.chats, rate: null })} />
+                                <div className="absolute left-[286px] top-[182px] flex items-center">
+                                    <PipelineStageCard stage={{ ...clientPipelineStage("paid_clicks", "Cliques pagos", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
+                                        compact eyebrow="Meta Ads" detail={pipeline.instagram.clicks === null ? "Dados ainda não disponíveis para este período" : "Instagram Direct"} />
+                                    <PipelineTransitionCard transition={{
+                                        ...clientPipelineTransition({
+                                            key: "instagram_clicks_to_chat", label: "Clique → Instagram",
+                                            fromValue: pipeline.instagram.clicks ?? 0,
+                                            toValue: pipeline.instagram.chats,
+                                            rate: pipeline.instagram.clicks ? calculateRate(pipeline.instagram.chats, pipeline.instagram.clicks) : null,
+                                        }), estimated: true,
+                                    }} />
                                     <PipelineStageCard stage={clientPipelineStage("tracked_whatsapp", "Instagram Chat", pipeline.instagram.chats)}
                                         eyebrow="Instagram" detail={`${pipeline.instagram.unlinked_chats.toLocaleString("pt-BR")} sem vínculo confirmado com o CRM`} />
                                 </div>
@@ -677,33 +680,32 @@ function JourneyPipelineTree({
                     <div className="flex items-start">
                         <ProcedurePipelineStages scheduled={scheduled} attended={attended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind === "evaluation")}
-                            topOffset={0} branchOffset={75} />
+                            topOffset={0} branchOffset={12} />
                         <PipelineTransitionCard transition={pipeline.transitions.find(item => item.key === "consultation_to_procedure") ?? clientPipelineTransition({ key: "consultation_to_procedure", label: "Consulta → procedimento", fromValue: 0, toValue: 0, rate: null })} />
                         <ProcedurePipelineStages scheduled={procedureScheduled} attended={procedureAttended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind !== "evaluation")}
-                            topOffset={0} branchOffset={75} />
+                            topOffset={0} branchOffset={12} />
                         <div className="flex h-[182px] w-[118px] shrink-0 flex-col items-center justify-center px-2 text-center">
                             <span className="text-xs font-bold text-emerald-700">{formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "procedure")?.amount ?? 0, pipeline.currency_code)}</span>
                             <ArrowRight size={24} className="my-3 text-emerald-600" />
                         </div>
                         <PipelineStageCard stage={authorized} width={210} />
                     </div>
-                    <svg aria-label="Receita liberada após a consulta" className="pointer-events-none absolute left-0 top-0 h-[257px] w-[1642px] overflow-visible" viewBox="0 0 1642 257">
-                        <path d="M 478 182 V 216 H 1537 V 184" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
-                        <path d="m 1532 190 5 -7 5 7" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
-                        <text x="1000" y="237" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
+                    <svg aria-label="Receita liberada após a consulta" className="pointer-events-none absolute left-0 top-0 h-[182px] w-[1642px] overflow-visible" viewBox="0 0 1642 182">
+                        <path d="M 478 0 V -35 H 1537 V 0" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <path d="m 1532 -7 5 7 5 -7" fill="none" stroke="#0f9f61" strokeWidth="1.5" />
+                        <text x="1000" y="-43" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
                             {formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · após consulta
                         </text>
                     </svg>
                 </div>
-                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram" className="pointer-events-none absolute left-0 top-0 h-[610px] w-[1200px] overflow-visible" viewBox="0 0 1200 610">
-                    <path d="M 370 380 V 396" fill="none" stroke="#0866ff" strokeWidth="1.5" />
-                    <path d={`M 740 487 H 860 V ${topOffset + 91} H 812`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
-                    <path d={`m 819 ${topOffset + 86} -7 5 7 5`} fill="none" stroke="#0f9f94" strokeWidth="1.5" />
-                    <text x="820" y="510" fill="#0f9f94" fontSize="12" textAnchor="middle">{pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp</text>
-                    <path d={`M 740 487 H 918 V ${topOffset + 91} H 930`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
-                    <path d={`m 923 ${topOffset + 86} 7 5 -7 5`} fill="none" stroke="#8b5cf6" strokeWidth="1.5" />
-                    <text x="1000" y="510" fill="#8b5cf6" fontSize="12" textAnchor="middle">{pipeline.instagram.to_consultation.toLocaleString("pt-BR")} agendaram pelo Instagram</text>
+                {pipeline.instagram ? <svg aria-label="Caminhos confirmados do Instagram" className="pointer-events-none absolute left-0 top-0 h-[562px] w-[1200px] overflow-visible" viewBox="0 0 1200 562">
+                    <path d={`M 740 471 H 860 V ${topOffset + PIPELINE_TREE_ROW_HEIGHT / 2} H 812`} fill="none" stroke="#93c5fd" strokeWidth="1" />
+                    <path d={`m 819 ${topOffset + PIPELINE_TREE_ROW_HEIGHT / 2 - 5} -7 5 7 5`} fill="none" stroke="#93c5fd" strokeWidth="1" />
+                    <text x="820" y="500" fill="#64748b" fontSize="11" textAnchor="middle">{instagramUnlinked ? "Sem vínculo confirmado" : `${pipeline.instagram.to_whatsapp.toLocaleString("pt-BR")} → WhatsApp`}</text>
+                    <path d={`M 740 471 H 918 V ${topOffset + PIPELINE_TREE_ROW_HEIGHT / 2} H 930`} fill="none" stroke="#93c5fd" strokeWidth="1" />
+                    <path d={`m 923 ${topOffset + PIPELINE_TREE_ROW_HEIGHT / 2 - 5} 7 5 -7 5`} fill="none" stroke="#93c5fd" strokeWidth="1" />
+                    <text x="1000" y="500" fill="#64748b" fontSize="11" textAnchor="middle">{instagramUnlinked ? "Sem vínculo confirmado" : `${pipeline.instagram.to_consultation.toLocaleString("pt-BR")} agendaram pelo Instagram`}</text>
                 </svg> : null}
             </div>
     );
@@ -740,30 +742,31 @@ function ProcedurePipelineStages({
             className="shrink-0"
             style={{ paddingTop: topOffset }}
         >
-            <div className="flex items-stretch">
-                <PipelineStageCard
-                    stage={scheduled}
-                    width={240}
-                    detail="clientes únicos vinculados ao WhatsApp rastreado"
-                />
-                <PipelineTransitionCard
-                    transition={aggregateTransition}
-                />
-                <PipelineStageCard
-                    stage={attended}
-                    width={240}
-                    detail="clientes únicos que compareceram"
-                />
+            <div className="flex items-start">
+                <div className="w-[240px] shrink-0">
+                    <PipelineStageCard stage={scheduled} width={240}
+                        detail="clientes únicos vinculados ao WhatsApp rastreado" />
+                    <button type="button" aria-expanded={expanded} aria-controls={detailsId}
+                        onClick={() => setExpanded(value => !value)}
+                        className="mt-2 flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">
+                        <ChevronDown size={16} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+                        {scheduled.key === "scheduled" ? "Consultas" : "Procedimentos"} ({branches.length})
+                    </button>
+                </div>
+                <PipelineTransitionCard transition={aggregateTransition} />
+                <div className="w-[240px] shrink-0">
+                    <PipelineStageCard stage={attended} width={240}
+                        detail="clientes únicos que compareceram" />
+                    <button type="button" aria-expanded={expanded} aria-controls={detailsId}
+                        onClick={() => setExpanded(value => !value)}
+                        className="mt-2 flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">
+                        <ChevronDown size={16} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+                        {scheduled.key === "scheduled" ? "Consultas" : "Procedimentos"} ({branches.length})
+                    </button>
+                </div>
             </div>
-
             <div style={{ marginTop: branchOffset }}>
-                <button type="button" aria-expanded={expanded} aria-controls={detailsId}
-                    onClick={() => setExpanded(value => !value)}
-                    className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">
-                    <ChevronDown size={16} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-                    {scheduled.key === "scheduled" ? "Consultas" : "Procedimentos"} ({branches.length})
-                </button>
-                {expanded ? <div id={detailsId} className="mt-3">
+                {expanded ? <div id={detailsId}>
             {branches.length > 0 ? (
                 <div className="space-y-2">
                     {branches.map((branch) => (
@@ -880,7 +883,6 @@ function PipelineTreeConnector({
                     left: trunkLeft,
                     top: firstCenter,
                     height: Math.max(1, lastCenter - firstCenter),
-                    transform: "translateY(-13px)",
                 }}
             />
             {Array.from({ length: rowCount }).map((_, index) => {
@@ -903,8 +905,7 @@ function PipelineTreeConnector({
                                 direction === "merge"
                                     ? trunkLeft + 4
                                     : 72 - trunkLeft,
-                            transform: "translateY(-13px)",
-                        }}
+                                }}
                     >
                         {direction === "split" ? (
                             <ArrowRight
@@ -935,11 +936,13 @@ function PipelineStageCard({
     eyebrow,
     detail,
     width = 168,
+    compact = false,
 }: {
     stage: FullJourneyPipeline["stages"][number];
     eyebrow?: string;
     detail?: string;
     width?: number;
+    compact?: boolean;
 }) {
     const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
     const style =
@@ -950,11 +953,13 @@ function PipelineStageCard({
                   soft: "#fffbeb",
                   eyebrow: defaultStyle.eyebrow,
               }
-            : defaultStyle;
+            : eyebrow === "Instagram"
+                ? { accent: "#ec4899", soft: "#fdf2f8", eyebrow: "Instagram" }
+                : defaultStyle;
 
     return (
         <div
-            className="relative flex h-[182px] shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+            className={`relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.06)] ${compact ? "h-[160px] p-3" : "h-[182px] p-4"}` shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
             style={{ width }}
             title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}${detail ? ` — ${detail}` : ""}`}
         >
@@ -980,13 +985,13 @@ function PipelineStageCard({
                 </span>
             </div>
 
-            <div className="mt-3 text-xs font-semibold text-slate-500">
+            <div className={`${compact ? "mt-2" : "mt-3"} text-xs font-semibold text-slate-500`}>
                 {stage.label}
             </div>
             <div className={`mt-1 font-black tracking-tight text-slate-900 ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
                 {formatPipelineStageValue(stage)}
             </div>
-            <div className="mt-2 line-clamp-3 min-h-8 text-[11px] font-medium leading-4 text-slate-500">
+            <div className={`${compact ? "mt-1" : "mt-2"} line-clamp-3 min-h-8 text-[11px] font-medium leading-4 text-slate-500`}>
                 {detail ?? formatPipelineSecondary(stage)}
             </div>
         </div>
