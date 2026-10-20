@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 
 export const maxDuration = 60;
 const SHARDS = 8;
+const SHARDS_PER_BATCH = 2;
 
 type Histogram = { n: number; days?: number; value?: number; metric?: string; segment?: string; kind?: string };
 type Shard = {
@@ -126,9 +127,9 @@ export async function GET(request: Request) {
         });
 
         const parts: Shard[] = [];
-        for (let start = 0; start < SHARDS; start += 4) {
+        for (let start = 0; start < SHARDS; start += SHARDS_PER_BATCH) {
             const results = await Promise.all(
-                Array.from({ length: 4 }, (_, index) => supabase.rpc("dashboard_journey_deep_insights", {
+                Array.from({ length: Math.min(SHARDS_PER_BATCH, SHARDS - start) }, (_, index) => supabase.rpc("dashboard_journey_deep_insights", {
                     p_start_at: range.startAt,
                     p_end_at: range.endAt,
                     p_unit_ids: filters.unitIds,
