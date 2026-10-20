@@ -739,19 +739,26 @@ export async function testUnitAnalysis(input: Input) {
 
 // Unique period insertion prevents duplicate preparation for the same unit.
 // Failures are explicit; there is no lease takeover, queue sweep or automatic retry.
-export async function submitUnitAnalysis(input: Input) {
+export async function submitUnitAnalysis(input: Input, retryFailedWithoutBatch = false) {
   const { unit, period } = await resolveInput(input);
   const { data: existing, error: existingError } = await supabase.from("unit_macro_analyses")
     .select("id, status, context").eq("unit_id", unit.id).eq("analysis_type", input.type)
     .eq("period_start", period.period_start).eq("period_end", period.period_end).maybeSingle();
   if (existingError) throw existingError;
-  if (existing) return { ok: true, reused: true, id: existing.id, status: existing.status,
+  const retryExisting = retryFailedWithoutBatch && existing?.status === "failed" &&
+    !record(existing.context).batch_id && !record(existing.context).input_file_id;
+  if (existing && !retryExisting) return { ok: true, reused: true, id: existing.id, status: existing.status,
     batch_id: record(existing.context).batch_id ?? null };
-  const id = randomUUID();
-  const { data, error } = await supabase.from("unit_macro_analyses").insert({
-    id, unit_id: unit.id, analysis_type: input.type, ...period, status: "processing",
-    model: MODEL, prompt_version: PROMPT_VERSION, context: { mode: "batch" },
-  }).select("*").single();
+  const id = retryExisting ? existing!.id : randomUUID();
+  const { data, error } = retryExisting
+    ? await supabase.from("unit_macro_analyses").update({
+        status: "processing", model: MODEL, prompt_version: PROMPT_VERSION,
+        context: { mode: "batch" }, error_message: null, updated_at: new Date().toISOString(),
+      }).eq("id", id).eq("status", "failed").select("*").single()
+    : await supabase.from("unit_macro_analyses").insert({
+        id, unit_id: unit.id, analysis_type: input.type, ...period, status: "processing",
+        model: MODEL, prompt_version: PROMPT_VERSION, context: { mode: "batch" },
+      }).select("*").single();
   if (error) throw error;
   try {
     const prepared = await prepare(data as UnitMacroAnalysis, unit);
