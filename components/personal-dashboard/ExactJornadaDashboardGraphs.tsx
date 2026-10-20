@@ -181,7 +181,6 @@ export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }
         ? { ...loaded.pipeline, audit: {
             ...loaded.pipeline.audit,
             whatsapp_coverage: data.full_pipeline.audit.whatsapp_coverage ?? loaded.pipeline.audit.whatsapp_coverage,
-            whatsapp_origins: data.full_pipeline.audit.whatsapp_origins ?? loaded.pipeline.audit.whatsapp_origins,
         } }
         : data.full_pipeline;
     const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
