@@ -51,6 +51,7 @@ import {
     Skeleton,
 } from "@/components";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
 import JourneyDeepInsights from "@/components/dashboard/JourneyDeepInsights";
@@ -424,6 +425,21 @@ export default function JourneyPage() {
         dateFilterReady,
     ]);
 
+    useAssistantPageContext("jornada", () => ({
+        title: "Jornada",
+        filters: { periodo: period, intervalo: selectedRange, unidades: unitIds, atendentes: attendantIds, funis: tunnelValues, origens: originValues, carregando: loadingData || isRefreshing },
+        sections: data ? [
+            { id: "jornada-pipeline", title: "Jornada completa", data: data.full_pipeline },
+            { id: "jornada-whatsapp", title: "Cobertura WhatsApp", data: data.full_pipeline?.audit?.whatsapp_coverage },
+            { id: "jornada-origens", title: "Origem de WhatsApp rastreado", data: data.full_pipeline?.audit?.tracked_sources },
+            { id: "jornada-conversa", title: "Jornada na conversa", data: data.journey_funnel },
+            { id: "jornada-abandono", title: "Pontos de abandono", data: data.dropoff_moments },
+            { id: "jornada-intencoes", title: "Intenções iniciais", data: data.intent_paths },
+            { id: "jornada-objecoes", title: "Objeções", data: data.objections },
+            { id: "jornada-avaliacao", title: "Avaliações presencial e online", data: data.evaluation_journeys },
+        ] : [],
+    }));
+
     if (!dateFilterReady) {
         return (
             <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
@@ -484,34 +500,34 @@ export default function JourneyPage() {
                 </DashboardFilterBar>
 
                 <div className="overflow-x-hidden pb-12">
-                    <section className="mb-6 min-w-0 max-w-full">
+                    <section data-assistant-section="jornada-pipeline" className="mb-6 min-w-0 max-w-full">
                         <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology} />
                     </section>
                     {isRefreshing || loadingData || loadingFilters ? <JourneyBodySkeleton /> : <>
 
-                        <section className="mb-6 min-w-0 max-w-full">
+                        <section data-assistant-section="jornada-whatsapp" className="mb-6 min-w-0 max-w-full">
                             <WhatsappCoverageCard
                                 pipeline={current.full_pipeline}
                             />
                         </section>
 
-                        <section className="mb-6 min-w-0 max-w-full">
+                        <section data-assistant-section="jornada-origens" className="mb-6 min-w-0 max-w-full">
                             <TrackedWhatsappSourcesCard
                                 pipeline={current.full_pipeline}
                             />
                         </section>
 
-                        <section className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
+                        <section data-assistant-section="jornada-conversa" className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
                             <JourneyFunnelCard data={current} />
                             <DropoffCard data={current} />
                         </section>
 
-                        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_0.9fr]">
+                        <section data-assistant-section="jornada-intencoes" className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_0.9fr]">
                             <IntentPathsCard data={current} />
                             <ObjectionsCard data={current} />
                         </section>
 
-                        <section className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                        <section data-assistant-section="jornada-avaliacao" className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <EvaluationJourneyFunnelCard
                                 title="1ª Avaliação presencial"
                                 stages={current.evaluation_journeys.presencial}

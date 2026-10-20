@@ -276,6 +276,8 @@ export function FloatingConversationPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
   const [visible, setVisible] = useState(false);
+  const [assistantChatKey, setAssistantChatKey] = useState(0);
+  const [assistantStartNew, setAssistantStartNew] = useState(false);
 
   const visibleInternalConversations = useMemo(() => {
     const hidden = new Set(hiddenInternalConversationIds);
@@ -1664,6 +1666,17 @@ export function FloatingConversationPanel() {
 
   function handleOpenAssistant() {
     if (!assistantAllowed) return;
+    setAssistantStartNew(false);
+    const nextSelection: SelectedChat = { kind: "assistant" };
+    selectedRef.current = nextSelection;
+    setSelected(nextSelection);
+    showDockExpanded();
+  }
+
+  function handleLaunchAssistant() {
+    if (!assistantAllowed) return;
+    setAssistantStartNew(true);
+    setAssistantChatKey(current => current + 1);
     const nextSelection: SelectedChat = { kind: "assistant" };
     selectedRef.current = nextSelection;
     setSelected(nextSelection);
@@ -1696,7 +1709,7 @@ export function FloatingConversationPanel() {
   const launcher = assistantAllowed ? (
     <button
       type="button"
-      onClick={handleOpenAssistant}
+      onClick={handleLaunchAssistant}
       className="fixed bottom-6 right-6 z-[46] flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-brand text-white shadow-lg transition hover:bg-brand/90 hover:shadow-xl active:scale-95"
       aria-label="Abrir chats e assistente IA"
       title="Abrir chats e assistente IA"
@@ -1765,14 +1778,13 @@ export function FloatingConversationPanel() {
             <div className="flex h-full w-[365px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
               <FloatingConversationHeader
                 name="Assistente IA"
-                subtitle="Assistente virtual"
-                subtitleIcon="assistant"
+                assistantAvatar
                 online
                 collapsed={collapsed}
                 onToggleCollapsed={handleToggleChatCollapsed}
                 onClose={handleCloseDock}
               />
-              {!collapsed && <div className="min-h-0 flex-1"><AssistantChat compact /></div>}
+              {!collapsed && <div className="min-h-0 flex-1"><AssistantChat key={assistantChatKey} compact startNew={assistantStartNew} /></div>}
             </div>
           ) : selected.kind === "ticket" && selectedTicket ? (
             <TicketFloatingPanel
@@ -2578,6 +2590,7 @@ function FloatingConversationHeader({
   subtitle,
   subtitleIcon = "mail",
   online,
+  assistantAvatar = false,
   loading = false,
   hasUnread = false,
   collapsed,
@@ -2585,9 +2598,10 @@ function FloatingConversationHeader({
   onClose,
 }: {
   name: string;
-  subtitle: string;
+  subtitle?: string;
   subtitleIcon?: "mail" | "assistant";
   online?: boolean;
+  assistantAvatar?: boolean;
   loading?: boolean;
   hasUnread?: boolean;
   collapsed: boolean;
@@ -2604,7 +2618,9 @@ function FloatingConversationHeader({
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="relative inline-flex shrink-0">
-            <InitialsAvatar name={name} />
+            {assistantAvatar ? (
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-soft text-purple"><Sparkles size={18} /></span>
+            ) : <InitialsAvatar name={name} />}
             {typeof online === "boolean" ? (
               <span
                 className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
@@ -2624,10 +2640,10 @@ function FloatingConversationHeader({
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand" title="Novas mensagens" />
               ) : null}
             </div>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+            {subtitle ? <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
               {subtitleIcon === "assistant" ? <Sparkles size={12} /> : <Mail size={12} />}
               <span className="truncate">{subtitle}</span>
-            </div>
+            </div> : null}
           </div>
         </div>
 

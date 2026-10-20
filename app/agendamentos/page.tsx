@@ -20,6 +20,7 @@ import {
     Skeleton,
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import FilterButton from "@/components/ui/FilterButton";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { SearchFilter } from "@/components/ui/SearchFilter";
@@ -631,11 +632,21 @@ export default function AppointmentsPage() {
         value: doctor.id,
     }));
 
+    useAssistantPageContext("agendamentos", () => ({
+        title: "Agendamentos",
+        filters: { semana_inicio: rangeStart, semana_fim: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, carregando: loadingCalendar || loadingReport },
+        sections: [
+            { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
+            { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
+            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport },
+        ],
+    }));
+
     return (
         <main className="flex h-screen w-full overflow-hidden bg-white text-slate-900">
             <SidePanel />
 
-            <section className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
+            <section data-assistant-section="agenda-semana" className="flex min-w-0 flex-1 flex-col px-0 pb-0 pt-2 sm:pt-3 md:pt-4">
                 <header className="mb-5 flex shrink-0 flex-col gap-4 px-2 sm:px-3 md:flex-row md:items-start md:justify-between md:gap-6">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">

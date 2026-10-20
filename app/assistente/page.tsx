@@ -38,6 +38,7 @@ import {
     getCachedCurrentAttendant,
 } from "@/lib/attendants/currentAttendantApi";
 import { formatSystemUserName } from "@/lib/users/formatSystemUserName";
+import { captureAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import type {
     AssistantCard,
     AssistantChatMessage,
@@ -70,7 +71,7 @@ export default function AssistentePage() {
     return <AssistantChat />;
 }
 
-export function AssistantChat({ compact = false }: { compact?: boolean }) {
+export function AssistantChat({ compact = false, startNew = false }: { compact?: boolean; startNew?: boolean }) {
     const { currentUser } = useCurrentUser();
     const currentUserId = currentUser?.user?.id ?? null;
     const cachedAttendant = getCachedCurrentAttendant(currentUserId);
@@ -183,7 +184,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
 
                 setSessions(restored);
                 const requestedSession = compact ? null : new URLSearchParams(window.location.search).get("session");
-                setActiveSessionId(restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
+                setActiveSessionId(startNew ? null : restored.find((session: AssistantChatSession) => session.id === requestedSession)?.id ?? restored[0]?.id ?? null);
             } catch (historyError) {
                 console.error(
                     "[assistente] failed to load database history",
@@ -359,6 +360,7 @@ export function AssistantChat({ compact = false }: { compact?: boolean }) {
                 },
                 body: JSON.stringify({
                     session_id: sessionWithUser.id,
+                    page_context: compact ? captureAssistantPageContext() : null,
                     messages: messagesWithUser.map((message) => ({
                         role: message.role,
                         content: message.content,

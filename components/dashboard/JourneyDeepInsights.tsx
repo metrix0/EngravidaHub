@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Clock3, MessageCircle, RotateCcw, Megaphone, AlertCircle } from "lucide-react";
 import { Card, Skeleton } from "@/components";
 import { getDropoffMomentLabel } from "@/lib/conversationAnalysisLabels";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 
 type Quantiles = { sample: number; p25: number | null; median: number | null; p75: number | null };
 type Timeline = Quantiles & { metric: string };
@@ -104,6 +105,16 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
         return () => controller.abort();
     }, [query]);
 
+    useAssistantPageContext("jornada-insights", () => data ? ({
+        title: "Jornada — análises",
+        sections: [
+            { id: "jornada-tempos", title: "Tempo até a conversão", data: { timelines: data.analytics.timelines, sources: data.analytics.sources } },
+            { id: "jornada-touchpoints", title: "Interações até o agendamento", data: data.analytics.touchpoints },
+            { id: "jornada-recuperacao", title: "Abandono e recuperação", data: { recovery: data.analytics.recovery, moments: data.analytics.recovery_moments } },
+            { id: "jornada-criativos", title: "Ranking de criativos", data: data.creatives },
+        ],
+    }) : null);
+
     const creatives = useMemo(() => {
         const rows = data?.creatives?.creatives ?? [];
         return rows.filter(creative => creative.contacts >= minimum)
@@ -111,7 +122,7 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
     }, [data, sort, minimum]);
 
     return (
-        <section className="mt-6 min-w-0 space-y-5">
+        <section data-assistant-section="jornada-tempos" className="mt-6 min-w-0 space-y-5">
             <div>
                 <h2 className="text-xl font-bold text-slate-900">Análises da jornada</h2>
                 <p className="mt-1 text-sm text-slate-500">

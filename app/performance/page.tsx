@@ -17,6 +17,7 @@ import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 import type { PerformanceAttendant, PerformanceReport } from "@/lib/performance/report";
 
 type SortKey = "tickets" | "appointments" | "firstResponse" | "response" | "score";
@@ -165,6 +166,16 @@ export default function PerformancePage() {
         responseMinutes: item.response === null ? null : Math.round(item.response / 6) / 10,
     })) ?? [];
 
+    useAssistantPageContext("performance", () => ({
+        title: "Performance",
+        filters: { inicio: start, fim: end, unidade: unitId, equipe: team, atendente: attendantId, busca: attendantSearch, ordenacao: sort, pagina: currentRankingPage, carregando: loading },
+        sections: report ? [
+            { id: "performance-ranking", title: "Ranking comparativo", data: { cobertura: report.coverage, totais: totals, atendentes: ranked, unidades: unitContribution } },
+            { id: "performance-atendente", title: "Atendente selecionado", data: selected },
+            { id: "performance-graficos", title: "Gráficos do atendente", data: chart },
+        ] : [],
+    }));
+
     return <main className="h-full overflow-y-auto bg-white px-3 py-5 text-slate-900 sm:px-5 md:px-7 md:py-7">
         <section className="mx-auto max-w-[1500px] space-y-7">
             <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
@@ -172,7 +183,7 @@ export default function PerformancePage() {
             {isLoadingCurrentUser || loading ? <div className="space-y-5"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div>
                 : error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
                 : report ? <>
-                    <Card className="min-w-0 !p-0">
+                    <Card className="min-w-0 !p-0"><div data-assistant-section="performance-ranking">
                         <div className="flex flex-wrap items-start justify-between gap-4 p-4 md:p-6">
                             <div><div className="flex items-center gap-2">
                                 <h2 className="text-lg font-bold">Ranking comparativo</h2>
@@ -219,8 +230,8 @@ export default function PerformancePage() {
                             <span><strong className="text-slate-700">{number(totals.tickets)}</strong> tickets · <strong className="text-slate-700">{number(totals.appointments)}</strong> consultas marcadas</span>
                             <span>{number(ranked.length)} atendentes com atividade · Score IA = média da nota de resolução (0–100)</span>
                         </div>
-                    </Card>
-                    {selected ? <section className="space-y-5" aria-label={"Desempenho de " + selected.name}>
+                    </div></Card>
+                    {selected ? <section data-assistant-section="performance-atendente" className="space-y-5" aria-label={"Desempenho de " + selected.name}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-baseline gap-3">
                                 <h2 className="text-xl font-bold">{selected.name}</h2>
