@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { HelpCircle } from "lucide-react";
 
 import Card from "@/components/ui/Card";
+import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import Pagination from "@/components/ui/Pagination";
 import Skeleton from "@/components/ui/Skeleton";
@@ -77,6 +78,24 @@ export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [
         if (typeof value !== "number") return value ?? "—";
         return percentage ? rate(value) : integer(value);
     }
+    const columns: DataTableColumn<Row>[] = COLUMNS.map((column, index) => ({
+        id: `${column.field}-${index}`,
+        label: column.title,
+        width: index === 0 ? "16%" : "6%",
+        align: index === 0 ? "left" : "center",
+        render: row => (
+            <span
+                className={`block truncate ${row.key === "total" ? "font-bold text-slate-800" : index === 0 ? "font-semibold" : "tabular-nums"}`}
+                title={index === 0 ? row.name : undefined}
+            >
+                {cell(row, column.field, column.percentage)}
+            </span>
+        ),
+    }));
+    const displayedRows = result
+        ? [...shown, ...(result.total.bookings > 0 ? [result.total] : [])]
+        : [];
+
     return (
         <Card className="min-w-0 !p-0">
             <div className="flex items-center gap-2 px-4 py-5 md:px-6">
@@ -90,27 +109,15 @@ export default function BookingAuthorsTable({ month, unitIds = [], doctorIds = [
                     <button type="button" onClick={() => setReload(value => value + 1)} className="ml-3 cursor-pointer font-semibold underline">Tentar novamente</button>
                 </div>
                     : <>
-                        <div className="max-w-full overflow-x-auto">
-                            <table className="w-full min-w-[1450px] text-xs">
-                                <thead><tr className="bg-slate-50 text-slate-600">{COLUMNS.map((column,index) =>
-                                    <th key={index} className={"border-b border-slate-100 px-3 py-3 font-bold " + (index ? "text-center" : "text-left")}>{column.title}</th>
-                                )}</tr></thead>
-                                <tbody>
-                                    {shown.length ? shown.map(row => <tr key={row.key} className="border-b border-slate-100 even:bg-slate-50/60">
-                                        {COLUMNS.map((column,index) =>
-                                            <td key={index} className={"px-3 py-3 tabular-nums " + (index ? "text-center" : "max-w-[190px] truncate font-semibold")} title={index === 0 ? row.name : undefined}>
-                                                {cell(row, column.field, column.percentage)}
-                                            </td>
-                                        )}
-                                    </tr>) : <tr><td colSpan={COLUMNS.length} className="px-4 py-8 text-center text-sm text-muted">Nenhum agendamento no período.</td></tr>}
-                                </tbody>
-                                {result && result.total.bookings > 0 ? <tfoot><tr className="border-t border-slate-200 bg-slate-100 font-bold text-slate-800">
-                                    {COLUMNS.map((column,index) => <td key={index} className={"px-3 py-3 tabular-nums " + (index ? "text-center" : "")}>
-                                        {cell(result.total, column.field, column.percentage)}
-                                    </td>)}
-                                </tr></tfoot> : null}
-                            </table>
-                        </div>
+                        <DataTable
+                            columns={columns}
+                            rows={displayedRows}
+                            getRowKey={row => row.key}
+                            getRowClassName={row => row.key === "total" ? "bg-slate-100 hover:!bg-slate-100" : ""}
+                            emptyMessage="Nenhum agendamento no período."
+                            minWidth={1800}
+                            cardPadding
+                        />
                         {result && result.rows.length > PAGE_SIZE ? <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
                             <span className="text-xs text-muted">{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, result.rows.length)} de {result.rows.length} atendentes</span>
                             <Pagination totalPages={pages} currentPage={currentPage} onPageChange={setPage} />

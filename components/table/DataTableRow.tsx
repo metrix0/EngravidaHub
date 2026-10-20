@@ -10,6 +10,8 @@ type DataTableRowProps<TRow> = {
     index: number;
     columns: DataTableColumn<TRow>[];
     gridTemplateColumns: string;
+    cardPadding?: boolean;
+    rowClassName?: string;
     onClick?: (
         row: TRow,
         index: number,
@@ -23,6 +25,8 @@ export function DataTableRow<TRow,>({
     columns,
     gridTemplateColumns,
     onClick,
+    cardPadding = false,
+    rowClassName,
 }: DataTableRowProps<TRow>) {
     const cells = columns.map((column, columnIndex) => (
         <div
@@ -41,8 +45,10 @@ export function DataTableRow<TRow,>({
     ));
 
     const className = [
-        "group grid w-full items-center border-b border-slate-100 px-3 py-3 text-left text-xs font-normal text-slate-600 transition-colors hover:bg-selection/80",
+        "group grid w-full items-center border-b border-slate-100 py-3 text-left text-xs font-normal text-slate-600 transition-colors hover:bg-selection/80",
+        cardPadding ? "px-4 md:px-6" : "px-3",
         onClick ? "cursor-pointer" : "cursor-default",
+        rowClassName,
     ].join(" ");
 
     if (onClick) {
