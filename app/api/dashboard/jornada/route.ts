@@ -168,7 +168,7 @@ type PipelinePlatformBreakdown = {
     tracked_clients: number;
     scheduled_clients: number;
     attended_clients: number;
-    invoiced_clients: number;
+    invoiced_clients: number | null;
     authorized_clients: number;
     authorized_revenue: number;
 };
@@ -620,7 +620,7 @@ function buildPreparedJourneyPipeline(
                     tracked_clients: numeric(source?.entry_clients),
                     scheduled_clients: platformMetric("scheduled"),
                     attended_clients: platformMetric("attended"),
-                    invoiced_clients: 0, // The prepared worker does not yet expose unapproved invoices.
+                    invoiced_clients: null, // The prepared worker does not expose all invoice statuses.
                     authorized_clients: platformMetric("authorized"),
                     authorized_revenue: platformMetric("authorized_amount"),
                 };
