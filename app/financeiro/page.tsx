@@ -49,6 +49,7 @@ import {
 import {
     applyArrayParams,
     applyCalendarDateParams,
+    isCompletedCalendarPeriod,
 } from "@/components/ui/CalendarButton";
 import type {
     FiltersResponse,
@@ -303,6 +304,7 @@ export default function FinancialDashboardPage() {
                             exactAuthorizedRevenue={exactAuthorizedRevenue}
                             projection={financialSummary.data?.projection ?? null}
                             projectionLoading={financialSummary.loading}
+                            hideProjection={isCompletedCalendarPeriod(period, selectedRange)}
                         />
 
                         <section className="mb-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-[1.55fr_0.85fr]">
@@ -359,11 +361,13 @@ function KpiSection({
     exactAuthorizedRevenue,
     projection,
     projectionLoading,
+    hideProjection,
 }: {
     data: FinancialDashboardData;
     exactAuthorizedRevenue: number;
     projection: number | null;
     projectionLoading: boolean;
+    hideProjection: boolean;
 }) {
     return (
         <section className="mb-6 grid grid-cols-1 gap-5">
@@ -374,6 +378,7 @@ function KpiSection({
                         previousValue={data.previous_kpis.authorized_revenue}
                         projection={projection}
                         loading={projectionLoading}
+                        hideProjection={hideProjection}
                         freeWidth
                     />
                 </KpiContainer>

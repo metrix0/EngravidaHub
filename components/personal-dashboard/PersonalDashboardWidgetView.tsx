@@ -7,7 +7,7 @@ import {
     PerformanceKpi, PerformanceMonthlyCard, PerformanceTicketsChart, PerformanceResponseChart,
     PerformanceContributionCard, PerformanceRankingCard, computePerformanceUnitContribution,
 } from "@/components/performance/PerformanceWidgets";
-import { applyCalendarDateParams } from "@/components/ui/CalendarButton";
+import { applyCalendarDateParams, isCompletedCalendarPeriod } from "@/components/ui/CalendarButton";
 import Card from "@/components/ui/Card";
 import { AgendaIntelligenceWidget } from "@/components/scheduling/AgendaIntelligenceWidgets";
 import Skeleton from "@/components/ui/Skeleton";
@@ -130,6 +130,7 @@ export default function PersonalDashboardWidgetView(props: Props) {
                 sources={props.sources}
                 unitIds={props.unitIds}
                 categories={props.categories}
+                hideProjection={isCompletedCalendarPeriod(props.period, props.selectedRange)}
             />
         );
     }

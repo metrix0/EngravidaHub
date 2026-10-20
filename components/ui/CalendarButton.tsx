@@ -53,6 +53,17 @@ export const DEFAULT_CALENDAR_PRESETS: CalendarPreset[] = [
     },
 ];
 
+export function isCompletedCalendarPeriod(
+    period: CalendarPresetValue | null,
+    selectedRange: DateRange,
+) {
+    const preset = DEFAULT_CALENDAR_PRESETS.find((item) => item.value === period);
+    const end = period === null
+        ? selectedRange.end ?? selectedRange.start
+        : preset ? getDateRangeFromPreset(preset).end : null;
+    return end !== null && end < getDateStringWithOffset(0);
+}
+
 export function getDateStringWithOffset(offsetDays: number) {
     const date = new Date();
 

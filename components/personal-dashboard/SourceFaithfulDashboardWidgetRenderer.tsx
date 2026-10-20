@@ -48,6 +48,7 @@ type Props = {
     sources: SourceData;
     unitIds: string[];
     categories: string[];
+    hideProjection: boolean;
 };
 
 type JourneyData = {
@@ -139,6 +140,7 @@ export default function SourceFaithfulDashboardWidgetRenderer({
     sources,
     unitIds,
     categories,
+    hideProjection,
 }: Props) {
     const atendimento = sources.atendimento;
     const financeiro = sources.financeiro;
@@ -158,6 +160,7 @@ export default function SourceFaithfulDashboardWidgetRenderer({
             summary,
             unitIds,
             categories,
+            hideProjection,
         );
         if (view) return view;
     }
@@ -351,6 +354,7 @@ function renderFinanceiro(
     summary: FinancialUnitSummaryData | null,
     unitIds: string[],
     categories: string[],
+    hideProjection: boolean,
 ) {
     if (id === "financeiro.faturamento_autorizado") {
         return (
@@ -359,6 +363,7 @@ function renderFinanceiro(
                 previousValue={data.previous_kpis.authorized_revenue}
                 projection={summary?.projection ?? null}
                 loading={false}
+                hideProjection={hideProjection}
                 freeWidth
             />
         );

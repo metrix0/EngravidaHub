@@ -189,15 +189,17 @@ export function MonthlyProjectionKpiCard({
     projection,
     loading,
     freeWidth = false,
+    hideProjection = false,
 }: {
     currentValue: number;
     previousValue: number;
     projection: number | null;
     loading: boolean;
     freeWidth?: boolean;
+    hideProjection?: boolean;
 }) {
     const trend = percentageChange(currentValue, previousValue);
-    const tooltipText = projection === null
+    const tooltipText = hideProjection || projection === null
         ? `Valor exato: ${formatCurrency(currentValue)}`
         : `Valor exato: ${formatCurrency(currentValue)}\nProjeção: ${formatCurrency(projection)}`;
     const projectionTitle = projection === null
@@ -242,19 +244,21 @@ export function MonthlyProjectionKpiCard({
                         {formatRevenueKpiCurrency(currentValue)}
                     </div>
 
-                    <div
-                        className={`mt-2 truncate text-xs font-semibold leading-tight ${
-                            projection === null ? "text-slate-400" : "text-emerald-700"
-                        }`}
-                        title={projectionTitle}
-                        aria-label={projectionTitle}
-                    >
-                        {loading
-                            ? "Projeção —"
-                            : projection === null
-                              ? "Projeção —"
-                              : `Projeção ${formatCompactProjection(projection)}`}
-                    </div>
+                    {!hideProjection ? (
+                        <div
+                            className={`mt-2 truncate text-xs font-semibold leading-tight ${
+                                projection === null ? "text-slate-400" : "text-emerald-700"
+                            }`}
+                            title={projectionTitle}
+                            aria-label={projectionTitle}
+                        >
+                            {loading
+                                ? "Projeção —"
+                                : projection === null
+                                  ? "Projeção —"
+                                  : `Projeção ${formatCompactProjection(projection)}`}
+                        </div>
+                    ) : null}
 
                     {trend !== null ? (
                         <div

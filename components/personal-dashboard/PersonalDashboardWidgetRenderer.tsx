@@ -48,9 +48,10 @@ import DashboardWebPageViews from "@/components/dashboard/DashboardWebPageViews"
 import ExecutiveScheduleTable from "@/components/dashboard/ExecutiveScheduleTable";
 import InstagramConversationInsights from "@/components/dashboard/InstagramConversationInsights";
 import MessengerConversationInsights from "@/components/dashboard/MessengerConversationInsights";
-import type {
-    CalendarPresetValue,
-    DateRange,
+import {
+    isCompletedCalendarPeriod,
+    type CalendarPresetValue,
+    type DateRange,
 } from "@/components/ui/CalendarButton";
 import type { DashboardWidgetDefinition } from "@/lib/personal-dashboard/registry";
 import type {
@@ -234,7 +235,7 @@ export default function PersonalDashboardWidgetRenderer({
 
     switch (widget.source) {
         case "atendimento":
-            return renderAtendimento(widget.id, sources.atendimento);
+            return renderAtendimento(widget.id, sources.atendimento, !isCompletedCalendarPeriod(period, selectedRange));
         case "financeiro":
             return renderFinanceiro(
                 widget.id,
@@ -308,6 +309,7 @@ function renderChannelWidget(
 function renderAtendimento(
     id: string,
     data: ExecutiveDashboardData | null,
+    showProjection: boolean,
 ) {
     if (!data) return <UnavailableWidget />;
     const total = data.schedule_unit_table.total;
@@ -415,7 +417,7 @@ function renderAtendimento(
                     currentValue={total.markings}
                     previousValue={previousTotal.markings}
                     formatter={formatInteger}
-                    projectionText={`Projeção ${Math.round(total.markings_projection).toLocaleString("pt-BR")}`}
+                    projectionText={showProjection ? `Projeção ${Math.round(total.markings_projection).toLocaleString("pt-BR")}`: null}
                     color="blue"
                 />
             );
@@ -427,7 +429,7 @@ function renderAtendimento(
                     currentValue={total.appointments}
                     previousValue={previousTotal.appointments}
                     formatter={formatInteger}
-                    projectionText={`Projeção ${Math.round(total.projection).toLocaleString("pt-BR")}`}
+                    projectionText={showProjection ? `Projeção ${Math.round(total.projection).toLocaleString("pt-BR")}`: null}
                     tooltipText="Conta as consultas marcadas para acontecer nas clínicas dentro do período selecionado. É diferente de Marcações, que conta o dia em que uma consulta foi marcada, mesmo que ela aconteça em outra data. Exemplo: se uma consulta é marcada hoje para o mês que vem, ela conta como Marcação hoje e como Avaliação no mês que vem."
                     tooltipWidthClassName="w-[300px]"
                     color="purple"
@@ -441,7 +443,7 @@ function renderAtendimento(
                     currentValue={total.unique_appointments}
                     previousValue={previousTotal.unique_appointments}
                     formatter={formatInteger}
-                    projectionText={projected(total.unique_appointments)}
+                    projectionText={showProjection ? projected(total.unique_appointments): null}
                     color="green"
                 />
             );
@@ -453,7 +455,7 @@ function renderAtendimento(
                     currentValue={total.cancelled}
                     previousValue={previousTotal.cancelled}
                     formatter={formatInteger}
-                    projectionText={projected(total.cancelled)}
+                    projectionText={showProjection ? projected(total.cancelled): null}
                     color="pink"
                     positiveDirection="down"
                 />
@@ -466,7 +468,7 @@ function renderAtendimento(
                     currentValue={total.no_show}
                     previousValue={previousTotal.no_show}
                     formatter={formatInteger}
-                    projectionText={projected(total.no_show)}
+                    projectionText={showProjection ? projected(total.no_show): null}
                     color="brand"
                     positiveDirection="down"
                 />
@@ -479,7 +481,7 @@ function renderAtendimento(
                     currentValue={total.showed_up}
                     previousValue={previousTotal.showed_up}
                     formatter={formatInteger}
-                    projectionText={projected(total.showed_up)}
+                    projectionText={showProjection ? projected(total.showed_up): null}
                     valueAddon={
                         total.showed_up_rate === null
                             ? null
