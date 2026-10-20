@@ -1014,7 +1014,9 @@ function PipelineTransitionCard({
                 }`}
                 title={
                     transition.estimated
-                        ? "Estimativa de cobertura: compara eventos agregados da plataforma com clientes únicos identificados no CRM."
+                        ? transition.key === "instagram_clicks_to_chat"
+                            ? "Estimativa agregada: chats pagos de Instagram divididos por cliques para Instagram Direct no período. Não representa conversão individual rastreada."
+                            : "Estimativa de cobertura: compara eventos agregados da plataforma com clientes únicos identificados no CRM."
                         : undefined
                 }
             >
