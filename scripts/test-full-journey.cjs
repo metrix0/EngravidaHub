@@ -9,7 +9,7 @@ class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [clock])); }
     static now() { return clock.getTime(); }
 }
-let database = {}, calls = [];
+let database = {}, calls = [], preparedResponse;
 function split(value) {
     let depth = 0, start = 0;
     const result = [];
@@ -75,9 +75,13 @@ function load(relative, extra = "") {
     });
     loaded.set(relative, exports);
     vm.runInNewContext(built.outputText + extra, {
-        exports, console, Date: Clock, Intl, URL, URLSearchParams, AbortController, Request, Response,
+        exports, console, performance, Date: Clock, Intl, URL, URLSearchParams, AbortController, Request, Response,
         require: name => {
             if (name === "@/lib") return { supabase: { from: query, rpc: (name, args) => {
+                if (name === "dashboard_journey_prepared_v1") {
+                    calls.push({ table: "prepared_rpc", args });
+                    return { abortSignal: () => Promise.resolve({ data: preparedResponse, error: null }) };
+                }
                 if (name !== "dashboard_journey_outcomes_v1") return query("rpc");
                 const ids = new Set(args.p_client_ids);
                 const clients = (database.clients ?? []).filter(row => ids.has(row.id));
@@ -101,7 +105,16 @@ function load(relative, extra = "") {
     }, { filename: relative });
     return exports;
 }
-const { GET, __test } = load("app/api/dashboard/jornada/route.ts", "\nexports.__test = {loadPaidWhatsappConversations,loadFullJourneyPipeline,emptyPaidMediaTotals};");
+const { GET, __test } = load("lib/dashboard/journeyEngine.ts", `
+exports.GET = request => {
+    const params = new URL(request.url).searchParams;
+    if (!params.has('legacy_pipeline_test')) return getJourneyDashboard(request);
+    const metrics = require('@/lib/dashboard/metrics');
+    const dates = params.has('start_date') ? params : new URLSearchParams(require('@/lib/funnel/fullJourney').getMatureJourneyRange());
+    return _legacyFullJourney(metrics.resolveDashboardDateRange(dates), metrics.readDashboardFilters(params), request);
+};
+exports.__test = { loadPaidWhatsappConversations, loadFullJourneyPipeline, emptyPaidMediaTotals };
+`);
 const helpers = load("lib/funnel/fullJourney.ts");
 const calendar = load("components/ui/CalendarButton.tsx");
 for (const [preset, start, end] of [["mature_journey", "2026-07-22", "2026-09-20"], ["previous_month", "2026-09-01", "2026-09-30"], ["previous_two_months", "2026-08-01", "2026-09-30"]]) {
@@ -131,7 +144,7 @@ const conversation = (client, date, origin = "Google Conta 1") => ({ id: "conver
 const event = (id, client, kind, booked, date, status = "Atendido", name) => ({ id, source_external_id: id, source_hash: id, client_id: client, created_in_source_at: booked, created_at: booked + "T12:00:00Z", scheduled_for: date, status, event_kind: kind, procedure_name: name ?? (kind === "evaluation" ? "1ª Avaliação de Reprodução Humana - presencial" : "FIV"), unit_name: "Bauru" });
 const invoice = (id, client, date, amount) => ({ source_invoice_id: id, client_id: client, issued_at: date + "T12:00:00Z", amount, status: "Autorizada" });
 async function run(params = "") {
-    const response = await GET(new Request("http://test/api/dashboard/jornada?full_pipeline_only=1&" + params));
+    const response = await GET(new Request("http://test/api/dashboard/jornada?legacy_pipeline_test=1&" + params));
     assert.equal(response.status, 200);
     const json = await response.json();
     assert.equal(json.full_pipeline.audit.error, null);
@@ -218,6 +231,20 @@ async function run(params = "") {
     const history = await __test.loadPaidWhatsappConversations(range, filters, new AbortController().signal, ["p1"]);
     assert.equal(history.rows.length, 1005);
     console.log("PASS: mature dates/timezone, pre-window contacts, all classifications, three-feed deduplication, phone-linked Hub appointments, future attendance, invoice chronology/deduplication, two revenue paths, selected dates, unit filters, TinTim history and pagination.");
+    preparedResponse = { ready: true, through: "2026-10-20", prepared_at: "2026-10-20T12:00:00Z", ads: [], instagram: { clicks: 10, chats: 2, to_whatsapp: 1, to_consultation: 0, unlinked_chats: 1 },
+        groups: [{ key: "paid", clients: 1, entry_clients: 1, whatsapp_to_consultation: 1, metrics: { scheduled: 1, attended: 1, authorized: 1, authorized_amount: 123 }, procedures: [{ key: "test", procedure_name: "FIV", event_kind: "procedure", scheduled_appointments: 4, attended_appointments: 3 }], platforms: [], sources: [], evidence: [] }] };
+    const beforePrepared = calls.length;
+    const prepared = await GET(new Request("http://test/api/dashboard/jornada?full_pipeline_only=1&start_date=2026-07-22&end_date=2026-09-20&unit_ids=11111111-1111-4111-8111-111111111111"));
+    assert.equal(prepared.status, 200);
+    const preparedPipeline = (await prepared.json()).full_pipeline;
+    assert.equal(preparedPipeline.stages.find(row => row.key === "authorized").secondary_value, 123);
+    assert.equal(preparedPipeline.procedure_branches[0].schedule_to_attendance_rate, 75);
+    assert.equal(calls.length - beforePrepared, 1, "First page load must use exactly one prepared RPC without historical source reads");
+    assert.equal(JSON.stringify(calls.at(-1).args.p_unit_ids), JSON.stringify(["11111111-1111-4111-8111-111111111111"]));
+    assert.match(prepared.headers.get("server-timing"), /journey;dur=\d+/);
+    preparedResponse = { ready: false };
+    assert.equal((await GET(new Request("http://test/api/dashboard/jornada?full_pipeline_only=1"))).status, 503);
+    console.log("PASS: uncached page requests use one prepared read, retain date/operational filters, expose timing, and never trigger recomputation or a slow fallback.");
     if (process.argv[2]) {
         database = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); calls = [];
         const started = performance.now();
