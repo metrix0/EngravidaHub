@@ -820,8 +820,13 @@ async function fetchInstagramDirectAdSetMetrics({
     insightsUrl.searchParams.set("level", "adset");
     insightsUrl.searchParams.set("time_increment", "1");
     insightsUrl.searchParams.set("limit", "500");
-    insightsUrl.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
-    const daily = await fetchMetaPages<MetaAdSetInsights>(insightsUrl, accessToken, "adset insights");
+    // Meta rejects large day-by-day ad-set reports. Keep each request to one week.
+    const daily: MetaAdSetInsights[] = [];
+    for (let windowStart = startDate; windowStart <= endDate; windowStart = addCalendarDays(windowStart, 7)) {
+        const windowEnd = [endDate, addCalendarDays(windowStart, 6)].sort()[0];
+        insightsUrl.searchParams.set("time_range", JSON.stringify({ since: windowStart, until: windowEnd }));
+        daily.push(...await fetchMetaPages<MetaAdSetInsights>(insightsUrl, accessToken, "adset insights"));
+    }
     const syncedAt = new Date().toISOString();
     const rows = daily.flatMap((row): InstagramDirectMetricRow[] => {
         const adsetId = cleanText(row.adset_id);
