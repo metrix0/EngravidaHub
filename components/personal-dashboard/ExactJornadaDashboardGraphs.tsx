@@ -277,11 +277,11 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
                     <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
                         <div className="space-y-3">
                             <JourneyPipelineTree pipeline={pipeline} />
-                            {(pipeline.additional_pipelines ?? []).map(group => (
-                                <div key={group.key} style={{ marginLeft: 644 }}>
-                                    <JourneyPipelineTree pipeline={group.pipeline} groupKey={group.key} />
-                                </div>
-                            ))}
+                            <div className="flex flex-col gap-12" style={{ marginLeft: 572 + 72 }}>
+                                {(pipeline.additional_pipelines ?? []).map(group => (
+                                    <JourneyPipelineTree key={group.key} pipeline={group.pipeline} groupKey={group.key} />
+                                ))}
+                            </div>
                         </div>
                     </PipelineCanvas>
                 )}
@@ -631,42 +631,56 @@ function JourneyPipelineTree({
                                     rate: branch.click_through_rate,
                                 })}
                             />
-                            <PipelineStageCard
-                                stage={clientPipelineStage(
-                                    "paid_clicks",
-                                    "Cliques pagos",
-                                    branch.clicks,
-                                )}
-                                eyebrow={branch.label}
-                                detail="cliques elegíveis"
-                            />
+                            <div className="relative shrink-0">
+                                <PipelineStageCard
+                                    stage={clientPipelineStage(
+                                        "paid_clicks",
+                                        "Cliques pagos",
+                                        branch.clicks,
+                                    )}
+                                    eyebrow={branch.label}
+                                    detail="cliques elegíveis"
+                                    linkedBottom={branch.platform === "meta_ads" && Boolean(pipeline.instagram)}
+                                />
+                                {branch.platform === "meta_ads" && pipeline.instagram ? (
+                                    <div className="absolute left-0 top-[182px] flex items-center">
+                                        <PipelineStageCard
+                                            stage={{ ...clientPipelineStage("paid_clicks", "Cliques pagos", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
+                                            eyebrow="Meta Ads"
+                                            linkedTop
+                                            detail={pipeline.instagram.clicks === null
+                                                ? "Instagram Direct · dados indisponíveis"
+                                                : "Instagram Direct · já incluídos acima"}
+                                        />
+                                        <PipelineTransitionCard transition={{
+                                            ...clientPipelineTransition({
+                                                key: "instagram_clicks_to_chat",
+                                                label: "Clique → Instagram",
+                                                fromValue: pipeline.instagram.clicks ?? 0,
+                                                toValue: pipeline.instagram.chats,
+                                                rate: pipeline.instagram.clicks
+                                                    ? calculateRate(pipeline.instagram.chats, pipeline.instagram.clicks)
+                                                    : null,
+                                            }),
+                                            estimated: true,
+                                        }} />
+                                        <PipelineStageCard
+                                            stage={clientPipelineStage("tracked_whatsapp", "Instagram Chat", pipeline.instagram.chats)}
+                                            eyebrow="Instagram"
+                                            detail={`${pipeline.instagram.unlinked_chats.toLocaleString("pt-BR")} sem vínculo confirmado com o CRM`}
+                                        />
+                                    </div>
+                                ) : null}
+                            </div>
                             <PipelineTransitionCard
                                 transition={clientPipelineTransition({
-                                    key:
-                                        branch.platform +
-                                        "_click_to_tracked",
+                                    key: branch.platform + "_click_to_tracked",
                                     label: "Clique → WhatsApp",
                                     fromValue: branch.clicks,
                                     toValue: branch.tracked_clients,
                                     rate: branch.click_to_tracked_rate,
                                 })}
                             />
-                            {branch.platform === "meta_ads" && pipeline.instagram ? (
-                                <div className="absolute left-[286px] top-[182px] flex items-center">
-                                    <PipelineStageCard stage={{ ...clientPipelineStage("paid_clicks", "Cliques pagos", pipeline.instagram.clicks ?? 0), metric_available: pipeline.instagram.clicks !== null }}
-                                        compact eyebrow="Meta Ads" detail={pipeline.instagram.clicks === null ? "Dados ainda não disponíveis para este período" : "Instagram Direct"} />
-                                    <PipelineTransitionCard transition={{
-                                        ...clientPipelineTransition({
-                                            key: "instagram_clicks_to_chat", label: "Clique → Instagram",
-                                            fromValue: pipeline.instagram.clicks ?? 0,
-                                            toValue: pipeline.instagram.chats,
-                                            rate: pipeline.instagram.clicks ? calculateRate(pipeline.instagram.chats, pipeline.instagram.clicks) : null,
-                                        }), estimated: true,
-                                    }} />
-                                    <PipelineStageCard stage={clientPipelineStage("tracked_whatsapp", "Instagram Chat", pipeline.instagram.chats)}
-                                        eyebrow="Instagram" detail={`${pipeline.instagram.unlinked_chats.toLocaleString("pt-BR")} sem vínculo confirmado com o CRM`} />
-                                </div>
-                            ) : null}
                         </div>
                     ))}
                 </div>
@@ -708,7 +722,7 @@ function JourneyPipelineTree({
                         <path d="M 478 0 V -35 H 1537 V 0" fill="none" stroke="#0f9f61" strokeWidth="1" />
                         <path d="m 1532 -7 5 7 5 -7" fill="none" stroke="#0f9f61" strokeWidth="1" />
                         <text x="1000" y="-43" textAnchor="middle" fill="#0f9f61" fontSize="12" fontWeight="600">
-                            {formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · após consulta
+                            {formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} · consultas
                         </text>
                     </svg>
                 </div>
@@ -926,6 +940,8 @@ function PipelineStageCard({
     width = 168,
     compact = false,
     embedded = false,
+    linkedTop = false,
+    linkedBottom = false,
 }: {
     stage: FullJourneyPipeline["stages"][number];
     eyebrow?: string;
@@ -933,6 +949,8 @@ function PipelineStageCard({
     width?: number;
     compact?: boolean;
     embedded?: boolean;
+    linkedTop?: boolean;
+    linkedBottom?: boolean;
 }) {
     const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
     const style =
@@ -949,7 +967,7 @@ function PipelineStageCard({
 
     return (
         <div
-            className={`relative flex shrink-0 flex-col overflow-hidden bg-white ${embedded ? "" : "rounded-2xl border border-slate-200 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"} ${compact ? "h-[160px] p-3" : "h-[182px] p-3"}`}
+            className={`relative flex shrink-0 flex-col overflow-hidden bg-white ${embedded ? "" : "rounded-2xl border border-slate-200 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"} ${linkedTop ? "rounded-t-none border-t-0" : ""} ${linkedBottom ? "rounded-b-none" : ""} ${compact ? "h-[160px] p-3" : "h-[182px] p-3"}`}
             style={{ width }}
             title={`${stage.label}: ${stage.value.toLocaleString("pt-BR")}${detail ? ` — ${detail}` : ""}`}
         >
@@ -1021,11 +1039,7 @@ function PipelineTransitionCard({
                 {transition.label}
             </span>
             <span className="mt-1 h-4 text-[10px] text-slate-400">
-                {transition.lost === null
-                    ? transition.estimated
-                        ? "bases distintas"
-                        : ""
-                    : `−${transition.lost} ${lossUnit}`}
+                {transition.lost === null ? "" : `−${transition.lost} ${lossUnit}`}
             </span>
         </div>
     );
