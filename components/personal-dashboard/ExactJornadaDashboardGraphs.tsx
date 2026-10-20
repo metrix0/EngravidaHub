@@ -167,7 +167,7 @@ export default function ExactJornadaDashboardGraphs({ widgetId, data }: Props) {
     return null;
 }
 
-export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }) {
+export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data: JourneyDashboardData; onSourceTooltipChange?: (text: string) => void }) {
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
     const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
@@ -190,6 +190,7 @@ export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }
         const controller = new AbortController();
         let timedOut = false;
         const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+        onSourceTooltipChange?.("Carregando detalhes da jornada...");
         void (async () => {
             try {
                 const response = await fetch(`/api/dashboard/jornada?${query}`, { signal: controller.signal });
@@ -198,14 +199,17 @@ export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }
                     !Array.isArray(json.full_pipeline.transitions) || !json.full_pipeline.audit || json.full_pipeline.audit.error) {
                     throw new Error(json.error ?? json.full_pipeline?.audit?.error ?? "Falha ao carregar a jornada completa.");
                 }
-                if (!controller.signal.aborted) setLoaded({ key: requestKey, pipeline: json.full_pipeline });
+                if (!controller.signal.aborted) {
+                    setLoaded({ key: requestKey, pipeline: json.full_pipeline });
+                    onSourceTooltipChange?.(buildPipelineSourceTooltip(json.full_pipeline));
+                }
             } catch (error) {
                 if (controller.signal.aborted && !timedOut) return;
                 setFailure({ key: requestKey, message: timedOut ? "A consulta demorou mais que o esperado." : error instanceof Error ? error.message : "Falha ao carregar a jornada completa." });
             } finally { window.clearTimeout(timeout); }
         })();
         return () => { window.clearTimeout(timeout); controller.abort(); };
-    }, [query, requestKey]);
+    }, [query, requestKey, onSourceTooltipChange]);
     const clinicalTransitions = (pipeline.transitions ?? []).filter(
         (transition) =>
             !transition.estimated &&
@@ -248,11 +252,13 @@ export function FullJourneyPipelineCard({ data }: { data: JourneyDashboardData }
 
     return (
         <div className="min-w-0 overflow-hidden">
-            <div className="flex justify-end pb-2">
-                <InfoTooltip text={buildPipelineSourceTooltip(pipeline)} portal widthClassName="w-[560px]">
-                    <HelpCircle size={16} className="text-slate-400" aria-label="Como a jornada é calculada" />
-                </InfoTooltip>
-            </div>
+            {!onSourceTooltipChange ? (
+                <div className="flex justify-end pb-2">
+                    <InfoTooltip text={buildPipelineSourceTooltip(pipeline)} portal widthClassName="w-[560px]">
+                        <HelpCircle size={16} className="text-slate-400" aria-label="Como a jornada é calculada" />
+                    </InfoTooltip>
+                </div>
+            ) : null}
 
             {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">

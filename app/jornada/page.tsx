@@ -296,6 +296,7 @@ export default function JourneyPage() {
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [pipelineMethodology, setPipelineMethodology] = useState("Carregando detalhes da jornada...");
 
     useEffect(() => {
         if (!dateFilterReady) return;
@@ -450,6 +451,11 @@ export default function JourneyPage() {
                 <DashboardHeader
                     title="Jornada"
                     description="Da origem à receita liberada. Use períodos com 30+ dias para avaliar o comparecimento."
+                    descriptionSuffix={
+                        <InfoTooltip text={pipelineMethodology} portal widthClassName="w-[560px]">
+                            <HelpCircle size={16} className="inline-block align-middle text-slate-400" aria-label="Como a jornada é calculada" />
+                        </InfoTooltip>
+                    }
                     period={period}
                     setPeriod={setPeriod}
                     selectedRange={selectedRange}
@@ -479,7 +485,7 @@ export default function JourneyPage() {
 
                 <div className="overflow-x-hidden pb-12">
                     <section className="mb-6 min-w-0 max-w-full">
-                        <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} />
+                        <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology} />
                     </section>
                     {isRefreshing || loadingData || loadingFilters ? <JourneyBodySkeleton /> : <>
 
@@ -581,8 +587,8 @@ const PIPELINE_STAGE_STYLE: Record<
     },
 };
 
-function FullJourneyPipelineCard({ data, queryParams }: { data: JourneyDashboardData; queryParams: string }) {
-    return <SharedFullJourneyPipelineCard data={{ ...data, full_pipeline: { ...data.full_pipeline, query_params: queryParams } }} />;
+function FullJourneyPipelineCard({ data, queryParams, onSourceTooltipChange }: { data: JourneyDashboardData; queryParams: string; onSourceTooltipChange: (text: string) => void }) {
+    return <SharedFullJourneyPipelineCard data={{ ...data, full_pipeline: { ...data.full_pipeline, query_params: queryParams } }} onSourceTooltipChange={onSourceTooltipChange} />;
 }
 
 function procedureBottleneckDetail(

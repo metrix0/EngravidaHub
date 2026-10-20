@@ -39,6 +39,7 @@ const useBrowserLayoutEffect =
 type DashboardHeaderProps = {
     title: string;
     description: string;
+    descriptionSuffix?: ReactNode;
     period: CalendarPresetValue | null;
     setPeriod: (value: CalendarPresetValue | null) => void;
     selectedRange: DateRange;
@@ -167,6 +168,7 @@ export function useDashboardDateFilter(
 export function DashboardHeader({
     title,
     description,
+    descriptionSuffix,
     period,
     setPeriod,
     selectedRange,
@@ -262,7 +264,7 @@ export function DashboardHeader({
                     {resolvedTitle}
                 </h1>
 
-                <p className="mt-2 text-sm text-slate-500">{description}</p>
+                <p className="mt-2 text-sm text-slate-500">{description}{descriptionSuffix ? <>{" "}{descriptionSuffix}</> : null}</p>
                 {meta}
             </div>
 
