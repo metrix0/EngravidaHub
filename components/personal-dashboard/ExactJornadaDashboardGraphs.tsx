@@ -791,7 +791,7 @@ function ProcedureMetricRow({
 
     return (
         <div
-            className="flex h-[78px] w-[240px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-[0_5px_18px_rgba(15,23,42,0.04)]"
+            className="relative z-10 flex h-[78px] w-[240px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-[0_5px_18px_rgba(15,23,42,0.04)]"
             title={`${value.toLocaleString("pt-BR")} — ${procedureName}`}
         >
             <span
