@@ -16,6 +16,7 @@ import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
+import { PerformanceResolutionEvolutionChart, PerformanceResolutionOutcomesChart } from "@/components/performance/PerformanceAnalysisCharts";
 import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
 import { PERFORMANCE_KPI_IDS } from "@/lib/personal-dashboard/performanceWidgets";
 import {
@@ -42,6 +43,7 @@ export default function PerformancePage() {
     const { currentUser, isLoadingCurrentUser } = useCurrentUser();
     const [result, setResult] = useState<{ key: string; report: PerformanceReport | null; error: string | null }>({ key: "", report: null, error: null });
     const [attendantSearch, setAttendantSearch] = useState("");
+    const [detailSearch, setDetailSearch] = useState("");
     const [team, setTeam] = useState("all");
     const [unitId, setUnitId] = useState("");
     const [attendantId, setAttendantId] = useState("");
@@ -208,9 +210,18 @@ export default function PerformancePage() {
                     {selected ? <section data-assistant-section="performance-atendente" className="space-y-5" aria-label={"Desempenho de " + selected.name}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-baseline gap-3">
-                                <h2 className="text-xl font-bold">{selected.name}</h2>
+                                <DropdownSelect icon={<UserRound size={16} />} searchable value={selected.id} widthClassName="w-[300px]"
+                                    searchValue={detailSearch} searchPlaceholder={selected.name}
+                                    onSearchChange={setDetailSearch}
+                                    onChange={value => {
+                                        setSelectedId(value);
+                                        setDetailSearch("");
+                                        const index = ranked.findIndex(person => person.id === value);
+                                        if (index >= 0) setRankingPage(Math.floor(index / RANKING_PAGE_SIZE) + 1);
+                                    }}
+                                    options={ranked.filter(person => person.name.toLocaleLowerCase("pt-BR").includes(detailSearch.trim().toLocaleLowerCase("pt-BR")))
+                                        .map(person => ({ label: person.name, value: person.id, description: labelForSector(person.sector) }))} />
                                 <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{labelForSector(selected.sector)}</span>
-                                <span className="text-xs text-muted">{number(selected.analyzed)} de {number(selected.tickets)} tickets analisados pela IA</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <span className="mr-1 text-xs tabular-nums text-muted">{selectedIndex + 1} de {number(ranked.length)}</span>
@@ -237,6 +248,12 @@ export default function PerformancePage() {
                             <PerformanceMonthlyCard person={selected} />
                         </DashboardWidget>
                         <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+                            <DashboardWidget widgetId="performance.resolution_evolution">
+                                <PerformanceResolutionEvolutionChart person={selected} />
+                            </DashboardWidget>
+                            <DashboardWidget widgetId="performance.resolution_outcomes">
+                                <PerformanceResolutionOutcomesChart person={selected} />
+                            </DashboardWidget>
                             <DashboardWidget widgetId="performance.evolucao_tickets">
                                 <PerformanceTicketsChart person={selected} />
                             </DashboardWidget>

@@ -2,6 +2,7 @@
 
 import { AgendaReportWidget } from "@/components/scheduling/AgendaReports";
 import BookingAuthorsTable from "@/components/scheduling/BookingAuthorsTable";
+import { PerformanceResolutionEvolutionChart, PerformanceResolutionOutcomesChart } from "@/components/performance/PerformanceAnalysisCharts";
 import {
     PerformanceKpi, PerformanceMonthlyCard, PerformanceTicketsChart, PerformanceResponseChart,
     PerformanceContributionCard, PerformanceRankingCard, computePerformanceUnitContribution,
@@ -65,7 +66,9 @@ export default function PersonalDashboardWidgetView(props: Props) {
         const content = props.widget.kind === "kpi" ? <PerformanceKpi widgetId={props.widget.id} person={selected} /> :
             props.widget.id === "performance.evolucao_mensal" ? <PerformanceMonthlyCard person={selected} /> :
             props.widget.id === "performance.evolucao_tickets" ? <PerformanceTicketsChart person={selected} /> :
-            props.widget.id === "performance.evolucao_resposta" ? <PerformanceResponseChart person={selected} /> : null;
+            props.widget.id === "performance.evolucao_resposta" ? <PerformanceResponseChart person={selected} /> :
+            props.widget.id === "performance.resolution_evolution" ? <PerformanceResolutionEvolutionChart person={selected} /> :
+            props.widget.id === "performance.resolution_outcomes" ? <PerformanceResolutionOutcomesChart person={selected} /> : null;
         return <div className="min-w-0 space-y-2"><p className="px-1 text-xs font-semibold text-muted">{selected.name}</p>{content}</div>;
     }
 
