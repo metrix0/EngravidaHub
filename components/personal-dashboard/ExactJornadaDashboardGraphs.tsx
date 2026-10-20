@@ -525,7 +525,7 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
     return (
         <div
             ref={viewportRef}
-            className={`relative ${multipleFlows ? "h-[1020px]" : "h-[560px]"} min-h-[480px] w-full cursor-move select-none overflow-hidden`}
+            className={`relative ${multipleFlows ? "h-[1100px]" : "h-[560px]"} min-h-[480px] w-full cursor-move select-none overflow-hidden`}
             style={{
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
