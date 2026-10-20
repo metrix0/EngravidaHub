@@ -1,7 +1,7 @@
 // app/performance/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Activity, ArrowDownUp, CalendarCheck2, ChevronLeft, ChevronRight, Clock3, Headset, Info, MapPin, SearchCheck, Target, UserRound, Users } from "lucide-react";
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
@@ -59,8 +59,6 @@ export default function PerformancePage() {
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "tickets", descending: true });
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [rankingPage, setRankingPage] = useState(1);
-    const [showBookingAuthors, setShowBookingAuthors] = useState(false);
-    const bookingAuthorsRef = useRef<HTMLDivElement>(null);
     const dateRange = useMemo(() => {
         if (period !== null) {
             const preset = DEFAULT_CALENDAR_PRESETS.find(item => item.value === period);
@@ -73,22 +71,6 @@ export default function PerformancePage() {
     const loading = ready && Boolean(currentUser) && (!requestKey || result.key !== requestKey);
     const report = result.key === requestKey ? result.report : null;
     const error = result.key === requestKey ? result.error : null;
-
-    useEffect(() => {
-        if (!report || showBookingAuthors || !bookingAuthorsRef.current) return;
-        if (typeof IntersectionObserver === "undefined") {
-            setShowBookingAuthors(true);
-            return;
-        }
-        const observer = new IntersectionObserver(([entry]) => {
-            if (entry.isIntersecting) {
-                setShowBookingAuthors(true);
-                observer.disconnect();
-            }
-        }, { rootMargin: "200px 0px" });
-        observer.observe(bookingAuthorsRef.current);
-        return () => observer.disconnect();
-    }, [report, showBookingAuthors]);
 
     useEffect(() => {
         if (!ready || !currentUser || !start || !end || start > end) return;
@@ -313,8 +295,8 @@ export default function PerformancePage() {
                             </Card>
                         )}</div> : <p className="text-sm text-muted">Nenhuma marcação no período.</p>}
                     </section>
-                    <section ref={bookingAuthorsRef} className="min-w-0">
-                        {showBookingAuthors && start && end
+                    <section className="min-w-0">
+                        {start && end
                             ? <BookingAuthorsTable start={start} end={end} unitIds={unitId ? [unitId] : []} />
                             : <Card className="min-w-0"><h3 className="text-lg font-bold">Marcado por atendente</h3></Card>}
                     </section>
