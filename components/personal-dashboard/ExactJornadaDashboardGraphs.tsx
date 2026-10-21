@@ -656,8 +656,8 @@ function JourneyPipelineTree({
 
     return (
         <JourneyPatientsContext.Provider value={{ group: groupKey, onView: onViewPatients, authorizedSections: [
-            { eventKind: "evaluation", label: `Liberados (${attended.value.toLocaleString("pt-BR")} Compareceram)` },
-            { eventKind: "procedure", label: `Liberados (${procedureAttended.value.toLocaleString("pt-BR")} Compareceram)` },
+            { eventKind: "evaluation", label: `Liberados (${attended.value.toLocaleString("pt-BR")} Compareceram, ${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)})` },
+            { eventKind: "procedure", label: `Liberados (${procedureAttended.value.toLocaleString("pt-BR")} Compareceram, ${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "procedure")?.amount ?? 0, pipeline.currency_code)})` },
         ] }}>
             <div ref={flowRef} data-journey-flow={groupKey} className="relative flex min-w-max items-start pb-2" style={{ paddingTop: acquisitionBranches.length ? 8 : 48 }}>
                 {acquisitionBranches.length > 0 ? <>
