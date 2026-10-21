@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import Pagination from "@/components/ui/Pagination";
@@ -95,9 +96,12 @@ function JourneyPatientList({ selection, query, onClose }: {
                             onClose();
                             openClientProfile(patient.id);
                         }}
-                        className="block rounded-xl px-3 py-3 transition-colors hover:bg-slate-50">
+                        className="flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-slate-50">
+                        <InitialsAvatar name={patient.name?.trim() || "Paciente sem nome"} conversationState={null} />
+                        <span className="min-w-0">
                         <span className="block text-sm font-semibold text-slate-900">{patient.name?.trim() || patient.phone || "Paciente sem nome"}</span>
                         {patient.phone ? <span className="mt-1 block text-xs text-slate-500">{patient.phone}</span> : null}
+                        </span>
                     </a>
                 </li>)}
             </ul> : <p className="py-10 text-center text-sm text-slate-500">Nenhum paciente encontrado.</p>}
