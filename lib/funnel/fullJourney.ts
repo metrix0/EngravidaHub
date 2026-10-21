@@ -20,7 +20,11 @@ export function getMatureJourneyRange(now = new Date()) {
 }
 
 export function journeyProcedureKind(event: { event_kind: string | null; procedure_name: string | null }) {
+    const name = (event.procedure_name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR").replace(/[^a-z0-9]+/g, " ").trim();
+    if (/^(atendimento financeiro|lembrete|contato com paciente|recebimento transporte|envio transporte|medicamento)$/.test(name)) return null;
+    if (/\b(consulta|avaliacao|reavaliacao)\b/.test(name)) return "evaluation";
     if (event.event_kind === "evaluation" || event.event_kind === "procedure") return event.event_kind;
-    // Preserve the Hub classification; unnamed appointments remain counted.
+    // Preserve other classifications and keep unnamed appointments counted.
     return classifyClinisysJourneyProcedure(event.procedure_name) ?? "procedure";
 }

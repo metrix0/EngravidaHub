@@ -127,6 +127,16 @@ for (const name of ["Retorno", "Ultrassonografia", "Novo procedimento", "", null
 }
 assert.equal(helpers.journeyProcedureKind({ procedure_name: "1ª Avaliação de Reprodução Humana - presencial", event_kind: null }), "evaluation");
 assert.equal(helpers.journeyProcedureKind({ procedure_name: "Nome antigo", event_kind: "evaluation" }), "evaluation");
+for (const name of ["Atendimento Financeiro", "LEMBRETE", "Contato com Paciente", "Recebimento - Transporte", "Envio - Transporte", "Medicamento"]) {
+    assert.equal(helpers.journeyProcedureKind({ procedure_name: name, event_kind: "procedure" }), null);
+}
+for (const name of ["Consulta", "Consulta inicial", "Avaliação de Reprodução Humana - online", "Reavaliação Urológica - presencial", "Avaliação de Ciclo - Presencial", "Avaliação Obstétrica", "Avaliação Pré Anestésica"]) {
+    assert.equal(helpers.journeyProcedureKind({ procedure_name: name, event_kind: "procedure" }), "evaluation");
+}
+if (process.argv.includes("--classification-only")) {
+    console.log("PASS: consultation reclassification, administrative exclusions and unchanged clinical/unnamed procedures.");
+    process.exit(0);
+}
 const conversation = (client, date, origin = "Google Conta 1") => ({ id: "conversation-" + client, client_id: client, thread_id: client, channel: "WhatsApp", started_at: date + "T12:00:00Z", origin, unit_id: "11111111-1111-4111-8111-111111111111", service_id: null, attendant_id: null, tunnel: null, clients: {} });
 const event = (id, client, kind, booked, date, status = "Atendido", name) => ({ id, source_external_id: id, source_hash: id, client_id: client, created_in_source_at: booked, created_at: booked + "T12:00:00Z", scheduled_for: date, status, event_kind: kind, procedure_name: name ?? (kind === "evaluation" ? "1ª Avaliação de Reprodução Humana - presencial" : "FIV"), unit_name: "Bauru" });
 const invoice = (id, client, date, amount) => ({ source_invoice_id: id, client_id: client, issued_at: date + "T12:00:00Z", amount, status: "Autorizada" });

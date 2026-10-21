@@ -1328,7 +1328,9 @@ async function loadFullJourneyPipeline(
         if (!cohortEntry) return [];
         if (!procedureEventBelongsToCohort(event, cohortEntry)) return [];
 
-        return [{ ...event, client_id: clientId, event_kind: journeyProcedureKind(event),
+        const eventKind = journeyProcedureKind(event);
+        if (!eventKind) return [];
+        return [{ ...event, client_id: clientId, event_kind: eventKind,
             status: event.scheduled_for > saoPauloDate(new Date().toISOString()) ? "Não" : event.status }];
     });
     const scheduledClients = new Set(
