@@ -24,6 +24,7 @@ import { journeyConnections, type JourneyAnchor } from "@/lib/funnel/journeyConn
 
 const JourneyPatientsContext = createContext<{
     group: string;
+    authorizedSections: JourneyPatientSelection["sections"];
     onView: (selection: JourneyPatientSelection) => void;
 } | null>(null);
 
@@ -36,7 +37,8 @@ function ViewPatientsButton({ stage, label, procedureKey, eventKind }: {
     const context = useContext(JourneyPatientsContext);
     if (!context) return null;
     return <button type="button"
-        onClick={() => context.onView({ group: context.group, stage, label, procedureKey, eventKind })}
+        onClick={() => context.onView({ group: context.group, stage, label, procedureKey, eventKind,
+            sections: stage === "authorized" ? context.authorizedSections : undefined })}
         aria-label={`Ver pacientes — ${label}`}
         className="ml-1 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap align-middle text-[11px] font-semibold leading-4 text-slate-600 transition-colors hover:text-slate-900">
         <Users size={13} />Clientes
@@ -548,17 +550,17 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
             <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
                 <button type="button" aria-label="Diminuir zoom" title="Diminuir zoom" disabled={zoom <= PIPELINE_MIN_ZOOM}
                     onClick={() => changeZoom(1 / 1.2)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
                     <Minus size={16} />
                 </button>
                 <button type="button" aria-label="Aumentar zoom" title="Aumentar zoom" disabled={zoom >= PIPELINE_MAX_ZOOM}
                     onClick={() => changeZoom(1.2)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
                     <Plus size={16} />
                 </button>
                 <button type="button" aria-label="Restaurar visualização" title="Restaurar visualização"
                     onClick={resetView}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
                     <RotateCcw size={16} />
                 </button>
             </div>
@@ -612,7 +614,8 @@ function JourneyPipelineTree({
         const cards = [...root.querySelectorAll<HTMLElement>("[data-journey-anchor]")];
         const measure = () => {
             const origin = root.getBoundingClientRect();
-            const scale = root.offsetWidth ? origin.width / root.offsetWidth : 1;
+            if (!root.offsetWidth || !origin.width || cards.some(card => !card.getBoundingClientRect().width)) return;
+            const scale = origin.width / root.offsetWidth;
             const next = Object.fromEntries(cards.map(card => {
                 const rect = card.getBoundingClientRect();
                 return [card.dataset.journeyAnchor!, { left: (rect.left - origin.left) / scale, top: (rect.top - origin.top) / scale,
@@ -620,12 +623,17 @@ function JourneyPipelineTree({
             }));
             setAnchors(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
         };
-        measure();
-        const observer = new ResizeObserver(measure);
+        let frame = 0;
+        const scheduleMeasure = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(measure);
+        };
+        scheduleMeasure();
+        const observer = new ResizeObserver(scheduleMeasure);
         observer.observe(root);
         cards.forEach(card => observer.observe(card));
-        window.addEventListener("resize", measure);
-        return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+        window.addEventListener("resize", scheduleMeasure);
+        return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener("resize", scheduleMeasure); };
     }, [pipeline]);
     const connections = journeyConnections(anchors, {
         consultationRevenue: `${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} consultas`,
@@ -647,7 +655,10 @@ function JourneyPipelineTree({
     }
 
     return (
-        <JourneyPatientsContext.Provider value={{ group: groupKey, onView: onViewPatients }}>
+        <JourneyPatientsContext.Provider value={{ group: groupKey, onView: onViewPatients, authorizedSections: [
+            { eventKind: "evaluation", label: `Liberados (${attended.value.toLocaleString("pt-BR")} Compareceram)` },
+            { eventKind: "procedure", label: `Liberados (${procedureAttended.value.toLocaleString("pt-BR")} Compareceram)` },
+        ] }}>
             <div ref={flowRef} data-journey-flow={groupKey} className="relative flex min-w-max items-start pb-2" style={{ paddingTop: acquisitionBranches.length ? 8 : 48 }}>
                 {acquisitionBranches.length > 0 ? <>
                 <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? PIPELINE_TREE_ROW_HEIGHT + 8 : 0 }}>
@@ -1081,7 +1092,8 @@ function PipelineTransitionCard({
                 </div>
             </div>
             <div className="pt-3">
-                <div className="text-[10px] font-bold leading-4 text-slate-500">{transition.label}</div>
+                {!["Clique → WhatsApp", "Clique → Instagram", "Rastreado → agenda", "Agenda → presença", "Agenda → Presença", "Consulta → procedimento"].includes(transition.label) ?
+                    <div className="text-[10px] font-bold leading-4 text-slate-500">{transition.label}</div> : null}
                 <div className="mt-1 h-4 text-[10px] text-slate-400">{transition.lost === null ? "" : `−${transition.lost} ${lossUnit}`}</div>
             </div>
         </div>

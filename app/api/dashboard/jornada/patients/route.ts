@@ -19,6 +19,7 @@ export async function GET(request: Request) {
         if (!["paid", "untracked_whatsapp", "organic"].includes(group) ||
             !["tracked_whatsapp", "scheduled", "attended", "procedure_scheduled", "procedure_attended", "authorized", "instagram_chat"].includes(stage) ||
             !Number.isSafeInteger(page) || page < 1 || page > 1_000_000 ||
+            (eventKind !== null && !["evaluation", "procedure"].includes(eventKind)) ||
             (procedureKey !== null && (!["evaluation", "procedure"].includes(eventKind ?? "") ||
                 !["scheduled", "attended", "procedure_scheduled", "procedure_attended"].includes(stage)))) {
             return NextResponse.json({ error: "Filtros inválidos." }, { status: 400 });

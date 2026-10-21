@@ -13,6 +13,7 @@ export type JourneyPatientSelection = {
     label: string;
     procedureKey?: string;
     eventKind?: string;
+    sections?: Array<{ label: string; eventKind: string }>;
 };
 
 type PatientPage = {
@@ -22,6 +23,24 @@ type PatientPage = {
 };
 
 export default function JourneyPatientsPanel({ selection, query, onClose }: {
+    selection: JourneyPatientSelection;
+    query: string;
+    onClose: () => void;
+}) {
+    return <DetailsSidePanel open title="Pacientes" onClose={onClose}>
+        {selection.sections ? <div className="space-y-6">
+            {selection.sections.map(section => <section key={section.eventKind} aria-label={section.label}>
+                <h3 className="mb-3 text-sm font-semibold text-slate-600">{section.label}</h3>
+                <JourneyPatientList selection={{ ...selection, eventKind: section.eventKind }} query={query} onClose={onClose} />
+            </section>)}
+        </div> : <>
+            <p className="mb-4 text-sm font-semibold text-slate-600">{selection.label}</p>
+            <JourneyPatientList selection={selection} query={query} onClose={onClose} />
+        </>}
+    </DetailsSidePanel>;
+}
+
+function JourneyPatientList({ selection, query, onClose }: {
     selection: JourneyPatientSelection;
     query: string;
     onClose: () => void;
@@ -54,8 +73,7 @@ export default function JourneyPatientsPanel({ selection, query, onClose }: {
         return () => controller.abort();
     }, [requestQuery, requestKey]);
 
-    return <DetailsSidePanel open title="Pacientes" onClose={onClose}>
-        <p className="mb-4 text-sm font-semibold text-slate-600">{selection.label}</p>
+    return <>
         {!current ? <Skeleton className="h-64 w-full" /> : current.error ? (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                 {current.error}
@@ -80,5 +98,5 @@ export default function JourneyPatientsPanel({ selection, query, onClose }: {
             </ul> : <p className="py-10 text-center text-sm text-slate-500">Nenhum paciente encontrado.</p>}
             {current.data.total > 20 ? <div className="mt-5"><Pagination totalPages={Math.ceil(current.data.total / 20)} currentPage={page} onPageChange={setPage} activeTone="brand" /></div> : null}
         </> : null}
-    </DetailsSidePanel>;
+    </>;
 }
