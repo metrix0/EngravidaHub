@@ -27,10 +27,15 @@ export default function JourneyPatientsPanel({ selection, query, onClose }: {
     query: string;
     onClose: () => void;
 }) {
+    const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
     return <DetailsSidePanel open title="Pacientes" onClose={onClose}>
         {selection.sections ? <div className="space-y-6">
-            {selection.sections.map(section => <details open key={section.eventKind} aria-label={section.label}>
-                <summary className="cursor-pointer text-sm font-semibold text-slate-700">{section.label}</summary>
+            {selection.sections.map(section => <details open={!collapsedSections[section.eventKind]} key={section.eventKind} aria-label={section.label}>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700"
+                    onClick={event => {
+                        event.preventDefault();
+                        setCollapsedSections(previous => ({ ...previous, [section.eventKind]: !previous[section.eventKind] }));
+                    }}>{section.label}</summary>
                 <div className="mt-3"><JourneyPatientList selection={{ ...selection, eventKind: section.eventKind }} query={query} onClose={onClose} /></div>
             </details>)}
         </div> : <>
