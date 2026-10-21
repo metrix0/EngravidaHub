@@ -31,7 +31,7 @@ fixture.additional_pipelines = [{ key: "untracked", label: "WhatsApp não rastre
 function load(react, fetch, window) {
     const exports = {};
     vm.runInNewContext(source + "\nexports.__test = ProcedurePipelineStages;", { exports, console, URLSearchParams, AbortController, fetch, window,
-        require: name => name === "react" ? react : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
+        require: name => name === "react" ? { ...React, ...react } : name === "@/components/dashboard/JourneyPatientsPanel" ? { default: () => null } : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
     });
     exports.FullJourneyPipelineCard.details = exports.__test;
     return exports.FullJourneyPipelineCard;
@@ -46,6 +46,7 @@ assert.ok(markup.includes("Agendaram Procedimento"));
 assert.ok(markup.includes("WhatsApp não rastreado"));
 assert.ok(markup.includes("Origem orgânica ou não rastreada"));
 assert.ok(markup.includes("Instagram Chat"));
+assert.equal((markup.match(/>Ver pacientes<\/button>/g) ?? []).length, 19);
 assert.ok(markup.includes("Cliques pagos"));
 assert.ok(markup.includes("absolute left-3 top-[190px] flex items-center"));
 assert.ok(markup.includes("width:144px"));

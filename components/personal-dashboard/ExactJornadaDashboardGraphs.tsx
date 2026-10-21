@@ -1,6 +1,7 @@
+// components/personal-dashboard/ExactJornadaDashboardGraphs.tsx
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
     BadgeCheck,
     CalendarCheck2,
@@ -12,12 +13,35 @@ import {
     ReceiptText,
     RotateCcw,
     UserCheck,
+    Users,
 } from "lucide-react";
 import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Card, Skeleton } from "@/components";
+import JourneyPatientsPanel, { type JourneyPatientSelection } from "@/components/dashboard/JourneyPatientsPanel";
 import { journeyConnections, type JourneyAnchor } from "@/lib/funnel/journeyConnections";
+
+const JourneyPatientsContext = createContext<{
+    group: string;
+    onView: (selection: JourneyPatientSelection) => void;
+} | null>(null);
+
+function ViewPatientsButton({ stage, label, procedureKey, eventKind }: {
+    stage: string;
+    label: string;
+    procedureKey?: string;
+    eventKind?: string;
+}) {
+    const context = useContext(JourneyPatientsContext);
+    if (!context) return null;
+    return <button type="button"
+        onClick={() => context.onView({ group: context.group, stage, label, procedureKey, eventKind })}
+        aria-label={`Ver pacientes — ${label}`}
+        className="mt-auto inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900">
+        <Users size={13} />Ver pacientes
+    </button>;
+}
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -170,6 +194,7 @@ export default function ExactJornadaDashboardGraphs({ widgetId, data }: Props) {
 }
 
 export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data: JourneyDashboardData; onSourceTooltipChange?: (text: string) => void }) {
+    const [patients, setPatients] = useState<(JourneyPatientSelection & { query: string }) | null>(null);
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
     const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
@@ -240,16 +265,19 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
                 ) : (
                     <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
                         <div className="space-y-3">
-                            <JourneyPipelineTree pipeline={pipeline} />
+                            <JourneyPipelineTree pipeline={pipeline} onViewPatients={selection => setPatients({ ...selection, query: query ?? "" })} />
                             <div className="flex flex-col gap-12" style={{ marginLeft: 572 + 72 }}>
                                 {(pipeline.additional_pipelines ?? []).map(group => (
-                                    <JourneyPipelineTree key={group.key} pipeline={group.pipeline} groupKey={group.key} />
+                                    <JourneyPipelineTree key={group.key} pipeline={group.pipeline} groupKey={group.key} onViewPatients={selection => setPatients({ ...selection, query: query ?? "" })} />
                                 ))}
                             </div>
                         </div>
                     </PipelineCanvas>
                 )}
             </div>
+            {patients && patients.query === (query ?? "") ? <JourneyPatientsPanel
+                key={JSON.stringify(patients)} selection={patients} query={patients.query}
+                onClose={() => setPatients(null)} /> : null}
         </div>
     );
 }
@@ -552,9 +580,11 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
 function JourneyPipelineTree({
     pipeline,
     groupKey = "paid",
+    onViewPatients,
 }: {
     pipeline: FullJourneyPipeline;
     groupKey?: string;
+    onViewPatients: (selection: JourneyPatientSelection) => void;
 }) {
     const stages = new Map(
         pipeline.stages.map((stage) => [stage.key, stage]),
@@ -617,6 +647,7 @@ function JourneyPipelineTree({
     }
 
     return (
+        <JourneyPatientsContext.Provider value={{ group: groupKey, onView: onViewPatients }}>
             <div ref={flowRef} data-journey-flow={groupKey} className="relative flex min-w-max items-start pb-2" style={{ paddingTop: acquisitionBranches.length ? 8 : 48 }}>
                 {acquisitionBranches.length > 0 ? <>
                 <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? PIPELINE_TREE_ROW_HEIGHT + 8 : 0 }}>
@@ -744,6 +775,7 @@ function JourneyPipelineTree({
                     </g> : null}
                 </svg>
             </div>
+        </JourneyPatientsContext.Provider>
     );
 }
 
@@ -822,12 +854,14 @@ function ProcedurePipelineStages({
                                 value={branch.scheduled_appointments}
                                 procedureName={branch.procedure_name}
                                 stageKey="scheduled"
+                                procedureKey={branch.key} eventKind={branch.event_kind}
                             />
                             <ProcedureTransitionRow branch={branch} />
                             <ProcedureMetricRow
                                 value={branch.attended_appointments}
                                 procedureName={branch.procedure_name}
                                 stageKey="attended"
+                                procedureKey={branch.key} eventKind={branch.event_kind}
                             />
                         </div>
                     ))}
@@ -847,10 +881,14 @@ function ProcedureMetricRow({
     value,
     procedureName,
     stageKey,
+    procedureKey,
+    eventKind,
 }: {
     value: number;
     procedureName: string;
     stageKey: "scheduled" | "attended";
+    procedureKey: string;
+    eventKind: string;
 }) {
     const style = PIPELINE_STAGE_STYLE[stageKey];
 
@@ -865,9 +903,11 @@ function ProcedureMetricRow({
             >
                 {value.toLocaleString("pt-BR")}
             </span>
-            <span className="line-clamp-3 text-[11px] font-semibold leading-4 text-slate-600">
-                {procedureName}
-            </span>
+            <div className="flex min-w-0 flex-1 flex-col items-start">
+                <span className="line-clamp-2 text-[11px] font-semibold leading-4 text-slate-600">{procedureName}</span>
+                <ViewPatientsButton stage={stageKey} label={`${stageKey === "attended" ? "Compareceram" : "Agendaram"} · ${procedureName}`}
+                    procedureKey={procedureKey} eventKind={eventKind} />
+            </div>
         </div>
     );
 }
@@ -949,6 +989,7 @@ function PipelineStageCard({
     hideHeader?: boolean;
     nodeKey?: string;
 }) {
+    const isPatientStage = stage.key !== "paid_impressions" && stage.key !== "paid_clicks";
     const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
     const style =
         eyebrow === "Google Ads" &&
@@ -993,15 +1034,18 @@ function PipelineStageCard({
                 </div>
             ) : null}
 
-            <div className="mt-2 text-xs font-semibold leading-4 text-slate-500">
+            <div className={`mt-2 text-xs font-semibold leading-4 text-slate-500 ${isPatientStage ? "line-clamp-2" : ""}`}>
                 {stage.label}
             </div>
-            <div className={`mt-1 font-black tracking-tight text-slate-900 ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
+            <div className={`mt-1 font-black tracking-tight text-slate-900 ${isPatientStage ? "leading-tight" : ""} ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
                 {formatPipelineStageValue(stage)}
             </div>
-            <div className="mt-1 line-clamp-3 text-[11px] font-medium leading-4 text-slate-500">
+            <div className={`mt-1 text-[11px] font-medium leading-4 text-slate-500 ${isPatientStage ? "line-clamp-2" : "line-clamp-3"}`}>
                 {detail ?? formatPipelineSecondary(stage)}
             </div>
+            {isPatientStage ? (
+                <ViewPatientsButton stage={nodeKey === "instagram_chat" ? "instagram_chat" : stage.key} label={stage.label} />
+            ) : null}
         </div>
     );
 }
