@@ -1401,10 +1401,11 @@ async function loadFullJourneyPipeline(
 
         const invoiceId = String(invoice.source_invoice_id);
         if (countedInvoices.has(invoiceId)) continue;
-        const invoiceDate = saoPauloDate(invoice.issued_at);
+        // Clinisys NFes store a calendar date at UTC midnight; do not shift it to the previous day.
+        const invoiceDate = invoice.issued_at.slice(0, 10);
         if (invoiceDate > saoPauloDate(new Date().toISOString())) continue;
-        const attendance = attendanceByClient.get(clientId)?.find(event => event.scheduled_for <= invoiceDate);
-        if (!attendance || invoiceDate < pipelineCalendarDate(cohort.get(clientId)!.enteredAt)) continue;
+        // Attendance is required above, but its date can follow prepaid invoices.
+        if (invoiceDate < pipelineCalendarDate(cohort.get(clientId)!.enteredAt)) continue;
         countedInvoices.add(invoiceId);
         const amount = numeric(invoice.amount);
         invoicedClients.add(clientId);
