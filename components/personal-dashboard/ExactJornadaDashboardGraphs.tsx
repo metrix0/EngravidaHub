@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
     BadgeCheck,
     CalendarCheck2,
     CircleDollarSign,
     ChevronDown,
     MousePointerClick,
+    Minus,
+    Plus,
     ReceiptText,
+    RotateCcw,
     UserCheck,
 } from "lucide-react";
 import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
@@ -385,6 +388,8 @@ type WhatsappCoverageChartItem = { key: string; label: string; value: number; pe
 
 const PIPELINE_TREE_ROW_HEIGHT = 182;
 const PIPELINE_TREE_ROW_GAP = 16;
+const PIPELINE_MIN_ZOOM = 0.5;
+const PIPELINE_MAX_ZOOM = 2;
 function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNode; multipleFlows?: boolean }) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -400,6 +405,8 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
     }, []);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const offsetRef = useRef(offset);
+    const [zoom, setZoom] = useState(1);
+    const zoomRef = useRef(1);
     const dragRef = useRef<{
         pointerId: number;
         startX: number;
@@ -408,9 +415,48 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
         originY: number;
     } | null>(null);
 
-    function updateOffset(next: { x: number; y: number }) {
+    const updateOffset = useCallback((next: { x: number; y: number }) => {
         offsetRef.current = next;
         setOffset(next);
+    }, []);
+
+    const changeZoom = useCallback((factor: number, anchor?: { x: number; y: number }) => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const currentZoom = zoomRef.current;
+        const nextZoom = Math.min(PIPELINE_MAX_ZOOM, Math.max(PIPELINE_MIN_ZOOM, currentZoom * factor));
+        if (nextZoom === currentZoom) return;
+
+        const x = anchor?.x ?? viewport.clientWidth / 2;
+        const y = anchor?.y ?? viewport.clientHeight / 2;
+        updateOffset({
+            x: x - ((x - offsetRef.current.x) / currentZoom) * nextZoom,
+            y: y - ((y - offsetRef.current.y) / currentZoom) * nextZoom,
+        });
+        zoomRef.current = nextZoom;
+        setZoom(nextZoom);
+    }, [updateOffset]);
+
+    useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const handleWheel = (event: WheelEvent) => {
+            if (!event.ctrlKey || event.deltaY === 0) return;
+            event.preventDefault();
+            const rect = viewport.getBoundingClientRect();
+            changeZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top,
+            });
+        };
+        viewport.addEventListener("wheel", handleWheel, { passive: false });
+        return () => viewport.removeEventListener("wheel", handleWheel);
+    }, [changeZoom]);
+
+    function resetView() {
+        zoomRef.current = 1;
+        setZoom(1);
+        updateOffset({ x: 0, y: 0 });
     }
 
     function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -461,8 +507,8 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
                 height: contentHeight === null ? (multipleFlows ? 1100 : 560) : Math.max(480, contentHeight + 8),
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
-                backgroundSize: `${gridSize}px ${gridSize}px`,
-                backgroundPosition: `${offset.x % gridSize}px ${offset.y % gridSize}px`,
+                backgroundSize: `${gridSize * zoom}px ${gridSize * zoom}px`,
+                backgroundPosition: `${offset.x % (gridSize * zoom)}px ${offset.y % (gridSize * zoom)}px`,
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -471,11 +517,29 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
             onDragStart={(event) => event.preventDefault()}
             title="Arraste com o botão esquerdo para mover a jornada"
         >
+            <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                <button type="button" aria-label="Diminuir zoom" title="Diminuir zoom" disabled={zoom <= PIPELINE_MIN_ZOOM}
+                    onClick={() => changeZoom(1 / 1.2)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Minus size={16} />
+                </button>
+                <button type="button" aria-label="Aumentar zoom" title="Aumentar zoom" disabled={zoom >= PIPELINE_MAX_ZOOM}
+                    onClick={() => changeZoom(1.2)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Plus size={16} />
+                </button>
+                <button type="button" aria-label="Restaurar visualização" title="Restaurar visualização"
+                    onClick={resetView}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                    <RotateCcw size={16} />
+                </button>
+            </div>
             <div
                 ref={contentRef}
                 className="absolute left-0 top-0 w-max pb-4"
                 style={{
-                    transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                    transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
+                    transformOrigin: "top left",
                     willChange: "transform",
                 }}
             >
@@ -518,10 +582,11 @@ function JourneyPipelineTree({
         const cards = [...root.querySelectorAll<HTMLElement>("[data-journey-anchor]")];
         const measure = () => {
             const origin = root.getBoundingClientRect();
+            const scale = root.offsetWidth ? origin.width / root.offsetWidth : 1;
             const next = Object.fromEntries(cards.map(card => {
                 const rect = card.getBoundingClientRect();
-                return [card.dataset.journeyAnchor!, { left: rect.left - origin.left, top: rect.top - origin.top,
-                    right: rect.right - origin.left, bottom: rect.bottom - origin.top }];
+                return [card.dataset.journeyAnchor!, { left: (rect.left - origin.left) / scale, top: (rect.top - origin.top) / scale,
+                    right: (rect.right - origin.left) / scale, bottom: (rect.bottom - origin.top) / scale }];
             }));
             setAnchors(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
         };
