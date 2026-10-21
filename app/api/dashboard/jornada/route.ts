@@ -1,5 +1,5 @@
 // app/api/dashboard/jornada/route.ts
-import { getMatureJourneyRange, journeyProcedureKind } from "@/lib/funnel/fullJourney";
+import { getMatureJourneyRange, journeyInvoiceKind, journeyProcedureKind } from "@/lib/funnel/fullJourney";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
@@ -325,6 +325,7 @@ type PipelineProcedureEventLoadResult = {
 
 type PipelineInvoiceRow = {
     source_invoice_id: number | string;
+    description: string | null;
     client_id: string | null;
     issued_at: string;
     amount: number | string;
@@ -1411,7 +1412,7 @@ async function loadFullJourneyPipeline(
         if (invoiceStatusIsAuthorized(invoice.status)) {
             authorizedClients.add(clientId);
             authorizedAmount += amount;
-            const branch = revenueByKind[attendance.event_kind];
+            const branch = revenueByKind[journeyInvoiceKind(invoice.description)];
             branch.clients.add(clientId);
             branch.amount += amount;
         }
@@ -2453,7 +2454,7 @@ async function loadPipelineInvoices(
                 const { data, error } = await supabase
                     .from("clinisys_invoices")
                     .select(
-                        "source_invoice_id, client_id, issued_at, amount, status",
+                        "source_invoice_id, client_id, issued_at, amount, status, description",
                     )
                     .in("client_id", ids)
                     .order("issued_at", { ascending: true })

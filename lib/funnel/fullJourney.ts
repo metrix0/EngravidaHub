@@ -1,4 +1,5 @@
 import type { CalendarPreset } from "@/components/ui/CalendarButton";
+import { classifyInvoiceDescription } from "@/lib/invoices/categories";
 import { classifyClinisysJourneyProcedure } from "@/lib/funnel/clinisysJourney";
 
 export const JOURNEY_CALENDAR_PRESETS: CalendarPreset[] = [
@@ -27,4 +28,9 @@ export function journeyProcedureKind(event: { event_kind: string | null; procedu
     if (event.event_kind === "evaluation" || event.event_kind === "procedure") return event.event_kind;
     // Preserve other classifications and keep unnamed appointments counted.
     return classifyClinisysJourneyProcedure(event.procedure_name) ?? "procedure";
+}
+
+export function journeyInvoiceKind(description: string | null | undefined): "evaluation" | "procedure" {
+    return classifyInvoiceDescription(description) === "evaluation" || /\bconsulta\b/i.test(description ?? "")
+        ? "evaluation" : "procedure";
 }
