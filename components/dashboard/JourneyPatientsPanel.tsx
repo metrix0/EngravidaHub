@@ -29,10 +29,10 @@ export default function JourneyPatientsPanel({ selection, query, onClose }: {
 }) {
     return <DetailsSidePanel open title="Pacientes" onClose={onClose}>
         {selection.sections ? <div className="space-y-6">
-            {selection.sections.map(section => <section key={section.eventKind} aria-label={section.label}>
-                <h3 className="mb-3 text-sm font-semibold text-slate-600">{section.label}</h3>
-                <JourneyPatientList selection={{ ...selection, eventKind: section.eventKind }} query={query} onClose={onClose} />
-            </section>)}
+            {selection.sections.map(section => <details key={section.eventKind} aria-label={section.label}>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">{section.label}</summary>
+                <div className="mt-3"><JourneyPatientList selection={{ ...selection, eventKind: section.eventKind }} query={query} onClose={onClose} /></div>
+            </details>)}
         </div> : <>
             <p className="mb-4 text-sm font-semibold text-slate-600">{selection.label}</p>
             <JourneyPatientList selection={selection} query={query} onClose={onClose} />
