@@ -1,20 +1,49 @@
+// components/personal-dashboard/ExactJornadaDashboardGraphs.tsx
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
     BadgeCheck,
     CalendarCheck2,
     CircleDollarSign,
     ChevronDown,
     MousePointerClick,
+    Minus,
+    Plus,
     ReceiptText,
+    RotateCcw,
     UserCheck,
+    Users,
 } from "lucide-react";
 import { FaGoogle, FaMeta, FaInstagram } from "react-icons/fa6";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Card, Skeleton } from "@/components";
+import JourneyPatientsPanel, { type JourneyPatientSelection } from "@/components/dashboard/JourneyPatientsPanel";
 import { journeyConnections, type JourneyAnchor } from "@/lib/funnel/journeyConnections";
+
+const JourneyPatientsContext = createContext<{
+    group: string;
+    authorizedSections: JourneyPatientSelection["sections"];
+    onView: (selection: JourneyPatientSelection) => void;
+} | null>(null);
+
+function ViewPatientsButton({ stage, label, procedureKey, eventKind }: {
+    stage: string;
+    label: string;
+    procedureKey?: string;
+    eventKind?: string;
+}) {
+    const context = useContext(JourneyPatientsContext);
+    if (!context) return null;
+    return <button type="button"
+        onClick={() => context.onView({ group: context.group, stage, label, procedureKey, eventKind,
+            sections: stage === "authorized" ? context.authorizedSections : undefined })}
+        aria-label={`Ver pacientes — ${label}`}
+        className="ml-1 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap align-middle text-[11px] font-semibold leading-4 text-slate-600 transition-colors hover:text-slate-900">
+        <Users size={13} />Clientes
+    </button>;
+}
 
 type PipelineStageKey =
     | "paid_impressions"
@@ -167,6 +196,7 @@ export default function ExactJornadaDashboardGraphs({ widgetId, data }: Props) {
 }
 
 export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data: JourneyDashboardData; onSourceTooltipChange?: (text: string) => void }) {
+    const [patients, setPatients] = useState<(JourneyPatientSelection & { query: string }) | null>(null);
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
     const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
@@ -237,16 +267,19 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
                 ) : (
                     <PipelineCanvas multipleFlows={Boolean(pipeline.additional_pipelines?.length)}>
                         <div className="space-y-3">
-                            <JourneyPipelineTree pipeline={pipeline} />
+                            <JourneyPipelineTree pipeline={pipeline} onViewPatients={selection => setPatients({ ...selection, query: query ?? "" })} />
                             <div className="flex flex-col gap-12" style={{ marginLeft: 572 + 72 }}>
                                 {(pipeline.additional_pipelines ?? []).map(group => (
-                                    <JourneyPipelineTree key={group.key} pipeline={group.pipeline} groupKey={group.key} />
+                                    <JourneyPipelineTree key={group.key} pipeline={group.pipeline} groupKey={group.key} onViewPatients={selection => setPatients({ ...selection, query: query ?? "" })} />
                                 ))}
                             </div>
                         </div>
                     </PipelineCanvas>
                 )}
             </div>
+            {patients && patients.query === (query ?? "") ? <JourneyPatientsPanel
+                key={JSON.stringify(patients)} selection={patients} query={patients.query}
+                onClose={() => setPatients(null)} /> : null}
         </div>
     );
 }
@@ -385,6 +418,8 @@ type WhatsappCoverageChartItem = { key: string; label: string; value: number; pe
 
 const PIPELINE_TREE_ROW_HEIGHT = 182;
 const PIPELINE_TREE_ROW_GAP = 16;
+const PIPELINE_MIN_ZOOM = 0.5;
+const PIPELINE_MAX_ZOOM = 2;
 function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNode; multipleFlows?: boolean }) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -400,6 +435,8 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
     }, []);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const offsetRef = useRef(offset);
+    const [zoom, setZoom] = useState(1);
+    const zoomRef = useRef(1);
     const dragRef = useRef<{
         pointerId: number;
         startX: number;
@@ -408,9 +445,48 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
         originY: number;
     } | null>(null);
 
-    function updateOffset(next: { x: number; y: number }) {
+    const updateOffset = useCallback((next: { x: number; y: number }) => {
         offsetRef.current = next;
         setOffset(next);
+    }, []);
+
+    const changeZoom = useCallback((factor: number, anchor?: { x: number; y: number }) => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const currentZoom = zoomRef.current;
+        const nextZoom = Math.min(PIPELINE_MAX_ZOOM, Math.max(PIPELINE_MIN_ZOOM, currentZoom * factor));
+        if (nextZoom === currentZoom) return;
+
+        const x = anchor?.x ?? viewport.clientWidth / 2;
+        const y = anchor?.y ?? viewport.clientHeight / 2;
+        updateOffset({
+            x: x - ((x - offsetRef.current.x) / currentZoom) * nextZoom,
+            y: y - ((y - offsetRef.current.y) / currentZoom) * nextZoom,
+        });
+        zoomRef.current = nextZoom;
+        setZoom(nextZoom);
+    }, [updateOffset]);
+
+    useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const handleWheel = (event: WheelEvent) => {
+            if (!event.ctrlKey || event.deltaY === 0) return;
+            event.preventDefault();
+            const rect = viewport.getBoundingClientRect();
+            changeZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top,
+            });
+        };
+        viewport.addEventListener("wheel", handleWheel, { passive: false });
+        return () => viewport.removeEventListener("wheel", handleWheel);
+    }, [changeZoom]);
+
+    function resetView() {
+        zoomRef.current = 1;
+        setZoom(1);
+        updateOffset({ x: 0, y: 0 });
     }
 
     function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -461,8 +537,8 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
                 height: contentHeight === null ? (multipleFlows ? 1100 : 560) : Math.max(480, contentHeight + 8),
                 backgroundImage:
                     "linear-gradient(rgba(148,163,184,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.075) 1px, transparent 1px)",
-                backgroundSize: `${gridSize}px ${gridSize}px`,
-                backgroundPosition: `${offset.x % gridSize}px ${offset.y % gridSize}px`,
+                backgroundSize: `${gridSize * zoom}px ${gridSize * zoom}px`,
+                backgroundPosition: `${offset.x % (gridSize * zoom)}px ${offset.y % (gridSize * zoom)}px`,
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -471,11 +547,29 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
             onDragStart={(event) => event.preventDefault()}
             title="Arraste com o botão esquerdo para mover a jornada"
         >
+            <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                <button type="button" aria-label="Diminuir zoom" title="Diminuir zoom" disabled={zoom <= PIPELINE_MIN_ZOOM}
+                    onClick={() => changeZoom(1 / 1.2)}
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Minus size={16} />
+                </button>
+                <button type="button" aria-label="Aumentar zoom" title="Aumentar zoom" disabled={zoom >= PIPELINE_MAX_ZOOM}
+                    onClick={() => changeZoom(1.2)}
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Plus size={16} />
+                </button>
+                <button type="button" aria-label="Restaurar visualização" title="Restaurar visualização"
+                    onClick={resetView}
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                    <RotateCcw size={16} />
+                </button>
+            </div>
             <div
                 ref={contentRef}
                 className="absolute left-0 top-0 w-max pb-4"
                 style={{
-                    transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                    transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
+                    transformOrigin: "top left",
                     willChange: "transform",
                 }}
             >
@@ -488,9 +582,11 @@ function PipelineCanvas({ children, multipleFlows = false }: { children: ReactNo
 function JourneyPipelineTree({
     pipeline,
     groupKey = "paid",
+    onViewPatients,
 }: {
     pipeline: FullJourneyPipeline;
     groupKey?: string;
+    onViewPatients: (selection: JourneyPatientSelection) => void;
 }) {
     const stages = new Map(
         pipeline.stages.map((stage) => [stage.key, stage]),
@@ -518,19 +614,26 @@ function JourneyPipelineTree({
         const cards = [...root.querySelectorAll<HTMLElement>("[data-journey-anchor]")];
         const measure = () => {
             const origin = root.getBoundingClientRect();
+            if (!root.offsetWidth || !origin.width || cards.some(card => !card.getBoundingClientRect().width)) return;
+            const scale = origin.width / root.offsetWidth;
             const next = Object.fromEntries(cards.map(card => {
                 const rect = card.getBoundingClientRect();
-                return [card.dataset.journeyAnchor!, { left: rect.left - origin.left, top: rect.top - origin.top,
-                    right: rect.right - origin.left, bottom: rect.bottom - origin.top }];
+                return [card.dataset.journeyAnchor!, { left: (rect.left - origin.left) / scale, top: (rect.top - origin.top) / scale,
+                    right: (rect.right - origin.left) / scale, bottom: (rect.bottom - origin.top) / scale }];
             }));
             setAnchors(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
         };
-        measure();
-        const observer = new ResizeObserver(measure);
+        let frame = 0;
+        const scheduleMeasure = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(measure);
+        };
+        scheduleMeasure();
+        const observer = new ResizeObserver(scheduleMeasure);
         observer.observe(root);
         cards.forEach(card => observer.observe(card));
-        window.addEventListener("resize", measure);
-        return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+        window.addEventListener("resize", scheduleMeasure);
+        return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener("resize", scheduleMeasure); };
     }, [pipeline]);
     const connections = journeyConnections(anchors, {
         consultationRevenue: `${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)} consultas`,
@@ -552,6 +655,10 @@ function JourneyPipelineTree({
     }
 
     return (
+        <JourneyPatientsContext.Provider value={{ group: groupKey, onView: onViewPatients, authorizedSections: [
+            { eventKind: "evaluation", label: `Liberados (${attended.value.toLocaleString("pt-BR")} Compareceram, ${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "evaluation")?.amount ?? 0, pipeline.currency_code)})` },
+            { eventKind: "procedure", label: `Liberados (${procedureAttended.value.toLocaleString("pt-BR")} Compareceram, ${formatPipelineCurrency(pipeline.revenue_branches?.find(branch => branch.kind === "procedure")?.amount ?? 0, pipeline.currency_code)})` },
+        ] }}>
             <div ref={flowRef} data-journey-flow={groupKey} className="relative flex min-w-max items-start pb-2" style={{ paddingTop: acquisitionBranches.length ? 8 : 48 }}>
                 {acquisitionBranches.length > 0 ? <>
                 <div className="space-y-4" style={{ width: 572, paddingBottom: showInstagram ? PIPELINE_TREE_ROW_HEIGHT + 8 : 0 }}>
@@ -679,6 +786,7 @@ function JourneyPipelineTree({
                     </g> : null}
                 </svg>
             </div>
+        </JourneyPatientsContext.Provider>
     );
 }
 
@@ -757,12 +865,14 @@ function ProcedurePipelineStages({
                                 value={branch.scheduled_appointments}
                                 procedureName={branch.procedure_name}
                                 stageKey="scheduled"
+                                procedureKey={branch.key} eventKind={branch.event_kind}
                             />
                             <ProcedureTransitionRow branch={branch} />
                             <ProcedureMetricRow
                                 value={branch.attended_appointments}
                                 procedureName={branch.procedure_name}
                                 stageKey="attended"
+                                procedureKey={branch.key} eventKind={branch.event_kind}
                             />
                         </div>
                     ))}
@@ -782,10 +892,14 @@ function ProcedureMetricRow({
     value,
     procedureName,
     stageKey,
+    procedureKey,
+    eventKind,
 }: {
     value: number;
     procedureName: string;
     stageKey: "scheduled" | "attended";
+    procedureKey: string;
+    eventKind: string;
 }) {
     const style = PIPELINE_STAGE_STYLE[stageKey];
 
@@ -801,7 +915,9 @@ function ProcedureMetricRow({
                 {value.toLocaleString("pt-BR")}
             </span>
             <span className="line-clamp-3 text-[11px] font-semibold leading-4 text-slate-600">
-                {procedureName}
+                {procedureName}{" "}
+                <ViewPatientsButton stage={stageKey} label={`${stageKey === "attended" ? "Compareceram" : "Agendaram"} · ${procedureName}`}
+                    procedureKey={procedureKey} eventKind={eventKind} />
             </span>
         </div>
     );
@@ -884,6 +1000,7 @@ function PipelineStageCard({
     hideHeader?: boolean;
     nodeKey?: string;
 }) {
+    const isPatientStage = stage.key !== "paid_impressions" && stage.key !== "paid_clicks";
     const defaultStyle = PIPELINE_STAGE_STYLE[stage.key];
     const style =
         eyebrow === "Google Ads" &&
@@ -935,7 +1052,10 @@ function PipelineStageCard({
                 {formatPipelineStageValue(stage)}
             </div>
             <div className="mt-1 line-clamp-3 text-[11px] font-medium leading-4 text-slate-500">
-                {detail ?? formatPipelineSecondary(stage)}
+                {detail ?? formatPipelineSecondary(stage)}{" "}
+                {isPatientStage ? (
+                    <ViewPatientsButton stage={nodeKey === "instagram_chat" ? "instagram_chat" : stage.key} label={stage.label} />
+                ) : null}
             </div>
         </div>
     );
@@ -972,7 +1092,8 @@ function PipelineTransitionCard({
                 </div>
             </div>
             <div className="pt-3">
-                <div className="text-[10px] font-bold leading-4 text-slate-500">{transition.label}</div>
+                {!["Clique → WhatsApp", "Clique → Instagram", "Rastreado → agenda", "Agenda → presença", "Agenda → Presença", "Consulta → procedimento"].includes(transition.label) ?
+                    <div className="text-[10px] font-bold leading-4 text-slate-500">{transition.label}</div> : null}
                 <div className="mt-1 h-4 text-[10px] text-slate-400">{transition.lost === null ? "" : `−${transition.lost} ${lossUnit}`}</div>
             </div>
         </div>

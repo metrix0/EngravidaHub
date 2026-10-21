@@ -9,7 +9,7 @@ export function journeyConnections(
     const result: JourneyConnection[] = [];
     const consultation = anchors.attended;
     const revenue = anchors.authorized;
-    if (consultation && revenue) {
+    if (consultation && revenue && consultation.right > consultation.left && revenue.right > revenue.left) {
         const start = (consultation.left + consultation.right) / 2;
         const end = (revenue.left + revenue.right) / 2;
         const lane = Math.min(consultation.top, revenue.top) - 36;

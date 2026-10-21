@@ -70,6 +70,7 @@ type OptimisticMessageContext = {
 };
 
 const threadDetailCache = new Map<string, InboxThreadDetailResponse>();
+const threadDetailMutationVersion = new Map<string, number>();
 const threadDetailFreshUntil = new Map<string, number>();
 const threadListCache = new Map<string, ThreadListCacheEntry>();
 const pendingNoteIdsByThread = new Map<string, Set<string>>();
@@ -149,6 +150,7 @@ export async function fetchInboxThread(
         return cloneThreadResponse(cachedThread);
     }
 
+    const mutationVersion = threadDetailMutationVersion.get(cacheKey) ?? 0;
     const params = new URLSearchParams({ item_type: itemType });
     const response = await fetch(
         `/api/inbox/threads/${itemId}?${params.toString()}`,
@@ -158,6 +160,16 @@ export async function fetchInboxThread(
         },
     );
     const json = await response.json();
+
+    // A history request started before a send must not replace its optimistic
+    // message or the provider's confirmation with an older snapshot.
+    const currentThread = threadDetailCache.get(cacheKey);
+    if (
+        currentThread &&
+        (threadDetailMutationVersion.get(cacheKey) ?? 0) !== mutationVersion
+    ) {
+        return cloneThreadResponse(currentThread);
+    }
 
     if (!response.ok) {
         throw new Error(json.error ?? "Failed to load inbox item");
@@ -711,6 +723,10 @@ function replaceCachedThread(
     cacheKey: string,
     response: InboxThreadDetailResponse,
 ) {
+    threadDetailMutationVersion.set(
+        cacheKey,
+        (threadDetailMutationVersion.get(cacheKey) ?? 0) + 1,
+    );
     threadDetailCache.set(cacheKey, response);
 }
 

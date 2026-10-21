@@ -748,7 +748,26 @@ export async function POST(
     });
 }
 
-async function persistSentMessage({
+async function persistSentMessage(
+    input: Parameters<typeof persistSentMessageOnce>[0],
+) {
+    // The provider has already accepted this message. Retry only the local
+    // upsert with the same external ID; never send it to Meta a second time.
+    const attempts = input.thread.instagram_user_id ? 3 : 1;
+    let result;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        result = await persistSentMessageOnce(input);
+        if (result.ok) return result;
+        if (attempt + 1 < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        }
+    }
+
+    return result!;
+}
+
+async function persistSentMessageOnce({
     thread,
     attendantName,
     text,

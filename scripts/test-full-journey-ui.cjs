@@ -31,7 +31,7 @@ fixture.additional_pipelines = [{ key: "untracked", label: "WhatsApp não rastre
 function load(react, fetch, window) {
     const exports = {};
     vm.runInNewContext(source + "\nexports.__test = ProcedurePipelineStages;", { exports, console, URLSearchParams, AbortController, fetch, window,
-        require: name => name === "react" ? react : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
+        require: name => name === "react" ? { ...React, ...react } : name === "@/components/dashboard/JourneyPatientsPanel" ? { default: () => null } : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
     });
     exports.FullJourneyPipelineCard.details = exports.__test;
     return exports.FullJourneyPipelineCard;
@@ -46,6 +46,7 @@ assert.ok(markup.includes("Agendaram Procedimento"));
 assert.ok(markup.includes("WhatsApp não rastreado"));
 assert.ok(markup.includes("Origem orgânica ou não rastreada"));
 assert.ok(markup.includes("Instagram Chat"));
+assert.equal((markup.match(/>Clientes<\/button>/g) ?? []).length, 19);
 assert.ok(markup.includes("Cliques pagos"));
 assert.ok(markup.includes("absolute left-3 top-[190px] flex items-center"));
 assert.ok(markup.includes("width:144px"));
@@ -75,6 +76,13 @@ assert.ok(paths.find(row => row.key === "instagram_consultation").path.endsWith(
 const resized = connectionExports.journeyConnections({ ...measured, scheduled: { ...measured.scheduled, left: 940, right: 1180, bottom: 350 } }, { consultationRevenue: "R$ 100", instagramConsultations: "4 consultas" });
 assert.ok(resized.find(row => row.key === "instagram_consultation").path.endsWith("H 1060 V 350"));
 assert.ok(paths.find(row => row.key === "consultation_revenue").path.endsWith("V 107"));
+assert.deepEqual(Array.from(connectionExports.journeyConnections({
+    attended: { left: 0, right: 0, top: 0, bottom: 0 },
+    authorized: { left: 0, right: 0, top: 0, bottom: 0 },
+}, { consultationRevenue: "R$ 100" })), []);
+for (const label of ["Clique → WhatsApp", "Clique → Instagram", "Rastreado → agenda", "Agenda → presença", "Agenda → Presença", "Consulta → procedimento"]) {
+    assert.ok(!markup.includes(`>${label}</div>`));
+}
 let cursor = 0, slots = [], queue = [], requests = [], fail = false, defer = false, timers = new Map(), timerId = 0;
 const hooks = {
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;

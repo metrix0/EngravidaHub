@@ -127,9 +127,25 @@ for (const name of ["Retorno", "Ultrassonografia", "Novo procedimento", "", null
 }
 assert.equal(helpers.journeyProcedureKind({ procedure_name: "1ª Avaliação de Reprodução Humana - presencial", event_kind: null }), "evaluation");
 assert.equal(helpers.journeyProcedureKind({ procedure_name: "Nome antigo", event_kind: "evaluation" }), "evaluation");
+for (const name of ["Atendimento Financeiro", "LEMBRETE", "Contato com Paciente", "Recebimento - Transporte", "Envio - Transporte", "Medicamento"]) {
+    assert.equal(helpers.journeyProcedureKind({ procedure_name: name, event_kind: "procedure" }), null);
+}
+for (const name of ["Consulta", "Consulta inicial", "Avaliação de Reprodução Humana - online", "Reavaliação Urológica - presencial", "Avaliação de Ciclo - Presencial", "Avaliação Obstétrica", "Avaliação Pré Anestésica"]) {
+    assert.equal(helpers.journeyProcedureKind({ procedure_name: name, event_kind: "procedure" }), "evaluation");
+}
+for (const description of ["1a. Avaliacao de Reproducao Humana - online", "Reavaliação Urológica - presencial", "Consulta inicial"]) {
+    assert.equal(helpers.journeyInvoiceKind(description), "evaluation");
+}
+for (const description of ["Fertilizacao in vitro com recepcao de ovulos - doacao anonima", "Ciclo para congelamento de ovulos", "Transferência de embriões descongelados (TED)", "Espermograma"]) {
+    assert.equal(helpers.journeyInvoiceKind(description), "procedure");
+}
+if (process.argv.includes("--classification-only")) {
+    console.log("PASS: consultation reclassification, administrative exclusions and unchanged clinical/unnamed procedures.");
+    process.exit(0);
+}
 const conversation = (client, date, origin = "Google Conta 1") => ({ id: "conversation-" + client, client_id: client, thread_id: client, channel: "WhatsApp", started_at: date + "T12:00:00Z", origin, unit_id: "11111111-1111-4111-8111-111111111111", service_id: null, attendant_id: null, tunnel: null, clients: {} });
 const event = (id, client, kind, booked, date, status = "Atendido", name) => ({ id, source_external_id: id, source_hash: id, client_id: client, created_in_source_at: booked, created_at: booked + "T12:00:00Z", scheduled_for: date, status, event_kind: kind, procedure_name: name ?? (kind === "evaluation" ? "1ª Avaliação de Reprodução Humana - presencial" : "FIV"), unit_name: "Bauru" });
-const invoice = (id, client, date, amount) => ({ source_invoice_id: id, client_id: client, issued_at: date + "T12:00:00Z", amount, status: "Autorizada" });
+const invoice = (id, client, date, amount, description = "Fertilizacao in vitro") => ({ source_invoice_id: id, client_id: client, issued_at: date + "T12:00:00Z", amount, status: "Autorizada", description });
 async function run(params = "") {
     const response = await GET(new Request("http://test/api/dashboard/jornada?full_pipeline_only=1&" + params));
     assert.equal(response.status, 200);
@@ -144,7 +160,7 @@ async function run(params = "") {
         schedules: [event("consult", "p1", null, "2026-07-23", "2026-08-01")],
         funnel_clinisys_events: [event("consult", "p1", "evaluation", "2026-07-23", "2026-08-01"), event("treatment", "p1", "procedure", "2026-08-02", "2026-08-10"), event("direct", "p2", "procedure", "2026-08-02", "2026-08-03"), event("unnamed", "p3", null, "2026-08-02", "2026-08-03", "Faltou", ""), event("future", "p3", "procedure", "2026-08-04", "2027-01-01")],
         appointments: [{ id: "hub-copy", client_id: "p1", source_external_id: "consult", created_at: "2026-07-23T12:00:00Z", starts_at: "2026-08-01T12:00:00Z", status: "completed", procedure_name: "1ª Avaliação de Reprodução Humana - presencial", units: { name: "Bauru" } }, { id: "hub-only", client_id: null, source_external_id: "local", patient_phone: "5511999990004", created_at: "2026-08-02T12:00:00Z", starts_at: "2026-08-03T12:00:00Z", status: "completed", procedure_name: null, units: { name: "Bauru" } }],
-        clinisys_invoices: [invoice(1, "p1", "2026-08-01", 100), invoice(2, "p1", "2026-09-01", 300), invoice(2, "p1", "2026-09-01", 300), invoice(3, "p2", "2026-08-04", 200), invoice(4, "p1", "2026-06-01", 999)],
+        clinisys_invoices: [invoice(1, "p1", "2026-08-01", 100, "1a. Avaliacao de Reproducao Humana - presencial"), invoice(2, "p1", "2026-09-01", 300), invoice(2, "p1", "2026-09-01", 300), invoice(3, "p2", "2026-08-04", 200), invoice(4, "p1", "2026-06-01", 999)],
     };
     const pipeline = await run();
     const stages = Object.fromEntries(pipeline.stages.map(stage => [stage.key, stage]));
