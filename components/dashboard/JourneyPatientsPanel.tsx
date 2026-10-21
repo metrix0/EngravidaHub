@@ -62,7 +62,6 @@ export default function JourneyPatientsPanel({ selection, query, onClose }: {
                 <button type="button" onClick={() => setAttempt(value => value + 1)} className="ml-2 cursor-pointer underline">Tentar novamente</button>
             </div>
         ) : current.data ? <>
-            <p className="mb-3 text-xs text-slate-500">{current.data.total.toLocaleString("pt-BR")} pacientes · até 20 por página</p>
             {current.data.unlinked_profiles > 0 ? <p className="mb-3 text-xs text-slate-500">{current.data.unlinked_profiles.toLocaleString("pt-BR")} perfis do Instagram sem vínculo com um paciente no CRM.</p> : null}
             {current.data.patients.length ? <ul className="divide-y divide-slate-100">
                 {current.data.patients.map(patient => <li key={patient.id}>

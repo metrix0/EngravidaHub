@@ -38,8 +38,8 @@ function ViewPatientsButton({ stage, label, procedureKey, eventKind }: {
     return <button type="button"
         onClick={() => context.onView({ group: context.group, stage, label, procedureKey, eventKind })}
         aria-label={`Ver pacientes — ${label}`}
-        className="mt-auto inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900">
-        <Users size={13} />Ver pacientes
+        className="ml-1 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap align-middle text-[11px] font-semibold leading-4 text-slate-600 transition-colors hover:text-slate-900">
+        <Users size={13} />Clientes
     </button>;
 }
 
@@ -903,11 +903,11 @@ function ProcedureMetricRow({
             >
                 {value.toLocaleString("pt-BR")}
             </span>
-            <div className="flex min-w-0 flex-1 flex-col items-start">
-                <span className="line-clamp-2 text-[11px] font-semibold leading-4 text-slate-600">{procedureName}</span>
+            <span className="line-clamp-3 text-[11px] font-semibold leading-4 text-slate-600">
+                {procedureName}{" "}
                 <ViewPatientsButton stage={stageKey} label={`${stageKey === "attended" ? "Compareceram" : "Agendaram"} · ${procedureName}`}
                     procedureKey={procedureKey} eventKind={eventKind} />
-            </div>
+            </span>
         </div>
     );
 }
@@ -1034,18 +1034,18 @@ function PipelineStageCard({
                 </div>
             ) : null}
 
-            <div className={`mt-2 text-xs font-semibold leading-4 text-slate-500 ${isPatientStage ? "line-clamp-2" : ""}`}>
+            <div className="mt-2 text-xs font-semibold leading-4 text-slate-500">
                 {stage.label}
             </div>
-            <div className={`mt-1 font-black tracking-tight text-slate-900 ${isPatientStage ? "leading-tight" : ""} ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
+            <div className={`mt-1 font-black tracking-tight text-slate-900 ${stage.key === "authorized" ? "text-[22px]" : "text-[28px]"}`}>
                 {formatPipelineStageValue(stage)}
             </div>
-            <div className={`mt-1 text-[11px] font-medium leading-4 text-slate-500 ${isPatientStage ? "line-clamp-2" : "line-clamp-3"}`}>
-                {detail ?? formatPipelineSecondary(stage)}
+            <div className="mt-1 line-clamp-3 text-[11px] font-medium leading-4 text-slate-500">
+                {detail ?? formatPipelineSecondary(stage)}{" "}
+                {isPatientStage ? (
+                    <ViewPatientsButton stage={nodeKey === "instagram_chat" ? "instagram_chat" : stage.key} label={stage.label} />
+                ) : null}
             </div>
-            {isPatientStage ? (
-                <ViewPatientsButton stage={nodeKey === "instagram_chat" ? "instagram_chat" : stage.key} label={stage.label} />
-            ) : null}
         </div>
     );
 }

@@ -46,7 +46,7 @@ assert.ok(markup.includes("Agendaram Procedimento"));
 assert.ok(markup.includes("WhatsApp não rastreado"));
 assert.ok(markup.includes("Origem orgânica ou não rastreada"));
 assert.ok(markup.includes("Instagram Chat"));
-assert.equal((markup.match(/>Ver pacientes<\/button>/g) ?? []).length, 19);
+assert.equal((markup.match(/>Clientes<\/button>/g) ?? []).length, 19);
 assert.ok(markup.includes("Cliques pagos"));
 assert.ok(markup.includes("absolute left-3 top-[190px] flex items-center"));
 assert.ok(markup.includes("width:144px"));
