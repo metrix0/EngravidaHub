@@ -361,88 +361,16 @@ export async function GET(request: Request) {
                 "dashboard_journey_prepared_v1",
                 executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
             ).abortSignal(request.signal);
-            if (!preparedError && prepared?.ready && Array.isArray(prepared.groups) && prepared.groups.length) {
-                return NextResponse.json(
-                    { full_pipeline: buildPreparedJourneyPipeline(prepared as PreparedJourneyRead, range, filters) },
-                    { headers: { "Cache-Control": "private, no-store" } },
-                );
+            if (preparedError) throw preparedError;
+            if (!prepared?.ready || !Array.isArray(prepared.groups) || !prepared.groups.length) {
+                throw new Error("A jornada pré-calculada não está disponível.");
             }
-            console.warn("[dashboard/jornada] prepared pipeline unavailable; using existing path", preparedError?.code);
-            const [paidMedia, candidateIds, social, instagramClicks] = await Promise.all([
-                loadPaidMediaTotals(startDate, endDate, request.signal),
-                loadPipelineCandidateIds(range, request.signal),
-                loadInstagramJourney(range, filters, request.signal),
-                loadInstagramDestinationClicks(startDate, endDate, request.signal),
-            ]);
-            for (const clientId of social.activeClients) candidateIds.add(clientId);
-            const [history, sources] = await Promise.all([
-                loadPaidWhatsappHistory([...candidateIds], range, filters, request.signal),
-                loadJourneyOutcomes([...candidateIds], request.signal),
-            ]);
-            const paid = paidJourneyCohort(history.paidEntries);
-            for (const [id, entry] of social.paidClients) {
-                if (candidateIds.has(id) && (!paid.has(id) || entry.enteredAt < paid.get(id)!.enteredAt)) paid.set(id, entry);
-            }
-            for (const event of sources.procedureEventLoad.events) {
-                const entry = event.booking_social_id ? social.paidProfiles.get(event.booking_social_id) : null;
-                if (event.booking_channel === "Instagram" && event.client_id && entry && !paid.has(event.client_id)) paid.set(event.client_id, entry);
-            }
-            const whatsappIds = new Set(history.acceptedRows.flatMap(row => row.client_id ? [row.client_id] : []));
-            const organicIds = new Set(history.organicClientIds);
-            const untracked = new Map<string, PaidWhatsappCohortEntry>();
-            for (const row of history.acceptedRows) {
-                if (!row.client_id || paid.has(row.client_id) || organicIds.has(row.client_id)) continue;
-                const entry = untracked.get(row.client_id);
-                if (!entry || row.started_at < entry.enteredAt) untracked.set(row.client_id, nonPaidEntry(row.started_at));
-            }
-            const remaining = new Map<string, PaidWhatsappCohortEntry>();
-            const earliestByClient = new Map<string, string>();
-            function rememberDate(id: string | null, date: string | null) {
-                if (id && date && (!earliestByClient.has(id) || date < earliestByClient.get(id)!)) earliestByClient.set(id, date);
-            }
-            for (const row of history.acceptedRows) rememberDate(row.client_id, row.started_at);
-            for (const event of sources.procedureEventLoad.events) {
-                rememberDate(event.client_id, procedureEventCreatedAt(event));
-                rememberDate(event.client_id, event.scheduled_for);
-            }
-            for (const invoice of sources.invoices) rememberDate(invoice.client_id, invoice.issued_at);
-            for (const client of sources.clients) {
-                if (paid.has(client.id) || untracked.has(client.id)) continue;
-                if (!whatsappIds.has(client.id)) {
-                    if (filters.unitIds.length && !filters.unitIds.includes(client.unit_id ?? "")) continue;
-                    if (filters.attendantIds.length || filters.serviceIds.length || filters.tunnels.length) continue;
-                    if (filters.origins.length && !filters.origins.some(origin => normalizeText(origin) === normalizeText(client.last_origin))) continue;
-                }
-                const enteredAt = earliestByClient.get(client.id) ?? range.startAt;
-                remaining.set(client.id, nonPaidEntry(enteredAt));
-            }
-            const paidWhatsappIds = new Set(history.acceptedRows.filter(row => row.client_id && paid.has(row.client_id) && row.started_at >= paid.get(row.client_id)!.enteredAt).map(row => row.client_id!));
-            const [fullPipeline, untrackedPipeline, organicPipeline] = await Promise.all([
-                loadFullJourneyPipeline(range, filters, request.signal, paidMedia, history, { cohort: paid, sources, entryClientIds: paidWhatsappIds }),
-                loadFullJourneyPipeline(range, filters, request.signal, emptyPaidMediaTotals(false), history, { cohort: untracked, sources }),
-                loadFullJourneyPipeline(range, filters, request.signal, emptyPaidMediaTotals(false), history, { cohort: remaining, sources }),
-            ]);
-            for (const branch of fullPipeline.acquisition_branches) {
-                branch.tracked_clients = [...paidWhatsappIds].filter(id => paid.get(id)?.platform === branch.platform).length;
-                branch.click_to_tracked_rate = percentage(branch.tracked_clients, branch.clicks);
-            }
-            untrackedPipeline.stages[0].label = "WhatsApp não rastreado";
-            organicPipeline.stages[0].label = "Origem orgânica ou não rastreada";
-            untrackedPipeline.acquisition_branches = [];
-            organicPipeline.acquisition_branches = [];
-            fullPipeline.additional_pipelines = [{ key: "untracked_whatsapp", pipeline: untrackedPipeline }, { key: "organic", pipeline: organicPipeline }];
-            const directBookings = new Set(sources.procedureEventLoad.events.filter(event =>
-                event.client_id && paid.has(event.client_id) && event.booking_channel === "Instagram" &&
-                journeyProcedureKind(event) === "evaluation" && procedureEventBelongsToCohort(event, paid.get(event.client_id)!),
-            ).map(event => event.client_id));
-            fullPipeline.instagram = {
-                clicks: instagramClicks, chats: social.paidProfiles.size,
-                to_whatsapp: [...social.paidClients].filter(([id, entry]) => candidateIds.has(id) && history.acceptedRows.some(row => row.client_id === id && row.started_at >= entry.enteredAt)).length,
-                to_consultation: directBookings.size,
-                unlinked_chats: social.unlinkedPaidProfiles,
-            };
-            return NextResponse.json({ full_pipeline: fullPipeline }, { headers: { "Cache-Control": "private, no-store" } });
+            return NextResponse.json(
+                { full_pipeline: buildPreparedJourneyPipeline(prepared as PreparedJourneyRead, range, filters) },
+                { headers: { "Cache-Control": "private, no-store" } },
+            );
         }
+
         const [paidMedia, whatsappData, preparedAnalysis, evaluationJourneys] = await Promise.all([
             searchParams.get("summary_only") === "1"
                 ? Promise.resolve(emptyPaidMediaTotals(false))
