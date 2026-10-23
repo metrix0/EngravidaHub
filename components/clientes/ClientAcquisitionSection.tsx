@@ -2,6 +2,7 @@
 "use client";
 
 import Image from "next/image";
+import { Badge } from "@/components/ui/Badge";
 import type { ClientAcquisition } from "@/lib/clients/acquisition";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 
@@ -35,6 +36,14 @@ export default function ClientAcquisitionSection({ data }: { data: ClientAcquisi
                 {profile.name}{profile.username ? ` · @${profile.username.replace(/^@+/, "")}` : ""}
             </p>)}
         </div> : null}
+        {data.touchpoints.length ? <div className="mt-5 border-t border-slate-100 pt-4">
+            <h4 className="text-sm font-bold text-slate-800">Contatos e origens em ordem</h4>
+            <ol className="mt-3 space-y-3">{data.touchpoints.map(point => <li key={point.id} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                <p className="text-[11px] text-slate-500">{when(point.at)} · {point.source}</p>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-700">{point.label}</p>
+                {point.detail ? <p className="mt-1 break-words text-xs text-muted">{point.detail}</p> : null}
+            </li>)}</ol>
+        </div> : null}
         {data.appointments.length ? <div className="mt-5 border-t border-slate-100 pt-4">
             <h4 className="text-sm font-bold text-slate-800">Agendamentos pelo Hub · Direct / Messenger</h4>
             <ul className="mt-3 space-y-4">{data.appointments.map(appointment => {
@@ -44,6 +53,11 @@ export default function ClientAcquisitionSection({ data }: { data: ClientAcquisi
                     <p className="mt-1 text-xs text-slate-600">{when(appointment.startsAt)} · {statusLabels[appointment.status ?? ""] ?? appointment.status ?? "Status não registrado"}</p>
                     <p className="mt-1 text-xs text-muted">Marcado em {when(appointment.createdAt)} · {appointment.channel}</p>
                     <p className="mt-2 break-words text-xs text-slate-600">{ad ? `Anúncio: ${ad.name ?? ad.adId ?? "Referência registrada"}` : "Sem referência de anúncio registrada antes deste agendamento na conversa."}</p>
+                    {ad ? <>
+                        <AdCampaignDetails ad={ad} />
+                        {ad.entryInterest ? <p className="mt-2 text-xs text-slate-600"><strong>Interesse informado na entrada:</strong> {ad.entryInterest}</p> : null}
+                        <p className="mt-2 text-[11px] text-muted">Origem registrada nesta conversa antes da marcação, em {when(ad.receivedAt)}.</p>
+                    </> : null}
                     <button type="button" onClick={() => openFloatingConversation({ type: "thread", id: appointment.threadId })}
                         className="mt-2 cursor-pointer text-xs font-semibold text-brand">Abrir conversa do agendamento</button>
                 </li>;
@@ -56,15 +70,33 @@ export default function ClientAcquisitionSection({ data }: { data: ClientAcquisi
                 <p className="mt-1 text-xs text-muted">{when(ad.receivedAt)} · {ad.channel ?? "Meta"}</p>
                 <dl className="mt-3 space-y-2 text-xs text-slate-600">
                     {ad.adId ? <div><dt className="font-semibold">ID do anúncio</dt><dd className="break-all">{ad.adId}</dd></div> : null}
-                    {ad.campaignName || ad.campaignId ? <div><dt className="font-semibold">Campanha</dt><dd className="break-words">{ad.campaignName ?? ad.campaignId}</dd></div> : null}
-                    {ad.adSetName || ad.adSetId ? <div><dt className="font-semibold">Conjunto</dt><dd className="break-words">{ad.adSetName ?? ad.adSetId}</dd></div> : null}
                 </dl>
+                <AdCampaignDetails ad={ad} />
+                {ad.entryMessage ? <div className="mt-3 rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-500">Mensagem de entrada vinculada ao anúncio</p>
+                    <blockquote className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">{ad.entryMessage}</blockquote>
+                    {ad.entryInterest ? <p className="mt-2 text-xs text-slate-600"><strong>Interesse informado:</strong> {ad.entryInterest}</p> : null}
+                </div> : null}
                 {ad.imageUrl ? <Image src={ad.imageUrl} alt={ad.name ?? "Criativo do anúncio"} width={640} height={400} unoptimized className="mt-3 max-h-64 w-full rounded-lg object-contain" /> : null}
                 {ad.videoUrl ? <video src={ad.videoUrl} controls preload="none" className="mt-3 max-h-64 w-full rounded-lg" /> : null}
-                {!ad.name || (!ad.imageUrl && !ad.videoUrl) ? <p className="mt-2 text-xs text-muted">A integração não disponibilizou { !ad.name ? "o nome" : "o criativo"}{!ad.name && !ad.imageUrl && !ad.videoUrl ? " e o criativo" : ""} deste anúncio.</p> : null}
+                {!ad.imageUrl && !ad.videoUrl ? <p className="mt-2 text-xs text-muted">Criativo ainda não recuperado.</p> : null}
                 {ad.threadId ? <button type="button" onClick={() => openFloatingConversation({ type: "thread", id: ad.threadId! })}
                     className="mt-2 cursor-pointer text-xs font-semibold text-brand">Abrir conversa deste anúncio</button> : null}
             </li>)}</ul>
         </div> : null}
     </section>;
+}
+
+function AdCampaignDetails({ ad }: { ad: ClientAcquisition["ads"][number] }) {
+    return <div className="mt-3">
+        <div className="flex flex-wrap gap-2">
+            {ad.campaignTheme ? <Badge value={ad.campaignTheme} /> : null}
+            {ad.campaignUnit ? <Badge value={ad.campaignUnit} /> : null}
+        </div>
+        <dl className="mt-2 space-y-2 text-xs text-slate-600">
+            <div><dt className="font-semibold">Campanha</dt><dd className="break-words">{ad.campaignName ?? ad.campaignId ?? "Ainda não identificada pela integração"}</dd></div>
+            {ad.adSetName || ad.adSetId ? <div><dt className="font-semibold">Conjunto</dt><dd className="break-words">{ad.adSetName ?? ad.adSetId}</dd></div> : null}
+        </dl>
+        {ad.campaignTheme || ad.campaignUnit ? <p className="mt-2 text-[11px] text-muted">Tema e local identificados nos nomes da campanha, conjunto ou anúncio.</p> : null}
+    </div>;
 }
