@@ -52,6 +52,7 @@ export async function GET(request: Request) {
             { data: latestAttendants, error: attendantsError },
             { data: stagesRaw, error: stagesError },
             { data: funnels, error: funnelsError },
+            { data: directBookings, error: bookingsError },
         ] = await Promise.all([
             supabase
                 .from("clients")
@@ -90,6 +91,9 @@ export async function GET(request: Request) {
                 .from("funnels")
                 .select("id, name")
                 .order("name", { ascending: true }),
+            supabase.from("appointments")
+                .select("client_id,thread!inner(channel)")
+                .in("thread.channel", ["Instagram", "Messenger"]),
         ]);
 
         if (clientsError) {
@@ -121,12 +125,25 @@ export async function GET(request: Request) {
             if (name) attendantByClientId.set(row.client_id, name);
         }
 
+        if (bookingsError) {
+            return NextResponse.json({ error: "Failed to load Direct bookings" }, { status: 500 });
+        }
+        const bookingChannels = new Map<string, Set<string>>();
+        for (const booking of directBookings ?? []) {
+            const thread = Array.isArray(booking.thread) ? booking.thread[0] : booking.thread;
+            if (!booking.client_id || !thread?.channel) continue;
+            const channels = bookingChannels.get(booking.client_id) ?? new Set<string>();
+            channels.add(thread.channel);
+            bookingChannels.set(booking.client_id, channels);
+        }
+
         const clients = (clientsRaw ?? []).map((client) => ({
             ...client,
             // Existing clients UI consumes this key as "Origem". Its canonical
             // source is now the latest spreadsheet-matched conversation.
             utm_source: client.last_origin ?? null,
             attendant_name: attendantByClientId.get(client.id) ?? null,
+            booking_channels: [...(bookingChannels.get(client.id) ?? [])],
         }));
 
         if (stagesError || funnelsError) {

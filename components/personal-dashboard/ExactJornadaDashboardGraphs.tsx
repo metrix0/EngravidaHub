@@ -794,7 +794,14 @@ function JourneyConnectionPath({ connection }: { connection: ReturnType<typeof j
     return <g data-journey-connection={connection.key}>
         <path d={connection.path} fill="none" stroke={connection.color} strokeWidth="1.5" strokeLinejoin="round" />
         <path d={connection.arrow} fill="none" stroke={connection.color} strokeWidth="1.5" strokeLinejoin="round" />
-        <text x={connection.labelX} y={connection.labelY} textAnchor="middle" fill={connection.color} fontSize="11" fontWeight="600">{connection.label}</text>
+        {connection.key === "instagram_consultation" ? (
+            <foreignObject className="pointer-events-auto" x={connection.labelX - 110} y={connection.labelY - 13} width={220} height={24}>
+                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold" style={{ color: connection.color }}>
+                    <span>{connection.label}</span>
+                    <ViewPatientsButton stage="instagram_consultation" label="Consultas pelo Instagram" />
+                </div>
+            </foreignObject>
+        ) : <text x={connection.labelX} y={connection.labelY} textAnchor="middle" fill={connection.color} fontSize="11" fontWeight="600">{connection.label}</text>}
     </g>;
 }
 

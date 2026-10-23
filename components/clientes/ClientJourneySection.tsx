@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { CalendarClock, ChevronDown, CircleCheck, Megaphone, MessageCircle, PhoneCall, Receipt } from "lucide-react";
+import ClientAcquisitionSection from "@/components/clientes/ClientAcquisitionSection";
+import type { ClientAcquisition } from "@/lib/clients/acquisition";
 import { Skeleton } from "@/components";
 import { openFloatingConversation } from "@/components/conversations/FloatingConversationPanel";
 import type { IndividualJourney, IndividualJourneyEvent, JourneyCategory } from "@/lib/clients/individualJourney";
@@ -29,7 +31,7 @@ function formatWhen(event: IndividualJourneyEvent) {
 }
 
 export default function ClientJourneySection({ clientId }: { clientId: string }) {
-    const [journey, setJourney] = useState<IndividualJourney | null>(null);
+    const [journey, setJourney] = useState<(IndividualJourney & { acquisition?: ClientAcquisition }) | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [visible, setVisible] = useState(80);
     const [retry, setRetry] = useState(0);
@@ -64,6 +66,8 @@ export default function ClientJourneySection({ clientId }: { clientId: string })
     }, [clientId, retry]);
 
     return (
+        <>
+        {journey?.acquisition ? <ClientAcquisitionSection data={journey.acquisition} /> : null}
         <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
                 <div>
@@ -137,5 +141,6 @@ export default function ClientJourneySection({ clientId }: { clientId: string })
                 </>
             ) : null}
         </section>
+        </>
     );
 }
