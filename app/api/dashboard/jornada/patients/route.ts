@@ -17,7 +17,7 @@ export async function GET(request: Request) {
         const procedureKey = searchParams.get("procedure_key");
         const eventKind = searchParams.get("event_kind");
         if (!["paid", "untracked_whatsapp", "organic"].includes(group) ||
-            !["tracked_whatsapp", "scheduled", "attended", "procedure_scheduled", "procedure_attended", "authorized", "instagram_chat"].includes(stage) ||
+            !["tracked_whatsapp", "scheduled", "attended", "procedure_scheduled", "procedure_attended", "authorized", "instagram_chat", "instagram_consultation"].includes(stage) ||
             !Number.isSafeInteger(page) || page < 1 || page > 1_000_000 ||
             (eventKind !== null && !["evaluation", "procedure"].includes(eventKind)) ||
             (procedureKey !== null && (!["evaluation", "procedure"].includes(eventKind ?? "") ||

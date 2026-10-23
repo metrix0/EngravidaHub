@@ -76,6 +76,7 @@ type Client = {
     utm_campaign: string | null;
     last_tunnel: string | null;
     attendant_name: string | null;
+    booking_channels: string[];
 };
 
 type ClientsResponse = {
@@ -253,6 +254,7 @@ export default function ClientesPage() {
     const [closingTagValues, setClosingTagValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
+    const [bookingChannelValues, setBookingChannelValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -290,6 +292,7 @@ export default function ClientesPage() {
         setTunnelValues(
             readUrlFilterValues(params, ["tunnel", "tunnels"]),
         );
+        setBookingChannelValues(readUrlFilterValues(params, ["booking_channel"]));
         const initialSearch =
             readUrlFilterValue(params, ["search", "q"]) ?? "";
         setSearch(initialSearch);
@@ -317,6 +320,7 @@ export default function ClientesPage() {
         if (!urlFiltersReady || !dateFilterReady) return;
 
         replaceUrlFilterParams([
+            { key: "booking_channel", value: bookingChannelValues },
             {
                 key: "unit",
                 value: normalizedUnitUrlValues,
@@ -349,6 +353,7 @@ export default function ClientesPage() {
             },
         ]);
     }, [
+        bookingChannelValues,
         closingTagValues,
         dateFilterReady,
         debouncedSearch,
@@ -540,6 +545,7 @@ export default function ClientesPage() {
         const term = debouncedSearch.trim().toLowerCase();
 
         return clients.filter((client) => {
+            if (bookingChannelValues.length > 0 && !client.booking_channels?.some(channel => bookingChannelValues.includes(channel))) return false;
             if (
                 stageValues.length > 0 &&
                 (!client.funnel_stage_id ||
@@ -597,6 +603,7 @@ export default function ClientesPage() {
             );
         });
     }, [
+        bookingChannelValues,
         clients,
         closingTagValues,
         interactionDateRange,
@@ -671,7 +678,7 @@ export default function ClientesPage() {
 
                 <section className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
                     <DashboardHeader title="Clientes" description="Visualize e gerencie todos os clientes do CRM" period={period} setPeriod={resetPageAndSet(setPeriod)} selectedRange={selectedRange} setSelectedRange={resetPageAndSet(setSelectedRange)} presets={CLIENTES_DATE_PRESETS} storageManaged storageReady />
-                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]", "w-[150px]"]} />
+                    <DashboardFilterBarSkeleton widths={["w-[230px]", "w-[230px]", "w-[150px]"]} />
 
                     <section className="mb-8 grid grid-cols-1 gap-5">
                         <HorizontalScroller scrollAmount={400}>
@@ -749,8 +756,8 @@ export default function ClientesPage() {
                         show={{
                             units: true,
                             attendants: true,
-                            tunnels: true,
-                            origins: true,
+                            tunnels: false,
+                            origins: false,
                         }}
                         widths={{
                             units: "w-[230px]",
@@ -763,6 +770,10 @@ export default function ClientesPage() {
                     <AdvancedFilterButton
                         dropdownWidthClassName="w-[360px]"
                         sections={[
+                            { id: "tunnels", title: "Túnel", options: filters?.tunnels ?? [], values: tunnelValues, onChange: resetPageAndSet(setTunnelValues) },
+                            { id: "origins", title: "Origem", options: filters?.origins ?? [], values: sourceValues, onChange: resetPageAndSet(setSourceValues) },
+                            { id: "booking-channel", title: "Consultas marcadas pelo Hub", values: bookingChannelValues, onChange: resetPageAndSet(setBookingChannelValues),
+                                options: [{ label: "Instagram Direct", value: "Instagram" }, { label: "Messenger", value: "Messenger" }] },
                             ...stageFilterSections,
                             {
                                 id: "closing-tag",
