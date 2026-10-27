@@ -48,6 +48,19 @@ type ConversationAdDetails = {
 type MetaGraphAdResponse = {
     id?: string;
     name?: string;
+    creative?: {
+        image_url?: string;
+        thumbnail_url?: string;
+        video_id?: string;
+        object_story_spec?: {
+            link_data?: { picture?: string };
+            video_data?: { video_id?: string; image_url?: string };
+        };
+        asset_feed_spec?: {
+            images?: Array<{ url?: string }>;
+            videos?: Array<{ video_id?: string; thumbnail_url?: string }>;
+        };
+    };
     campaign?: {
         id?: string;
         name?: string;
@@ -58,6 +71,8 @@ type MetaGraphAdResponse = {
     };
     error?: {
         message?: string;
+        code?: number;
+        error_subcode?: number;
     };
 };
 
@@ -141,8 +156,9 @@ export async function persistConversationAdAttribution({
         requestId,
     });
 
-    // Complete campaign attribution supplied by the webhook needs no API permissions.
-    if (referral.campaign_id && referral.campaign_name) return;
+    // Only skip enrichment when the webhook also supplies the ad and its media.
+    if (referral.campaign_id && referral.campaign_name &&
+        (referral.ad_name || referral.ad_title) && (referral.photo_url || referral.video_url)) return;
 
     try {
         const ad = await resolveConversationAd(referral.ad_id);
@@ -205,8 +221,9 @@ export async function persistConversationAdAttribution({
     }
 }
 
-export async function backfillConversationAdAttributions() {
-    const rows = await loadUnresolvedAttributionRows();
+// Explicit IDs also refresh already-resolved metadata, for controlled repairs.
+export async function backfillConversationAdAttributions(metaAdIds?: string[]) {
+    const rows = await loadUnresolvedAttributionRows(metaAdIds);
     const adIds = [...new Set(rows.map((row) => row.meta_ad_id))];
 
     if (adIds.length === 0) {
@@ -233,11 +250,12 @@ export async function backfillConversationAdAttributions() {
         try {
             const ad = await resolveConversationAd(adId);
             const enrichedAt = new Date().toISOString();
-            const { error } = await supabase
+            let update = supabase
                 .from("conversation_ad_attributions")
                 .update(attributionUpdateValues(ad, enrichedAt))
-                .eq("meta_ad_id", adId)
-                .in("enrichment_status", ["pending", "failed", "unavailable"]);
+                .eq("meta_ad_id", adId);
+            if (!metaAdIds) update = update.in("enrichment_status", ["pending", "failed", "unavailable"]);
+            const { error } = await update;
 
             if (error) throw error;
 
@@ -264,7 +282,7 @@ export async function backfillConversationAdAttributions() {
 
 async function resolveConversationAd(metaAdId: string) {
     const cached = await loadCachedConversationAd(metaAdId);
-    if (cached) {
+    if (cached?.name && cached.campaignName && cached.adSetName && (cached.imageUrl || cached.videoUrl)) {
         return {
             ...cached,
             imageUrl: await persistPermanentAdThumbnail(
@@ -275,6 +293,7 @@ async function resolveConversationAd(metaAdId: string) {
     }
 
     let zernioError: unknown = null;
+    let fallbackAd = cached;
 
     try {
         const ad = await getZernioAd(metaAdId);
@@ -285,7 +304,7 @@ async function resolveConversationAd(metaAdId: string) {
             ad.ad_set_id ||
             ad.ad_set_name
         ) {
-            return {
+            fallbackAd = mergeAdDetails({
                 zernioAdId: ad.id,
                 platform: ad.platform,
                 campaignId: ad.campaign_id,
@@ -298,25 +317,44 @@ async function resolveConversationAd(metaAdId: string) {
                     ad.image_url,
                 ),
                 videoUrl: ad.video_url,
-            } satisfies ConversationAdDetails;
+            }, fallbackAd);
+            if (fallbackAd.name && fallbackAd.campaignName && fallbackAd.adSetName &&
+                (fallbackAd.imageUrl || fallbackAd.videoUrl)) return fallbackAd;
         }
 
-        zernioError = new Error(
-            "Zernio ad response did not include ad metadata",
-        );
+        if (!fallbackAd) {
+            zernioError = new Error("Zernio ad response did not include ad metadata");
+        }
     } catch (error) {
         zernioError = error;
     }
 
     try {
         const ad = await getMetaGraphAd(metaAdId);
-        return {
+        return mergeAdDetails({
             ...ad,
             imageUrl: await persistPermanentAdThumbnail(metaAdId, ad.imageUrl),
-        } satisfies ConversationAdDetails;
+        }, fallbackAd);
     } catch (metaError) {
+        // A failed media refresh must not erase metadata already supplied.
+        if (fallbackAd) return fallbackAd;
         throw new ConversationAdResolutionError(zernioError, metaError);
     }
+}
+
+function mergeAdDetails(ad: ConversationAdDetails, fallback: ConversationAdDetails | null): ConversationAdDetails {
+    if (!fallback) return ad;
+    return {
+        zernioAdId: ad.zernioAdId ?? fallback.zernioAdId,
+        platform: ad.platform ?? fallback.platform,
+        campaignId: ad.campaignId ?? fallback.campaignId,
+        campaignName: ad.campaignName ?? fallback.campaignName,
+        adSetId: ad.adSetId ?? fallback.adSetId,
+        adSetName: ad.adSetName ?? fallback.adSetName,
+        name: ad.name ?? fallback.name,
+        imageUrl: ad.imageUrl ?? fallback.imageUrl,
+        videoUrl: ad.videoUrl ?? fallback.videoUrl,
+    };
 }
 
 async function loadCachedConversationAd(
@@ -497,7 +535,7 @@ async function requestMetaGraphAd(
     );
     url.searchParams.set(
         "fields",
-        "id,name,campaign{id,name},adset{id,name}",
+        "id,name,campaign{id,name},adset{id,name},creative{image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec}",
     );
 
     const response = await fetch(url, {
@@ -512,13 +550,40 @@ async function requestMetaGraphAd(
 
     if (!response.ok || payload.error) {
         throw new Error(
-            payload.error?.message ??
-                `Meta Graph API returned HTTP ${response.status}`,
+            (payload.error?.message ?? `Meta Graph API returned HTTP ${response.status}`) +
+            (payload.error?.code ? ` (code ${payload.error.code}${payload.error.error_subcode ? `/${payload.error.error_subcode}` : ""})` : ""),
         );
     }
 
-    if (!payload.campaign && !payload.adset) {
-        throw new Error("Meta ad response did not include campaign or ad set details");
+    if (!payload.id || !(payload.name || payload.campaign || payload.adset)) {
+        throw new Error("Meta ad response did not include ad metadata");
+    }
+
+    const creative = payload.creative;
+    const videoData = creative?.object_story_spec?.video_data;
+    const assetVideo = creative?.asset_feed_spec?.videos?.find(item => item.video_id);
+    const imageUrl = creative?.image_url ?? videoData?.image_url ??
+        creative?.object_story_spec?.link_data?.picture ??
+        creative?.asset_feed_spec?.images?.find(item => item.url)?.url ??
+        assetVideo?.thumbnail_url ?? creative?.thumbnail_url ?? null;
+    const videoId = creative?.video_id ?? videoData?.video_id ?? assetVideo?.video_id;
+    let videoUrl: string | null = null;
+    if (videoId) {
+        // Video access can differ from ad access. Keep the ad metadata and
+        // thumbnail when the video endpoint is unavailable to this token.
+        try {
+            const videoEndpoint = new URL(`https://graph.facebook.com/${apiVersion}/${encodeURIComponent(videoId)}`);
+            videoEndpoint.searchParams.set("fields", "source");
+            const videoResponse = await fetch(videoEndpoint, {
+                headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+                cache: "no-store",
+                signal: AbortSignal.timeout(META_GRAPH_REQUEST_TIMEOUT_MS),
+            });
+            const video = await videoResponse.json().catch(() => ({}));
+            if (videoResponse.ok && !video.error && typeof video.source === "string") videoUrl = video.source;
+        } catch {
+            // The permanent thumbnail still lets the customer identify the ad.
+        }
     }
 
     return {
@@ -529,8 +594,8 @@ async function requestMetaGraphAd(
         adSetId: payload.adset?.id ?? null,
         adSetName: payload.adset?.name ?? null,
         name: payload.name ?? null,
-        imageUrl: null,
-        videoUrl: null,
+        imageUrl,
+        videoUrl,
     };
 }
 
@@ -559,16 +624,19 @@ function resolveAdCity(ad: ConversationAdDetails) {
     )?.city ?? null;
 }
 
-async function loadUnresolvedAttributionRows() {
+async function loadUnresolvedAttributionRows(metaAdIds?: string[]) {
     const rows: UnresolvedAttributionRow[] = [];
+    if (metaAdIds?.length === 0) return rows;
 
     for (let from = 0; ; from += BACKFILL_PAGE_SIZE) {
-        const { data, error } = await supabase
+        let query = supabase
             .from("conversation_ad_attributions")
             .select("instagram_user_id, meta_ad_id, referral_received_at")
-            .in("enrichment_status", ["pending", "failed", "unavailable"])
             .order("referral_received_at", { ascending: false })
             .range(from, from + BACKFILL_PAGE_SIZE - 1);
+        query = metaAdIds ? query.in("meta_ad_id", metaAdIds)
+            : query.in("enrichment_status", ["pending", "failed", "unavailable"]);
+        const { data, error } = await query;
 
         if (error) throw error;
 

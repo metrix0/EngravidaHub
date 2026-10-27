@@ -104,18 +104,21 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         const conversationIds = conversations.rows.map(row => String(row.id));
         const appointmentIds = appointments.rows.map(row => String(row.id));
         const [threadAttributions, socialAttributions, adEvents, appointmentHistory] = await Promise.all([
-            loadRows("conversation_ad_attributions", "id,thread_id,channel,ad_name,referral_ad_title,campaign_id,campaign_name,ad_set_id,ad_set_name,meta_ad_id,zernio_ad_id,creative_image_url,creative_video_url,referral_photo_url,referral_video_url,referral_source,referral_received_at,created_at", "thread_id", threadIds),
-            loadRows("conversation_ad_attributions", "id,thread_id,instagram_user_id,channel,ad_name,referral_ad_title,campaign_id,campaign_name,ad_set_id,ad_set_name,meta_ad_id,zernio_ad_id,creative_image_url,creative_video_url,referral_photo_url,referral_video_url,referral_source,referral_received_at,created_at", "instagram_user_id", socialIds),
+            loadRows("conversation_ad_attributions", "id,message_id,thread_id,channel,ad_name,referral_ad_title,campaign_id,campaign_name,ad_set_id,ad_set_name,meta_ad_id,zernio_ad_id,creative_image_url,creative_video_url,referral_photo_url,referral_video_url,referral_source,referral_received_at,created_at", "thread_id", threadIds),
+            loadRows("conversation_ad_attributions", "id,message_id,thread_id,instagram_user_id,channel,ad_name,referral_ad_title,campaign_id,campaign_name,ad_set_id,ad_set_name,meta_ad_id,zernio_ad_id,creative_image_url,creative_video_url,referral_photo_url,referral_video_url,referral_source,referral_received_at,created_at", "instagram_user_id", socialIds),
             loadRows("ad_events", "id,conversation_id,event_type,platform,status,event_date,created_at", "conversation_id", conversationIds),
             loadRows("schedule_history", "id,entity_id,operation,recorded_at,before_state,after_state", "entity_id", appointmentIds, "id"),
         ]);
+        const adAttributions = combine(threadAttributions, socialAttributions);
+        const entryMessages = await loadRows("messages", "id,thread_id,sender_type,text,sent_at", "id",
+            [...new Set(adAttributions.rows.map(row => row.message_id).filter((id): id is string => typeof id === "string"))]);
         // The history table also includes agenda-wide changes; only these
         // specific, client-linked appointment IDs are included.
         const history = appointmentHistory.rows.filter(row => row.operation === "UPDATE");
         const sources = [
             clientRows, linkedSocial, directConversations, socialConversations, directThreads, socialThreads,
             analysesDirect, analysesSocial, tintim, calls, funnelHistory, appointments, clinisys, schedules, invoices,
-            threadAttributions, socialAttributions, adEvents, appointmentHistory, appointmentThreads,
+            threadAttributions, socialAttributions, adEvents, appointmentHistory, appointmentThreads, entryMessages,
         ];
         const journey = buildIndividualJourney({
             client: clientRows.rows[0] ?? null,
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
             conversations: conversations.rows,
             analyses: analyses.rows,
             threads: threads.rows,
-            adAttributions: combine(threadAttributions, socialAttributions).rows,
+            adAttributions: adAttributions.rows,
             tintim: tintim.rows,
             adEvents: adEvents.rows,
             calls: calls.rows,
@@ -137,8 +140,9 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         });
         return NextResponse.json({ ...journey, acquisition: buildClientAcquisition({
             client: clientRows.rows[0] ?? null, instagramUsers: socialRows,
-            threads: threads.rows, adAttributions: combine(threadAttributions, socialAttributions).rows,
-            appointments: appointments.rows,
+            threads: threads.rows, adAttributions: adAttributions.rows,
+            appointments: appointments.rows, entryMessages: entryMessages.rows,
+            tintim: tintim.rows, conversations: conversations.rows,
         }) }, { headers: { "Cache-Control": "private, no-store" } });
     } catch (error) {
         if (request.signal.aborted) return new NextResponse(null, { status: 499 });
