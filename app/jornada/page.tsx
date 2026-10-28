@@ -418,9 +418,8 @@ export default function JourneyPage() {
 
     useAssistantPageContext("jornada", () => ({
         title: "Jornada",
-        filters: { periodo: period, intervalo: selectedRange, unidades: unitIds, atendentes: attendantIds, funis: tunnelValues, origens: originValues, carregando: loadingData || isRefreshing },
-        sections: data && loadedQueryKey === currentQueryKey ? [
-            { id: "jornada-pipeline", title: "Jornada completa", data: data.full_pipeline },
+        filters: { periodo: period, intervalo: selectedRange, unidades: unitIds, atendentes: attendantIds, funis: tunnelValues, origens: originValues, carregando: loadingData || isRefreshing || loadedQueryKey !== currentQueryKey },
+        sections: data && loadedQueryKey === currentQueryKey && !loadingData && !isRefreshing ? [
             { id: "jornada-whatsapp", title: "Cobertura WhatsApp", data: data.full_pipeline?.audit?.whatsapp_coverage },
             { id: "jornada-origens", title: "Origem de WhatsApp rastreado", data: data.full_pipeline?.audit?.tracked_sources },
             { id: "jornada-conversa", title: "Jornada na conversa", data: data.journey_funnel },

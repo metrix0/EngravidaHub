@@ -19,6 +19,12 @@ const connectionsSource = ts.transpileModule(fs.readFileSync(path.join(root, "li
 }).outputText;
 const connectionExports = {};
 vm.runInNewContext(connectionsSource, { exports: connectionExports });
+const journeyContextSource = ts.transpileModule(fs.readFileSync(path.join(root, "lib/ai/assistantJourneyContext.ts"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+const journeyContextExports = {};
+vm.runInNewContext(journeyContextSource, { exports: journeyContextExports });
+let readGraphContext;
 const fixture = {
     available: true, ads_available: true, filters_applied: false, currency_code: "BRL", acquisition_branches: [], procedure_branches: [], transitions: [],
     revenue_branches: [{ kind: "evaluation", clients: 1, amount: 100 }, { kind: "procedure", clients: 1, amount: 200 }],
@@ -31,7 +37,7 @@ fixture.additional_pipelines = [{ key: "untracked", label: "WhatsApp não rastre
 function load(react, fetch, window) {
     const exports = {};
     vm.runInNewContext(source + "\nexports.__test = ProcedurePipelineStages;", { exports, console, URLSearchParams, AbortController, fetch, window,
-        require: name => name === "react" ? { ...React, ...react } : name === "@/components/dashboard/JourneyPatientsPanel" ? { default: () => null } : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
+        require: name => name === "react" ? { ...React, ...react } : name === "@/components/dashboard/JourneyPatientsPanel" ? { default: () => null } : name === "@/lib/ai/assistantPageContext" ? { useAssistantPageContext: (_id, read) => { readGraphContext = read; } } : name === "@/lib/ai/assistantJourneyContext" ? journeyContextExports : name === "@/components" ? components : name === "@/lib/funnel/journeyConnections" ? connectionExports : require(name),
     });
     exports.FullJourneyPipelineCard.details = exports.__test;
     return exports.FullJourneyPipelineCard;
@@ -103,7 +109,7 @@ const fetch = async (url, options) => {
 const Window = { setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); } };
 const Widget = load(hooks, fetch, Window);
 let params = "start_date=2026-10-01&end_date=2026-10-20";
-function render() { cursor = 0; const node = Widget({ data: { full_pipeline: { ...fixture, query_params: params } } });
+function render() { cursor = 0; const node = Widget({ data: { full_pipeline: { ...fixture, stages: fixture.stages.map(stage => ({ ...stage, value: 999 })), query_params: params } } });
     queue.splice(0).forEach(run => run()); return node; }
 function nodes(node, test, result = []) {
     if (!node || typeof node !== "object") return result;
@@ -114,13 +120,21 @@ function nodes(node, test, result = []) {
 function button(node, text) { const result = nodes(node, item => item.type === "button" && String(item.props.children).includes(text))[0]; assert.ok(result, text); return result; }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
-    render(); await settle(); let node = render();
+    render();
+    assert.equal(readGraphContext().sections.length, 1);
+    assert.equal(readGraphContext().sections[0].data.carregando, true);
+    await settle(); let node = render();
+    const loadedStages = readGraphContext().sections.find(section => section.id === "jornada-pipeline-paid-stages-0");
+    assert.equal(loadedStages.data.valores[0].value, 2, "Assistant must read full graph response, not summary's 999");
+    assert.ok(readGraphContext().sections.some(section => section.id.startsWith("jornada-pipeline-organic-")));
     assert.equal(requests.length, 1); assert.ok(requests[0].includes("start_date=2026-10-01"));
     params = "start_date=2026-09-01&end_date=2026-09-30";
     render(); await settle(); node = render(); assert.equal(requests.length, 2);
     assert.ok(requests.at(-1).includes("start_date=2026-09-01"));
     assert.equal(nodes(node, item => item.type === "button").length, 0);
     fail = true; params += "&unit_ids=u1"; render(); await settle(); node = render();
+    assert.equal(readGraphContext().sections.length, 1);
+    assert.equal(readGraphContext().sections[0].data.erro, "Erro de teste");
     button(node, "Tentar novamente").props.onClick(); render(); await settle(); node = render();
     assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0);
     defer = true; params = "start_date=2026-08-01&end_date=2026-08-31"; render();

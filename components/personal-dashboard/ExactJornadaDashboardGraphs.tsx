@@ -21,6 +21,8 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Too
 import { Card, Skeleton } from "@/components";
 import JourneyPatientsPanel, { type JourneyPatientSelection } from "@/components/dashboard/JourneyPatientsPanel";
 import { journeyConnections, type JourneyAnchor } from "@/lib/funnel/journeyConnections";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
+import { buildAssistantJourneySections } from "@/lib/ai/assistantJourneyContext";
 
 const JourneyPatientsContext = createContext<{
     group: string;
@@ -215,6 +217,11 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
         : data.full_pipeline;
     const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
 
+    useAssistantPageContext(`jornada-grafo-${query}`, () => ({
+        title: "Jornada",
+        sections: buildAssistantJourneySections({ pipeline, loading, error, query }),
+    }));
+
     useEffect(() => {
         if (query === null) return;
         const controller = new AbortController();
@@ -242,7 +249,7 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     }, [query, requestKey, onSourceTooltipChange]);
 
     return (
-        <div className="min-w-0 overflow-hidden">
+        <div data-assistant-section="jornada-pipeline" className="min-w-0 overflow-hidden">
             {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
                     A jornada completa não pôde ser carregada: {error}

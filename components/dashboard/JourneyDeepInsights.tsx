@@ -68,6 +68,7 @@ const percent = (numerator: number, denominator: number) =>
 
 export default function JourneyDeepInsights({ query }: { query: string }) {
     const [data, setData] = useState<Response | null>(null);
+    const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [sort, setSort] = useState<"authorized_revenue" | "contacts" | "linked_clients" | "completed_procedures" | "attended_consultations">("authorized_revenue");
@@ -85,7 +86,10 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
                 });
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as análises.");
-                if (!controller.signal.aborted) setData(payload as Response);
+                if (!controller.signal.aborted) {
+                    setData(payload as Response);
+                    setLoadedQuery(query);
+                }
             } catch (cause) {
                 if (!controller.signal.aborted) setError(
                     cause instanceof Error ? cause.message : "Falha ao carregar as análises.",
@@ -97,16 +101,6 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
         return () => controller.abort();
     }, [query]);
 
-    useAssistantPageContext("jornada-insights", () => data ? ({
-        title: "Jornada — análises",
-        sections: [
-            { id: "jornada-tempos", title: "Tempo até a conversão", data: { timelines: data.analytics.timelines, sources: data.analytics.sources } },
-            { id: "jornada-touchpoints", title: "Interações até o agendamento", data: data.analytics.touchpoints },
-            { id: "jornada-recuperacao", title: "Abandono e recuperação", data: { recovery: data.analytics.recovery, moments: data.analytics.recovery_moments } },
-            { id: "jornada-criativos", title: "Ranking de criativos", data: data.creatives },
-        ],
-    }) : null);
-
     const creatives = useMemo(() => {
         const rows = data?.creatives?.creatives ?? [];
         return rows.filter(creative => creative.contacts >= minimum)
@@ -116,6 +110,22 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
 
     const pages = Math.max(1, Math.ceil(creatives.length / 10));
     const currentPage = Math.min(page, pages);
+    useAssistantPageContext("jornada-insights", () => data && loadedQuery === query && !loading && !error ? ({
+        title: "Jornada — análises",
+        sections: [
+            { id: "jornada-tempos", title: "Tempo até a conversão", data: { timelines: data.analytics.timelines, sources: data.analytics.sources } },
+            { id: "jornada-touchpoints", title: "Interações até o agendamento", data: data.analytics.touchpoints },
+            { id: "jornada-recuperacao", title: "Abandono e recuperação", data: { recovery: data.analytics.recovery, moments: data.analytics.recovery_moments } },
+            { id: "jornada-criativos", title: "Ranking de criativos", data: {
+                scope: data.creatives?.scope, erro: data.creative_error,
+                ordenacao: sort, minimo_contatos: minimum, pagina: currentPage,
+                total_filtrado: creatives.length,
+                criativos_visiveis: creatives.slice((currentPage - 1) * 10, currentPage * 10),
+                metodologia: "Receita autorizada, não pagamento confirmado. Gasto por campanha; ROAS por criativo indisponível.",
+            } },
+        ],
+    }) : null);
+
     const timelineColumns: DataTableColumn<Timeline>[] = [
         { id: "metric", label: "Conversão", width: "43%", render: item => durationLabels[item.metric] ?? item.metric },
         { id: "median", label: "Mediana", width: "19%", align: "right", render: item => <strong>{formatDuration(item.median)}</strong> },

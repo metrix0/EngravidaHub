@@ -47,6 +47,12 @@ jobs:
       - name: Typecheck
         run: pnpm exec tsc --noEmit
 
+      - name: Assistant and Jornada context regression checks
+        run: |
+          pnpm assistant:eval
+          node --import tsx scripts/test-assistant-jornada.ts
+          node scripts/test-full-journey-ui.cjs
+
       - name: Pattern signal regression checks
         run: node --import tsx scripts/test-pattern-signals.ts
 
