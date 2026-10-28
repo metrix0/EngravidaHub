@@ -76,6 +76,7 @@ type FullJourneyPipeline = {
     additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
     instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
     revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
+    other_appointments?: { scheduled: number; attended: number };
     available: boolean;
     ads_available: boolean;
     ads_scope_global: true;
@@ -615,6 +616,10 @@ function buildPreparedJourneyPipeline(
             invoicedAmount: 0, authorizedAmount: metric("authorized_amount"),
             procedureBranches: rows, platformBreakdown, error: null,
         });
+        pipeline.other_appointments = {
+            scheduled: metric("other_scheduled"),
+            attended: metric("other_attended"),
+        };
         if (key !== "paid") {
             pipeline.acquisition_branches = [];
             if (pipeline.stages[0]) {

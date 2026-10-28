@@ -61,6 +61,7 @@ type FullJourneyPipeline = {
     additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
     instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
     revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
+    other_appointments?: { scheduled: number; attended: number };
     available: boolean;
     ads_available: boolean;
     ads_scope_global: boolean;
@@ -762,6 +763,7 @@ function JourneyPipelineTree({
                     <div className="flex items-start">
                         <ProcedurePipelineStages scheduled={scheduled} attended={attended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind === "evaluation")}
+                            otherAppointments={pipeline.other_appointments}
                             topOffset={0} branchOffset={12} />
                         <PipelineTransitionCard transition={pipeline.transitions.find(item => item.key === "consultation_to_procedure") ?? clientPipelineTransition({ key: "consultation_to_procedure", label: "Consulta → procedimento", fromValue: 0, toValue: 0, rate: null })} />
                         <ProcedurePipelineStages scheduled={procedureScheduled} attended={procedureAttended} idPrefix={groupKey}
@@ -809,6 +811,7 @@ function ProcedurePipelineStages({
     scheduled,
     attended,
     branches,
+    otherAppointments,
     topOffset,
     branchOffset = 16,
     idPrefix,
@@ -816,6 +819,7 @@ function ProcedurePipelineStages({
     scheduled: FullJourneyPipeline["stages"][number];
     attended: FullJourneyPipeline["stages"][number];
     branches: FullJourneyPipeline["procedure_branches"];
+    otherAppointments?: { scheduled: number; attended: number };
     topOffset: number;
     branchOffset?: number;
     idPrefix: string;
@@ -859,6 +863,11 @@ function ProcedurePipelineStages({
                     </button>
                 </div>
             </div>
+            {otherAppointments && otherAppointments.scheduled > 0 ? (
+                <p className="mt-2 px-2 text-[11px] leading-4 text-slate-500">
+                    Outros agendamentos (não clínicos): {otherAppointments.scheduled.toLocaleString("pt-BR")} agendados · {otherAppointments.attended.toLocaleString("pt-BR")} compareceram
+                </p>
+            ) : null}
             <div style={{ marginTop: branchOffset }}>
                 {expanded ? <div id={detailsId}>
             {branches.length > 0 ? (
