@@ -203,6 +203,7 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
     const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+    const previousQuery = useRef<string | null>(null);
     const params = new URLSearchParams(data.full_pipeline.query_params);
     params.delete("summary_only");
     params.set("full_pipeline_only", "1");
@@ -225,27 +226,41 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     useEffect(() => {
         if (query === null) return;
         const controller = new AbortController();
+        const changingPeriod = previousQuery.current !== null && previousQuery.current !== query;
+        previousQuery.current = query;
+        let active = true;
         let timedOut = false;
-        const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+        let timeout: number | undefined;
+        setLoaded(null);
+        setFailure(null);
         onSourceTooltipChange?.("Carregando detalhes da jornada...");
-        void (async () => {
+        async function loadPipeline() {
+            timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
             try {
                 const response = await fetch(`/api/dashboard/jornada?${query}`, { signal: controller.signal });
                 const json = await response.json();
+                if (!active || controller.signal.aborted) return;
                 if (!response.ok || !json.full_pipeline || !Array.isArray(json.full_pipeline.stages) ||
                     !Array.isArray(json.full_pipeline.transitions) || !json.full_pipeline.audit || json.full_pipeline.audit.error) {
                     throw new Error(json.error ?? json.full_pipeline?.audit?.error ?? "Falha ao carregar a jornada completa.");
                 }
-                if (!controller.signal.aborted) {
-                    setLoaded({ key: requestKey, pipeline: json.full_pipeline });
-                    onSourceTooltipChange?.(buildPipelineSourceTooltip(json.full_pipeline));
-                }
+                setFailure(null);
+                setLoaded({ key: requestKey, pipeline: json.full_pipeline });
+                onSourceTooltipChange?.(buildPipelineSourceTooltip(json.full_pipeline));
             } catch (error) {
-                if (controller.signal.aborted && !timedOut) return;
+                if (!active || (controller.signal.aborted && !timedOut)) return;
                 setFailure({ key: requestKey, message: timedOut ? "A consulta demorou mais que o esperado." : error instanceof Error ? error.message : "Falha ao carregar a jornada completa." });
             } finally { window.clearTimeout(timeout); }
-        })();
-        return () => { window.clearTimeout(timeout); controller.abort(); };
+        }
+        // Keep initial load and explicit retry immediate; collapse rapid date/filter changes.
+        const debounce = changingPeriod ? window.setTimeout(() => { void loadPipeline(); }, 150) : undefined;
+        if (!changingPeriod) void loadPipeline();
+        return () => {
+            active = false;
+            window.clearTimeout(debounce);
+            window.clearTimeout(timeout);
+            controller.abort();
+        };
     }, [query, requestKey, onSourceTooltipChange]);
 
     return (

@@ -1,3 +1,4 @@
+// app/api/dashboard/jornada/insights/route.ts
 import { NextResponse } from "next/server";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { readDashboardFilters, resolveDashboardDateRange } from "@/lib/dashboard/metrics";
@@ -117,6 +118,7 @@ export async function GET(request: Request) {
     try {
         const { user } = await getCurrentAttendantFromRequest();
         if (!user) return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+        request.signal.throwIfAborted();
 
         const { searchParams } = new URL(request.url);
         const range = resolveDashboardDateRange(searchParams);
@@ -124,10 +126,11 @@ export async function GET(request: Request) {
         const creativeRequest = supabase.rpc("dashboard_journey_creative_outcomes", {
             p_start_at: range.startAt,
             p_end_at: range.endAt,
-        });
+        }).abortSignal(request.signal);
 
         const parts: Shard[] = [];
         for (let start = 0; start < SHARDS; start += SHARDS_PER_BATCH) {
+            request.signal.throwIfAborted();
             const results = await Promise.all(
                 Array.from({ length: Math.min(SHARDS_PER_BATCH, SHARDS - start) }, (_, index) => supabase.rpc("dashboard_journey_deep_insights", {
                     p_start_at: range.startAt,
@@ -138,15 +141,18 @@ export async function GET(request: Request) {
                     p_origins: filters.origins,
                     p_shard: start + index,
                     p_shards: SHARDS,
-                })),
+                }).abortSignal(request.signal)),
             );
+            request.signal.throwIfAborted();
             for (const result of results) {
                 if (result.error) throw result.error;
                 parts.push(result.data as Shard);
             }
         }
 
+        request.signal.throwIfAborted();
         const creativeResult = await creativeRequest;
+        request.signal.throwIfAborted();
         if (creativeResult.error) console.error("[jornada/insights] creative metrics", creativeResult.error);
 
         return NextResponse.json({

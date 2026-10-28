@@ -89,7 +89,7 @@ assert.deepEqual(Array.from(connectionExports.journeyConnections({
 for (const label of ["Clique → WhatsApp", "Clique → Instagram", "Rastreado → agenda", "Agenda → presença", "Agenda → Presença", "Consulta → procedimento"]) {
     assert.ok(!markup.includes(`>${label}</div>`));
 }
-let cursor = 0, slots = [], queue = [], requests = [], fail = false, defer = false, timers = new Map(), timerId = 0;
+let cursor = 0, slots = [], queue = [], requests = [], fail = false, defer = false, hold = false, pending = [], timers = new Map(), timerId = 0;
 const hooks = {
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
         return [slots[index], value => { slots[index] = typeof value === "function" ? value(slots[index]) : value; }]; },
@@ -102,11 +102,13 @@ const hooks = {
 };
 const fetch = async (url, options) => {
     requests.push(url);
+    if (hold) { hold = false; return new Promise(resolve => pending.push(resolve)); }
     if (defer) { defer = false; return new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(new Error("Abort")))); }
     if (fail) { fail = false; return { ok: false, json: async () => ({ error: "Erro de teste" }) }; }
     return { ok: true, json: async () => ({ full_pipeline: fixture }) };
 };
-const Window = { setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); } };
+const Window = { setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; }, clearTimeout(id) { timers.delete(id); } };
+function flushTimers(ms) { for (const [id, timer] of [...timers]) if (timer.ms === ms) { timers.delete(id); timer.fn(); } }
 const Widget = load(hooks, fetch, Window);
 let params = "start_date=2026-10-01&end_date=2026-10-20";
 function render() { cursor = 0; const node = Widget({ data: { full_pipeline: { ...fixture, stages: fixture.stages.map(stage => ({ ...stage, value: 999 })), query_params: params } } });
@@ -118,11 +120,12 @@ function nodes(node, test, result = []) {
     return result;
 }
 function button(node, text) { const result = nodes(node, item => item.type === "button" && String(item.props.children).includes(text))[0]; assert.ok(result, text); return result; }
-const settle = () => new Promise(resolve => setImmediate(resolve));
+const settle = () => { flushTimers(150); return new Promise(resolve => setImmediate(resolve)); };
 (async () => {
     render();
     assert.equal(readGraphContext().sections.length, 1);
     assert.equal(readGraphContext().sections[0].data.carregando, true);
+    assert.equal(requests.length, 1, "Initial load must start immediately without debounce");
     await settle(); let node = render();
     const loadedStages = readGraphContext().sections.find(section => section.id === "jornada-pipeline-paid-stages-0");
     assert.equal(loadedStages.data.valores[0].value, 2, "Assistant must read full graph response, not summary's 999");
@@ -138,11 +141,45 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     button(node, "Tentar novamente").props.onClick(); render(); await settle(); node = render();
     assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0);
     defer = true; params = "start_date=2026-08-01&end_date=2026-08-31"; render();
-    for (const fn of [...timers.values()]) fn(); await settle(); node = render();
+    flushTimers(150); flushTimers(45_000); await settle(); node = render();
     assert.ok(button(node, "Tentar novamente"));
     defer = true; button(node, "Tentar novamente").props.onClick(); render();
     params = "start_date=2026-07-01&end_date=2026-07-31"; render(); await settle(); node = render();
     assert.ok(requests.at(-1).includes("start_date=2026-07-01"));
+    assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0);
+    // A failed period must recover when selected again after visiting another period.
+    fail = true; params = "start_date=2026-06-01&end_date=2026-06-30";
+    render(); await settle(); node = render();
+    assert.ok(button(node, "Tentar novamente"));
+    params = "start_date=2026-05-01&end_date=2026-05-31";
+    render(); await settle(); render();
+    params = "start_date=2026-06-01&end_date=2026-06-30";
+    render(); await settle(); node = render();
+    assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0,
+        "Returning to a failed period must discard its old error after a successful response");
+    const beforeRapidChanges = requests.length;
+    params = "start_date=2026-04-01&end_date=2026-04-30"; render();
+    params = "start_date=2026-03-01&end_date=2026-03-31"; render();
+    params = "start_date=2026-02-01&end_date=2026-02-28"; render();
+    assert.equal(requests.length, beforeRapidChanges, "Intermediate date changes must not start requests");
+    await settle(); render();
+    assert.equal(requests.length, beforeRapidChanges + 1);
+    assert.ok(requests.at(-1).includes("start_date=2026-02-01"));
+
+    // An old request may finish even after abort (including a delayed timeout rejection).
+    hold = true; params = "start_date=2026-01-01&end_date=2026-01-31";
+    render(); await settle();
+    const resolveOld = pending.shift();
+    flushTimers(45_000);
+    params = "start_date=2026-02-01&end_date=2026-02-28";
+    render(); await settle();
+    hold = true; params = "start_date=2026-01-01&end_date=2026-01-31";
+    render(); await settle();
+    resolveOld({ ok: false, json: async () => ({ error: "Obsolete failure" }) });
+    await settle(); node = render();
+    assert.equal(readGraphContext().sections[0].data.carregando, true, "An obsolete timeout must not fail a new visit to the same period");
+    pending.shift()({ ok: true, json: async () => ({ full_pipeline: fixture }) });
+    await settle(); node = render();
     assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0);
     slots.forEach(slot => slot?.cleanup?.());
     slots = []; cursor = 0; queue = [];
@@ -192,3 +229,52 @@ for (const state of [
     assert.equal(context.sections.length, state.ready ? 5 : 1, "Unavailable insights must report status without stale metrics");
 }
 console.log("PASS insights context: loading, success, failed requests and changed filters expose explicit status without stale results.");
+
+// Exercise server cancellation: abandoning dates must stop the remaining insight batches.
+(async () => {
+    const routeSource = ts.transpileModule(fs.readFileSync(path.join(root, "app/api/dashboard/jornada/insights/route.ts"), "utf8"), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    async function runInsights(cancelAfterFirstBatch, alreadyAborted = false) {
+        const controller = new AbortController();
+        if (alreadyAborted) controller.abort();
+        const calls = [];
+        const exports = {};
+        vm.runInNewContext(routeSource, { exports, console, URL,
+            require: name => name === "next/server" ? { NextResponse: Response }
+                : name === "@/lib/attendants/getCurrentAttendantFromRequest" ? { getCurrentAttendantFromRequest: async () => ({ user: { id: "test" } }) }
+                : name === "@/lib/dashboard/metrics" ? {
+                    resolveDashboardDateRange: () => ({ startAt: "2026-07-30T03:00:00Z", endAt: "2026-09-29T03:00:00Z" }),
+                    readDashboardFilters: () => ({ unitIds: [], attendantIds: [], tunnels: [], origins: [] }),
+                }
+                : name === "@/lib/supabase/client" ? { supabase: { rpc(name, params) {
+                    let signal;
+                    return { abortSignal(value) { signal = value; return this; }, then(resolve, reject) {
+                        calls.push({ name, params, signal });
+                        if (cancelAfterFirstBatch && params.p_shard === 0) controller.abort();
+                        return Promise.resolve({ error: null, data: {
+                            scope: { clients: 1 }, timeline_hist: [], touch_hist: [], return_hist: [],
+                            recovery: { total: 0, mature: 0, returned: 0, booked: 0 }, recovery_moments: [], sources: [],
+                        } }).then(resolve, reject);
+                    } };
+                } } } : require(name),
+        });
+        const request = new Request("http://localhost/api/dashboard/jornada/insights", { signal: controller.signal });
+        const response = await exports.GET(request);
+        return { response, calls, signal: request.signal };
+    }
+    const abandoned = await runInsights(true);
+    assert.equal(abandoned.response.status, 499, "Abandoned date queries must not complete all eight expensive shards");
+    assert.ok(abandoned.calls.length <= 2, "Cancellation must stop the next batch and creative query");
+    assert.ok(abandoned.calls.every(call => call.signal === abandoned.signal), "Every RPC must receive the request's abort signal");
+    const cancelledBeforeStart = await runInsights(false, true);
+    assert.equal(cancelledBeforeStart.response.status, 499);
+    assert.equal(cancelledBeforeStart.calls.length, 0);
+    const normal = await runInsights(false);
+    assert.equal(normal.response.status, 200);
+    assert.equal(normal.calls.filter(call => call.name === "dashboard_journey_deep_insights").length, 8);
+    assert.equal(normal.calls.filter(call => call.name === "dashboard_journey_creative_outcomes").length, 1);
+    assert.ok(normal.calls.every(call => call.signal === normal.signal));
+    assert.equal((await normal.response.json()).analytics.scope.clients, 8, "Normal load must retain all shards and aggregation");
+    console.log("PASS insights cancellation: every RPC receives abort signal, abandoned requests stop batching, normal eight-shard output preserved.");
+})().catch(error => { console.error(error); process.exitCode = 1; });
