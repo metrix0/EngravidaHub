@@ -156,3 +156,39 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(nodes(details, item => item.props?.procedureName === "Consulta específica").length, 2);
     console.log("PASS UI: card/title removed, clinical stages, currency headline, two revenue paths, global date changes, no widget-specific date controls, errors/retry, timeout, stale-request cancellation and collapsed/expanded consultation details.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+// Exercise the actual insights provider with loaded, failed and changing filters.
+const insightsSource = ts.transpileModule(fs.readFileSync(path.join(root, "components/dashboard/JourneyDeepInsights.tsx"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+const insightsData = {
+    analytics: { timelines: [], sources: [], touchpoints: [], recovery: { total: 0, mature: 0, returned: 0, booked: 0, median_days: null }, recovery_moments: [] },
+    creatives: { scope: {}, creatives: [] }, creative_error: false,
+};
+for (const state of [
+    { data: null, loaded: null, loading: true, error: null, ready: false },
+    { data: insightsData, loaded: "unit_ids=a", loading: false, error: null, ready: true },
+    { data: insightsData, loaded: "unit_ids=a", loading: false, error: "Não foi possível carregar as análises da jornada.", ready: false },
+    { data: insightsData, loaded: "unit_ids=old", loading: false, error: null, ready: false },
+]) {
+    const values = [state.data, state.loaded, state.loading, state.error, "authorized_revenue", 0, 1];
+    let index = 0;
+    let readInsights;
+    const exports = {};
+    vm.runInNewContext(insightsSource, { exports,
+        require: name => name === "react" ? { useState: () => [values[index++], () => {}], useEffect: () => {}, useMemo: fn => fn() }
+            : name === "@/components" ? components
+            : name === "@/lib/conversationAnalysisLabels" ? { getDropoffMomentLabel: value => value }
+            : name === "@/lib/ai/assistantPageContext" ? { useAssistantPageContext: (_id, read) => { readInsights = read; } }
+            : require(name),
+    });
+    exports.default({ query: "unit_ids=a" });
+    const context = readInsights();
+    const status = context.sections.find(section => section.id === "jornada-insights-estado").data;
+    assert.equal(status.dados_disponiveis, state.ready);
+    assert.equal(status.erro, state.error);
+    assert.equal(status.carregando, state.loading || (!state.error && state.loaded !== "unit_ids=a"));
+    assert.equal(status.query, "unit_ids=a");
+    assert.equal(context.sections.length, state.ready ? 5 : 1, "Unavailable insights must report status without stale metrics");
+}
+console.log("PASS insights context: loading, success, failed requests and changed filters expose explicit status without stale results.");

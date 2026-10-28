@@ -110,9 +110,17 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
 
     const pages = Math.max(1, Math.ceil(creatives.length / 10));
     const currentPage = Math.min(page, pages);
-    useAssistantPageContext("jornada-insights", () => data && loadedQuery === query && !loading && !error ? ({
+    useAssistantPageContext("jornada-insights", () => ({
         title: "Jornada — análises",
         sections: [
+            { id: "jornada-insights-estado", title: "Estado do bloco de análises da Jornada", data: {
+                query,
+                carregando: loading || (!error && loadedQuery !== query),
+                erro: error,
+                dados_disponiveis: Boolean(data && loadedQuery === query && !loading && !error),
+                descricao: "Estado exclusivo do bloco de tempo até a conversão, interações, recuperação e ranking de criativos. Os gráficos de conversa, abandono e objeções são independentes e não comprovam que este bloco carregou.",
+            } },
+            ...(data && loadedQuery === query && !loading && !error ? [
             { id: "jornada-tempos", title: "Tempo até a conversão", data: { timelines: data.analytics.timelines, sources: data.analytics.sources } },
             { id: "jornada-touchpoints", title: "Interações até o agendamento", data: data.analytics.touchpoints },
             { id: "jornada-recuperacao", title: "Abandono e recuperação", data: { recovery: data.analytics.recovery, moments: data.analytics.recovery_moments } },
@@ -123,8 +131,9 @@ export default function JourneyDeepInsights({ query }: { query: string }) {
                 criativos_visiveis: creatives.slice((currentPage - 1) * 10, currentPage * 10),
                 metodologia: "Receita autorizada, não pagamento confirmado. Gasto por campanha; ROAS por criativo indisponível.",
             } },
+            ] : []),
         ],
-    }) : null);
+    }));
 
     const timelineColumns: DataTableColumn<Timeline>[] = [
         { id: "metric", label: "Conversão", width: "43%", render: item => durationLabels[item.metric] ?? item.metric },
