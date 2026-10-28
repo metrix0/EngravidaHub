@@ -77,6 +77,8 @@ type Client = {
     last_tunnel: string | null;
     attendant_name: string | null;
     booking_channels: string[];
+    has_paid_treatment: boolean;
+    has_tracked_whatsapp: boolean;
 };
 
 type ClientsResponse = {
@@ -255,6 +257,8 @@ export default function ClientesPage() {
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [bookingChannelValues, setBookingChannelValues] = useState<string[]>([]);
+    const [paidTreatmentValues, setPaidTreatmentValues] = useState<string[]>([]);
+    const [trackedWhatsappValues, setTrackedWhatsappValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -293,6 +297,8 @@ export default function ClientesPage() {
             readUrlFilterValues(params, ["tunnel", "tunnels"]),
         );
         setBookingChannelValues(readUrlFilterValues(params, ["booking_channel"]));
+        setPaidTreatmentValues(readUrlFilterValues(params, ["paid_treatment"]));
+        setTrackedWhatsappValues(readUrlFilterValues(params, ["tracked_whatsapp"]));
         const initialSearch =
             readUrlFilterValue(params, ["search", "q"]) ?? "";
         setSearch(initialSearch);
@@ -321,6 +327,8 @@ export default function ClientesPage() {
 
         replaceUrlFilterParams([
             { key: "booking_channel", value: bookingChannelValues },
+            { key: "paid_treatment", value: paidTreatmentValues },
+            { key: "tracked_whatsapp", value: trackedWhatsappValues },
             {
                 key: "unit",
                 value: normalizedUnitUrlValues,
@@ -355,6 +363,8 @@ export default function ClientesPage() {
     }, [
         bookingChannelValues,
         closingTagValues,
+        paidTreatmentValues,
+        trackedWhatsappValues,
         dateFilterReady,
         debouncedSearch,
         sourceValues,
@@ -546,6 +556,8 @@ export default function ClientesPage() {
 
         return clients.filter((client) => {
             if (bookingChannelValues.length > 0 && !client.booking_channels?.some(channel => bookingChannelValues.includes(channel))) return false;
+            if (paidTreatmentValues.length > 0 && !paidTreatmentValues.includes(client.has_paid_treatment ? "yes" : "no")) return false;
+            if (trackedWhatsappValues.length > 0 && !trackedWhatsappValues.includes(client.has_tracked_whatsapp ? "yes" : "no")) return false;
             if (
                 stageValues.length > 0 &&
                 (!client.funnel_stage_id ||
@@ -606,6 +618,8 @@ export default function ClientesPage() {
         bookingChannelValues,
         clients,
         closingTagValues,
+        paidTreatmentValues,
+        trackedWhatsappValues,
         interactionDateRange,
         debouncedSearch,
         sourceValues,
@@ -772,6 +786,10 @@ export default function ClientesPage() {
                         sections={[
                             { id: "tunnels", title: "Túnel", options: filters?.tunnels ?? [], values: tunnelValues, onChange: resetPageAndSet(setTunnelValues) },
                             { id: "origins", title: "Origem", options: filters?.origins ?? [], values: sourceValues, onChange: resetPageAndSet(setSourceValues) },
+                            { id: "paid-treatment", title: "Tratamento pago (NF-e)", values: paidTreatmentValues, onChange: resetPageAndSet(setPaidTreatmentValues),
+                                options: [{ label: "Sim", value: "yes" }, { label: "Não", value: "no" }] },
+                            { id: "tracked-whatsapp", title: "WhatsApp rastreado", values: trackedWhatsappValues, onChange: resetPageAndSet(setTrackedWhatsappValues),
+                                options: [{ label: "Sim", value: "yes" }, { label: "Não", value: "no" }] },
                             { id: "booking-channel", title: "Consultas marcadas pelo Hub", values: bookingChannelValues, onChange: resetPageAndSet(setBookingChannelValues),
                                 options: [{ label: "Instagram Direct", value: "Instagram" }, { label: "Messenger", value: "Messenger" }] },
                             ...stageFilterSections,

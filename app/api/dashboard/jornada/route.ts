@@ -1,5 +1,6 @@
 // app/api/dashboard/jornada/route.ts
-import { getMatureJourneyRange, journeyInvoiceKind, journeyProcedureKind } from "@/lib/funnel/fullJourney";
+import { getMatureJourneyRange, invoiceStatusIsAuthorized, journeyInvoiceKind, journeyProcedureKind } from "@/lib/funnel/fullJourney";
+import { hasConversationTrackingEvidence, hasTintimTrackingEvidence, trackingIsNearConversation } from "@/lib/funnel/whatsappTracking";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
@@ -21,7 +22,6 @@ import {
     scheduleShowedUp,
 } from "@/lib/schedules/status";
 import {
-    isTrackedTintimSource,
     paidMediaPlatformFromTintimSource,
 } from "@/lib/tintim/attribution";
 
@@ -2669,15 +2669,6 @@ function transition(
     };
 }
 
-function invoiceStatusIsAuthorized(status: string) {
-    const normalized = normalizeText(status).replace(/\s+/g, "");
-    return (
-        normalized.startsWith("autorizada") ||
-        normalized.includes("cancelamentonegado") ||
-        normalized.includes("cancelamentorejeitado")
-    );
-}
-
 function buildWhatsappOriginBreakdown(
     conversations: WhatsappConversationRow[],
 ): FullJourneyPipeline["audit"]["whatsapp_origins"] {
@@ -2725,29 +2716,6 @@ function buildEvidenceBreakdown(
             clients: counts.get(evidence) ?? 0,
         }))
         .filter((item) => item.clients > 0);
-}
-
-function hasConversationTrackingEvidence({
-    conversationOrigin,
-    client,
-    trackingIsNear,
-}: {
-    conversationOrigin: string | null | undefined;
-    client: PipelineClientOriginRow | null;
-    trackingIsNear: boolean;
-}) {
-    if (conversationOrigin?.trim()) return true;
-    if (!trackingIsNear || !client) return false;
-    return Boolean(
-        client.last_origin?.trim() ||
-        client.utm_source?.trim() ||
-        client.utm_medium?.trim() ||
-        client.utm_campaign?.trim() ||
-        client.utm_content?.trim() ||
-        client.utm_term?.trim() ||
-        client.gclid || client.gbraid || client.wbraid ||
-        client.fbclid || client.fbc || client.ctwa_clid,
-    );
 }
 
 function mergeCoverageCategory(
@@ -2988,27 +2956,6 @@ function tintimAttributionSource(attribution: TintimConversationAttributionRow) 
         attribution.source ??
         (attribution.platform === "google_ads" ? "Google Ads" : "Meta Ads")
     );
-}
-
-function hasTintimTrackingEvidence(
-    attribution: TintimConversationAttributionRow | null,
-) {
-    return Boolean(
-        attribution?.platform || isTrackedTintimSource(attribution?.source),
-    );
-}
-
-function trackingIsNearConversation(
-    trackingUpdatedAt: string | null | undefined,
-    conversationStartedAt: string,
-) {
-    if (!trackingUpdatedAt) return false;
-    const trackingTime = new Date(trackingUpdatedAt).getTime();
-    const conversationTime = new Date(conversationStartedAt).getTime();
-    if (!Number.isFinite(trackingTime) || !Number.isFinite(conversationTime)) {
-        return false;
-    }
-    return Math.abs(trackingTime - conversationTime) <= 7 * 86_400_000;
 }
 
 function resolveAttributionSource({
