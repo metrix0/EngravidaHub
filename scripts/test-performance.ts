@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { buildPerformanceReport, type PerformanceSource } from '../lib/performance/report';
+const source: PerformanceSource = {people:[{id:'maria',name:'Maria Resende',sector:'ra',active:true},{id:'other',name:'Maria Fernandes',sector:'other',active:true}],units:[],period:[],monthly:[],bookings:[{date:'2026-10-01',attendant_name:'Maria Luísa Fernandes Resende',unit_name:'Campinas',appointments:51}]};
+assert.equal(buildPerformanceReport(source,'2026-10-01','2026-10-28').coverage.matchedBookings,0);
+const result=buildPerformanceReport({...source,attendant_aliases:[{source_name:'Maria Luísa Fernandes Resende',attendant_id:'maria'}]},'2026-10-01','2026-10-28');
+assert.equal(result.attendants.find(p=>p.id==='maria')?.appointments,51);
+assert.equal(result.coverage.matchedBookings,51);
+assert.equal(result.units[0].ra,51);
+assert.equal(result.unitAttributions[0].attendantId,'maria');
+assert.equal(result.attendants.find(p=>p.id==='maria')?.monthly.at(-1)?.appointments,51);
+assert.equal(buildPerformanceReport({...source,attendant_aliases:[{source_name:'Maria Luísa Fernandes Resende',attendant_id:'inactive'}]},'2026-10-01','2026-10-28').coverage.matchedBookings,0);
+console.log('PASS verified alias attribution: ranking, monthly chart, unit contribution, coverage; ambiguous and inactive identities remain unassigned.');

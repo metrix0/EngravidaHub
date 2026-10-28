@@ -1,6 +1,7 @@
 // lib/performance/report.ts
 // Aggregate the existing conversation analyses and Clinisys bookings without guessing identities.
 export type PerformanceSource = {
+    attendant_aliases?: Array<{ source_name: string; attendant_id: string }>;
     people: Array<{ id: string; name: string; sector: string; active: boolean }>;
     units: Array<{ id: string; name: string }>;
     period: Array<{ attendant_id: string; tickets: number; analyzed: number; first_seconds: number | null; first_count: number; response_seconds: number | null; response_count: number; score: number | null; score_count: number; resolved: number; eligible_resolution: number; partial: number; goal_achieved: number; goal_eligible: number }>;
@@ -67,11 +68,17 @@ export function buildPerformanceReport(source: PerformanceSource, start: string,
     const unitsByName = new Map<string, { total: number; ra: number; matched: number }>();
     const unitAttributions = new Map<string, PerformanceUnitAttribution>();
     const resolvedNames = new Map<string | null, PerformanceSource["people"][number] | null>();
+    const aliases = new Map((source.attendant_aliases ?? []).map(alias => [alias.source_name, alias.attendant_id]));
     let totalBookings = 0, matchedBookings = 0;
     for (const booking of source.bookings) {
         const amount = Number(booking.appointments);
         if (!resolvedNames.has(booking.attendant_name)) {
-            resolvedNames.set(booking.attendant_name, matchPerformanceAttendant(booking.attendant_name, source.people));
+            const aliasId = booking.attendant_name === null ? undefined : aliases.get(booking.attendant_name);
+            // A verified mapping takes precedence over ambiguous name matching.
+            // An alias to an inactive/missing person must not fall through to someone else.
+            resolvedNames.set(booking.attendant_name, aliasId !== undefined
+                ? peopleById.get(aliasId) ?? null
+                : matchPerformanceAttendant(booking.attendant_name, source.people));
         }
         const person = resolvedNames.get(booking.attendant_name) ?? null;
         const inPeriod = booking.date >= start && booking.date <= end;

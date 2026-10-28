@@ -60,7 +60,10 @@ jobs:
         run: node --import tsx scripts/test-inbox-closing-tag.ts
 
       - name: Agenda intelligence regression checks
-        run: node --import tsx scripts/test-agenda-intelligence.ts
+        run: |
+          node --import tsx scripts/test-agenda-intelligence.ts
+          node --import tsx scripts/test-performance.ts
+          node --import tsx scripts/test-agenda-report-context.cjs
 
       - name: Cadence and analysis collector regression checks
         run: node scripts/test-cadence-repair.cjs

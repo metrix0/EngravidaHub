@@ -17,6 +17,7 @@ import type { OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda
 import { monthlyAgendaCounts } from "@/lib/scheduling/agendaReportMetrics";
 import { renderAgendaReportImage } from "@/lib/scheduling/agendaReportImage";
 import { AgendaCountTable, percent } from "./AgendaIndicators";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
 
 type Report = OperationalAgendaReport & { missingDoctors: Array<{ doctorName: string }> };
 type Result = { query: string; report: Report | null; error: string | null };
@@ -68,6 +69,25 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
         return { daily: build(date.slice(0, 7), date), monthly: build(month, `${month}-01`) };
     }, [date, month, unitKey, doctorKey]);
     const daily = useAgendaReport(queries.daily, ready), monthly = useAgendaReport(queries.monthly, ready);
+    useAssistantPageContext("agenda-relatorios", () => ({
+        title: "Inteligência Agenda — disponibilidade e indicadores",
+        filters: { unidades: unitIds, medicos: doctorIds, data_disponibilidade: date, mes_indicadores: month },
+        sections: [
+            { id: "agenda-disponibilidade-estado", title: "Estado da disponibilidade da agenda", data: { carregando: daily.loading, erro: daily.error, dados_disponiveis: Boolean(daily.report) } },
+            ...(daily.report ? [{ id: "agenda-disponibilidade", title: "Disponibilidade da agenda", data: {
+                data: date, atualizado_em: daily.report.generatedAt, horizonte: daily.report.horizonEnd,
+                unidades: daily.report.availability, medicos_sem_agenda: daily.report.missingDoctors,
+                metodologia: "Espera em dias de calendário; dia com 3+ soma vagas dos médicos da unidade. Semana atual inclui horários passados não preenchidos. Próximas datas excluem horários passados.",
+            } }] : []),
+            { id: "agenda-indicadores-estado", title: "Estado dos indicadores mensais", data: { carregando: monthly.loading, erro: monthly.error, dados_disponiveis: Boolean(monthly.report) } },
+            ...(monthly.report ? [{ id: "agenda-indicadores", title: "Indicadores da agenda por mês e unidade", data: {
+                mes: month, atualizado_em: monthly.report.generatedAt,
+                totais: monthlyAgendaCounts(monthly.report.counts), unidades: monthly.report.byUnit.map(monthlyAgendaCounts),
+                medicos_sem_agenda: monthly.report.missingDoctors,
+                metodologia: "Disponíveis inclui horários passados não preenchidos. Ocupação mensal = (RA + Unidade) / total de vagas, incluindo bloqueadas; sem origem fica separado e não entra no numerador. Diferente da ocupação física do calendário, que inclui sem origem.",
+            } }] : []),
+        ],
+    }));
     async function exportImage() {
         if (!daily.report) return;
         setExporting(true); setExportError(null);
@@ -75,14 +95,15 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
             const relevantUnits = units.filter(unit => (!unitIds.length || unitIds.includes(unit.id)) && (!doctorIds.length || doctors.some(doctor => doctor.unit_id === unit.id && doctorIds.includes(doctor.id))));
             const unitScope = unitIds.length === 1 ? units.find(unit => unit.id === unitIds[0])?.name ?? "Unidade selecionada" : unitIds.length ? `${unitIds.length} unidades selecionadas` : "Todas as unidades";
             const doctorScope = doctorIds.length === 1 ? doctors.find(doctor => doctor.id === doctorIds[0])?.name ?? "Médico selecionado" : doctorIds.length ? `${doctorIds.length} médicos selecionados` : "Todos os médicos";
-            await downloadDailyReport(daily.report, relevantUnits, `${unitScope} · ${doctorScope}`);
+            const coverage = daily.report.missingDoctors.length ? ` · Cobertura parcial: ${daily.report.missingDoctors.length} médico(s) sem agenda sincronizada` : "";
+            await downloadDailyReport(daily.report, relevantUnits, `${unitScope} · ${doctorScope}${coverage}`);
         }
         catch { setExportError("Não foi possível gerar a imagem. Tente novamente."); }
         finally { setExporting(false); }
     }
     const shiftDay = (days: number) => setDate(new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10));
     return <>
-        <section id="agenda-disponibilidade" className="mt-8 min-w-0 space-y-5">
+        <section id="agenda-disponibilidade" data-assistant-section="agenda-disponibilidade" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <ReportSectionHeading title="Disponibilidade da agenda" description="Tempo de espera e próximos horários livres por unidade." icon={<CalendarDays size={19} />} color="green" />
                 <div className="flex flex-wrap items-center gap-2">
@@ -95,17 +116,24 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
             </div>
             {exportError ? <p role="alert" className="text-sm text-red">{exportError}</p> : null}
             {daily.error ? <ReportError message={daily.error} onRetry={daily.refresh} /> : null}
+            {daily.report ? <ReportCoverage report={daily.report} /> : null}
             {daily.loading ? <div className="grid gap-5 lg:grid-cols-2" aria-label="Carregando relatório diário">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-80 rounded-2xl" />)}</div> : daily.report ? <DailyReport report={daily.report} /> : null}
         </section>
-        <section id="agenda-indicadores" className="mt-8 min-w-0 space-y-5">
+        <section id="agenda-indicadores" data-assistant-section="agenda-indicadores" className="mt-8 min-w-0 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <ReportSectionHeading title="Indicadores da agenda" description="Capacidade, agendamentos e ocupação do mês." icon={<ChartNoAxesCombined size={19} />} color="blue" />
                 <div className="w-60"><CalendarDatePicker mode="month" align="right" value={month} onChange={setMonth} clearable={false} /></div>
             </div>
             {monthly.error ? <ReportError message={monthly.error} onRetry={monthly.refresh} /> : null}
+            {monthly.report ? <ReportCoverage report={monthly.report} /> : null}
             {monthly.loading ? <Skeleton className="h-64 rounded-2xl" /> : monthly.report ? <MonthlyReport report={monthly.report} /> : null}
         </section>
     </>;
+}
+
+function ReportCoverage({ report }: { report: Report }) {
+    if (!report.missingDoctors.length) return null;
+    return <p role="note" className="rounded-xl bg-orange-soft p-3 text-sm text-slate-700">Cobertura parcial: {report.missingDoctors.length} médico(s) sem agenda sincronizada nos filtros selecionados. As vagas e os indicadores incluem somente as agendas disponíveis. {report.missingDoctors.map(doctor => doctor.doctorName).join(" · ")}</p>;
 }
 
 function ReportSectionHeading({ title, description, icon, color }: { title: string; description: string; icon: ReactNode; color: "blue" | "green" }) {
