@@ -1326,6 +1326,7 @@ async function loadFullJourneyPipeline(
     // deduplicated qualifying appointment, so one tracked WhatsApp client may
     // legitimately appear in multiple procedure rows (and more than once for
     // the same procedure when they have separate appointments).
+    const otherAppointments = { scheduled: 0, attended: 0 };
     const eligibleProcedureEvents = procedureEvents.flatMap((event) => {
         const clientId = normalizeClientId(event.client_id);
         if (!clientId) return [];
@@ -1335,7 +1336,14 @@ async function loadFullJourneyPipeline(
         if (!procedureEventBelongsToCohort(event, cohortEntry)) return [];
 
         const eventKind = journeyProcedureKind(event);
-        if (!eventKind) return [];
+        if (!eventKind) {
+            otherAppointments.scheduled += 1;
+            if (scheduleShowedUp(normalizeScheduleStatus(event.status)) &&
+                event.scheduled_for <= saoPauloDate(new Date().toISOString())) {
+                otherAppointments.attended += 1;
+            }
+            return [];
+        }
         return [{ ...event, client_id: clientId, event_kind: eventKind,
             status: event.scheduled_for > saoPauloDate(new Date().toISOString()) ? "Não" : event.status }];
     });
@@ -1433,7 +1441,7 @@ async function loadFullJourneyPipeline(
             .map(invoice => [String(invoice.source_invoice_id), invoice])).values()],
     });
 
-    return buildFullJourneyPipeline({
+    const pipeline = buildFullJourneyPipeline({
         available: true,
         adsAvailable: paidMedia.available,
         filtersApplied: hasOperationalFilters(filters),
@@ -1489,6 +1497,8 @@ async function loadFullJourneyPipeline(
         platformBreakdown,
         error: null,
     });
+    pipeline.other_appointments = otherAppointments;
+    return pipeline;
 }
 
 function procedureEventBelongsToCohort(
