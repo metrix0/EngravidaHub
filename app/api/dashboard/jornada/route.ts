@@ -363,7 +363,7 @@ export async function GET(request: Request) {
                 executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
             ).abortSignal(request.signal);
             if (preparedError) throw preparedError;
-            if (!prepared?.ready || !Array.isArray(prepared.groups) || !prepared.groups.length) {
+            if (!prepared?.ready || !Array.isArray(prepared.groups)) {
                 throw new Error("A jornada pré-calculada não está disponível.");
             }
             return NextResponse.json(
@@ -534,7 +534,7 @@ function buildPreparedJourneyPipeline(
     const sum = (row: Record<string, number | string> | undefined, key: string) => numeric(row?.[key]);
     const group = (key: PreparedJourneyGroup["key"], text: string) => {
         const item = groups.get(key);
-        if (!item) return emptyFullJourneyPipeline(range, filters, "Dados preparados indisponíveis.");
+        if (!item) return emptyFullJourneyPipeline(range, filters, "");
         const metric = (key: string) => sum(item.metrics, key);
         const platformBreakdown: PipelinePlatformBreakdown[] = key === "paid"
             ? (["google_ads", "meta_ads"] as const).map(platform => {

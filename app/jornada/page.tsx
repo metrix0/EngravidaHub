@@ -293,11 +293,17 @@ export default function JourneyPage() {
         selectedRange,
         setSelectedRange,
         ready: dateFilterReady,
-    } = useDashboardDateFilter("mature_journey", JOURNEY_CALENDAR_PRESETS);
+    } = useDashboardDateFilter("mature_journey", JOURNEY_CALENDAR_PRESETS, { persistCustomRange: true });
     const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
     const [pipelineMethodology, setPipelineMethodology] = useState("Carregando detalhes da jornada...");
+
+    const pipelineParams = new URLSearchParams();
+    applyCalendarDateParams({ params: pipelineParams, selectedRange, selectedPreset: period, presets: JOURNEY_CALENDAR_PRESETS });
+    applyArrayParams(pipelineParams, { unit_ids: unitIds, attendant_ids: attendantIds, tunnels: tunnelValues, origins: originValues });
+    const currentQueryKey = pipelineParams.toString();
 
     useEffect(() => {
         if (!dateFilterReady) return;
@@ -336,29 +342,21 @@ export default function JourneyPage() {
             else setLoadingData(true);
 
             try {
-                const params = new URLSearchParams({ summary_only: "1", source_conversions: "1" });
-                applyCalendarDateParams({
-                    params,
-                    selectedRange,
-                    selectedPreset: period,
-                    presets: JOURNEY_CALENDAR_PRESETS,
-                });
-                applyArrayParams(params, {
-                    unit_ids: unitIds,
-                    attendant_ids: attendantIds,
-                    tunnels: tunnelValues,
-                    origins: originValues,
-                });
+                const params = new URLSearchParams(currentQueryKey);
+                params.set("summary_only", "1");
+                params.set("source_conversions", "1");
 
                 const response = await fetch(
                     `/api/dashboard/jornada?${params.toString()}`,
                     { signal: controller.signal },
                 );
                 const json = await response.json();
+                if (controller.signal.aborted) return;
 
                 if (!response.ok) {
                     console.error("[jornada] failed to load dashboard", json);
                     setData(EMPTY_DATA);
+                    setLoadedQueryKey(currentQueryKey);
                     return;
                 }
 
@@ -395,6 +393,7 @@ export default function JourneyPage() {
                         : [],
                     audit: json.audit ?? null,
                 });
+                setLoadedQueryKey(currentQueryKey);
                 hasDataRef.current = true;
             } catch (error) {
                 if (controller.signal.aborted) return;
@@ -415,20 +414,12 @@ export default function JourneyPage() {
             window.clearTimeout(debounceId);
             controller.abort();
         };
-    }, [
-        unitIds,
-        attendantIds,
-        tunnelValues,
-        originValues,
-        period,
-        selectedRange,
-        dateFilterReady,
-    ]);
+    }, [currentQueryKey, dateFilterReady]);
 
     useAssistantPageContext("jornada", () => ({
         title: "Jornada",
         filters: { periodo: period, intervalo: selectedRange, unidades: unitIds, atendentes: attendantIds, funis: tunnelValues, origens: originValues, carregando: loadingData || isRefreshing },
-        sections: data ? [
+        sections: data && loadedQueryKey === currentQueryKey ? [
             { id: "jornada-pipeline", title: "Jornada completa", data: data.full_pipeline },
             { id: "jornada-whatsapp", title: "Cobertura WhatsApp", data: data.full_pipeline?.audit?.whatsapp_coverage },
             { id: "jornada-origens", title: "Origem de WhatsApp rastreado", data: data.full_pipeline?.audit?.tracked_sources },
@@ -453,10 +444,7 @@ export default function JourneyPage() {
         );
     }
 
-    const current = data ?? EMPTY_DATA;
-    const pipelineParams = new URLSearchParams();
-    applyCalendarDateParams({ params: pipelineParams, selectedRange, selectedPreset: period, presets: JOURNEY_CALENDAR_PRESETS });
-    applyArrayParams(pipelineParams, { unit_ids: unitIds, attendant_ids: attendantIds, tunnels: tunnelValues, origins: originValues });
+    const current = loadedQueryKey === currentQueryKey ? data ?? EMPTY_DATA : EMPTY_DATA;
 
     const resolvedRange = { start: pipelineParams.get("start_date"), end: pipelineParams.get("end_date") };
 
@@ -503,7 +491,7 @@ export default function JourneyPage() {
                     <section data-assistant-section="jornada-pipeline" className="-mx-4 mb-6 min-w-0 md:-mx-8">
                         <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology} />
                     </section>
-                    {isRefreshing || loadingData || loadingFilters ? <JourneyBodySkeleton /> : <>
+                    {isRefreshing || loadingData || loadingFilters || loadedQueryKey !== currentQueryKey ? <JourneyBodySkeleton /> : <>
 
                         <section data-assistant-section="jornada-whatsapp" className="mb-6 min-w-0 max-w-full">
                             <WhatsappCoverageCard

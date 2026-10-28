@@ -55,11 +55,12 @@ type DashboardHeaderProps = {
 export function useDashboardDateFilter(
     defaultPeriod: CalendarPresetValue,
     presets: typeof DEFAULT_CALENDAR_PRESETS = DEFAULT_CALENDAR_PRESETS,
-    options: { syncUrl?: boolean } = {},
+    options: { syncUrl?: boolean; persistCustomRange?: boolean } = {},
 ) {
     const pathname = usePathname() || "/";
     const serverFilters = useServerDashboardDateFilters();
     const syncUrl = options.syncUrl === true;
+    const persistCustomRange = options.persistCustomRange === true;
     const [urlReady, setUrlReady] = useState(!syncUrl);
     const [filter, setFilter] = useState<StoredDashboardDateFilter>(() =>
         resolveInitialFilter({
@@ -67,6 +68,7 @@ export function useDashboardDateFilter(
             defaultPeriod,
             presets,
             serverFilter: serverFilters[pathname],
+            persistCustomRange,
         }),
     );
 
@@ -85,9 +87,9 @@ export function useDashboardDateFilter(
     }, [presets, syncUrl, urlReady]);
 
     useEffect(() => {
-        if (!urlReady || filter.period === null) return;
+        if (!urlReady || (filter.period === null && (!persistCustomRange || !filter.selectedRange.start))) return;
         writeStoredDateFilter(pathname, filter);
-    }, [filter, pathname, urlReady]);
+    }, [filter, pathname, persistCustomRange, urlReady]);
 
     useEffect(() => {
         if (!syncUrl || !urlReady) return;
@@ -374,11 +376,13 @@ function resolveInitialFilter({
     defaultPeriod,
     presets,
     serverFilter,
+    persistCustomRange = false,
 }: {
     pathname: string;
     defaultPeriod: CalendarPresetValue;
     presets: typeof DEFAULT_CALENDAR_PRESETS;
     serverFilter?: StoredDashboardDateFilter;
+    persistCustomRange?: boolean;
 }): StoredDashboardDateFilter {
     const fallback: StoredDashboardDateFilter = {
         period: defaultPeriod,
@@ -388,6 +392,7 @@ function resolveInitialFilter({
         pathname,
         presets,
         serverFilter,
+        persistCustomRange,
     );
 
     if (!storedFilter) return fallback;
@@ -403,12 +408,13 @@ function resolveStoredFilter(
     pathname: string,
     presets: typeof DEFAULT_CALENDAR_PRESETS,
     serverFilter?: StoredDashboardDateFilter,
+    allowCustomRange = false,
 ) {
     const localFilter = readStoredDateFilter(pathname);
     const candidate = localFilter ?? serverFilter ?? null;
     if (
         !candidate ||
-        candidate.period === null ||
+        (candidate.period === null && !allowCustomRange) ||
         !isAllowedFilter(candidate, presets)
     ) {
         return null;
