@@ -92,18 +92,8 @@ export async function GET(request: Request) {
                     last_interaction_at,
                     last_origin,
                     last_tunnel,
-                    utm_source,
                     utm_medium,
-                    utm_campaign,
-                    utm_content,
-                    utm_term,
-                    gclid,
-                    gbraid,
-                    wbraid,
-                    fbclid,
-                    fbc,
-                    ctwa_clid,
-                    tracking_updated_at
+                    utm_campaign
                 `,
                 )
                 .order("last_interaction_at", { ascending: false }),
@@ -170,77 +160,6 @@ export async function GET(request: Request) {
             bookingChannels.set(booking.client_id, channels);
         }
 
-        const clientIds = (clientsRaw ?? []).map((client) => client.id);
-        const [invoices, whatsappConversations, tintimEvents] = await Promise.all([
-            loadClientFilterRows(clientIds, async (ids, from) => {
-                const { data, error } = await supabase.from("clinisys_invoices")
-                    .select("client_id,status,description")
-                    .in("client_id", ids)
-                    .order("source_invoice_id")
-                    .range(from, from + FILTER_PAGE_SIZE - 1);
-                if (error) throw error;
-                return data ?? [];
-            }),
-            loadClientFilterRows(clientIds, async (ids, from) => {
-                const { data, error } = await supabase.from("conversations")
-                    .select("client_id,started_at,origin")
-                    .eq("channel", "WhatsApp")
-                    .in("client_id", ids)
-                    .order("id")
-                    .range(from, from + FILTER_PAGE_SIZE - 1);
-                if (error) throw error;
-                return data ?? [];
-            }),
-            loadClientFilterRows(clientIds, async (ids, from) => {
-                const { data, error } = await supabase.from("tintim_attribution_events")
-                    .select("id,client_id,occurred_at,source,platform")
-                    .in("client_id", ids)
-                    .order("id")
-                    .range(from, from + FILTER_PAGE_SIZE - 1);
-                if (error) throw error;
-                return data ?? [];
-            }),
-        ]);
-
-        // Same description and authorization rules used by Jornada, regardless of amount.
-        const paidTreatmentIds = new Set(
-            invoices.filter((invoice) => invoice.client_id &&
-                invoiceStatusIsAuthorized(invoice.status) &&
-                journeyInvoiceKind(invoice.description) === "procedure")
-                .map((invoice) => invoice.client_id),
-        );
-
-        const clientById = new Map((clientsRaw ?? []).map((client) => [client.id, client]));
-        const tintimByClient = new Map<string, typeof tintimEvents>();
-        for (const event of tintimEvents) {
-            if (!event.client_id) continue;
-            const events = tintimByClient.get(event.client_id) ?? [];
-            events.push(event);
-            tintimByClient.set(event.client_id, events);
-        }
-        const trackedWhatsappIds = new Set<string>();
-        for (const conversation of whatsappConversations) {
-            const clientId = conversation.client_id;
-            if (!clientId || trackedWhatsappIds.has(clientId)) continue;
-            const conversationAt = new Date(conversation.started_at).getTime();
-            let nearest: (typeof tintimEvents)[number] | null = null;
-            let nearestDistance = Infinity;
-            for (const event of tintimByClient.get(clientId) ?? []) {
-                const distance = Math.abs(new Date(event.occurred_at).getTime() - conversationAt);
-                if (distance <= TINTIM_MATCH_MS &&
-                    (distance < nearestDistance || (distance === nearestDistance && event.id > (nearest?.id ?? "")))) {
-                    nearest = event;
-                    nearestDistance = distance;
-                }
-            }
-            if (isTrackedWhatsappConversation({
-                conversationOrigin: conversation.origin,
-                conversationStartedAt: conversation.started_at,
-                client: clientById.get(clientId) ?? null,
-                tintimAttribution: nearest,
-            })) trackedWhatsappIds.add(clientId);
-        }
-
         const clients = (clientsRaw ?? []).map((client) => ({
             ...client,
             // Existing clients UI consumes this key as "Origem". Its canonical
@@ -248,8 +167,6 @@ export async function GET(request: Request) {
             utm_source: client.last_origin ?? null,
             attendant_name: attendantByClientId.get(client.id) ?? null,
             booking_channels: [...(bookingChannels.get(client.id) ?? [])],
-            has_paid_treatment: paidTreatmentIds.has(client.id),
-            has_tracked_whatsapp: trackedWhatsappIds.has(client.id),
         }));
 
         if (stagesError || funnelsError) {
@@ -287,5 +204,113 @@ export async function GET(request: Request) {
             },
             { status: 500 },
         );
+    }
+}
+
+// Optional filters are requested explicitly by Clientes, never during its default GET.
+export async function POST(request: Request) {
+    try {
+        const body = await request.json() as { filter?: unknown; clientIds?: unknown };
+        if (
+            (body.filter !== "paid_treatment" && body.filter !== "tracked_whatsapp") ||
+            !Array.isArray(body.clientIds) ||
+            body.clientIds.length > 100000 ||
+            !body.clientIds.every((id: unknown) =>
+                typeof id === "string" &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        ) {
+            return NextResponse.json({ error: "Invalid client filter request" }, { status: 400 });
+        }
+
+        const clientIds = [...new Set(body.clientIds as string[])];
+        if (!clientIds.length) return NextResponse.json({ clientIds: [] });
+
+        if (body.filter === "paid_treatment") {
+            const invoices = await loadClientFilterRows(clientIds, async (ids, from) => {
+                const { data, error } = await supabase.from("clinisys_invoices")
+                    .select("client_id,status,description")
+                    .in("client_id", ids)
+                    .order("source_invoice_id")
+                    .range(from, from + FILTER_PAGE_SIZE - 1);
+                if (error) throw error;
+                return data ?? [];
+            });
+            // The same authorized status and invoice classification used by Jornada.
+            const matches = new Set(
+                invoices.filter(invoice => invoice.client_id &&
+                    invoiceStatusIsAuthorized(invoice.status) &&
+                    journeyInvoiceKind(invoice.description) === "procedure")
+                    .map(invoice => invoice.client_id),
+            );
+            return NextResponse.json({ clientIds: [...matches] });
+        }
+
+        const [clientsRaw, whatsappConversations, tintimEvents] = await Promise.all([
+            loadClientFilterRows(clientIds, async (ids, from) => {
+                const { data, error } = await supabase.from("clients")
+                    .select("id,last_origin,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid,fbc,ctwa_clid,tracking_updated_at")
+                    .in("id", ids)
+                    .order("id")
+                    .range(from, from + FILTER_PAGE_SIZE - 1);
+                if (error) throw error;
+                return data ?? [];
+            }),
+            loadClientFilterRows(clientIds, async (ids, from) => {
+                const { data, error } = await supabase.from("conversations")
+                    .select("client_id,started_at,origin")
+                    .eq("channel", "WhatsApp")
+                    .in("client_id", ids)
+                    .order("id")
+                    .range(from, from + FILTER_PAGE_SIZE - 1);
+                if (error) throw error;
+                return data ?? [];
+            }),
+            loadClientFilterRows(clientIds, async (ids, from) => {
+                const { data, error } = await supabase.from("tintim_attribution_events")
+                    .select("id,client_id,occurred_at,source,platform")
+                    .in("client_id", ids)
+                    .order("id")
+                    .range(from, from + FILTER_PAGE_SIZE - 1);
+                if (error) throw error;
+                return data ?? [];
+            }),
+        ]);
+
+        const clientById = new Map(clientsRaw.map(client => [client.id, client]));
+        const tintimByClient = new Map<string, typeof tintimEvents>();
+        for (const event of tintimEvents) {
+            if (!event.client_id) continue;
+            const events = tintimByClient.get(event.client_id) ?? [];
+            events.push(event);
+            tintimByClient.set(event.client_id, events);
+        }
+        const trackedWhatsappIds = new Set<string>();
+        for (const conversation of whatsappConversations) {
+            const clientId = conversation.client_id;
+            if (!clientId || trackedWhatsappIds.has(clientId)) continue;
+            const conversationAt = new Date(conversation.started_at).getTime();
+            let nearest: (typeof tintimEvents)[number] | null = null;
+            let nearestDistance = Infinity;
+            for (const event of tintimByClient.get(clientId) ?? []) {
+                const distance = Math.abs(new Date(event.occurred_at).getTime() - conversationAt);
+                if (distance <= TINTIM_MATCH_MS &&
+                    (distance < nearestDistance || (distance === nearestDistance && event.id > (nearest?.id ?? "")))) {
+                    nearest = event;
+                    nearestDistance = distance;
+                }
+            }
+            if (isTrackedWhatsappConversation({
+                conversationOrigin: conversation.origin,
+                conversationStartedAt: conversation.started_at,
+                client: clientById.get(clientId) ?? null,
+                tintimAttribution: nearest,
+            })) trackedWhatsappIds.add(clientId);
+        }
+        return NextResponse.json({ clientIds: [...trackedWhatsappIds] });
+    } catch (error) {
+        return NextResponse.json({
+            error: "Failed to load optional client filter",
+            details: error instanceof Error ? error.message : String(error),
+        }, { status: 500 });
     }
 }
