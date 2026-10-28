@@ -373,6 +373,43 @@ export async function GET(request: Request) {
             );
         }
 
+        if (searchParams.get("summary_only") === "1") {
+            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult] = await Promise.all([
+                supabase.rpc(
+                    "dashboard_journey_prepared_v1",
+                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+                ).abortSignal(request.signal),
+                loadPreparedConversationMetrics(range, filters, request.signal),
+                loadPreparedEvaluationJourneyFunnels(range, filters, request.signal),
+                supabase.rpc(
+                    "dashboard_journey_whatsapp_coverage_prepared_v1",
+                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+                ).abortSignal(request.signal),
+            ]);
+            if (preparedResult.error) throw preparedResult.error;
+            if (coverageResult.error) throw coverageResult.error;
+            if (!preparedResult.data?.ready || !Array.isArray(preparedResult.data.groups) || !preparedAnalysis || !coverageResult.data) {
+                throw new Error("Os dados pré-calculados da jornada não estão disponíveis.");
+            }
+            const fullPipeline = buildPreparedJourneyPipeline(
+                preparedResult.data as PreparedJourneyRead, range, filters,
+            );
+            fullPipeline.audit.whatsapp_coverage = coverageResult.data as WhatsappCoverage;
+            fullPipeline.query_params = searchParams.toString();
+            return NextResponse.json(
+                {
+                    full_pipeline: fullPipeline,
+                    journey_funnel: preparedAnalysis.journey_funnel,
+                    evaluation_journeys: evaluationJourneys,
+                    dropoff_moments: preparedAnalysis.dropoff_moments,
+                    intent_paths: preparedAnalysis.intent_paths,
+                    objections: preparedAnalysis.objections,
+                    audit: preparedAnalysis.audit,
+                },
+                { headers: { "Cache-Control": "private, no-store" } },
+            );
+        }
+
         const [paidMedia, whatsappData, preparedAnalysis, evaluationJourneys] = await Promise.all([
             searchParams.get("summary_only") === "1"
                 ? Promise.resolve(emptyPaidMediaTotals(false))
@@ -927,6 +964,38 @@ function funnelStage(
         relative_percentage: integerPercentage(value, previous),
         fill,
     };
+}
+
+async function loadPreparedEvaluationJourneyFunnels(
+    range: DashboardDateRange,
+    filters: DashboardFilters,
+    signal: AbortSignal,
+) {
+    const startDate = range.startDate ?? saoPauloDate(range.startAt);
+    const endDate = range.endDate ??
+        saoPauloDate(new Date(new Date(range.endAt).getTime() - 1).toISOString());
+    const { data, error } = await supabase.rpc("dashboard_journey_evaluation_funnels_v1", {
+        p_start_date: startDate,
+        p_end_date: endDate,
+        p_unit_ids: filters.unitIds,
+    }).abortSignal(signal);
+    if (error) throw error;
+    if (!data?.presencial || !data?.online) {
+        throw new Error("Os funis de avaliação pré-calculados não estão disponíveis.");
+    }
+    return Object.fromEntries((["presencial", "online"] as const).map(mode => {
+        const counts = data[mode] as { evaluated: number; scheduled: number; attended: number; paid: number };
+        const total = Number(counts.evaluated);
+        const scheduled = Number(counts.scheduled);
+        const attended = Number(counts.attended);
+        const paid = Number(counts.paid);
+        return [mode, [
+            funnelStage(mode + "_evaluation", mode === "presencial" ? "1ª Avaliação presencial" : "1ª Avaliação online", total, total, total, "#ddd6fe"),
+            funnelStage(mode + "_procedure_scheduled", "Agendou procedimento", scheduled, total, total, "#bbf7d0"),
+            funnelStage(mode + "_procedure_attended", "Compareceu", attended, total, scheduled, "#bfdbfe"),
+            funnelStage(mode + "_paid", "Pagou", paid, total, attended, "#c4b5fd"),
+        ]];
+    })) as Record<EvaluationJourneyMode, ReturnType<typeof funnelStage>[]>;
 }
 
 async function loadEvaluationJourneyFunnels(
