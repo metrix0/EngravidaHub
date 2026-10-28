@@ -410,11 +410,11 @@ function getIdentityName(
     channel: InboxChannel,
 ) {
     return (
+        client?.name?.trim() ||
         instagramUser?.display_name?.trim() ||
         (instagramUser?.username
             ? `@${instagramUser.username.replace(/^@+/, "")}`
             : null) ||
-        client?.name?.trim() ||
         (instagramUser ? getSocialUserLabel(channel) : "Cliente sem nome")
     );
 }

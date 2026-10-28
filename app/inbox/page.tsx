@@ -1077,6 +1077,12 @@ export default function InboxPage() {
                 }
                 selectClient={!selectedClientId}
                 onClose={() => setSchedulingPanelOpen(false)}
+                onCreated={() => {
+                    void Promise.all([
+                        loadThreads({ showLoading: false }),
+                        loadSelectedThread(),
+                    ]);
+                }}
                 onOpenClientProfile={(clientId) => {
                     setSchedulingPanelOpen(false);
                     openClientProfile(clientId);
