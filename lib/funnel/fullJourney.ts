@@ -30,7 +30,23 @@ export function journeyProcedureKind(event: { event_kind: string | null; procedu
     return classifyClinisysJourneyProcedure(event.procedure_name) ?? "procedure";
 }
 
+/**
+ * Canonical Jornada NF-e split, also used by Clientes > Tratamento pago.
+ * An evaluation-category description or one containing "consulta" is consulta;
+ * every other description is tratamento (including exams, storage and other
+ * non-evaluation categories). Neither the amount nor a monetary cutoff is used.
+ * Keep this single classification shared by both pages.
+ */
 export function journeyInvoiceKind(description: string | null | undefined): "evaluation" | "procedure" {
     return classifyInvoiceDescription(description) === "evaluation" || /\bconsulta\b/i.test(description ?? "")
         ? "evaluation" : "procedure";
+}
+
+/** Jornada uses the CliniSys authorized status, not the invoice amount, to mark payment. */
+export function invoiceStatusIsAuthorized(status: string) {
+    const normalized = (status ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR").replace(/\s+/g, " ").trim().replace(/\s+/g, "");
+    return normalized.startsWith("autorizada") ||
+        normalized.includes("cancelamentonegado") ||
+        normalized.includes("cancelamentorejeitado");
 }

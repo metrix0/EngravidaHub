@@ -26,7 +26,10 @@ async function fetchPerformanceReport(start: string, end: string, unitId: string
         if (!data || !Array.isArray(data.people) || !Array.isArray(data.bookings)) {
             throw new Error("Relatório incompleto");
         }
-        return buildPerformanceReport(data as PerformanceSource, start, end);
+        const aliases = await supabase.from("attendant_aliases")
+            .select("source_name,attendant_id").eq("source", "clinisys");
+        if (aliases.error) throw aliases.error;
+        return buildPerformanceReport({ ...data as PerformanceSource, attendant_aliases: aliases.data ?? [] }, start, end);
     }
     throw new Error("Não foi possível obter o relatório.");
 }

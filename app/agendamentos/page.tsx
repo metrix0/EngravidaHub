@@ -634,11 +634,17 @@ export default function AppointmentsPage() {
 
     useAssistantPageContext("agendamentos", () => ({
         title: "Agendamentos",
-        filters: { semana_inicio: rangeStart, semana_fim: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, carregando: loadingCalendar || loadingReport },
+        filters: { semana_inicio: rangeStart, semana_fim: formatLocalDateKey(addDays(weekStart, 6)), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, carregando: loadingCalendar || loadingReport },
         sections: [
             { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
             { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
-            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport },
+            { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: loadingReport, erro: reportError } },
+            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport && !loadingReport && !reportError && agendaReport.start === rangeStart && agendaReport.end === rangeEnd ? {
+                inicio: rangeStart, fim_inclusivo: formatLocalDateKey(addDays(weekStart, 6)),
+                counts: agendaReport.counts, byUnit: agendaReport.byUnit,
+                projection: agendaReport.projection,
+                metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O fim exibido da semana é inclusivo; a consulta técnica termina antes do domingo seguinte.",
+            } : null },
         ],
     }));
 

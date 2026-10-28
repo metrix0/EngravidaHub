@@ -4,13 +4,10 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib";
 import { resolveDashboardDateRange } from "@/lib/dashboard/metrics";
 
-const PAGE_SIZE = 1_000;
-const MAX_CONVERSATIONS = 100_000;
-
 type ConversationRow = {
-    id: string;
-    channel: string | null;
-    started_at: string;
+    date_iso: string;
+    channel: string;
+    conversations: number;
 };
 
 type DailyAccumulator = {
@@ -57,28 +54,13 @@ async function loadConversations(
     endAt: string,
     signal: AbortSignal,
 ) {
-    const rows: ConversationRow[] = [];
-
-    for (let from = 0; from < MAX_CONVERSATIONS; from += PAGE_SIZE) {
-        const { data, error } = await supabase
-            .from("conversations")
-            .select("id, channel, started_at")
-            .in("channel", ["WhatsApp", "Instagram"])
-            .gte("started_at", startAt)
-            .lt("started_at", endAt)
-            .order("started_at", { ascending: true })
-            .order("id", { ascending: true })
-            .range(from, from + PAGE_SIZE - 1)
-            .abortSignal(signal);
-
-        if (error) throw error;
-
-        const page = (data ?? []) as ConversationRow[];
-        rows.push(...page);
-        if (page.length < PAGE_SIZE) break;
-    }
-
-    return rows;
+    const { data, error } = await supabase.rpc("dashboard_social_share_daily_v1", {
+        p_start_at: startAt,
+        p_end_at: endAt,
+        p_channel: "Instagram",
+    }).abortSignal(signal);
+    if (error) throw error;
+    return (data ?? []) as ConversationRow[];
 }
 
 function buildInstagramSharePayload(conversations: ConversationRow[]) {
@@ -87,7 +69,8 @@ function buildInstagramSharePayload(conversations: ConversationRow[]) {
     let whatsapp = 0;
 
     for (const conversation of conversations) {
-        const dateIso = saoPauloDate(conversation.started_at);
+        const dateIso = conversation.date_iso;
+        const count = Number(conversation.conversations);
         const point = daily.get(dateIso) ?? {
             date_iso: dateIso,
             instagram: 0,
@@ -95,11 +78,11 @@ function buildInstagramSharePayload(conversations: ConversationRow[]) {
         };
 
         if (conversation.channel === "Instagram") {
-            instagram += 1;
-            point.instagram += 1;
+            instagram += count;
+            point.instagram += count;
         } else if (conversation.channel === "WhatsApp") {
-            whatsapp += 1;
-            point.whatsapp += 1;
+            whatsapp += count;
+            point.whatsapp += count;
         }
 
         daily.set(dateIso, point);
@@ -137,19 +120,6 @@ function buildInstagramSharePayload(conversations: ConversationRow[]) {
 function percentage(numerator: number, denominator: number) {
     if (denominator <= 0) return null;
     return Math.round(((numerator * 100) / denominator) * 10) / 10;
-}
-
-function saoPauloDate(value: string) {
-    const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Sao_Paulo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-    }).formatToParts(new Date(value));
-    const year = parts.find((part) => part.type === "year")?.value ?? "0000";
-    const month = parts.find((part) => part.type === "month")?.value ?? "00";
-    const day = parts.find((part) => part.type === "day")?.value ?? "00";
-    return `${year}-${month}-${day}`;
 }
 
 function displayDate(dateIso: string) {

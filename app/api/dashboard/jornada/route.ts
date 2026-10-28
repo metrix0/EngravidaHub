@@ -1,5 +1,6 @@
 // app/api/dashboard/jornada/route.ts
-import { getMatureJourneyRange, journeyInvoiceKind, journeyProcedureKind } from "@/lib/funnel/fullJourney";
+import { getMatureJourneyRange, invoiceStatusIsAuthorized, journeyInvoiceKind, journeyProcedureKind } from "@/lib/funnel/fullJourney";
+import { hasConversationTrackingEvidence, hasTintimTrackingEvidence, trackingIsNearConversation } from "@/lib/funnel/whatsappTracking";
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
@@ -21,7 +22,6 @@ import {
     scheduleShowedUp,
 } from "@/lib/schedules/status";
 import {
-    isTrackedTintimSource,
     paidMediaPlatformFromTintimSource,
 } from "@/lib/tintim/attribution";
 
@@ -76,6 +76,7 @@ type FullJourneyPipeline = {
     additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
     instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
     revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
+    other_appointments?: { scheduled: number; attended: number };
     available: boolean;
     ads_available: boolean;
     ads_scope_global: true;
@@ -363,11 +364,48 @@ export async function GET(request: Request) {
                 executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
             ).abortSignal(request.signal);
             if (preparedError) throw preparedError;
-            if (!prepared?.ready || !Array.isArray(prepared.groups) || !prepared.groups.length) {
+            if (!prepared?.ready || !Array.isArray(prepared.groups)) {
                 throw new Error("A jornada pré-calculada não está disponível.");
             }
             return NextResponse.json(
                 { full_pipeline: buildPreparedJourneyPipeline(prepared as PreparedJourneyRead, range, filters) },
+                { headers: { "Cache-Control": "private, no-store" } },
+            );
+        }
+
+        if (searchParams.get("summary_only") === "1") {
+            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult] = await Promise.all([
+                supabase.rpc(
+                    "dashboard_journey_prepared_v1",
+                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+                ).abortSignal(request.signal),
+                loadPreparedConversationMetrics(range, filters, request.signal),
+                loadPreparedEvaluationJourneyFunnels(range, filters, request.signal),
+                supabase.rpc(
+                    "dashboard_journey_whatsapp_coverage_prepared_v1",
+                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+                ).abortSignal(request.signal),
+            ]);
+            if (preparedResult.error) throw preparedResult.error;
+            if (coverageResult.error) throw coverageResult.error;
+            if (!preparedResult.data?.ready || !Array.isArray(preparedResult.data.groups) || !preparedAnalysis || !coverageResult.data) {
+                throw new Error("Os dados pré-calculados da jornada não estão disponíveis.");
+            }
+            const fullPipeline = buildPreparedJourneyPipeline(
+                preparedResult.data as PreparedJourneyRead, range, filters,
+            );
+            fullPipeline.audit.whatsapp_coverage = coverageResult.data as WhatsappCoverage;
+            fullPipeline.query_params = searchParams.toString();
+            return NextResponse.json(
+                {
+                    full_pipeline: fullPipeline,
+                    journey_funnel: preparedAnalysis.journey_funnel,
+                    evaluation_journeys: evaluationJourneys,
+                    dropoff_moments: preparedAnalysis.dropoff_moments,
+                    intent_paths: preparedAnalysis.intent_paths,
+                    objections: preparedAnalysis.objections,
+                    audit: preparedAnalysis.audit,
+                },
                 { headers: { "Cache-Control": "private, no-store" } },
             );
         }
@@ -534,7 +572,7 @@ function buildPreparedJourneyPipeline(
     const sum = (row: Record<string, number | string> | undefined, key: string) => numeric(row?.[key]);
     const group = (key: PreparedJourneyGroup["key"], text: string) => {
         const item = groups.get(key);
-        if (!item) return emptyFullJourneyPipeline(range, filters, "Dados preparados indisponíveis.");
+        if (!item) return emptyFullJourneyPipeline(range, filters, "");
         const metric = (key: string) => sum(item.metrics, key);
         const platformBreakdown: PipelinePlatformBreakdown[] = key === "paid"
             ? (["google_ads", "meta_ads"] as const).map(platform => {
@@ -615,6 +653,10 @@ function buildPreparedJourneyPipeline(
             invoicedAmount: 0, authorizedAmount: metric("authorized_amount"),
             procedureBranches: rows, platformBreakdown, error: null,
         });
+        pipeline.other_appointments = {
+            scheduled: metric("other_scheduled"),
+            attended: metric("other_attended"),
+        };
         if (key !== "paid") {
             pipeline.acquisition_branches = [];
             if (pipeline.stages[0]) {
@@ -922,6 +964,38 @@ function funnelStage(
         relative_percentage: integerPercentage(value, previous),
         fill,
     };
+}
+
+async function loadPreparedEvaluationJourneyFunnels(
+    range: DashboardDateRange,
+    filters: DashboardFilters,
+    signal: AbortSignal,
+) {
+    const startDate = range.startDate ?? saoPauloDate(range.startAt);
+    const endDate = range.endDate ??
+        saoPauloDate(new Date(new Date(range.endAt).getTime() - 1).toISOString());
+    const { data, error } = await supabase.rpc("dashboard_journey_evaluation_funnels_v1", {
+        p_start_date: startDate,
+        p_end_date: endDate,
+        p_unit_ids: filters.unitIds,
+    }).abortSignal(signal);
+    if (error) throw error;
+    if (!data?.presencial || !data?.online) {
+        throw new Error("Os funis de avaliação pré-calculados não estão disponíveis.");
+    }
+    return Object.fromEntries((["presencial", "online"] as const).map(mode => {
+        const counts = data[mode] as { evaluated: number; scheduled: number; attended: number; paid: number };
+        const total = Number(counts.evaluated);
+        const scheduled = Number(counts.scheduled);
+        const attended = Number(counts.attended);
+        const paid = Number(counts.paid);
+        return [mode, [
+            funnelStage(mode + "_evaluation", mode === "presencial" ? "1ª Avaliação presencial" : "1ª Avaliação online", total, total, total, "#ddd6fe"),
+            funnelStage(mode + "_procedure_scheduled", "Agendou procedimento", scheduled, total, total, "#bbf7d0"),
+            funnelStage(mode + "_procedure_attended", "Compareceu", attended, total, scheduled, "#bfdbfe"),
+            funnelStage(mode + "_paid", "Pagou", paid, total, attended, "#c4b5fd"),
+        ]];
+    })) as Record<EvaluationJourneyMode, ReturnType<typeof funnelStage>[]>;
 }
 
 async function loadEvaluationJourneyFunnels(
@@ -1321,6 +1395,7 @@ async function loadFullJourneyPipeline(
     // deduplicated qualifying appointment, so one tracked WhatsApp client may
     // legitimately appear in multiple procedure rows (and more than once for
     // the same procedure when they have separate appointments).
+    const otherAppointments = { scheduled: 0, attended: 0 };
     const eligibleProcedureEvents = procedureEvents.flatMap((event) => {
         const clientId = normalizeClientId(event.client_id);
         if (!clientId) return [];
@@ -1330,7 +1405,14 @@ async function loadFullJourneyPipeline(
         if (!procedureEventBelongsToCohort(event, cohortEntry)) return [];
 
         const eventKind = journeyProcedureKind(event);
-        if (!eventKind) return [];
+        if (!eventKind) {
+            otherAppointments.scheduled += 1;
+            if (scheduleShowedUp(normalizeScheduleStatus(event.status)) &&
+                event.scheduled_for <= saoPauloDate(new Date().toISOString())) {
+                otherAppointments.attended += 1;
+            }
+            return [];
+        }
         return [{ ...event, client_id: clientId, event_kind: eventKind,
             status: event.scheduled_for > saoPauloDate(new Date().toISOString()) ? "Não" : event.status }];
     });
@@ -1428,7 +1510,7 @@ async function loadFullJourneyPipeline(
             .map(invoice => [String(invoice.source_invoice_id), invoice])).values()],
     });
 
-    return buildFullJourneyPipeline({
+    const pipeline = buildFullJourneyPipeline({
         available: true,
         adsAvailable: paidMedia.available,
         filtersApplied: hasOperationalFilters(filters),
@@ -1484,6 +1566,8 @@ async function loadFullJourneyPipeline(
         platformBreakdown,
         error: null,
     });
+    pipeline.other_appointments = otherAppointments;
+    return pipeline;
 }
 
 function procedureEventBelongsToCohort(
@@ -2669,15 +2753,6 @@ function transition(
     };
 }
 
-function invoiceStatusIsAuthorized(status: string) {
-    const normalized = normalizeText(status).replace(/\s+/g, "");
-    return (
-        normalized.startsWith("autorizada") ||
-        normalized.includes("cancelamentonegado") ||
-        normalized.includes("cancelamentorejeitado")
-    );
-}
-
 function buildWhatsappOriginBreakdown(
     conversations: WhatsappConversationRow[],
 ): FullJourneyPipeline["audit"]["whatsapp_origins"] {
@@ -2725,29 +2800,6 @@ function buildEvidenceBreakdown(
             clients: counts.get(evidence) ?? 0,
         }))
         .filter((item) => item.clients > 0);
-}
-
-function hasConversationTrackingEvidence({
-    conversationOrigin,
-    client,
-    trackingIsNear,
-}: {
-    conversationOrigin: string | null | undefined;
-    client: PipelineClientOriginRow | null;
-    trackingIsNear: boolean;
-}) {
-    if (conversationOrigin?.trim()) return true;
-    if (!trackingIsNear || !client) return false;
-    return Boolean(
-        client.last_origin?.trim() ||
-        client.utm_source?.trim() ||
-        client.utm_medium?.trim() ||
-        client.utm_campaign?.trim() ||
-        client.utm_content?.trim() ||
-        client.utm_term?.trim() ||
-        client.gclid || client.gbraid || client.wbraid ||
-        client.fbclid || client.fbc || client.ctwa_clid,
-    );
 }
 
 function mergeCoverageCategory(
@@ -2988,27 +3040,6 @@ function tintimAttributionSource(attribution: TintimConversationAttributionRow) 
         attribution.source ??
         (attribution.platform === "google_ads" ? "Google Ads" : "Meta Ads")
     );
-}
-
-function hasTintimTrackingEvidence(
-    attribution: TintimConversationAttributionRow | null,
-) {
-    return Boolean(
-        attribution?.platform || isTrackedTintimSource(attribution?.source),
-    );
-}
-
-function trackingIsNearConversation(
-    trackingUpdatedAt: string | null | undefined,
-    conversationStartedAt: string,
-) {
-    if (!trackingUpdatedAt) return false;
-    const trackingTime = new Date(trackingUpdatedAt).getTime();
-    const conversationTime = new Date(conversationStartedAt).getTime();
-    if (!Number.isFinite(trackingTime) || !Number.isFinite(conversationTime)) {
-        return false;
-    }
-    return Math.abs(trackingTime - conversationTime) <= 7 * 86_400_000;
 }
 
 function resolveAttributionSource({

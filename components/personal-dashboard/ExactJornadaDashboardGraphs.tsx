@@ -21,6 +21,8 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Too
 import { Card, Skeleton } from "@/components";
 import JourneyPatientsPanel, { type JourneyPatientSelection } from "@/components/dashboard/JourneyPatientsPanel";
 import { journeyConnections, type JourneyAnchor } from "@/lib/funnel/journeyConnections";
+import { useAssistantPageContext } from "@/lib/ai/assistantPageContext";
+import { buildAssistantJourneySections } from "@/lib/ai/assistantJourneyContext";
 
 const JourneyPatientsContext = createContext<{
     group: string;
@@ -61,6 +63,7 @@ type FullJourneyPipeline = {
     additional_pipelines?: Array<{ key: string; pipeline: FullJourneyPipeline }>;
     instagram?: { clicks: number | null; chats: number; to_whatsapp: number; to_consultation: number; unlinked_chats: number };
     revenue_branches?: Array<{ kind: string; clients: number; amount: number }>;
+    other_appointments?: { scheduled: number; attended: number };
     available: boolean;
     ads_available: boolean;
     ads_scope_global: boolean;
@@ -200,6 +203,7 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
     const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+    const previousQuery = useRef<string | null>(null);
     const params = new URLSearchParams(data.full_pipeline.query_params);
     params.delete("summary_only");
     params.set("full_pipeline_only", "1");
@@ -214,34 +218,53 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
         : data.full_pipeline;
     const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
 
+    useAssistantPageContext(`jornada-grafo-${query}`, () => ({
+        title: "Jornada",
+        sections: buildAssistantJourneySections({ pipeline, loading, error, query }),
+    }));
+
     useEffect(() => {
         if (query === null) return;
         const controller = new AbortController();
+        const changingPeriod = previousQuery.current !== null && previousQuery.current !== query;
+        previousQuery.current = query;
+        let active = true;
         let timedOut = false;
-        const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+        let timeout: number | undefined;
+        setLoaded(null);
+        setFailure(null);
         onSourceTooltipChange?.("Carregando detalhes da jornada...");
-        void (async () => {
+        async function loadPipeline() {
+            timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
             try {
                 const response = await fetch(`/api/dashboard/jornada?${query}`, { signal: controller.signal });
                 const json = await response.json();
+                if (!active || controller.signal.aborted) return;
                 if (!response.ok || !json.full_pipeline || !Array.isArray(json.full_pipeline.stages) ||
                     !Array.isArray(json.full_pipeline.transitions) || !json.full_pipeline.audit || json.full_pipeline.audit.error) {
                     throw new Error(json.error ?? json.full_pipeline?.audit?.error ?? "Falha ao carregar a jornada completa.");
                 }
-                if (!controller.signal.aborted) {
-                    setLoaded({ key: requestKey, pipeline: json.full_pipeline });
-                    onSourceTooltipChange?.(buildPipelineSourceTooltip(json.full_pipeline));
-                }
+                setFailure(null);
+                setLoaded({ key: requestKey, pipeline: json.full_pipeline });
+                onSourceTooltipChange?.(buildPipelineSourceTooltip(json.full_pipeline));
             } catch (error) {
-                if (controller.signal.aborted && !timedOut) return;
+                if (!active || (controller.signal.aborted && !timedOut)) return;
                 setFailure({ key: requestKey, message: timedOut ? "A consulta demorou mais que o esperado." : error instanceof Error ? error.message : "Falha ao carregar a jornada completa." });
             } finally { window.clearTimeout(timeout); }
-        })();
-        return () => { window.clearTimeout(timeout); controller.abort(); };
+        }
+        // Keep initial load and explicit retry immediate; collapse rapid date/filter changes.
+        const debounce = changingPeriod ? window.setTimeout(() => { void loadPipeline(); }, 150) : undefined;
+        if (!changingPeriod) void loadPipeline();
+        return () => {
+            active = false;
+            window.clearTimeout(debounce);
+            window.clearTimeout(timeout);
+            controller.abort();
+        };
     }, [query, requestKey, onSourceTooltipChange]);
 
     return (
-        <div className="min-w-0 overflow-hidden">
+        <div data-assistant-section="jornada-pipeline" className="min-w-0 overflow-hidden">
             {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
                     A jornada completa não pôde ser carregada: {error}
@@ -762,6 +785,7 @@ function JourneyPipelineTree({
                     <div className="flex items-start">
                         <ProcedurePipelineStages scheduled={scheduled} attended={attended} idPrefix={groupKey}
                             branches={procedureBranches.filter(branch => branch.event_kind === "evaluation")}
+                            otherAppointments={pipeline.other_appointments}
                             topOffset={0} branchOffset={12} />
                         <PipelineTransitionCard transition={pipeline.transitions.find(item => item.key === "consultation_to_procedure") ?? clientPipelineTransition({ key: "consultation_to_procedure", label: "Consulta → procedimento", fromValue: 0, toValue: 0, rate: null })} />
                         <ProcedurePipelineStages scheduled={procedureScheduled} attended={procedureAttended} idPrefix={groupKey}
@@ -809,6 +833,7 @@ function ProcedurePipelineStages({
     scheduled,
     attended,
     branches,
+    otherAppointments,
     topOffset,
     branchOffset = 16,
     idPrefix,
@@ -816,6 +841,7 @@ function ProcedurePipelineStages({
     scheduled: FullJourneyPipeline["stages"][number];
     attended: FullJourneyPipeline["stages"][number];
     branches: FullJourneyPipeline["procedure_branches"];
+    otherAppointments?: { scheduled: number; attended: number };
     topOffset: number;
     branchOffset?: number;
     idPrefix: string;
@@ -859,6 +885,11 @@ function ProcedurePipelineStages({
                     </button>
                 </div>
             </div>
+            {otherAppointments && otherAppointments.scheduled > 0 ? (
+                <p className="mt-2 px-2 text-[11px] leading-4 text-slate-500">
+                    Outros agendamentos (não clínicos): {otherAppointments.scheduled.toLocaleString("pt-BR")} agendados · {otherAppointments.attended.toLocaleString("pt-BR")} compareceram
+                </p>
+            ) : null}
             <div style={{ marginTop: branchOffset }}>
                 {expanded ? <div id={detailsId}>
             {branches.length > 0 ? (

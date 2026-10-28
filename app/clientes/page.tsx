@@ -224,6 +224,49 @@ const CLIENT_COLUMNS: DataTableColumn<ClientTableRow>[] = [
     },
 ];
 
+
+type OptionalClientFilter = "paid_treatment" | "tracked_whatsapp";
+
+function useOptionalClientFilter(
+    filter: OptionalClientFilter,
+    selected: boolean,
+    clients: Client[],
+    ready: boolean,
+) {
+    const [matchingIds, setMatchingIds] = useState<Set<string> | null>(null);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        if (!selected || !ready || matchingIds || error) return;
+        const controller = new AbortController();
+
+        async function loadMatchingIds() {
+            try {
+                const response = await fetch("/api/clientes", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filter, clientIds: clients.map(client => client.id) }),
+                    cache: "no-store",
+                    signal: controller.signal,
+                });
+                if (!response.ok) throw new Error("Failed to load optional client filter");
+                const data = await response.json() as { clientIds: string[] };
+                if (!Array.isArray(data.clientIds)) throw new Error("Invalid optional filter response");
+                if (!controller.signal.aborted) setMatchingIds(new Set(data.clientIds));
+            } catch (caught) {
+                if (controller.signal.aborted) return;
+                console.error("[clientes] optional filter failed", caught);
+                setError(true);
+            }
+        }
+
+        void loadMatchingIds();
+        return () => controller.abort();
+    }, [filter, selected, ready, clients, matchingIds, error]);
+
+    return { matchingIds, error, retry: () => setError(false) };
+}
+
 export default function ClientesPage() {
     const [clients, setClients] = useState<Client[]>([]);
     const [stages, setStages] = useState<FunnelStage[]>([]);
@@ -255,8 +298,19 @@ export default function ClientesPage() {
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [bookingChannelValues, setBookingChannelValues] = useState<string[]>([]);
+    const [paidTreatmentValues, setPaidTreatmentValues] = useState<string[]>([]);
+    const [trackedWhatsappValues, setTrackedWhatsappValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
+
+    const paidTreatmentFilter = useOptionalClientFilter("paid_treatment", paidTreatmentValues.length > 0, clients, !loading);
+    const trackedWhatsappFilter = useOptionalClientFilter("tracked_whatsapp", trackedWhatsappValues.length > 0, clients, !loading);
+    const optionalFiltersPending =
+        (paidTreatmentValues.length > 0 && !paidTreatmentFilter.matchingIds && !paidTreatmentFilter.error) ||
+        (trackedWhatsappValues.length > 0 && !trackedWhatsappFilter.matchingIds && !trackedWhatsappFilter.error);
+    const optionalFiltersFailed =
+        (paidTreatmentValues.length > 0 && paidTreatmentFilter.error) ||
+        (trackedWhatsappValues.length > 0 && trackedWhatsappFilter.error);
 
     function resetPageAndSet<T>(setter: (value: T) => void) {
         return (value: T) => {
@@ -293,6 +347,8 @@ export default function ClientesPage() {
             readUrlFilterValues(params, ["tunnel", "tunnels"]),
         );
         setBookingChannelValues(readUrlFilterValues(params, ["booking_channel"]));
+        setPaidTreatmentValues(readUrlFilterValues(params, ["paid_treatment"]));
+        setTrackedWhatsappValues(readUrlFilterValues(params, ["tracked_whatsapp"]));
         const initialSearch =
             readUrlFilterValue(params, ["search", "q"]) ?? "";
         setSearch(initialSearch);
@@ -321,6 +377,8 @@ export default function ClientesPage() {
 
         replaceUrlFilterParams([
             { key: "booking_channel", value: bookingChannelValues },
+            { key: "paid_treatment", value: paidTreatmentValues },
+            { key: "tracked_whatsapp", value: trackedWhatsappValues },
             {
                 key: "unit",
                 value: normalizedUnitUrlValues,
@@ -355,6 +413,8 @@ export default function ClientesPage() {
     }, [
         bookingChannelValues,
         closingTagValues,
+        paidTreatmentValues,
+        trackedWhatsappValues,
         dateFilterReady,
         debouncedSearch,
         sourceValues,
@@ -546,6 +606,8 @@ export default function ClientesPage() {
 
         return clients.filter((client) => {
             if (bookingChannelValues.length > 0 && !client.booking_channels?.some(channel => bookingChannelValues.includes(channel))) return false;
+            if (paidTreatmentValues.length > 0 && (!paidTreatmentFilter.matchingIds || !paidTreatmentValues.includes(paidTreatmentFilter.matchingIds.has(client.id) ? "yes" : "no"))) return false;
+            if (trackedWhatsappValues.length > 0 && (!trackedWhatsappFilter.matchingIds || !trackedWhatsappValues.includes(trackedWhatsappFilter.matchingIds.has(client.id) ? "yes" : "no"))) return false;
             if (
                 stageValues.length > 0 &&
                 (!client.funnel_stage_id ||
@@ -606,6 +668,10 @@ export default function ClientesPage() {
         bookingChannelValues,
         clients,
         closingTagValues,
+        paidTreatmentValues,
+        trackedWhatsappValues,
+        paidTreatmentFilter.matchingIds,
+        trackedWhatsappFilter.matchingIds,
         interactionDateRange,
         debouncedSearch,
         sourceValues,
@@ -670,7 +736,8 @@ export default function ClientesPage() {
         loading ||
         loadingFilters ||
         !dateFilterReady ||
-        !urlFiltersReady
+        !urlFiltersReady ||
+        optionalFiltersPending
     ) {
         return (
             <main className="flex h-full w-full md:h-screen md:w-screen overflow-y-scroll bg-white text-slate-900">
@@ -772,6 +839,10 @@ export default function ClientesPage() {
                         sections={[
                             { id: "tunnels", title: "Túnel", options: filters?.tunnels ?? [], values: tunnelValues, onChange: resetPageAndSet(setTunnelValues) },
                             { id: "origins", title: "Origem", options: filters?.origins ?? [], values: sourceValues, onChange: resetPageAndSet(setSourceValues) },
+                            { id: "paid-treatment", title: "Tratamento pago (NF-e)", values: paidTreatmentValues, onChange: resetPageAndSet(setPaidTreatmentValues),
+                                options: [{ label: "Sim", value: "yes" }, { label: "Não", value: "no" }] },
+                            { id: "tracked-whatsapp", title: "WhatsApp rastreado", values: trackedWhatsappValues, onChange: resetPageAndSet(setTrackedWhatsappValues),
+                                options: [{ label: "Sim", value: "yes" }, { label: "Não", value: "no" }] },
                             { id: "booking-channel", title: "Consultas marcadas pelo Hub", values: bookingChannelValues, onChange: resetPageAndSet(setBookingChannelValues),
                                 options: [{ label: "Instagram Direct", value: "Instagram" }, { label: "Messenger", value: "Messenger" }] },
                             ...stageFilterSections,
@@ -785,6 +856,16 @@ export default function ClientesPage() {
                         ]}
                     />
                 </DashboardFilterBar>
+
+                {optionalFiltersFailed && (
+                    <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                        Não foi possível carregar os dados dos filtros selecionados.{" "}
+                        <button type="button" className="font-semibold underline" onClick={() => {
+                            paidTreatmentFilter.retry();
+                            trackedWhatsappFilter.retry();
+                        }}>Tentar novamente</button>
+                    </div>
+                )}
 
                 <section className="mb-8 grid grid-cols-1 gap-5">
                     <HorizontalScroller scrollAmount={400}>

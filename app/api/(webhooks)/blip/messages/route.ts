@@ -53,6 +53,8 @@ export async function POST(request: Request) {
         content_type: request.headers.get("content-type"),
     });
 
+    let claimedExternalId: string | null = null;
+
     try {
         const body = await request.json();
 
@@ -94,24 +96,44 @@ export async function POST(request: Request) {
             });
         }
 
-        // Outbound messages sent by this Inbox may be echoed to the webhook by Blip.
-        // Check before touching clients or threads so the echo does not create duplicates.
-        if (
-            parsedMessage.external_id &&
-            (await messageAlreadyExists(parsedMessage.external_id, webhookRequestId))
-        ) {
-            console.info(
-                `[blip-webhook:${webhookRequestId}] Duplicate/outbound echo ignored`,
-                { external_id: parsedMessage.external_id },
+        // Claim before changing clients or threads. The database claim is atomic
+        // across concurrent Vercel instances, unlike a separate existence check.
+        if (parsedMessage.external_id) {
+            const { data: claimStatus, error: claimError } = await supabase.rpc(
+                "blip_message_claim_v1",
+                {
+                    p_external_id: parsedMessage.external_id,
+                    p_request_id: webhookRequestId,
+                },
             );
+            if (claimError) throw claimError;
 
-            return NextResponse.json({
-                ok: true,
-                received: true,
-                duplicate: true,
-                external_id: parsedMessage.external_id,
-                request_id: webhookRequestId,
-            });
+            if (claimStatus === "duplicate") {
+                console.info(
+                    `[blip-webhook:${webhookRequestId}] Duplicate/outbound echo ignored`,
+                    { external_id: parsedMessage.external_id },
+                );
+                return NextResponse.json({
+                    ok: true,
+                    received: true,
+                    duplicate: true,
+                    external_id: parsedMessage.external_id,
+                    request_id: webhookRequestId,
+                });
+            }
+
+            if (claimStatus === "busy") {
+                // Do not acknowledge an in-flight event as saved: the first
+                // request might fail, so the sender must be able to retry.
+                return NextResponse.json(
+                    { ok: false, received: true, retry: true, reason: "message_processing" },
+                    { status: 503, headers: { "Retry-After": "3" } },
+                );
+            }
+            if (claimStatus !== "acquired") {
+                throw new Error("Unexpected Blip message claim result");
+            }
+            claimedExternalId = parsedMessage.external_id;
         }
 
         console.info(`[blip-webhook:${webhookRequestId}] Creating/updating client`, {
@@ -167,34 +189,40 @@ export async function POST(request: Request) {
             has_media: Boolean(parsedMessage.media),
         });
 
-        const { data: savedMessage, error: messageError } = await supabase
-            .from("messages")
-            .upsert(
-                {
-                    id: randomUUID(),
-                    client_id: client.id,
-                    conversation_id: null,
-                    thread_id: thread.id,
-                    sender_type: parsedMessage.sender_type,
-                    sender_name: parsedMessage.sender_name,
-                    text: persistedText,
-                    sent_at: parsedMessage.sent_at,
-                    sequence_index: sequenceIndex,
-                    external_id: parsedMessage.external_id,
-                    external_contact_id: parsedMessage.external_contact_id,
-                    external_thread_id: parsedMessage.external_thread_id,
-                    external_attendant_id:
-                        parsedMessage.external_attendant_id ||
-                        parsedMessage.sender_name,
-                    interactive_option_id: parsedMessage.interactive_option_id,
-                },
-                {
-                    onConflict: "external_id",
-                    ignoreDuplicates: true,
-                },
-            )
-            .select("id")
-            .maybeSingle();
+        const messagePayload = {
+            id: randomUUID(),
+            client_id: client.id,
+            conversation_id: null,
+            thread_id: thread.id,
+            sender_type: parsedMessage.sender_type,
+            sender_name: parsedMessage.sender_name,
+            text: persistedText,
+            sent_at: parsedMessage.sent_at,
+            sequence_index: sequenceIndex,
+            external_id: parsedMessage.external_id,
+            external_contact_id: parsedMessage.external_contact_id,
+            external_thread_id: parsedMessage.external_thread_id,
+            external_attendant_id:
+                parsedMessage.external_attendant_id || parsedMessage.sender_name,
+            interactive_option_id: parsedMessage.interactive_option_id,
+        };
+        const { data: savedMessage, error: messageError } = claimedExternalId
+            ? await supabase.rpc("blip_save_claimed_message_v1", {
+                  p_external_id: claimedExternalId,
+                  p_request_id: webhookRequestId,
+                  p_message: messagePayload,
+              })
+            : await supabase
+                  .from("messages")
+                  .upsert(messagePayload, {
+                      onConflict: "external_id",
+                      ignoreDuplicates: true,
+                  })
+                  .select("id")
+                  .maybeSingle();
+
+        // The save RPC commits the message and releases its claim atomically.
+        if (claimedExternalId && !messageError) claimedExternalId = null;
 
         if (messageError) {
             if (messageError.code === "23505") {
@@ -266,6 +294,24 @@ export async function POST(request: Request) {
             },
             { status: 500 },
         );
+    } finally {
+        if (claimedExternalId) {
+            try {
+                const { error: releaseError } = await supabase.rpc(
+                    "blip_message_claim_v1",
+                    {
+                        p_external_id: claimedExternalId,
+                        p_request_id: webhookRequestId,
+                        p_release: true,
+                    },
+                );
+                if (releaseError) {
+                    console.error(`[blip-webhook:${webhookRequestId}] Claim release failed`, releaseError);
+                }
+            } catch (releaseError) {
+                console.error(`[blip-webhook:${webhookRequestId}] Claim release failed`, releaseError);
+            }
+        }
     }
 }
 
@@ -593,28 +639,6 @@ function sanitizeFileName(value: string) {
 function safeTimestamp(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? Date.now() : date.getTime();
-}
-
-async function messageAlreadyExists(
-    externalId: string,
-    webhookRequestId: string,
-) {
-    const { data, error } = await supabase
-        .from("messages")
-        .select("id")
-        .eq("external_id", externalId)
-        .limit(1)
-        .maybeSingle();
-
-    if (error) {
-        console.error(
-            `[blip-webhook:${webhookRequestId}] Duplicate lookup failed`,
-            error,
-        );
-        throw error;
-    }
-
-    return Boolean(data);
 }
 
 async function getNextSequenceIndex(

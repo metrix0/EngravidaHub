@@ -71,7 +71,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand"><ChartNoAxesCombined size={21} /></span>
                         <div className="min-w-0">
                             <h3 className="text-sm font-bold text-slate-900">Ocupação geral</h3>
-                            <p className="mt-0.5 text-xs text-muted">Das vagas não bloqueadas</p>
+                            <p className="mt-0.5 text-xs text-muted">Do total de vagas, incluindo bloqueadas</p>
                         </div>
                     </div>
                     <span className="shrink-0 text-3xl font-bold tracking-tight tabular-nums text-slate-950">{percent(counts.occupancy)}</span>

@@ -19,17 +19,19 @@ export const maxDuration = 60;
 
 // Must be approved on the active-message WhatsApp router before template sends work.
 const RECOVERY_TEMPLATE: ActiveMessageTemplate = {
-    id: "antecipacao_agendamento",
-    name: "Antecipação de agendamento",
+    id: "adiantamento_de_vaga",
+    name: "Adiantamento de vaga",
     category: "utility",
-    preview: "Olá, {{1}}! Surgiu um horário de atendimento na Engravida de {{2}}, em {{3}} às {{4}}. Você gostaria de antecipar seu agendamento? Responda por aqui para conversarmos.",
-    blip_template_name: "antecipacao_agendamento",
+    namespace: "5ccbe85a_7396_45f1_a010_77e1ef8c75dd",
+    preview: "Olá {{1}}, você tem uma consulta conosco dia {{2}} às {{3}}. No dia {{4}} temos uma vaga aberta às {{5}}, gostaria de adiantar sua consulta para esta vaga?",
+    blip_template_name: "adiantamento_de_vaga",
     active_campaign: { flow_id: "", state_id: "", masterstate: "fluxocampanhaativa@msging.net" },
     parameters: [
         { key: "1", source: { type: "database", field: "client_first_name" } },
-        { key: "2", source: { type: "dynamic", field_id: "unit", label: "Unidade" } },
-        { key: "3", source: { type: "dynamic", field_id: "date", label: "Data" } },
-        { key: "4", source: { type: "dynamic", field_id: "time", label: "Horário" } },
+        { key: "2", source: { type: "dynamic", field_id: "current_date", label: "Data da consulta atual" } },
+        { key: "3", source: { type: "dynamic", field_id: "current_time", label: "Horário da consulta atual" } },
+        { key: "4", source: { type: "dynamic", field_id: "vacancy_date", label: "Data da vaga" } },
+        { key: "5", source: { type: "dynamic", field_id: "vacancy_time", label: "Horário da vaga" } },
     ],
 };
 
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
         }
         const candidates = await loadRecoveryCandidates(vacancy);
         const candidate = candidates.find(item => item.clientId === body.client_id);
-        if (!candidate || !candidate.canContact) {
+        if (!candidate || !candidate.canContact || !candidate.bookedStartsAt) {
             return NextResponse.json({ error: "Cliente indisponível para contato ou contatado recentemente." }, { status: 409 });
         }
         const { data: inserted, error: insertError } = await supabase
@@ -132,20 +134,22 @@ export async function POST(request: Request) {
                 .update({ status: "failed", error: "Horário preenchido antes do envio" }).eq("id", claimedId);
             return NextResponse.json({ error: "Este horário já foi preenchido." }, { status: 409 });
         }
-        const { data: unit, error: unitError } = await supabase.from("units")
-            .select("name").eq("id", vacancy.unitId).single();
-        if (unitError) throw unitError;
-        const date = new Intl.DateTimeFormat("pt-BR", {
+        const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
             timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric",
-        }).format(new Date(vacancy.startsAt));
-        const time = new Intl.DateTimeFormat("pt-BR", {
+        });
+        const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
             timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit",
-        }).format(new Date(vacancy.startsAt));
+        });
         const result = await sendActiveMessageBatch({
             template: RECOVERY_TEMPLATE,
             clientIds: [body.client_id],
             filters: { source: "slot_recovery", vacancy_history_id: vacancy.id },
-            dynamicValues: { unit: unit.name, date, time },
+            dynamicValues: {
+                current_date: dateFormatter.format(new Date(candidate.bookedStartsAt)),
+                current_time: timeFormatter.format(new Date(candidate.bookedStartsAt)),
+                vacancy_date: dateFormatter.format(new Date(vacancy.startsAt)),
+                vacancy_time: timeFormatter.format(new Date(vacancy.startsAt)),
+            },
             actor: { id: activeAccess.actor.id, name: activeAccess.actor.name },
         });
         const recipient = result.results.find(item => item.client_id === body.client_id);

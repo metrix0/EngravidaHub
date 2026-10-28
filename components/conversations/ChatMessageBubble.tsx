@@ -125,6 +125,8 @@ function AttachmentContent({
 }) {
     const [imageFailed, setImageFailed] = useState(false);
     const [audioFailed, setAudioFailed] = useState(false);
+    const [videoFailed, setVideoFailed] = useState(false);
+    const [audioOnlyVideo, setAudioOnlyVideo] = useState(false);
     const attachmentUrl = attachment.path
         ? attachmentAccess === "conversation"
             ? `/api/conversations/media?path=${encodeURIComponent(attachment.path)}`
@@ -134,8 +136,9 @@ function AttachmentContent({
           )}`;
     const isImage = isImageAttachment(attachment);
     const isAudio = attachment.mimeType.startsWith("audio/");
+    const isVideo = attachment.mimeType.startsWith("video/");
 
-    if (isAudio) {
+    if (isAudio || audioOnlyVideo) {
         return (
             <div className="min-w-0">
                 <div
@@ -163,6 +166,31 @@ function AttachmentContent({
                     )}
                 </div>
             </div>
+        );
+    }
+
+    if (isVideo && !videoFailed) {
+        return (
+            <video
+                controls
+                preload="metadata"
+                src={attachmentUrl}
+                onLoadedMetadata={(event) => {
+                    if (event.currentTarget.videoWidth === 0) {
+                        setAudioOnlyVideo(true);
+                    }
+                }}
+                onError={() => {
+                    if (attachment.mimeType === "video/mp4") {
+                        setAudioOnlyVideo(true);
+                    } else {
+                        setVideoFailed(true);
+                    }
+                }}
+                className="block max-h-72 w-[320px] max-w-full rounded-xl bg-black"
+            >
+                Seu navegador não oferece suporte à reprodução de vídeo.
+            </video>
         );
     }
 

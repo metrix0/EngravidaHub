@@ -46,6 +46,7 @@ export type RecoveryCandidate = {
     contactedAt: string | null;
     recentContact: boolean;
     canContact: boolean;
+    bookedStartsAt: string | null;
     error: string | null;
 };
 
@@ -261,6 +262,7 @@ export async function loadRecoveryCandidates(vacancy: NonNullable<Awaited<Return
             latestClientReply.get(client.id) && latestClientReply.get(client.id)! > current.contacted_at);
         const reasons = [];
         if (booked) reasons.push(`Consulta atual em ${new Intl.DateTimeFormat("pt-BR",{ timeZone:"America/Sao_Paulo" }).format(new Date(booked.starts_at))} · ${daysAhead} dias depois`);
+        else reasons.push("Sem consulta futura para antecipar");
         if (preferred) reasons.push("Preferência de horário compatível");
         if (interest) reasons.push("Interesse recente em agendamento");
         const score = (booked ? 100 + Math.min(daysAhead, 180) * 3 : 30) +
@@ -273,7 +275,8 @@ export async function loadRecoveryCandidates(vacancy: NonNullable<Awaited<Return
             clientId: client.id, name: client.name ?? "Cliente sem nome",
             score, reasons, status, contactedAt: current?.contacted_at ?? null,
             recentContact: recentlyContacted,
-            canContact: !recentlyContacted && !conflicts.has(client.id) && (status === "available" || status === "failed"),
+            canContact: Boolean(booked) && !recentlyContacted && !conflicts.has(client.id) && (status === "available" || status === "failed"),
+            bookedStartsAt: booked?.starts_at ?? null,
             error: current?.error ?? null,
         }];
     }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 10);

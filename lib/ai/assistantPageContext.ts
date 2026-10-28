@@ -40,9 +40,9 @@ export function useAssistantPageContext(id: string, getSnapshot: () => Assistant
     }, [id]);
 }
 
-function boundedData(value: unknown, maxChars: number) {
+export function boundedData(value: unknown, maxChars: number) {
     let truncated = false;
-    function trim(input: unknown, depth: number): unknown {
+    function trim(input: unknown, depth: number, key?: string): unknown {
         if (typeof input === "string") {
             if (input.length > 500) truncated = true;
             return input.slice(0, 500);
@@ -53,13 +53,14 @@ function boundedData(value: unknown, maxChars: number) {
             return "[mais níveis disponíveis na página]";
         }
         if (Array.isArray(input)) {
-            if (input.length > 35) truncated = true;
-            const items = input.slice(0, 35).map(item => trim(item, depth + 1));
-            return input.length > 35 ? { total: input.length, primeiros_registros: items } : items;
+            const limit = key === "dados_referencia" ? 100 : 35;
+            if (input.length > limit) truncated = true;
+            const items = input.slice(0, limit).map(item => trim(item, depth + 1));
+            return input.length > limit ? { total: input.length, primeiros_registros: items } : items;
         }
         const entries = Object.entries(input as Record<string, unknown>);
         if (entries.length > 70) truncated = true;
-        return Object.fromEntries(entries.slice(0, 70).map(([key, item]) => [key, trim(item, depth + 1)]));
+        return Object.fromEntries(entries.slice(0, 70).map(([key, item]) => [key, trim(item, depth + 1, key)]));
     }
     const sampled = trim(value, 0);
     let serialized: string;
