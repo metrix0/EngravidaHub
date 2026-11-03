@@ -311,7 +311,7 @@ export async function collectHealth(): Promise<HealthSnapshot> {
     for (const job of jobs) {
         const last = job.last_run;
         const status = !job.active ? "warning" : !last ? "unknown" :
-            last.status === "succeeded" ? "healthy" :
+            last.status === "succeeded" || last.status === "running" ? "healthy" :
             last.status === "failed" ? "failed" : "warning";
         services.push({
             id: "postgres:" + job.name,

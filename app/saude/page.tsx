@@ -8,11 +8,12 @@ import {
     ShieldAlert, Webhook,
 } from "lucide-react";
 
-import { Badge, Card, DataTable, DropdownSelect, KpiCard, Skeleton, TableHeaderPreset, type DataTableColumn } from "@/components";
+import { Badge, Card, DataTable, DropdownSelect, KpiCard, Pagination, Skeleton, TableHeaderPreset, type DataTableColumn } from "@/components";
 import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory, HealthAttempt } from "@/lib/saude/monitor";
 import type { HealthAlert } from "@/lib/saude/alerts";
 
 type ResponseData = { snapshot: HealthSnapshot; alerts: HealthAlert[]; error?: string };
+const ALERT_HISTORY_PAGE_SIZE = 10;
 
 const labels: Record<HealthCategory, string> = {
     cron: "Cron jobs",
@@ -54,6 +55,7 @@ export default function SaudePage() {
     const [attemptsOnlyFailures, setAttemptsOnlyFailures] = useState(false);
     const [expandedService, setExpandedService] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [historyPage, setHistoryPage] = useState(1);
     const [acknowledging, setAcknowledging] = useState<string | null>(null);
 
     const refresh = useCallback(async (initial = false) => {
@@ -100,6 +102,12 @@ export default function SaudePage() {
     const services = snapshot?.services ?? [];
     const activeAlerts = alerts.filter(item => item.status === "active");
     const otherAlerts = alerts.filter(item => item.status !== "active");
+    const historyTotalPages = Math.max(1, Math.ceil(otherAlerts.length / ALERT_HISTORY_PAGE_SIZE));
+    const visibleHistoryPage = Math.min(historyPage, historyTotalPages);
+    const paginatedHistory = otherAlerts.slice(
+        (visibleHistoryPage - 1) * ALERT_HISTORY_PAGE_SIZE,
+        visibleHistoryPage * ALERT_HISTORY_PAGE_SIZE,
+    );
     const pendingFailures = services.filter(item => item.status === "failed" &&
         !activeAlerts.some(alert => alert.alert_key === "health:" + item.id));
     const filtered = useMemo(() => services.filter(item => {
@@ -162,7 +170,7 @@ export default function SaudePage() {
                                     <p className="mt-2 text-xs text-slate-500">Detectado: {formatDate(alert.last_seen_at)} · {alert.occurrences} ocorrência(s)</p>
                                 </div>
                                 <button disabled={acknowledging === alert.id} onClick={() => void acknowledge(alert.id)}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
                                     <Check size={14} /> Reconhecer
                                 </button>
                             </div>)}
@@ -172,14 +180,21 @@ export default function SaudePage() {
                             </div>)}
                         </div>}
                     {otherAlerts.length > 0 && <div className="mt-3">
-                        <button onClick={() => setShowHistory(!showHistory)} className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700">
+                        <button type="button" aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)} className="flex cursor-pointer items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700">
                             {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Histórico de alertas ({otherAlerts.length})
                         </button>
-                        {showHistory && <div className="mt-2 space-y-2">
-                            {otherAlerts.map(item => <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
-                                <span className="font-semibold text-slate-800">{item.title}</span> · {item.status === "resolved" ? "Recuperado" : "Reconhecido"} · {formatDate(item.last_seen_at)}
-                            </div>)}
-                        </div>}
+                        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${showHistory ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={!showHistory} inert={!showHistory}>
+                            <div className="min-h-0 overflow-hidden">
+                                <div className="space-y-2 pt-2">
+                                    {paginatedHistory.map(item => <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+                                        <span className="font-semibold text-slate-800">{item.title}</span> · {item.status === "resolved" ? "Recuperado" : "Reconhecido"} · {formatDate(item.last_seen_at)}
+                                    </div>)}
+                                    {historyTotalPages > 1 && <div className="flex justify-end pt-3">
+                                        <Pagination totalPages={historyTotalPages} currentPage={visibleHistoryPage} onPageChange={setHistoryPage} activeTone="brand" />
+                                    </div>}
+                                </div>
+                            </div>
+                        </div>
                     </div>}
                 </section>
 
