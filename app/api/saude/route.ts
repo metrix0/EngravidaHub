@@ -8,17 +8,14 @@ import { getHealthSnapshot } from "@/lib/saude/monitor";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function requireAdmin() {
+async function requireSaudeAccess() {
     const access = await getServerTabAccess("saude");
     if (access.ok === false) return { allowed: false as const, status: access.status, error: access.error };
-    if (access.permission.preset !== "admin") {
-        return { allowed: false as const, status: 403, error: "Acesso restrito a administradores" };
-    }
     return { allowed: true as const };
 }
 
 export async function GET() {
-    const permission = await requireAdmin();
+    const permission = await requireSaudeAccess();
     if (permission.allowed === false) return NextResponse.json({ error: permission.error }, { status: permission.status });
     try {
         const [snapshot, alerts] = await Promise.all([getHealthSnapshot(), readHealthAlerts()]);
@@ -30,7 +27,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
-    const permission = await requireAdmin();
+    const permission = await requireSaudeAccess();
     if (permission.allowed === false) return NextResponse.json({ error: permission.error }, { status: permission.status });
     const data = await request.json().catch(() => null);
     const id = typeof data?.id === "string" ? data.id : "";

@@ -120,12 +120,6 @@ export function normalizeAllowedTabs(value: unknown): AppTabId[] {
     return [...new Set(value.filter(isAppTabId))];
 }
 
-// Saúde is a fixed admin-only tab, independent of manually assigned permissions.
-export function getEffectiveAllowedTabs(value: unknown, preset: string): AppTabId[] {
-    const tabs = normalizeAllowedTabs(value).filter(tab => tab !== "saude");
-    return preset === "admin" ? [...tabs, "saude"] : tabs;
-}
-
 export function getTabIdForPathname(pathname: string): AppTabId | null {
     if (
         pathname === "/" ||

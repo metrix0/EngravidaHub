@@ -35,7 +35,6 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
-import { getEffectiveAllowedTabs } from "@/lib/auth/userAccess";
 
 type TabId =
     | "dashboard"
@@ -994,10 +993,10 @@ function buildUserViews(data: ApiResponse, units: Unit[]): UserView[] {
             permission?.preset === NO_PRESET_ID
                 ? null
                 : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-        const allowedTabs = getEffectiveAllowedTabs(normalizeAllowedTabs(
+        const allowedTabs = normalizeAllowedTabs(
             permission?.allowed_tabs,
             permission ? [] : preset?.default_tabs ?? [],
-        ), preset?.id ?? "");
+        );
         const attendant = permission
             ? permission.attendant_id
                 ? attendantsById.get(permission.attendant_id) ?? null
@@ -1195,7 +1194,7 @@ function UserDetailsPanel({
 }) {
     if (!user) return null;
 
-    const allTabs = tabsFromIds(TABS.map((tab) => tab.id)).filter(tab => tab.id !== "saude");
+    const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
     const accessInfo = getAccessInfo(user);
     const accessColors = accessInfo.preset
         ? getColorClasses(accessInfo.preset.color)

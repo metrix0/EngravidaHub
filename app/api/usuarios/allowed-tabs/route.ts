@@ -50,7 +50,7 @@ export async function PATCH(request: NextRequest) {
             : [];
 
         const savedAllowedTabs =
-            preset === "__none__" ? [] : allowedTabs.filter(tab => preset === "admin" || tab !== "saude");
+            preset === "__none__" ? [] : allowedTabs;
 
         const { error } = await supabase
             .from("user_permissions")

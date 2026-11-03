@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { supabase as adminSupabase } from "@/lib";
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import {
-    getEffectiveAllowedTabs,
+    normalizeAllowedTabs,
     serializeUnitLockCookie,
     UNIT_LOCK_COOKIE_NAME,
 } from "@/lib/auth/userAccess";
@@ -89,7 +89,7 @@ export async function GET() {
             ? {
                 auth_user_id: permissionRow.auth_user_id,
                 preset: permissionRow.preset,
-                allowed_tabs: getEffectiveAllowedTabs(permissionRow.allowed_tabs, permissionRow.preset),
+                allowed_tabs: normalizeAllowedTabs(permissionRow.allowed_tabs),
                 attendant_id: permissionRow.attendant_id,
                 active: permissionRow.active,
                 unit_lock: unitLock,
