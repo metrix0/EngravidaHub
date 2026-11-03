@@ -63,6 +63,7 @@ type CronJob = {
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID || "prj_jb6BkDqYaC4smh5AeD5lIybZMP0L";
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID || "team_IZl9hS7irDpAG000kYEoKNQZ";
 const MAX_LOG_BYTES = 1_500_000;
+const LOG_STREAM_SAMPLE_MS = 4_000;
 const RECENT_WINDOW_MS = 2 * 60 * 60 * 1000;
 const MISSED_GRACE_MS = 5 * 60 * 1000;
 
@@ -123,14 +124,14 @@ function parseLogResponse(text: string): VercelLog[] {
     return records.map(asVercelLog).filter((value): value is VercelLog => Boolean(value));
 }
 
-async function vercelRequest(path: string) {
+async function vercelRequest(path: string, signal?: AbortSignal) {
     const token = process.env.VERCEL_API_TOKEN;
     if (!token) throw new Error("VERCEL_API_TOKEN não configurado");
     const url = "https://api.vercel.com" + path + (path.includes("?") ? "&" : "?") +
         "teamId=" + encodeURIComponent(VERCEL_TEAM_ID);
     const response = await fetch(url, {
         headers: { Authorization: "Bearer " + token },
-        signal: AbortSignal.timeout(15_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
         cache: "no-store",
     });
     if (!response.ok) throw new Error("Vercel API: HTTP " + response.status);
@@ -144,31 +145,45 @@ async function vercelLogs() {
     const latest = (deployments.deployments ?? []).find(item => item.readyState === "READY");
     const deploymentId = latest?.uid ?? latest?.id;
     if (!deploymentId) throw new Error("Nenhum deployment de produção disponível");
+    const controller = new AbortController();
     const response = await vercelRequest(
         "/v1/projects/" + encodeURIComponent(VERCEL_PROJECT_ID) +
         "/deployments/" + encodeURIComponent(deploymentId) + "/runtime-logs",
+        controller.signal,
     );
     const reader = response.body?.getReader();
     if (!reader) throw new Error("A API não retornou logs");
     const decoder = new TextDecoder();
     let raw = "";
     let size = 0;
+    let complete = false;
     let partial = false;
+    // This endpoint streams live logs. A healthy stream can stay open indefinitely.
+    // Sample it for a bounded interval instead of treating the expected cutoff as a failure.
+    const timer = setTimeout(() => controller.abort(), LOG_STREAM_SAMPLE_MS);
     try {
         while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+                complete = true;
+                break;
+            }
             size += value.byteLength;
             if (size > MAX_LOG_BYTES) {
                 partial = true;
-                await reader.cancel();
+                controller.abort();
                 break;
             }
             raw += decoder.decode(value, { stream: true });
         }
+    } catch (error) {
+        if (!controller.signal.aborted) throw error;
     } finally {
+        clearTimeout(timer);
+        controller.abort();
         reader.releaseLock();
     }
+    partial ||= !complete;
     raw += decoder.decode();
     const cutoff = Date.now() - RECENT_WINDOW_MS;
     const logs = parseLogResponse(raw)
@@ -275,7 +290,7 @@ export async function collectHealth(): Promise<HealthSnapshot> {
                 service.detail = "Execução agendada não encontrada nos logs";
             }
         }
-        if (!vercelOK || partial || ambiguous && !matches.length) {
+        if (!vercelOK || ((partial || ambiguous) && !matches.length)) {
             service.status = "unknown";
             service.detail = !vercelOK ? "Vercel indisponível" : partial
                 ? "Consulta de logs parcial" : "Execuções com rota compartilhada";
@@ -296,7 +311,7 @@ export async function collectHealth(): Promise<HealthSnapshot> {
     for (const job of jobs) {
         const last = job.last_run;
         const status = !job.active ? "warning" : !last ? "unknown" :
-            last.status === "succeeded" ? "healthy" :
+            last.status === "succeeded" || last.status === "running" ? "healthy" :
             last.status === "failed" ? "failed" : "warning";
         services.push({
             id: "postgres:" + job.name,
@@ -341,10 +356,10 @@ export async function collectHealth(): Promise<HealthSnapshot> {
         checked_at: new Date(now).toISOString(),
         sources: {
             vercel: {
-                ok: vercelOK && !partial,
+                ok: vercelOK,
                 detail: !vercelOK ? (vercelResult.reason instanceof Error ?
                     vercelResult.reason.message : "Falha ao consultar Vercel") :
-                    partial ? "Logs incompletos; verificações de ausência suspensas" : "Conectado",
+                    partial ? "Conectado; verificação de ausências indisponível na amostra" : "Conectado",
             },
             supabase: { ok: pgOK, detail: pgOK ? "Conectado" : pgError || "Falha ao consultar Supabase" },
         },
