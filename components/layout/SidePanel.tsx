@@ -135,12 +135,6 @@ const defaultItems: SidePanelEntry[] = [
         tabId: "agendamentos",
     },
     {
-        label: "Orçamentos",
-        href: "/orcamentos",
-        icon: <FileText size={18} />,
-        tabId: "orcamentos",
-    },
-    {
         label: "Funil",
         href: "/funil",
         icon: <Funnel size={18} />,
@@ -169,6 +163,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/performance",
         icon: <TrendingUp size={18} />,
         tabId: "performance",
+    },
+    {
+        label: "Orçamentos",
+        href: "/orcamentos",
+        icon: <FileText size={18} />,
+        tabId: "orcamentos",
     },
     {
         label: "Mensagem Ativa",
