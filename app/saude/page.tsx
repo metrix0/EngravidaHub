@@ -1,15 +1,15 @@
 // app/saude/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Activity, AlertCircle, AlertTriangle, Check, CheckCircle2,
-    ChevronDown, ChevronUp, Clock3, Database, HeartPulse,
-    RefreshCw, Search, ShieldAlert, Webhook,
+    ChevronDown, ChevronUp, Clock3, Database,
+    RefreshCw, ShieldAlert, Webhook,
 } from "lucide-react";
 
-import { Card } from "@/components";
-import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory } from "@/lib/saude/monitor";
+import { Badge, Card, DataTable, DropdownSelect, KpiCard, SearchFilter, type DataTableColumn } from "@/components";
+import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory, HealthAttempt } from "@/lib/saude/monitor";
 import type { HealthAlert } from "@/lib/saude/alerts";
 
 type ResponseData = { snapshot: HealthSnapshot; alerts: HealthAlert[]; error?: string };
@@ -21,11 +21,11 @@ const labels: Record<HealthCategory, string> = {
     database: "Supabase",
 };
 
-const statuses: Record<HealthStatus, { label: string; color: string; background: string }> = {
-    healthy: { label: "Saudável", color: "text-green", background: "bg-green-soft" },
-    warning: { label: "Atenção", color: "text-orange", background: "bg-orange-soft" },
-    failed: { label: "Falha", color: "text-red", background: "bg-red-soft" },
-    unknown: { label: "Sem dados", color: "text-slate-500", background: "bg-slate-100" },
+const statusBadges: Record<HealthStatus, { value: string; label: string }> = {
+    healthy: { value: "resolvida", label: "Saudável" },
+    warning: { value: "parcial", label: "Atenção" },
+    failed: { value: "nao_resolvida", label: "Falha" },
+    unknown: { value: "sem dados", label: "Sem dados" },
 };
 
 function formatDate(value: string | null) {
@@ -39,19 +39,8 @@ function formatDate(value: string | null) {
 }
 
 function StatusTag({ status }: { status: HealthStatus }) {
-    const item = statuses[status];
-    return <span className={"inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold " +
-        item.background + " " + item.color}>{item.label}</span>;
-}
-
-function SummaryTile({ title, value, icon }: { title: string; value: number; icon: ReactNode }) {
-    return <Card className="min-w-0">
-        <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">{icon}</div>
-            <div><p className="text-xs font-medium text-slate-500">{title}</p>
-                <p className="text-3xl font-bold tracking-tight text-slate-900">{value}</p></div>
-        </div>
-    </Card>;
+    const badge = statusBadges[status];
+    return <Badge value={badge.value} label={badge.label} />;
 }
 
 export default function SaudePage() {
@@ -124,32 +113,54 @@ export default function SaudePage() {
         return !term || (item.name + " " + item.path + " " + item.detail).toLowerCase().includes(term);
     }), [services, category, filter, search]);
     const attempts = (snapshot?.attempts ?? []).filter(item => !attemptsOnlyFailures || item.status === "failed");
+    const selectedService = filtered.find(item => item.id === expandedService) ?? null;
+    const serviceColumns: DataTableColumn<HealthService>[] = [
+        {
+            id: "service", label: "Serviço", width: "36%",
+            render: (item) => <div className="flex min-w-0 items-center gap-2">
+                <ServiceIcon category={item.category} />
+                <span className="min-w-0 truncate font-semibold text-slate-800" title={item.name}>{item.name}</span>
+            </div>,
+        },
+        { id: "origin", label: "Origem", width: "16%", render: (item) => labels[item.category] },
+        { id: "status", label: "Status", width: "15%", render: (item) => <StatusTag status={item.status} /> },
+        { id: "last_seen", label: "Última atividade", width: "20%", render: (item) => <span className="whitespace-nowrap">{formatDate(item.last_seen)}</span> },
+        { id: "failures", label: "Falhas", width: "8%", render: (item) => item.failures },
+        { id: "details", label: "", width: "5%", render: (item) => item.id === expandedService ? <ChevronUp size={16} /> : <ChevronDown size={16} /> },
+    ];
+    const attemptColumns: DataTableColumn<HealthAttempt>[] = [
+        { id: "time", label: "Horário", width: "20%", render: (item) => <span className="whitespace-nowrap">{formatDate(item.at)}</span> },
+        { id: "service", label: "Serviço", width: "45%", render: (item) => <div className="min-w-0">
+            <span className="block truncate font-medium text-slate-800">{item.service}</span>
+            <span className="block truncate text-xs text-slate-400" title={item.path}>{item.path}</span>
+        </div> },
+        { id: "result", label: "Resultado", width: "15%", render: (item) => <StatusTag status={item.status === "failed" ? "failed" : "healthy"} /> },
+        { id: "details", label: "Detalhes", width: "20%", render: (item) => item.detail },
+    ];
 
-    return <main className="sidepanel-scrollbar-hidden h-full min-h-0 w-full overflow-x-hidden overflow-y-auto bg-white text-slate-900">
-        <div className="mx-auto w-full max-w-[1500px] px-4 py-5 md:px-8 md:py-8">
-            <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    return <main className="h-full min-h-0 w-full overflow-y-auto bg-white text-slate-900">
+        <section className="min-w-0 px-4 py-5 md:px-8 md:py-8">
+            <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                    <div className="flex items-center gap-2">
-                        <HeartPulse className="text-red" size={26} />
-                        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Saúde</h1>
-                    </div>
-                    {snapshot && <p className="mt-1 text-xs text-slate-400">Atualizado: {formatDate(snapshot.checked_at)}</p>}
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Saúde</h1>
+                    {snapshot && <p className="mt-2 text-sm text-slate-500">Atualizado: {formatDate(snapshot.checked_at)}</p>}
                 </div>
                 <button type="button" onClick={() => void refresh()} disabled={refreshing || loading}
-                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                    className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60">
                     <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /> Atualizar
                 </button>
-            </div>
+            </header>
 
             {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
             {loading && !snapshot ? <div className="space-y-4">
                 {[1, 2, 3].map(id => <div key={id} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
             </div> : <div className="space-y-6">
                 <section aria-labelledby="saude-alertas">
-                    <div className="mb-3 flex items-center gap-2">
+                    <Card>
+                    <div className="mb-4 flex items-center gap-2">
                         <AlertTriangle size={19} className="text-red" />
                         <h2 id="saude-alertas" className="text-lg font-bold">Alertas</h2>
-                        <span className="rounded-md bg-red-soft px-2 py-0.5 text-xs font-bold text-red">{activeAlerts.length + pendingFailures.length}</span>
+                        <Badge value={activeAlerts.length + pendingFailures.length ? "nao_resolvida" : "resolvida"} label={String(activeAlerts.length + pendingFailures.length)} />
                     </div>
                     {snapshot && (!snapshot.sources.vercel.ok || !snapshot.sources.supabase.ok) &&
                         <div role="alert" className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
@@ -192,13 +203,14 @@ export default function SaudePage() {
                             </div>)}
                         </div>}
                     </div>}
+                    </Card>
                 </section>
 
-                <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                    <SummaryTile title="Serviços monitorados" value={services.length} icon={<Activity size={22} />} />
-                    <SummaryTile title="Saudáveis" value={services.filter(item => item.status === "healthy").length} icon={<CheckCircle2 size={22} />} />
-                    <SummaryTile title="Falhas / atenção" value={services.filter(item => item.status === "failed" || item.status === "warning").length} icon={<AlertCircle size={22} />} />
-                    <SummaryTile title="Sem dados" value={services.filter(item => item.status === "unknown").length} icon={<Clock3 size={22} />} />
+                <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <KpiCard icon={<Activity size={26} />} label="Serviços monitorados" currentValue={services.length} color="blue" />
+                    <KpiCard icon={<CheckCircle2 size={26} />} label="Saudáveis" currentValue={services.filter(item => item.status === "healthy").length} color="green" />
+                    <KpiCard icon={<AlertCircle size={26} />} label="Falhas / atenção" currentValue={services.filter(item => item.status === "failed" || item.status === "warning").length} color="orange" />
+                    <KpiCard icon={<Clock3 size={26} />} label="Sem dados" currentValue={services.filter(item => item.status === "unknown").length} color="purple" />
                 </section>
 
                 <section aria-label="Serviços monitorados">
@@ -208,50 +220,48 @@ export default function SaudePage() {
                                 <h2 className="text-lg font-bold text-slate-900">Conexões e serviços</h2>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                <span className={"rounded-md px-2 py-1 text-xs font-semibold " + (snapshot?.sources.vercel.ok ? "bg-green-soft text-green" : "bg-orange-soft text-orange")}>
-                                    Vercel {snapshot?.sources.vercel.ok ? "conectado" : "indisponível"}
-                                </span>
-                                <span className={"rounded-md px-2 py-1 text-xs font-semibold " + (snapshot?.sources.supabase.ok ? "bg-green-soft text-green" : "bg-orange-soft text-orange")}>
-                                    Supabase {snapshot?.sources.supabase.ok ? "conectado" : "indisponível"}
-                                </span>
+                                <Badge value={snapshot?.sources.vercel.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.vercel.ok ? "Vercel conectado" : "Vercel indisponível"} />
+                                <Badge value={snapshot?.sources.supabase.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.supabase.ok ? "Supabase conectado" : "Supabase indisponível"} />
                             </div>
                         </div>
-                        <div className="mb-4 flex flex-wrap items-center gap-2">
-                            <label className="flex h-10 min-w-40 flex-1 items-center gap-2 rounded-xl border border-slate-200 px-3 text-slate-500 md:max-w-xs">
-                                <Search size={16} />
-                                <input value={search} onChange={event => setSearch(event.target.value)}
-                                    aria-label="Buscar serviços" placeholder="Buscar serviço..." className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400" />
-                            </label>
-                            <select aria-label="Categoria de serviço" value={category} onChange={event => setCategory(event.target.value as HealthCategory | "all")}
-                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
-                                <option value="all">Todas as categorias</option>
-                                {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                            </select>
-                            <select aria-label="Status do serviço" value={filter} onChange={event => setFilter(event.target.value as typeof filter)}
-                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
-                                <option value="all">Todos os status</option>
-                                <option value="failed">Falhas e atenção</option>
-                                <option value="unknown">Sem dados</option>
-                            </select>
+                        <div className="mb-4 flex flex-wrap items-center gap-3">
+                            <SearchFilter value={search} onChange={setSearch} placeholder="Buscar serviço..." widthClassName="w-[310px]" />
+                            <DropdownSelect
+                                value={category}
+                                onChange={(value) => setCategory(value as HealthCategory | "all")}
+                                options={[{ label: "Todas as categorias", value: "all" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]}
+                                widthClassName="w-[220px]"
+                            />
+                            <DropdownSelect
+                                value={filter}
+                                onChange={(value) => setFilter(value as typeof filter)}
+                                options={[
+                                    { label: "Todos os status", value: "all" },
+                                    { label: "Falhas e atenção", value: "failed" },
+                                    { label: "Sem dados", value: "unknown" },
+                                ]}
+                                widthClassName="w-[200px]"
+                            />
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 text-xs text-slate-500"><tr>
-                                    <th className="px-3 py-3 font-semibold">Serviço</th>
-                                    <th className="px-3 py-3 font-semibold">Origem</th>
-                                    <th className="px-3 py-3 font-semibold">Status</th>
-                                    <th className="px-3 py-3 font-semibold">Última atividade</th>
-                                    <th className="px-3 py-3 font-semibold">Falhas</th>
-                                    <th className="w-9" />
-                                </tr></thead>
-                                <tbody>
-                                    {filtered.map(service => <FragmentService key={service.id} service={service}
-                                        expanded={expandedService === service.id}
-                                        toggle={() => setExpandedService(current => current === service.id ? null : service.id)} />)}
-                                </tbody>
-                            </table>
-                            {filtered.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhum serviço encontrado.</p>}
-                        </div>
+                        <DataTable
+                            columns={serviceColumns}
+                            rows={filtered}
+                            getRowKey={(item) => item.id}
+                            onRowClick={(item) => setExpandedService(current => current === item.id ? null : item.id)}
+                            emptyMessage="Nenhum serviço encontrado."
+                            minWidth={800}
+                            cardPadding={false}
+                        />
+                        {selectedService && <div className="mt-4 border-t border-border pt-4 text-sm text-slate-600">
+                            <h3 className="mb-3 text-sm font-bold text-text">{selectedService.name}</h3>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <p><strong>Rota:</strong> {selectedService.path}</p>
+                                <p><strong>Agendamento:</strong> {selectedService.schedule || "—"}</p>
+                                <p><strong>Último sucesso:</strong> {formatDate(selectedService.last_success)}</p>
+                                <p><strong>Última falha:</strong> {formatDate(selectedService.last_failure)}</p>
+                            </div>
+                            <p className="mt-3">{selectedService.detail}</p>
+                        </div>}
                     </Card>
                 </section>
 
@@ -265,52 +275,23 @@ export default function SaudePage() {
                                 Apenas falhas
                             </label>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 text-xs text-slate-500"><tr>
-                                    <th className="px-3 py-3">Horário</th><th className="px-3 py-3">Serviço</th>
-                                    <th className="px-3 py-3">Resultado</th><th className="px-3 py-3">Detalhes</th>
-                                </tr></thead>
-                                <tbody>{attempts.slice(0, 80).map(item => <tr key={item.id} className="border-t border-slate-100">
-                                    <td className="whitespace-nowrap px-3 py-3 text-slate-500">{formatDate(item.at)}</td>
-                                    <td className="px-3 py-3"><span className="font-medium text-slate-800">{item.service}</span>
-                                        <span className="block max-w-sm truncate text-xs text-slate-400">{item.path}</span></td>
-                                    <td className="px-3 py-3"><StatusTag status={item.status === "failed" ? "failed" : "healthy"} /></td>
-                                    <td className="px-3 py-3 text-slate-500">{item.detail}</td>
-                                </tr>)}</tbody>
-                            </table>
-                            {attempts.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Sem tentativas disponíveis.</p>}
-                        </div>
+                        <DataTable
+                            columns={attemptColumns}
+                            rows={attempts.slice(0, 80)}
+                            getRowKey={(item) => item.id}
+                            emptyMessage="Sem tentativas disponíveis."
+                            minWidth={700}
+                            cardPadding={false}
+                        />
                     </Card>
                 </section>
             </div>}
-        </div>
+        </section>
     </main>;
 }
 
-function FragmentService({ service, expanded, toggle }: { service: HealthService; expanded: boolean; toggle: () => void }) {
-    const Icon = service.category === "database" ? Database :
-        service.category === "webhook" ? Webhook : service.category === "cron" ? Clock3 : ShieldAlert;
-    return <>
-        <tr className="border-t border-slate-100 hover:bg-slate-50">
-            <td className="px-3 py-3"><button type="button" onClick={toggle} aria-expanded={expanded} className="flex items-center gap-2 text-left">
-                <Icon size={16} className="shrink-0 text-slate-400" />
-                <span className="min-w-0 font-semibold text-slate-800">{service.name}</span>
-            </button></td>
-            <td className="px-3 py-3 text-slate-500">{labels[service.category]}</td>
-            <td className="px-3 py-3"><StatusTag status={service.status} /></td>
-            <td className="whitespace-nowrap px-3 py-3 text-slate-500">{formatDate(service.last_seen)}</td>
-            <td className="px-3 py-3 text-slate-500">{service.failures}</td>
-            <td className="px-3 py-3">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
-        </tr>
-        {expanded && <tr className="border-t border-slate-100 bg-slate-50"><td colSpan={6} className="px-4 py-4 text-sm">
-            <div className="grid gap-2 sm:grid-cols-2">
-                <p><strong>Rota:</strong> {service.path}</p>
-                <p><strong>Agendamento:</strong> {service.schedule || "—"}</p>
-                <p><strong>Último sucesso:</strong> {formatDate(service.last_success)}</p>
-                <p><strong>Última falha:</strong> {formatDate(service.last_failure)}</p>
-            </div>
-            <p className="mt-3 text-slate-600">{service.detail}</p>
-        </td></tr>}
-    </>;
+function ServiceIcon({ category }: { category: HealthCategory }) {
+    const Icon = category === "database" ? Database :
+        category === "webhook" ? Webhook : category === "cron" ? Clock3 : ShieldAlert;
+    return <Icon size={16} className="shrink-0 text-slate-400" />;
 }
