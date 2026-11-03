@@ -8,7 +8,7 @@ import {
     ShieldAlert, Webhook,
 } from "lucide-react";
 
-import { Badge, Card, DataTable, DropdownSelect, KpiCard, SearchFilter, type DataTableColumn } from "@/components";
+import { Badge, DataTable, DropdownSelect, KpiCard, TableHeaderPreset, type DataTableColumn } from "@/components";
 import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory, HealthAttempt } from "@/lib/saude/monitor";
 import type { HealthAlert } from "@/lib/saude/alerts";
 
@@ -149,7 +149,6 @@ export default function SaudePage() {
                 {[1, 2, 3].map(id => <div key={id} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
             </div> : <div className="space-y-6">
                 <section aria-labelledby="saude-alertas">
-                    <Card>
                     <div className="mb-4 flex items-center gap-2">
                         <AlertTriangle size={19} className="text-red" />
                         <h2 id="saude-alertas" className="text-lg font-bold">Alertas</h2>
@@ -196,7 +195,6 @@ export default function SaudePage() {
                             </div>)}
                         </div>}
                     </div>}
-                    </Card>
                 </section>
 
                 <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -207,76 +205,69 @@ export default function SaudePage() {
                 </section>
 
                 <section aria-label="Serviços monitorados">
-                    <Card>
-                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-900">Conexões e serviços</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                <Badge value={snapshot?.sources.vercel.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.vercel.ok ? "Vercel conectado" : "Vercel indisponível"} />
-                                <Badge value={snapshot?.sources.supabase.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.supabase.ok ? "Supabase conectado" : "Supabase indisponível"} />
-                            </div>
-                        </div>
-                        <div className="mb-4 flex flex-wrap items-center gap-3">
-                            <SearchFilter value={search} onChange={setSearch} placeholder="Buscar serviço..." widthClassName="w-[310px]" />
-                            <DropdownSelect
-                                value={category}
-                                onChange={(value) => setCategory(value as HealthCategory | "all")}
-                                options={[{ label: "Todas as categorias", value: "all" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]}
-                                widthClassName="w-[220px]"
-                            />
-                            <DropdownSelect
-                                value={filter}
-                                onChange={(value) => setFilter(value as typeof filter)}
-                                options={[
-                                    { label: "Todos os status", value: "all" },
-                                    { label: "Falhas e atenção", value: "failed" },
-                                    { label: "Sem dados", value: "unknown" },
-                                ]}
-                                widthClassName="w-[200px]"
-                            />
-                        </div>
-                        <DataTable
-                            columns={serviceColumns}
-                            rows={filtered}
-                            getRowKey={(item) => item.id}
-                            onRowClick={(item) => setExpandedService(current => current === item.id ? null : item.id)}
-                            emptyMessage="Nenhum serviço encontrado."
-                            minWidth={800}
-                            cardPadding={false}
+                    <TableHeaderPreset
+                        title="Conexões e serviços"
+                        count={filtered.length}
+                        searchValue={search}
+                        onSearchChange={setSearch}
+                        searchPlaceholder="Buscar serviço..."
+                    >
+                        <DropdownSelect
+                            value={category}
+                            onChange={(value) => setCategory(value as HealthCategory | "all")}
+                            options={[{ label: "Todas as categorias", value: "all" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]}
+                            widthClassName="w-[220px]"
                         />
-                        {selectedService && <div className="mt-4 border-t border-border pt-4 text-sm text-slate-600">
-                            <h3 className="mb-3 text-sm font-bold text-text">{selectedService.name}</h3>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                                <p><strong>Rota:</strong> {selectedService.path}</p>
-                                <p><strong>Agendamento:</strong> {selectedService.schedule || "—"}</p>
-                                <p><strong>Último sucesso:</strong> {formatDate(selectedService.last_success)}</p>
-                                <p><strong>Última falha:</strong> {formatDate(selectedService.last_failure)}</p>
-                            </div>
-                            <p className="mt-3">{selectedService.detail}</p>
-                        </div>}
-                    </Card>
+                        <DropdownSelect
+                            value={filter}
+                            onChange={(value) => setFilter(value as typeof filter)}
+                            options={[
+                                { label: "Todos os status", value: "all" },
+                                { label: "Falhas e atenção", value: "failed" },
+                                { label: "Sem dados", value: "unknown" },
+                            ]}
+                            widthClassName="w-[200px]"
+                        />
+                    </TableHeaderPreset>
+                    <div className="mb-4 mt-4 flex flex-wrap items-center gap-2 px-4 sm:px-6">
+                        <Badge value={snapshot?.sources.vercel.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.vercel.ok ? "Vercel conectado" : "Vercel indisponível"} />
+                        <Badge value={snapshot?.sources.supabase.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.supabase.ok ? "Supabase conectado" : "Supabase indisponível"} />
+                    </div>
+                    <DataTable
+                        columns={serviceColumns}
+                        rows={filtered}
+                        getRowKey={(item) => item.id}
+                        onRowClick={(item) => setExpandedService(current => current === item.id ? null : item.id)}
+                        emptyMessage="Nenhum serviço encontrado."
+                        minWidth={800}
+                    />
+                    {selectedService && <div className="mt-4 border-t border-border px-4 pt-4 text-sm text-slate-600 sm:px-6">
+                        <h3 className="mb-3 text-sm font-bold text-text">{selectedService.name}</h3>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                            <p><strong>Rota:</strong> {selectedService.path}</p>
+                            <p><strong>Agendamento:</strong> {selectedService.schedule || "—"}</p>
+                            <p><strong>Último sucesso:</strong> {formatDate(selectedService.last_success)}</p>
+                            <p><strong>Última falha:</strong> {formatDate(selectedService.last_failure)}</p>
+                        </div>
+                        <p className="mt-3">{selectedService.detail}</p>
+                    </div>}
                 </section>
 
                 <section aria-label="Tentativas recentes">
-                    <Card>
-                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                            <div><h2 className="text-lg font-bold">Tentativas recentes</h2>
-                            </div>
-                            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-                                <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => setAttemptsOnlyFailures(event.target.checked)} className="accent-red-500" />
-                                Apenas falhas
-                            </label>
-                        </div>
-                        <DataTable
-                            columns={attemptColumns}
-                            rows={attempts.slice(0, 80)}
-                            getRowKey={(item) => item.id}
-                            emptyMessage="Sem tentativas disponíveis."
-                            minWidth={700}
-                            cardPadding={false}
-                        />
-                    </Card>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
+                        <h2 className="text-lg font-bold text-text">Tentativas recentes</h2>
+                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                            <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => setAttemptsOnlyFailures(event.target.checked)} className="accent-red-500" />
+                            Apenas falhas
+                        </label>
+                    </div>
+                    <DataTable
+                        columns={attemptColumns}
+                        rows={attempts.slice(0, 80)}
+                        getRowKey={(item) => item.id}
+                        emptyMessage="Sem tentativas disponíveis."
+                        minWidth={700}
+                    />
                 </section>
             </div>}
         </section>
