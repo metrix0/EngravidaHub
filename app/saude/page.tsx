@@ -8,7 +8,7 @@ import {
     ShieldAlert, Webhook,
 } from "lucide-react";
 
-import { Badge, DataTable, DropdownSelect, KpiCard, TableHeaderPreset, type DataTableColumn } from "@/components";
+import { Badge, Card, DataTable, DropdownSelect, KpiCard, Skeleton, TableHeaderPreset, type DataTableColumn } from "@/components";
 import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory, HealthAttempt } from "@/lib/saude/monitor";
 import type { HealthAlert } from "@/lib/saude/alerts";
 
@@ -145,9 +145,7 @@ export default function SaudePage() {
             </header>
 
             {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-            {loading && !snapshot ? <div className="space-y-4">
-                {[1, 2, 3].map(id => <div key={id} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
-            </div> : <div className="space-y-6">
+            {loading && !snapshot ? <SaudeSkeleton /> : <div className="space-y-6">
                 <section aria-label="Alertas">
                     {snapshot && (!snapshot.sources.vercel.ok || !snapshot.sources.supabase.ok) &&
                         <div role="alert" className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
@@ -262,4 +260,41 @@ function ServiceIcon({ category }: { category: HealthCategory }) {
     const Icon = category === "database" ? Database :
         category === "webhook" ? Webhook : category === "cron" ? Clock3 : ShieldAlert;
     return <Icon size={16} className="shrink-0 text-slate-400" />;
+}
+
+function SaudeSkeleton() {
+    return (
+        <div className="space-y-6">
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                    <Card key={index}>
+                        <div className="flex items-center gap-5">
+                            <Skeleton className="h-14 w-14 shrink-0 rounded-full" />
+                            <div className="min-w-0 flex-1">
+                                <Skeleton className="h-3 w-[65%]" />
+                                <Skeleton className="mt-3 h-8 w-[45%]" />
+                            </div>
+                        </div>
+                    </Card>
+                ))}
+            </section>
+            {Array.from({ length: 2 }).map((_, section) => (
+                <section key={section}>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <Skeleton className="h-6 w-[200px]" />
+                        {section === 0 && <div className="flex flex-wrap gap-3">
+                            <Skeleton className="h-11 w-[220px]" />
+                            <Skeleton className="h-11 w-[180px]" />
+                        </div>}
+                    </div>
+                    <Skeleton className="mb-2 h-10 w-full rounded-lg" />
+                    <div className="space-y-2">
+                        {Array.from({ length: section === 0 ? 6 : 4 }).map((_, row) => (
+                            <Skeleton key={row} className="h-12 w-full rounded-lg" />
+                        ))}
+                    </div>
+                </section>
+            ))}
+        </div>
+    );
 }
