@@ -24,6 +24,7 @@ import {
     Skeleton,
     AdvancedFilterButton,
     DataTable,
+    Pagination,
     TableHeaderPreset,
     HoverBadgeList,
     DetailsSidePanel,
@@ -44,6 +45,7 @@ type TabId =
     | "eventos"
     | "assistente"
     | "usuarios"
+    | "saude"
     | "inbox"
     | "performance"
     | "agendamentos"
@@ -180,6 +182,7 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
+    { id: "saude", label: "Saúde", href: "/saude", color: "red", position: 55 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
@@ -206,6 +209,7 @@ const PRESETS: PermissionPreset[] = [
             "eventos",
             "assistente",
             "usuarios",
+            "saude",
             "inbox",
             "performance",
             "agendamentos",
@@ -286,6 +290,7 @@ const presetIcons = {
 };
 
 const EMPTY_VALUE = "—";
+const USERS_PER_PAGE = 25;
 const INVITATION_DRAFT_ID = "__invitation_draft__";
 
 const TAB_COLOR_ORDER: Record<ColorName, number> = {
@@ -305,6 +310,7 @@ export default function UsuariosPage() {
     const [search, setSearch] = useState("");
     const [presetValues, setPresetValues] = useState<string[]>([]);
     const [statusValues, setStatusValues] = useState<string[]>([]);
+    const [currentPage, setCurrentPage] = useState(1);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [invitationDraft, setInvitationDraft] = useState<ApiResponse | null>(null);
     const [invitationAuthUserId, setInvitationAuthUserId] = useState<string | null>(null);
@@ -396,6 +402,22 @@ export default function UsuariosPage() {
                 .some((value) => String(value).toLowerCase().includes(term));
         });
     }, [users, search, presetValues, statusValues]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+    const visiblePage = Math.min(currentPage, totalPages);
+    const paginatedUsers = useMemo(() => {
+        const start = (visiblePage - 1) * USERS_PER_PAGE;
+        return filteredUsers.slice(start, start + USERS_PER_PAGE);
+    }, [filteredUsers, visiblePage]);
+    const pageStart = filteredUsers.length === 0 ? 0 : (visiblePage - 1) * USERS_PER_PAGE + 1;
+    const pageEnd = Math.min(visiblePage * USERS_PER_PAGE, filteredUsers.length);
+
+    function resetPageAndSet<T>(setter: (value: T) => void) {
+        return (value: T) => {
+            setCurrentPage(1);
+            setter(value);
+        };
+    }
 
     const selectedUser = useMemo(() => {
         if (invitationDraft) return buildUserViews(invitationDraft, units)[0] ?? null;
@@ -850,7 +872,7 @@ export default function UsuariosPage() {
                         title="Usuários atribuídos"
                         count={filteredUsers.length}
                         searchValue={search}
-                        onSearchChange={setSearch}
+                        onSearchChange={resetPageAndSet(setSearch)}
                         searchPlaceholder="Buscar usuário, atendente ou fila..."
                     >
                         <AdvancedFilterButton
@@ -859,7 +881,7 @@ export default function UsuariosPage() {
                                     id: "preset",
                                     title: "Preset",
                                     values: presetValues,
-                                    onChange: setPresetValues,
+                                    onChange: resetPageAndSet(setPresetValues),
                                     options: [
                                         { label: "Nenhum", value: NO_PRESET_ID },
                                         ...PRESETS.map((preset) => ({
@@ -872,7 +894,7 @@ export default function UsuariosPage() {
                                     id: "status",
                                     title: "Status",
                                     values: statusValues,
-                                    onChange: setStatusValues,
+                                    onChange: resetPageAndSet(setStatusValues),
                                     options: [
                                         { label: "Ativo", value: "active" },
                                         { label: "Inativo", value: "inactive" },
@@ -884,7 +906,7 @@ export default function UsuariosPage() {
 
                     <DataTable
                         columns={userColumns}
-                        rows={filteredUsers}
+                        rows={paginatedUsers}
                         getRowKey={(user) => user.id}
                         onRowClick={(user) => {
                             if (sendingInvitation) return;
@@ -892,6 +914,18 @@ export default function UsuariosPage() {
                             setSelectedUserId(user.id);
                         }}
                     />
+                    {filteredUsers.length > USERS_PER_PAGE && (
+                        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-medium text-muted">
+                                Mostrando {pageStart}–{pageEnd} de {filteredUsers.length} usuários
+                            </p>
+                            <Pagination
+                                totalPages={totalPages}
+                                currentPage={visiblePage}
+                                onPageChange={setCurrentPage}
+                            />
+                        </div>
+                    )}
                 </section>
                 <div className={"pt-16"}></div>
             </section>

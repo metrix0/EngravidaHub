@@ -9,6 +9,7 @@ export const APP_TAB_IDS = [
     "eventos",
     "assistente",
     "usuarios",
+    "saude",
     "inbox",
     "performance",
     "agendamentos",
@@ -76,6 +77,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
     eventos: "/eventos",
     assistente: "/assistente",
     usuarios: "/usuarios",
+    saude: "/saude",
     inbox: "/inbox",
     performance: "/performance",
     agendamentos: "/agendamentos",
@@ -105,6 +107,7 @@ const APP_TAB_ROUTE_ORDER: AppTabId[] = [
     "conversas",
     "funil",
     "usuarios",
+    "saude",
 ];
 
 export function isAppTabId(value: unknown): value is AppTabId {

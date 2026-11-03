@@ -12,6 +12,7 @@ const VALID_TAB_IDS = new Set([
     "eventos",
     "assistente",
     "usuarios",
+    "saude",
     "inbox",
     "performance",
     "agendamentos",
