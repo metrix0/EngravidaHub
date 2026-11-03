@@ -4,7 +4,6 @@ import { useMemo, useRef, useState } from "react";
 import {
     CircleAlert,
     FileText,
-    LockKeyhole,
     Plus,
     Search,
     Send,
@@ -96,9 +95,6 @@ export default function OrcamentosDraft() {
                             Elaboração de orçamentos e futura integração com o Clinisys.
                         </p>
                     </div>
-                    <span className="inline-flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-xs font-semibold text-slate-500">
-                        <LockKeyhole size={15} /> Acesso administrativo
-                    </span>
                 </div>
 
                 <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800" role="status">
