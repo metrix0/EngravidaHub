@@ -16,6 +16,7 @@ import {
     FileText,
     Funnel,
     Headset,
+    HeartPulse,
     TrendingUp,
     LayoutDashboard,
     MapPin,
@@ -194,6 +195,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/usuarios",
         icon: <UserCog size={18} />,
         tabId: "usuarios",
+    },
+    {
+        label: "Saúde",
+        href: "/saude",
+        icon: <HeartPulse size={18} />,
+        tabId: "saude",
     },
 ];
 

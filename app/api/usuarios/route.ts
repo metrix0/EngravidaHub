@@ -17,6 +17,7 @@ const VALID_TAB_IDS = new Set([
     "eventos",
     "assistente",
     "usuarios",
+    "saude",
     "inbox",
     "performance",
     "agendamentos",
@@ -362,7 +363,7 @@ async function saveUserPermissions(body: Record<string, unknown>) {
         const authUserId =
             typeof body.auth_user_id === "string" ? body.auth_user_id.trim() : "";
         const preset = normalizePresetValue(body.preset);
-        const allowedTabs = normalizeAllowedTabs(body.allowed_tabs);
+        const allowedTabs = normalizeAllowedTabs(body.allowed_tabs).filter(tab => preset === "admin" || tab !== "saude");
         const attendantId = normalizeNullableId(body.attendant_id);
         const requestedQueueId = normalizeNullableId(body.queue_id);
         const queueId = attendantId ? requestedQueueId : null;
