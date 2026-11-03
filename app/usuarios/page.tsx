@@ -60,7 +60,7 @@ const NO_PRESET_ID = "__none__" as const;
 const NO_VALUE_ID = "__none__" as const;
 type AccessPresetId = PresetId | typeof NO_PRESET_ID;
 
-type ColorName = "blue" | "green" | "orange" | "red";
+type ColorName = "blue" | "green" | "yellow" | "orange" | "red";
 
 type PermissionTab = {
     id: TabId;
@@ -174,9 +174,9 @@ type UserView = {
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
     { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "blue", position: 12 },
-    { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
+    { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "blue", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
-    { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
+    { id: "jornada", label: "Jornada", href: "/jornada", color: "yellow", position: 30 },
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
@@ -274,6 +274,7 @@ const colorClasses: Record<
 > = {
     blue: { iconBg: "bg-blue-soft", iconText: "text-blue", softBg: "bg-blue-soft", text: "text-blue" },
     green: { iconBg: "bg-green-soft", iconText: "text-green", softBg: "bg-green-soft", text: "text-green" },
+    yellow: { iconBg: "bg-yellow-100", iconText: "text-yellow-700", softBg: "bg-yellow-100", text: "text-yellow-700" },
     orange: { iconBg: "bg-orange-soft", iconText: "text-orange", softBg: "bg-orange-soft", text: "text-orange" },
     red: { iconBg: "bg-red-soft", iconText: "text-red", softBg: "bg-red-soft", text: "text-red" },
 };
@@ -291,8 +292,9 @@ const INVITATION_DRAFT_ID = "__invitation_draft__";
 const TAB_COLOR_ORDER: Record<ColorName, number> = {
     blue: 10,
     green: 20,
-    orange: 30,
-    red: 40,
+    yellow: 30,
+    orange: 40,
+    red: 50,
 };
 
 export default function UsuariosPage() {
