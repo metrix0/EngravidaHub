@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 async function requireAdmin() {
     const access = await getServerTabAccess("saude");
-    if (!access.ok) return { allowed: false as const, status: access.status, error: access.error };
+    if (access.ok === false) return { allowed: false as const, status: access.status, error: access.error };
     if (access.permission.preset !== "admin") {
         return { allowed: false as const, status: 403, error: "Acesso restrito a administradores" };
     }
@@ -19,7 +19,7 @@ async function requireAdmin() {
 
 export async function GET() {
     const permission = await requireAdmin();
-    if (!permission.allowed) return NextResponse.json({ error: permission.error }, { status: permission.status });
+    if (permission.allowed === false) return NextResponse.json({ error: permission.error }, { status: permission.status });
     try {
         const [snapshot, alerts] = await Promise.all([getHealthSnapshot(), readHealthAlerts()]);
         return NextResponse.json({ snapshot, alerts }, { headers: { "Cache-Control": "private, no-store" } });
@@ -31,7 +31,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
     const permission = await requireAdmin();
-    if (!permission.allowed) return NextResponse.json({ error: permission.error }, { status: permission.status });
+    if (permission.allowed === false) return NextResponse.json({ error: permission.error }, { status: permission.status });
     const data = await request.json().catch(() => null);
     const id = typeof data?.id === "string" ? data.id : "";
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Alerta inválido" }, { status: 400 });
