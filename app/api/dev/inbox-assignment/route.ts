@@ -48,6 +48,7 @@ type AssignmentRequest = {
     action?: unknown;
     thread_id?: unknown;
     force?: unknown;
+    reopen?: unknown;
 };
 
 type ResetCronResponse = {
@@ -82,7 +83,7 @@ export async function GET(request: Request) {
         }
 
         const identityIds = await searchIdentityIds(rawSearch);
-        const rows = await findOpenThreads(identityIds);
+        const rows = await findThreads(identityIds);
 
         return NextResponse.json({
             ok: true,
@@ -137,6 +138,7 @@ export async function POST(request: Request) {
 
         const threadId = String(body.thread_id ?? "").trim();
         const force = body.force === true;
+        const reopen = body.reopen === true;
 
         if (!threadId) {
             return NextResponse.json(
@@ -153,14 +155,22 @@ export async function POST(request: Request) {
 
         if (threadError) throw threadError;
 
-        if (!thread || thread.status !== "open") {
+        if (!thread || (thread.status !== "open" && thread.status !== "closed")) {
             return NextResponse.json(
-                { ok: false, error: "A conversa não está mais aberta." },
+                { ok: false, error: "Conversa não encontrada." },
                 { status: 404 },
             );
         }
 
-        if (thread.assigned_attendant_id === access.attendant.id) {
+        const isClosed = thread.status === "closed";
+        if (isClosed && !reopen) {
+            return NextResponse.json(
+                { ok: false, error: "É necessário confirmar a reabertura da conversa." },
+                { status: 409 },
+            );
+        }
+
+        if (!isClosed && thread.assigned_attendant_id === access.attendant.id) {
             return NextResponse.json({
                 ok: true,
                 already_assigned: true,
@@ -184,16 +194,29 @@ export async function POST(request: Request) {
             );
         }
 
+        const now = new Date().toISOString();
         let updateQuery = supabase
             .from("thread")
             .update({
                 assigned_attendant_id: access.attendant.id,
+                ...(isClosed
+                    ? {
+                          status: "open",
+                          closed_at: null,
+                          queued_at: null,
+                          claimed_at: now,
+                          target_queue_id: null,
+                          updated_at: now,
+                      }
+                    : {}),
             })
             .eq("id", threadId)
-            .eq("status", "open");
+            .eq("status", thread.status);
 
         if (!force) {
-            updateQuery = updateQuery.is("assigned_attendant_id", null);
+            updateQuery = thread.assigned_attendant_id === access.attendant.id
+                ? updateQuery.eq("assigned_attendant_id", access.attendant.id)
+                : updateQuery.is("assigned_attendant_id", null);
         }
 
         const { data: updated, error: updateError } = await updateQuery
@@ -215,6 +238,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
             ok: true,
             already_assigned: false,
+            reopened: isClosed,
             item: mapThread(updated, access.attendant.id),
         });
     } catch (error) {
@@ -366,16 +390,16 @@ async function searchInstagramUserIds(searchText: string) {
     return (data ?? []).map((user) => user.id);
 }
 
-async function findOpenThreads({
+async function findThreads({
     clientIds,
     instagramUserIds,
 }: SearchIdentityIds) {
     const resultSets = await Promise.all([
         clientIds.length > 0
-            ? findOpenThreadsForIdentity("client_id", clientIds)
+            ? findThreadsForIdentity("client_id", clientIds)
             : Promise.resolve([]),
         instagramUserIds.length > 0
-            ? findOpenThreadsForIdentity(
+            ? findThreadsForIdentity(
                   "instagram_user_id",
                   instagramUserIds,
               )
@@ -398,14 +422,14 @@ async function findOpenThreads({
         .slice(0, MAX_RESULTS);
 }
 
-async function findOpenThreadsForIdentity(
+async function findThreadsForIdentity(
     column: "client_id" | "instagram_user_id",
     ids: string[],
 ) {
     const { data, error } = await supabase
         .from("thread")
         .select(THREAD_SELECT)
-        .eq("status", "open")
+        .in("status", ["open", "closed"])
         .in(column, ids)
         .order("last_message_at", {
             ascending: false,
@@ -447,6 +471,7 @@ function mapThread(row: any, currentAttendantId: string) {
 
     return {
         id: row.id,
+        status: row.status,
         client_id: row.client_id ?? null,
         instagram_user_id: row.instagram_user_id ?? null,
         channel,

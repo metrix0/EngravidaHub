@@ -13,6 +13,7 @@ import {
     ChevronRight,
     CircleDollarSign,
     Flag,
+    FileText,
     Funnel,
     Headset,
     TrendingUp,
@@ -162,6 +163,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/performance",
         icon: <TrendingUp size={18} />,
         tabId: "performance",
+    },
+    {
+        label: "Orçamentos",
+        href: "/orcamentos",
+        icon: <FileText size={18} />,
+        tabId: "orcamentos",
     },
     {
         label: "Mensagem Ativa",

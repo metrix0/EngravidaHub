@@ -30,6 +30,7 @@ type CurrentAttendant = {
 
 type SearchItem = {
     id: string;
+    status: "open" | "closed";
     client_id: string | null;
     instagram_user_id: string | null;
     channel: AssignmentChannel;
@@ -57,6 +58,7 @@ type SearchResponse = {
 type AssignmentResponse = {
     ok: boolean;
     already_assigned?: boolean;
+    reopened?: boolean;
     item?: SearchItem;
     requires_confirmation?: boolean;
     assigned_to?: string | null;
@@ -216,6 +218,14 @@ export default function DevInboxAssignmentPage() {
     async function assignConversation(item: SearchItem, force = false) {
         if (assigningThreadId) return;
 
+        if (
+            item.status === "closed" &&
+            !force &&
+            !window.confirm(
+                "Reabrir esta conversa e atribuí-la a você?\n\nO histórico de mensagens será preservado.",
+            )
+        ) return;
+
         setAssigningThreadId(item.id);
         setError(null);
         setSuccess(null);
@@ -228,6 +238,7 @@ export default function DevInboxAssignmentPage() {
                 body: JSON.stringify({
                     thread_id: item.id,
                     force,
+                    reopen: item.status === "closed",
                 }),
             });
             const payload = (await response.json()) as AssignmentResponse;
@@ -258,7 +269,9 @@ export default function DevInboxAssignmentPage() {
                 ),
             );
             setSuccess(
-                payload.already_assigned
+                payload.reopened
+                    ? payload.item.name + " foi reaberta e atribuída a você."
+                    : payload.already_assigned
                     ? `${payload.item.name} já estava atribuída a você.`
                     : `${payload.item.name} foi atribuída a você.`,
             );
@@ -286,7 +299,7 @@ export default function DevInboxAssignmentPage() {
                             Atribuir conversa específica
                         </h1>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                            Pesquise uma conversa aberta do WhatsApp, Instagram ou Messenger e atribua-a ao atendente logado.
+                            Pesquise uma conversa do WhatsApp, Instagram ou Messenger para atribuí-la ou reabri-la para o atendente logado.
                         </p>
                     </div>
 
@@ -398,8 +411,8 @@ export default function DevInboxAssignmentPage() {
                         {submittedSearch && !isSearching && items.length === 0 && !error && (
                             <EmptyState
                                 icon={<Users size={22} />}
-                                title="Nenhuma conversa aberta encontrada"
-                                description={`Não encontramos threads abertas para “${submittedSearch}”.`}
+                                title="Nenhuma conversa encontrada"
+                                description={`Não encontramos conversas para “${submittedSearch}”.`}
                             />
                         )}
 
@@ -409,11 +422,12 @@ export default function DevInboxAssignmentPage() {
                                     <span>
                                         {items.length} conversa{items.length === 1 ? "" : "s"} encontrada{items.length === 1 ? "" : "s"}
                                     </span>
-                                    <span>Somente conversas abertas</span>
+                                    <span>Conversas abertas e encerradas</span>
                                 </div>
 
                                 {items.map((item) => {
                                     const isAssigning = assigningThreadId === item.id;
+                                    const isClosed = item.status === "closed";
                                     const isMine = item.assignment_status === "mine";
                                     const isOther = item.assignment_status === "other";
 
@@ -433,6 +447,11 @@ export default function DevInboxAssignmentPage() {
                                                             showLabel
                                                         />
                                                         <AssignmentBadge item={item} />
+                                                        {isClosed && (
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                                                                Encerrada
+                                                            </span>
+                                                        )}
                                                     </div>
 
                                                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
@@ -451,9 +470,9 @@ export default function DevInboxAssignmentPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => void assignConversation(item)}
-                                                    disabled={isAssigning || isMine || !!assigningThreadId || isResettingQueue}
+                                                    disabled={isAssigning || (isMine && !isClosed) || !!assigningThreadId || isResettingQueue}
                                                     className={`inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed ${
-                                                        isMine
+                                                        isMine && !isClosed
                                                             ? "bg-emerald-50 text-emerald-700"
                                                             : isOther
                                                                 ? "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60"
@@ -462,13 +481,15 @@ export default function DevInboxAssignmentPage() {
                                                 >
                                                     {isAssigning ? (
                                                         <LoaderCircle size={17} className="animate-spin" />
-                                                    ) : isMine ? (
+                                                    ) : isMine && !isClosed ? (
                                                         <Check size={17} />
                                                     ) : (
                                                         <UserCheck size={17} />
                                                     )}
                                                     {isAssigning
-                                                        ? "Atribuindo..."
+                                                        ? isClosed ? "Reabrindo..." : "Atribuindo..."
+                                                        : isClosed
+                                                            ? "Reabrir para mim"
                                                         : isMine
                                                             ? "Já está com você"
                                                             : isOther

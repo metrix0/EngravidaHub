@@ -47,6 +47,7 @@ type TabId =
     | "inbox"
     | "performance"
     | "agendamentos"
+    | "orcamentos"
     | "inteligencia_agenda"
     | "mensagem_ativa"
     | "internos"
@@ -173,15 +174,16 @@ type UserView = {
 const TABS: PermissionTab[] = [
     { id: "dashboard", label: "Dashboard", href: "/", color: "blue", position: 10 },
     { id: "gerencial", label: "Gerencial", href: "/gerencial", color: "blue", position: 12 },
-    { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "green", position: 15 },
+    { id: "financeiro", label: "Financeiro", href: "/financeiro", color: "blue", position: 15 },
     { id: "conversas", label: "Conversas", href: "/conversas", color: "green", position: 20 },
-    { id: "jornada", label: "Jornada", href: "/jornada", color: "blue", position: 30 },
+    { id: "jornada", label: "Jornada", href: "/jornada", color: "orange", position: 30 },
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
+    { id: "orcamentos", label: "Orçamentos", href: "/orcamentos", color: "green", position: 65.25 },
     { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
@@ -207,6 +209,7 @@ const PRESETS: PermissionPreset[] = [
             "inbox",
             "performance",
             "agendamentos",
+            "orcamentos",
             "inteligencia_agenda",
             "mensagem_ativa",
             "internos",
