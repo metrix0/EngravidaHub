@@ -133,8 +133,7 @@ export default function SaudePage() {
                         <HeartPulse className="text-red" size={26} />
                         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Saúde</h1>
                     </div>
-                    <p className="mt-2 text-sm text-slate-500">Monitor de integrações, cron jobs, webhooks e falhas do Hub.</p>
-                    {snapshot && <p className="mt-1 text-xs text-slate-400">Última consulta: {formatDate(snapshot.checked_at)}</p>}
+                    {snapshot && <p className="mt-1 text-xs text-slate-400">Atualizado: {formatDate(snapshot.checked_at)}</p>}
                 </div>
                 <button type="button" onClick={() => void refresh()} disabled={refreshing || loading}
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -161,7 +160,7 @@ export default function SaudePage() {
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
                             <div className="flex items-center gap-2">
                                 <CheckCircle2 size={18} className="text-green" />
-                                Nenhum alerta ativo registrado.
+                                Nenhum alerta ativo.
                             </div>
                         </div> :
                         <div className="space-y-3">
@@ -181,7 +180,6 @@ export default function SaudePage() {
                             {pendingFailures.map(item => <div key={item.id} className="rounded-xl border border-red-200 bg-red-50 p-4">
                                 <p className="font-semibold text-slate-900">{item.name}</p>
                                 <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
-                                <p className="mt-2 text-xs text-slate-500">Detectado na consulta atual; aguardando registro pelo watchdog.</p>
                             </div>)}
                         </div>}
                     {otherAlerts.length > 0 && <div className="mt-3">
@@ -208,7 +206,6 @@ export default function SaudePage() {
                         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900">Conexões e serviços</h2>
-                                <p className="mt-1 text-xs text-slate-500">Dados do Vercel e histórico nativo de pg_cron. Sem cópias de execuções no banco.</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 <span className={"rounded-md px-2 py-1 text-xs font-semibold " + (snapshot?.sources.vercel.ok ? "bg-green-soft text-green" : "bg-orange-soft text-orange")}>
@@ -262,7 +259,6 @@ export default function SaudePage() {
                     <Card>
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                             <div><h2 className="text-lg font-bold">Tentativas recentes</h2>
-                                <p className="mt-1 text-xs text-slate-500">Requisições registradas no Vercel (janela recente; histórico sujeito à retenção da plataforma).</p>
                             </div>
                             <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
                                 <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => setAttemptsOnlyFailures(event.target.checked)} className="accent-red-500" />
@@ -283,7 +279,7 @@ export default function SaudePage() {
                                     <td className="px-3 py-3 text-slate-500">{item.detail}</td>
                                 </tr>)}</tbody>
                             </table>
-                            {attempts.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhuma tentativa disponível nessa consulta.</p>}
+                            {attempts.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Sem tentativas disponíveis.</p>}
                         </div>
                     </Card>
                 </section>
