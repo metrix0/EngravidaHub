@@ -12,6 +12,7 @@ const VALID_TAB_IDS = new Set([
     "eventos",
     "assistente",
     "usuarios",
+    "saude",
     "inbox",
     "performance",
     "agendamentos",
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest) {
             : [];
 
         const savedAllowedTabs =
-            preset === "__none__" ? [] : allowedTabs;
+            preset === "__none__" ? [] : allowedTabs.filter(tab => preset === "admin" || tab !== "saude");
 
         const { error } = await supabase
             .from("user_permissions")

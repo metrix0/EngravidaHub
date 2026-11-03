@@ -34,6 +34,7 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
+import { getEffectiveAllowedTabs } from "@/lib/auth/userAccess";
 
 type TabId =
     | "dashboard"
@@ -44,6 +45,7 @@ type TabId =
     | "eventos"
     | "assistente"
     | "usuarios"
+    | "saude"
     | "inbox"
     | "performance"
     | "agendamentos"
@@ -180,6 +182,7 @@ const TABS: PermissionTab[] = [
     { id: "eventos", label: "Eventos", href: "/eventos", color: "orange", position: 40 },
     { id: "assistente", label: "Assistente IA", href: "/assistente", color: "blue", position: 45 },
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
+    { id: "saude", label: "Saúde", href: "/saude", color: "red", position: 55 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
@@ -206,6 +209,7 @@ const PRESETS: PermissionPreset[] = [
             "eventos",
             "assistente",
             "usuarios",
+            "saude",
             "inbox",
             "performance",
             "agendamentos",
@@ -959,10 +963,10 @@ function buildUserViews(data: ApiResponse, units: Unit[]): UserView[] {
             permission?.preset === NO_PRESET_ID
                 ? null
                 : PRESETS.find((item) => item.id === permission?.preset) ?? null;
-        const allowedTabs = normalizeAllowedTabs(
+        const allowedTabs = getEffectiveAllowedTabs(normalizeAllowedTabs(
             permission?.allowed_tabs,
             permission ? [] : preset?.default_tabs ?? [],
-        );
+        ), preset?.id ?? "");
         const attendant = permission
             ? permission.attendant_id
                 ? attendantsById.get(permission.attendant_id) ?? null
@@ -1160,7 +1164,7 @@ function UserDetailsPanel({
 }) {
     if (!user) return null;
 
-    const allTabs = tabsFromIds(TABS.map((tab) => tab.id));
+    const allTabs = tabsFromIds(TABS.map((tab) => tab.id)).filter(tab => tab.id !== "saude");
     const accessInfo = getAccessInfo(user);
     const accessColors = accessInfo.preset
         ? getColorClasses(accessInfo.preset.color)

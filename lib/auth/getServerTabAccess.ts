@@ -2,7 +2,7 @@
 import { supabase as adminSupabase } from "@/lib";
 import { getCurrentAuthUser } from "@/lib/auth/getCurrentAuthUser";
 import {
-    normalizeAllowedTabs,
+    getEffectiveAllowedTabs,
     type AppTabId,
     type CurrentUserPermission,
 } from "@/lib/auth/userAccess";
@@ -77,7 +77,7 @@ export async function getServerTabAccess(
         };
     }
 
-    const allowedTabs = normalizeAllowedTabs(permissionRow.allowed_tabs);
+    const allowedTabs = getEffectiveAllowedTabs(permissionRow.allowed_tabs, permissionRow.preset);
 
     if (!allowedTabs.includes(tabId)) {
         return {
