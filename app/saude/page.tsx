@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Activity, AlertCircle, AlertTriangle, Check, CheckCircle2,
+    Activity, AlertCircle, Check, CheckCircle2,
     ChevronDown, ChevronUp, Clock3, Database,
     ShieldAlert, Webhook,
 } from "lucide-react";
@@ -148,25 +148,13 @@ export default function SaudePage() {
             {loading && !snapshot ? <div className="space-y-4">
                 {[1, 2, 3].map(id => <div key={id} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
             </div> : <div className="space-y-6">
-                <section aria-labelledby="saude-alertas">
-                    <div className="mb-4 flex items-center gap-2">
-                        <AlertTriangle size={19} className="text-red" />
-                        <h2 id="saude-alertas" className="text-lg font-bold">Alertas</h2>
-                        <Badge value={activeAlerts.length + pendingFailures.length ? "nao_resolvida" : "resolvida"} label={String(activeAlerts.length + pendingFailures.length)} />
-                    </div>
+                <section aria-label="Alertas">
                     {snapshot && (!snapshot.sources.vercel.ok || !snapshot.sources.supabase.ok) &&
                         <div role="alert" className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
                             <strong>Monitoramento incompleto.</strong>{" "}
                             {!snapshot.sources.vercel.ok ? snapshot.sources.vercel.detail : snapshot.sources.supabase.detail}
                         </div>}
-                    {activeAlerts.length === 0 && pendingFailures.length === 0 ?
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-                            <div className="flex items-center gap-2">
-                                <CheckCircle2 size={18} className="text-green" />
-                                Nenhum alerta ativo.
-                            </div>
-                        </div> :
-                        <div className="space-y-3">
+                    {(activeAlerts.length > 0 || pendingFailures.length > 0) && <div className="space-y-3">
                             {activeAlerts.map(alert => <div key={alert.id}
                                 className={"flex flex-wrap items-start justify-between gap-3 rounded-xl border p-4 " +
                                     (alert.severity === "critical" ? "border-red-200 bg-red-50" : "border-orange-200 bg-orange-50")}>
@@ -229,10 +217,6 @@ export default function SaudePage() {
                             widthClassName="w-[200px]"
                         />
                     </TableHeaderPreset>
-                    <div className="mb-4 mt-4 flex flex-wrap items-center gap-2 px-4 sm:px-6">
-                        <Badge value={snapshot?.sources.vercel.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.vercel.ok ? "Vercel conectado" : "Vercel indisponível"} />
-                        <Badge value={snapshot?.sources.supabase.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.supabase.ok ? "Supabase conectado" : "Supabase indisponível"} />
-                    </div>
                     <DataTable
                         columns={serviceColumns}
                         rows={filtered}
