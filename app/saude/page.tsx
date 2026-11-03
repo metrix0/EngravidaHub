@@ -3,16 +3,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Activity, AlertCircle, AlertTriangle, Check, CheckCircle2,
+    Activity, AlertCircle, Check, CheckCircle2,
     ChevronDown, ChevronUp, Clock3, Database,
     ShieldAlert, Webhook,
 } from "lucide-react";
 
-import { Badge, DataTable, DropdownSelect, KpiCard, TableHeaderPreset, type DataTableColumn } from "@/components";
+import { Badge, Card, DataTable, DropdownSelect, KpiCard, Pagination, Skeleton, TableHeaderPreset, type DataTableColumn } from "@/components";
 import type { HealthSnapshot, HealthService, HealthStatus, HealthCategory, HealthAttempt } from "@/lib/saude/monitor";
 import type { HealthAlert } from "@/lib/saude/alerts";
 
 type ResponseData = { snapshot: HealthSnapshot; alerts: HealthAlert[]; error?: string };
+const ALERT_HISTORY_PAGE_SIZE = 10;
 
 const labels: Record<HealthCategory, string> = {
     cron: "Cron jobs",
@@ -54,6 +55,7 @@ export default function SaudePage() {
     const [attemptsOnlyFailures, setAttemptsOnlyFailures] = useState(false);
     const [expandedService, setExpandedService] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [historyPage, setHistoryPage] = useState(1);
     const [acknowledging, setAcknowledging] = useState<string | null>(null);
 
     const refresh = useCallback(async (initial = false) => {
@@ -100,6 +102,12 @@ export default function SaudePage() {
     const services = snapshot?.services ?? [];
     const activeAlerts = alerts.filter(item => item.status === "active");
     const otherAlerts = alerts.filter(item => item.status !== "active");
+    const historyTotalPages = Math.max(1, Math.ceil(otherAlerts.length / ALERT_HISTORY_PAGE_SIZE));
+    const visibleHistoryPage = Math.min(historyPage, historyTotalPages);
+    const paginatedHistory = otherAlerts.slice(
+        (visibleHistoryPage - 1) * ALERT_HISTORY_PAGE_SIZE,
+        visibleHistoryPage * ALERT_HISTORY_PAGE_SIZE,
+    );
     const pendingFailures = services.filter(item => item.status === "failed" &&
         !activeAlerts.some(alert => alert.alert_key === "health:" + item.id));
     const filtered = useMemo(() => services.filter(item => {
@@ -145,28 +153,14 @@ export default function SaudePage() {
             </header>
 
             {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-            {loading && !snapshot ? <div className="space-y-4">
-                {[1, 2, 3].map(id => <div key={id} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
-            </div> : <div className="space-y-6">
-                <section aria-labelledby="saude-alertas">
-                    <div className="mb-4 flex items-center gap-2">
-                        <AlertTriangle size={19} className="text-red" />
-                        <h2 id="saude-alertas" className="text-lg font-bold">Alertas</h2>
-                        <Badge value={activeAlerts.length + pendingFailures.length ? "nao_resolvida" : "resolvida"} label={String(activeAlerts.length + pendingFailures.length)} />
-                    </div>
+            {loading && !snapshot ? <SaudeSkeleton /> : <div className="space-y-6">
+                <section aria-label="Alertas">
                     {snapshot && (!snapshot.sources.vercel.ok || !snapshot.sources.supabase.ok) &&
                         <div role="alert" className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
                             <strong>Monitoramento incompleto.</strong>{" "}
                             {!snapshot.sources.vercel.ok ? snapshot.sources.vercel.detail : snapshot.sources.supabase.detail}
                         </div>}
-                    {activeAlerts.length === 0 && pendingFailures.length === 0 ?
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-                            <div className="flex items-center gap-2">
-                                <CheckCircle2 size={18} className="text-green" />
-                                Nenhum alerta ativo.
-                            </div>
-                        </div> :
-                        <div className="space-y-3">
+                    {(activeAlerts.length > 0 || pendingFailures.length > 0) && <div className="space-y-3">
                             {activeAlerts.map(alert => <div key={alert.id}
                                 className={"flex flex-wrap items-start justify-between gap-3 rounded-xl border p-4 " +
                                     (alert.severity === "critical" ? "border-red-200 bg-red-50" : "border-orange-200 bg-orange-50")}>
@@ -176,7 +170,7 @@ export default function SaudePage() {
                                     <p className="mt-2 text-xs text-slate-500">Detectado: {formatDate(alert.last_seen_at)} · {alert.occurrences} ocorrência(s)</p>
                                 </div>
                                 <button disabled={acknowledging === alert.id} onClick={() => void acknowledge(alert.id)}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
                                     <Check size={14} /> Reconhecer
                                 </button>
                             </div>)}
@@ -186,14 +180,21 @@ export default function SaudePage() {
                             </div>)}
                         </div>}
                     {otherAlerts.length > 0 && <div className="mt-3">
-                        <button onClick={() => setShowHistory(!showHistory)} className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700">
+                        <button type="button" aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)} className="flex cursor-pointer items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700">
                             {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Histórico de alertas ({otherAlerts.length})
                         </button>
-                        {showHistory && <div className="mt-2 space-y-2">
-                            {otherAlerts.map(item => <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
-                                <span className="font-semibold text-slate-800">{item.title}</span> · {item.status === "resolved" ? "Recuperado" : "Reconhecido"} · {formatDate(item.last_seen_at)}
-                            </div>)}
-                        </div>}
+                        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${showHistory ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={!showHistory} inert={!showHistory}>
+                            <div className="min-h-0 overflow-hidden">
+                                <div className="space-y-2 pt-2">
+                                    {paginatedHistory.map(item => <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+                                        <span className="font-semibold text-slate-800">{item.title}</span> · {item.status === "resolved" ? "Recuperado" : "Reconhecido"} · {formatDate(item.last_seen_at)}
+                                    </div>)}
+                                    {historyTotalPages > 1 && <div className="flex justify-end pt-3">
+                                        <Pagination totalPages={historyTotalPages} currentPage={visibleHistoryPage} onPageChange={setHistoryPage} activeTone="brand" />
+                                    </div>}
+                                </div>
+                            </div>
+                        </div>
                     </div>}
                 </section>
 
@@ -229,10 +230,6 @@ export default function SaudePage() {
                             widthClassName="w-[200px]"
                         />
                     </TableHeaderPreset>
-                    <div className="mb-4 mt-4 flex flex-wrap items-center gap-2 px-4 sm:px-6">
-                        <Badge value={snapshot?.sources.vercel.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.vercel.ok ? "Vercel conectado" : "Vercel indisponível"} />
-                        <Badge value={snapshot?.sources.supabase.ok ? "resolvida" : "nao_resolvida"} label={snapshot?.sources.supabase.ok ? "Supabase conectado" : "Supabase indisponível"} />
-                    </div>
                     <DataTable
                         columns={serviceColumns}
                         rows={filtered}
@@ -278,4 +275,41 @@ function ServiceIcon({ category }: { category: HealthCategory }) {
     const Icon = category === "database" ? Database :
         category === "webhook" ? Webhook : category === "cron" ? Clock3 : ShieldAlert;
     return <Icon size={16} className="shrink-0 text-slate-400" />;
+}
+
+function SaudeSkeleton() {
+    return (
+        <div className="space-y-6">
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                    <Card key={index}>
+                        <div className="flex items-center gap-5">
+                            <Skeleton className="h-14 w-14 shrink-0 rounded-full" />
+                            <div className="min-w-0 flex-1">
+                                <Skeleton className="h-3 w-[65%]" />
+                                <Skeleton className="mt-3 h-8 w-[45%]" />
+                            </div>
+                        </div>
+                    </Card>
+                ))}
+            </section>
+            {Array.from({ length: 2 }).map((_, section) => (
+                <section key={section}>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <Skeleton className="h-6 w-[200px]" />
+                        {section === 0 && <div className="flex flex-wrap gap-3">
+                            <Skeleton className="h-11 w-[220px]" />
+                            <Skeleton className="h-11 w-[180px]" />
+                        </div>}
+                    </div>
+                    <Skeleton className="mb-2 h-10 w-full rounded-lg" />
+                    <div className="space-y-2">
+                        {Array.from({ length: section === 0 ? 6 : 4 }).map((_, row) => (
+                            <Skeleton key={row} className="h-12 w-full rounded-lg" />
+                        ))}
+                    </div>
+                </section>
+            ))}
+        </div>
+    );
 }
