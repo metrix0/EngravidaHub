@@ -66,11 +66,11 @@
     },
     {
       "path": "/api/analyze?inactivity_hours=16&limit=250",
-      "schedule": "0 */3 * * *"
+      "schedule": "20 */3 * * *"
     },
     {
       "path": "/api/analyze?inactivity_hours=16&limit=250&platform=instagram",
-      "schedule": "0 */3 * * *"
+      "schedule": "40 */3 * * *"
     }
   ]
 }

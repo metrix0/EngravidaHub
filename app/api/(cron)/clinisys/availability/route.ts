@@ -36,6 +36,18 @@ export async function GET(request: Request) {
         return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
     try {
+        // Space out this sync's CliniSYS calls without delaying interactive bookings.
+        let nextClinisysRequestAt = 0;
+        async function pacedClinisysRequest<T>(operation: () => Promise<T>): Promise<T> {
+            const scheduledAt = Math.max(Date.now(), nextClinisysRequestAt);
+            nextClinisysRequestAt = scheduledAt + 1_000;
+            const delayMs = scheduledAt - Date.now();
+            if (delayMs > 0) {
+                await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            }
+            return operation();
+        }
+
         const { data, error } = await supabase
             .from("clinisys_agendas")
             .select("external_id, procedures, unit_id, doctor_id, unit_name, doctor_name, slot_duration_minutes, working_hours, exceptions, updated_at")
@@ -44,7 +56,7 @@ export async function GET(request: Request) {
         const agendas = (data ?? []) as Agenda[];
         const saved = new Map(agendas.map(agenda => [agenda.external_id, agenda]));
         const [remote, linkResult] = await Promise.all([
-            listClinisysAgendas(),
+            pacedClinisysRequest(() => listClinisysAgendas()),
             supabase.from("doctor_units")
                 .select("unit_id, doctor_id, unit:units!inner(name, active), doctor:doctors!inner(name, active)")
                 .eq("active", true).eq("unit.active", true).eq("doctor.active", true),
@@ -96,7 +108,7 @@ export async function GET(request: Request) {
                     let procedures = agenda.procedures;
                     let procedure = pickProcedure(procedures);
                     if (!procedure) {
-                        procedures = await listClinisysProcedures(agenda.external_id);
+                        procedures = await pacedClinisysRequest(() => listClinisysProcedures(agenda.external_id));
                         procedure = pickProcedure(procedures);
                     }
                     if (!procedure) throw new Error("No registered procedures");
@@ -104,11 +116,11 @@ export async function GET(request: Request) {
                     for (let offset = 0; offset <= 30; offset += 15) {
                         const dateFrom = new Date(Date.parse(`${from}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
                         const dateTo = new Date(Date.parse(`${from}T12:00:00Z`) + Math.min(offset + 14, 30) * 86_400_000).toISOString().slice(0, 10);
-                        slots.push(...await listClinisysAvailabilityByAgenda({
+                        slots.push(...await pacedClinisysRequest(() => listClinisysAvailabilityByAgenda({
                             agendaId: agenda.external_id,
                             procedureId: procedure.id,
                             dateFrom, dateTo,
-                        }));
+                        })));
                     }
                     const safeSlots = slots.filter(slot =>
                         typeof slot.data === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(slot.data) &&
