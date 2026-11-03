@@ -12,6 +12,7 @@ export const APP_TAB_IDS = [
     "inbox",
     "performance",
     "agendamentos",
+    "orcamentos",
     "inteligencia_agenda",
     "mensagem_ativa",
     "internos",
@@ -78,6 +79,7 @@ export const APP_TAB_HREFS: Record<AppTabId, string> = {
     inbox: "/inbox",
     performance: "/performance",
     agendamentos: "/agendamentos",
+    orcamentos: "/orcamentos",
     inteligencia_agenda: "/inteligencia-agenda",
     mensagem_ativa: "/mensagem-ativa",
     internos: "/internos",
@@ -95,6 +97,7 @@ const APP_TAB_ROUTE_ORDER: AppTabId[] = [
     "inbox",
     "performance",
     "agendamentos",
+    "orcamentos",
     "inteligencia_agenda",
     "mensagem_ativa",
     "internos",
@@ -112,6 +115,12 @@ export function normalizeAllowedTabs(value: unknown): AppTabId[] {
     if (!Array.isArray(value)) return [];
 
     return [...new Set(value.filter(isAppTabId))];
+}
+
+// Orçamentos is enabled for admins without changing stored user permissions.
+export function getEffectiveAllowedTabs(value: unknown, preset: string): AppTabId[] {
+    const tabs = normalizeAllowedTabs(value).filter((tab) => tab !== "orcamentos");
+    return preset === "admin" ? [...tabs, "orcamentos"] : tabs;
 }
 
 export function getTabIdForPathname(pathname: string): AppTabId | null {

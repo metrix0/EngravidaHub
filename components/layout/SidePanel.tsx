@@ -13,6 +13,7 @@ import {
     ChevronRight,
     CircleDollarSign,
     Flag,
+    FileText,
     Funnel,
     Headset,
     TrendingUp,
@@ -41,6 +42,7 @@ import {
     setCurrentAttendantOnline,
 } from "@/lib/attendants/currentAttendantApi";
 import {
+    getEffectiveAllowedTabs,
     getFirstAllowedHref,
     getTabIdForPathname,
     type AppTabId,
@@ -132,6 +134,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/agendamentos",
         icon: <CalendarDays size={18} />,
         tabId: "agendamentos",
+    },
+    {
+        label: "Orçamentos",
+        href: "/orcamentos",
+        icon: <FileText size={18} />,
+        tabId: "orcamentos",
     },
     {
         label: "Funil",
@@ -459,7 +467,9 @@ function PersistentSidePanel({
 
     const permission = currentUser?.permission ?? null;
     const allowedTabs = useMemo(
-        () => (permission?.active ? permission.allowed_tabs : []),
+        () => (permission?.active
+            ? getEffectiveAllowedTabs(permission.allowed_tabs, permission.preset)
+            : []),
         [permission],
     );
 
