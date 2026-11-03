@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Activity, AlertCircle, AlertTriangle, Check, CheckCircle2,
     ChevronDown, ChevronUp, Clock3, Database,
-    RefreshCw, ShieldAlert, Webhook,
+    ShieldAlert, Webhook,
 } from "lucide-react";
 
 import { Badge, Card, DataTable, DropdownSelect, KpiCard, SearchFilter, type DataTableColumn } from "@/components";
@@ -47,7 +47,6 @@ export default function SaudePage() {
     const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
     const [alerts, setAlerts] = useState<HealthAlert[]>([]);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState<HealthCategory | "all">("all");
@@ -59,7 +58,6 @@ export default function SaudePage() {
 
     const refresh = useCallback(async (initial = false) => {
         if (initial) setLoading(true);
-        else setRefreshing(true);
         try {
             const response = await fetch("/api/saude", { cache: "no-store" });
             const result = await response.json() as ResponseData;
@@ -71,7 +69,6 @@ export default function SaudePage() {
             setError(reason instanceof Error ? reason.message : "Falha na consulta de saúde");
         } finally {
             setLoading(false);
-            setRefreshing(false);
         }
     }, []);
 
@@ -143,12 +140,8 @@ export default function SaudePage() {
             <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Saúde</h1>
-                    {snapshot && <p className="mt-2 text-sm text-slate-500">Atualizado: {formatDate(snapshot.checked_at)}</p>}
+                    <p className="mt-2 text-sm text-slate-500">Acompanhe cron jobs, webhooks e integrações do Hub.</p>
                 </div>
-                <button type="button" onClick={() => void refresh()} disabled={refreshing || loading}
-                    className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection disabled:cursor-not-allowed disabled:opacity-60">
-                    <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /> Atualizar
-                </button>
             </header>
 
             {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
