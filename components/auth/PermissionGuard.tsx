@@ -8,7 +8,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
 import {
     canAccessPathname,
-    getEffectiveAllowedTabs,
     getFirstAllowedHref,
     getTabIdForPathname,
 } from "@/lib/auth/userAccess";
@@ -37,10 +36,7 @@ export function PermissionGuard({ children }: { children: ReactNode }) {
     const authenticated = Boolean(currentUser?.user);
     const guardedTab = getTabIdForPathname(pathname);
     const permission = currentUser?.permission ?? null;
-    const allowedTabs = getEffectiveAllowedTabs(
-        permission?.active ? permission.allowed_tabs : [],
-        permission?.preset ?? "",
-    );
+    const allowedTabs = permission?.allowed_tabs ?? [];
     const firstAllowedHref = getFirstAllowedHref(allowedTabs);
 
     const shouldRedirectToLogin =

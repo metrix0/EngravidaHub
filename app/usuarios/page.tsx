@@ -47,6 +47,7 @@ type TabId =
     | "inbox"
     | "performance"
     | "agendamentos"
+    | "orcamentos"
     | "inteligencia_agenda"
     | "mensagem_ativa"
     | "internos"
@@ -182,6 +183,7 @@ const TABS: PermissionTab[] = [
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
     { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
+    { id: "orcamentos", label: "Orçamentos", href: "/orcamentos", color: "green", position: 65.25 },
     { id: "inteligencia_agenda", label: "Inteligência Agenda", href: "/inteligencia-agenda", color: "green", position: 65.5 },
     { id: "mensagem_ativa", label: "Mensagem Ativa", href: "/mensagem-ativa", color: "green", position: 66 },
     { id: "internos", label: "Internos", href: "/internos", color: "red", position: 70 },
@@ -207,6 +209,7 @@ const PRESETS: PermissionPreset[] = [
             "inbox",
             "performance",
             "agendamentos",
+            "orcamentos",
             "inteligencia_agenda",
             "mensagem_ativa",
             "internos",

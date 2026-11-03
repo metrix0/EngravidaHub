@@ -6,7 +6,7 @@ import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 export default async function OrcamentosPage() {
     const access = await getServerTabAccess("orcamentos");
 
-    if (!access.ok || access.permission.preset !== "admin") {
+    if (!access.ok) {
         notFound();
     }
 

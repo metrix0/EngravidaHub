@@ -42,7 +42,6 @@ import {
     setCurrentAttendantOnline,
 } from "@/lib/attendants/currentAttendantApi";
 import {
-    getEffectiveAllowedTabs,
     getFirstAllowedHref,
     getTabIdForPathname,
     type AppTabId,
@@ -467,9 +466,7 @@ function PersistentSidePanel({
 
     const permission = currentUser?.permission ?? null;
     const allowedTabs = useMemo(
-        () => (permission?.active
-            ? getEffectiveAllowedTabs(permission.allowed_tabs, permission.preset)
-            : []),
+        () => (permission?.active ? permission.allowed_tabs : []),
         [permission],
     );
 

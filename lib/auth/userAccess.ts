@@ -117,12 +117,6 @@ export function normalizeAllowedTabs(value: unknown): AppTabId[] {
     return [...new Set(value.filter(isAppTabId))];
 }
 
-// Orçamentos is enabled for admins without changing stored user permissions.
-export function getEffectiveAllowedTabs(value: unknown, preset: string): AppTabId[] {
-    const tabs = normalizeAllowedTabs(value).filter((tab) => tab !== "orcamentos");
-    return preset === "admin" ? [...tabs, "orcamentos"] : tabs;
-}
-
 export function getTabIdForPathname(pathname: string): AppTabId | null {
     if (
         pathname === "/" ||
