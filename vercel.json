@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron/unit-analyses?action=collect&type=weekly",
-      "schedule": "0 15 * * *"
+      "schedule": "0 5,7,9,11,13,15,17,19 * * 0-1"
     },
     {
       "path": "/api/cron/refresh-word-map",
@@ -31,6 +31,46 @@
     {
       "path": "/api/cron/resolve-booking-teams",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/clinisys/bigquery?daysBack=120&limit=9999",
+      "schedule": "0 3 * * 1"
+    },
+    {
+      "path": "/api/clinisys/bigquery?daysBack=30&limit=9999",
+      "schedule": "5 10,11,13,15,17,19,21 * * *"
+    },
+    {
+      "path": "/api/clinisys/invoices?daysBack=30&limit=25000",
+      "schedule": "5 11,13,15,17,19,21 * * *"
+    },
+    {
+      "path": "/api/finalize-inactive-inbox",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/resgate?n=50",
+      "schedule": "0 11-15 * * *"
+    },
+    {
+      "path": "/api/ads/finance?platform=google_ads&daysBack=7",
+      "schedule": "10 3,9,15,21 * * *"
+    },
+    {
+      "path": "/api/ads/finance?platform=meta_ads&daysBack=7",
+      "schedule": "0 3,9,15,21 * * *"
+    },
+    {
+      "path": "/api/analyze?inactivity_hours=16&limit=100&platform=messenger",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/analyze?inactivity_hours=16&limit=250",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/analyze?inactivity_hours=16&limit=250&platform=instagram",
+      "schedule": "0 */3 * * *"
     }
   ]
 }
