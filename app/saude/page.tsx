@@ -129,7 +129,7 @@ export default function SaudePage() {
         },
         { id: "origin", label: "Origem", width: "16%", render: (item) => labels[item.category] },
         { id: "status", label: "Status", width: "15%", render: (item) => <StatusTag status={item.status} /> },
-        { id: "last_seen", label: "Última atividade", width: "20%", render: (item) => <span className="whitespace-nowrap">{formatDate(item.last_seen)}</span> },
+        { id: "last_seen", label: "Último registro", width: "20%", render: (item) => <span className="whitespace-nowrap">{item.category !== "database" && item.last_seen ? "≈ " : ""}{formatDate(item.last_seen)}</span> },
         { id: "failures", label: "Falhas", width: "8%", render: (item) => item.failures },
         { id: "details", label: "", width: "5%", render: (item) => item.id === expandedService ? <ChevronUp size={16} /> : <ChevronDown size={16} /> },
     ];
@@ -250,9 +250,9 @@ export default function SaudePage() {
                     </div>}
                 </section>
 
-                <section aria-label="Tentativas recentes">
+                <section aria-label="Atividade recente">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
-                        <h2 className="text-lg font-bold text-text">Tentativas recentes</h2>
+                        <h2 className="text-lg font-bold text-text">Atividade recente</h2>
                         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
                             <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => setAttemptsOnlyFailures(event.target.checked)} className="accent-red-500" />
                             Apenas falhas
