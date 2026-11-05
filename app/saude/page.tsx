@@ -39,9 +39,9 @@ function formatDate(value: string | null) {
     }).format(date);
 }
 
-function StatusTag({ status }: { status: HealthStatus }) {
+function StatusTag({ status, label }: { status: HealthStatus; label?: string }) {
     const badge = statusBadges[status];
-    return <Badge value={badge.value} label={badge.label} />;
+    return <Badge value={badge.value} label={label ?? badge.label} />;
 }
 
 export default function SaudePage() {
@@ -118,7 +118,6 @@ export default function SaudePage() {
         return !term || (item.name + " " + item.path + " " + item.detail).toLowerCase().includes(term);
     }), [services, category, filter, search]);
     const attempts = (snapshot?.attempts ?? []).filter(item => !attemptsOnlyFailures || item.status === "failed");
-    const selectedService = filtered.find(item => item.id === expandedService) ?? null;
     const serviceColumns: DataTableColumn<HealthService>[] = [
         {
             id: "service", label: "Serviço", width: "36%",
@@ -128,7 +127,7 @@ export default function SaudePage() {
             </div>,
         },
         { id: "origin", label: "Origem", width: "16%", render: (item) => labels[item.category] },
-        { id: "status", label: "Status", width: "15%", render: (item) => <StatusTag status={item.status} /> },
+        { id: "status", label: "Status", width: "15%", render: (item) => <StatusTag status={item.status} label={item.category === "webhook" && item.status === "unknown" ? "Sem eventos" : undefined} /> },
         { id: "last_seen", label: "Último registro", width: "20%", render: (item) => <span className="whitespace-nowrap">{item.category !== "database" && item.last_seen ? "≈ " : ""}{formatDate(item.last_seen)}</span> },
         { id: "failures", label: "Falhas", width: "8%", render: (item) => item.failures },
         { id: "details", label: "", width: "5%", render: (item) => item.id === expandedService ? <ChevronUp size={16} /> : <ChevronDown size={16} /> },
@@ -235,19 +234,28 @@ export default function SaudePage() {
                         rows={filtered}
                         getRowKey={(item) => item.id}
                         onRowClick={(item) => setExpandedService(current => current === item.id ? null : item.id)}
+                        renderExpandedRow={(item) => (
+                            <div
+                                className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${item.id === expandedService ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+                                aria-hidden={item.id !== expandedService}
+                                inert={item.id !== expandedService}
+                            >
+                                <div className="min-h-0 overflow-hidden">
+                                    <div className="border-b border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-600 md:px-6">
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                            <p><strong>Rota:</strong> {item.path}</p>
+                                            <p><strong>Agendamento:</strong> {item.schedule || "—"}</p>
+                                            <p><strong>Último sucesso:</strong> {formatDate(item.last_success)}</p>
+                                            <p><strong>Última falha:</strong> {formatDate(item.last_failure)}</p>
+                                        </div>
+                                        <p className="mt-3">{item.detail}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         emptyMessage="Nenhum serviço encontrado."
                         minWidth={800}
                     />
-                    {selectedService && <div className="mt-4 border-t border-border px-4 pt-4 text-sm text-slate-600 sm:px-6">
-                        <h3 className="mb-3 text-sm font-bold text-text">{selectedService.name}</h3>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                            <p><strong>Rota:</strong> {selectedService.path}</p>
-                            <p><strong>Agendamento:</strong> {selectedService.schedule || "—"}</p>
-                            <p><strong>Último sucesso:</strong> {formatDate(selectedService.last_success)}</p>
-                            <p><strong>Última falha:</strong> {formatDate(selectedService.last_failure)}</p>
-                        </div>
-                        <p className="mt-3">{selectedService.detail}</p>
-                    </div>}
                 </section>
 
                 <section aria-label="Atividade recente">

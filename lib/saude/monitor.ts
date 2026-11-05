@@ -68,7 +68,21 @@ type MetricSlice = {
     counts: Map<string, { success: number; failures: number }>;
 };
 
+type ScheduledCheck = {
+    expected: number;
+    metrics: MetricSlice | null;
+    overlaps: boolean;
+};
+
+type WeeklyAnalysis = {
+    status: string;
+    created_at: string;
+    updated_at: string;
+    error_message: string | null;
+};
+
 type MetricsResult = {
+    scheduledChecks: Map<string, ScheduledCheck>;
     slices: MetricSlice[];
     logs: VercelLog[];
     counts: Map<string, { success: number; failures: number }>;
@@ -252,11 +266,17 @@ async function vercelLogs(): Promise<MetricsResult> {
         })
         .map(job => routePath(job.path)));
 
+    const unitCrons = vercelConfig.crons
+        .filter(job => routePath(job.path) === "/api/cron/unit-analyses")
+        .map(job => ({ ...job, expected: latestScheduledRun(job.schedule, now) }));
     const queries = await Promise.allSettled([
         queryMetric(recentStart, now, { minutes: 5 }),
         queryMetric(dailyStart, recentStart, { hours: 1 }, paths),
         fastPaths.size ? queryMetric(recentStart, now, { minutes: 5 }, [...fastPaths]) : Promise.resolve(null),
         weeklyPaths.size ? queryMetric(weeklyStart, dailyStart, { days: 1 }, [...weeklyPaths]) : Promise.resolve(null),
+        ...unitCrons.map(job => job.expected === null ? Promise.resolve(null) :
+            queryMetric(job.expected - 5 * 60_000, Math.min(now, job.expected + 60 * 60_000),
+                { minutes: 5 }, ["/api/cron/unit-analyses"])),
     ]);
     const unpack = (index: number): MetricSlice | null => {
         const result = queries[index];
@@ -265,7 +285,18 @@ async function vercelLogs(): Promise<MetricsResult> {
     const recent = unpack(0);
     const history = unpack(1);
     const fast = unpack(2);
+
     const weekly = unpack(3);
+    const scheduledChecks = new Map<string, ScheduledCheck>();
+    unitCrons.forEach((job, index) => {
+        if (job.expected === null) return;
+        scheduledChecks.set(job.path, {
+            expected: job.expected,
+            metrics: unpack(index + 4),
+            overlaps: unitCrons.some(other =>
+                other.path !== job.path && matchesSchedule(other.schedule, new Date(job.expected!))),
+        });
+    });
     const errors = queries.flatMap((query, index) =>
         query.status === "rejected" ?
             [(index === 0 ? "recentes" : index === 1 ? "históricas" : index === 2 ? "frequentes" : "semanais") +
@@ -293,7 +324,7 @@ async function vercelLogs(): Promise<MetricsResult> {
     }
     logs.sort((a, b) => b.timestampInMs! - a.timestampInMs!);
     return {
-        slices, logs, counts, recent, fast, weekly, fastPaths, weeklyPaths,
+        scheduledChecks, slices, logs, counts, recent, fast, weekly, fastPaths, weeklyPaths,
         coreOK: Boolean(recent && history),
         errors,
     };
@@ -365,6 +396,18 @@ function serviceFromLogs(
     };
 }
 
+async function latestWeeklyAnalyses(scheduledAt: number | null): Promise<WeeklyAnalysis[]> {
+    if (scheduledAt === null) return [];
+    const { data, error } = await supabase.from("unit_macro_analyses")
+        .select("status, created_at, updated_at, error_message")
+        .eq("analysis_type", "weekly")
+        .gte("created_at", new Date(scheduledAt - 60_000).toISOString())
+        .lt("created_at", new Date(scheduledAt + 60 * 60_000).toISOString())
+        .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as WeeklyAnalysis[];
+}
+
 function serviceWithoutMetrics(
     id: string, name: string, category: HealthCategory, path: string, schedule?: string,
 ): HealthService {
@@ -377,9 +420,13 @@ function serviceWithoutMetrics(
 
 export async function collectHealth(): Promise<HealthSnapshot> {
     const now = Date.now();
-    const [vercelResult, postgresResult] = await Promise.allSettled([
+    const submitJob = vercelConfig.crons.find(job =>
+        job.path === "/api/cron/unit-analyses?action=submit&type=weekly");
+    const submittedAt = submitJob ? latestScheduledRun(submitJob.schedule, now) : null;
+    const [vercelResult, postgresResult, weeklyResult] = await Promise.allSettled([
         vercelLogs(),
         supabase.rpc("health_pg_cron_snapshot"),
+        latestWeeklyAnalyses(submittedAt),
     ]);
     const metrics = vercelResult.status === "fulfilled" ? vercelResult.value : null;
     const vercelOK = Boolean(metrics?.coreOK);
@@ -430,8 +477,53 @@ export async function collectHealth(): Promise<HealthSnapshot> {
                 service.detail = "Execução agendada não confirmada nas métricas do Vercel";
             }
         }
-        if (ambiguous && service.status !== "unknown") {
-            service.detail += " · Rota compartilhada; variante não identificada";
+        if (ambiguous) {
+            const check = metrics?.scheduledChecks.get(cron.path);
+            service.last_seen = null;
+            service.last_success = null;
+            service.last_failure = null;
+            service.failures = 0;
+            if (!check?.metrics) {
+                service.status = "unknown";
+                service.detail = "Consulta da execução agendada indisponível";
+            } else if (check.overlaps) {
+                service.status = "unknown";
+                service.detail = "Horário compartilhado por duas ações; registros não distinguem a variante";
+            } else {
+                const recorded = check.metrics.counts.get(path);
+                const success = recorded?.success ?? 0;
+                const failure = recorded?.failures ?? 0;
+                const last = check.metrics.logs.find(log => log.requestPath === path);
+                service.status = success > 0 ? "healthy" : "failed";
+                service.last_seen = last ? new Date(last.timestampInMs!).toISOString() : null;
+                service.last_success = success > 0 ? service.last_seen : null;
+                service.last_failure = failure > 0 ? service.last_seen :
+                    success === 0 ? new Date(check.expected + MISSED_GRACE_MS).toISOString() : null;
+                service.failures = failure || (success === 0 ? 1 : 0);
+                service.detail = success > 0 ? "Requisição registrada no horário esperado" :
+                    failure > 0 ? "Erro HTTP na execução agendada" :
+                    "Nenhuma requisição registrada no último horário agendado";
+            }
+
+            if (cron.path.includes("action=submit") && weeklyResult.status === "fulfilled") {
+                const analyses = weeklyResult.value;
+                const failed = analyses.filter(row => row.status === "failed");
+                if (failed.length > 0) {
+                    const latestFailure = failed.reduce((latest, row) =>
+                        row.updated_at > latest.updated_at ? row : latest);
+                    service.status = "failed";
+                    service.failures = failed.length;
+                    service.last_seen = latestFailure.updated_at;
+                    service.last_failure = latestFailure.updated_at;
+                    service.last_success = null;
+                    service.detail = failed.length + "/" + analyses.length +
+                        " análises semanais falharam" +
+                        (latestFailure.error_message ? ": " + latestFailure.error_message.slice(0, 160) : "");
+                } else if (analyses.length > 0 && analyses.every(row => row.status === "completed")) {
+                    service.status = "healthy";
+                    service.detail = analyses.length + " análises semanais concluídas";
+                }
+            }
         }
         services.push(service);
     }

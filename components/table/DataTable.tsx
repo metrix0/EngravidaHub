@@ -3,6 +3,7 @@
 
 import {
     Children,
+    Fragment,
     cloneElement,
     isValidElement,
     type MouseEvent,
@@ -37,6 +38,7 @@ type DataTableProps<TRow> = {
     minWidth?: number;
     cardPadding?: boolean;
     getRowClassName?: (row: TRow) => string;
+    renderExpandedRow?: (row: TRow, index: number) => ReactNode;
 };
 
 export function DataTable<TRow,>({
@@ -48,6 +50,7 @@ export function DataTable<TRow,>({
     minWidth,
     cardPadding = true,
     getRowClassName,
+    renderExpandedRow,
 }: DataTableProps<TRow>) {
     const gridTemplateColumns = columns
         .map((column) => `minmax(0, ${column.width})`)
@@ -82,16 +85,18 @@ export function DataTable<TRow,>({
 
             {rows.length > 0 ? (
                 rows.map((row, index) => (
-                    <DataTableRow
-                        key={getRowKey(row, index)}
-                        row={row}
-                        index={index}
-                        columns={columns}
-                        gridTemplateColumns={gridTemplateColumns}
-                        onClick={onRowClick}
-                        cardPadding={cardPadding}
-                        rowClassName={getRowClassName?.(row)}
-                    />
+                    <Fragment key={getRowKey(row, index)}>
+                        <DataTableRow
+                            row={row}
+                            index={index}
+                            columns={columns}
+                            gridTemplateColumns={gridTemplateColumns}
+                            onClick={onRowClick}
+                            cardPadding={cardPadding}
+                            rowClassName={getRowClassName?.(row)}
+                        />
+                        {renderExpandedRow?.(row, index)}
+                    </Fragment>
                 ))
             ) : (
                 <div className="border-b border-slate-100 px-6 py-8 text-center text-sm text-slate-500">
