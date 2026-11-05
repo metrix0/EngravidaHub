@@ -14,6 +14,7 @@ import type { HealthAlert } from "@/lib/saude/alerts";
 
 type ResponseData = { snapshot: HealthSnapshot; alerts: HealthAlert[]; error?: string };
 const ALERT_HISTORY_PAGE_SIZE = 10;
+const RECENT_ACTIVITY_PAGE_SIZE = 25;
 
 const labels: Record<HealthCategory, string> = {
     cron: "Cron jobs",
@@ -53,6 +54,7 @@ export default function SaudePage() {
     const [category, setCategory] = useState<HealthCategory | "all">("all");
     const [filter, setFilter] = useState<"all" | "failed" | "unknown">("all");
     const [attemptsOnlyFailures, setAttemptsOnlyFailures] = useState(false);
+    const [activityPage, setActivityPage] = useState(1);
     const [expandedService, setExpandedService] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [historyPage, setHistoryPage] = useState(1);
@@ -118,6 +120,12 @@ export default function SaudePage() {
         return !term || (item.name + " " + item.path + " " + item.detail).toLowerCase().includes(term);
     }), [services, category, filter, search]);
     const attempts = (snapshot?.attempts ?? []).filter(item => !attemptsOnlyFailures || item.status === "failed");
+    const activityTotalPages = Math.max(1, Math.ceil(attempts.length / RECENT_ACTIVITY_PAGE_SIZE));
+    const visibleActivityPage = Math.min(activityPage, activityTotalPages);
+    const paginatedAttempts = attempts.slice(
+        (visibleActivityPage - 1) * RECENT_ACTIVITY_PAGE_SIZE,
+        visibleActivityPage * RECENT_ACTIVITY_PAGE_SIZE,
+    );
     const serviceColumns: DataTableColumn<HealthService>[] = [
         {
             id: "service", label: "Serviço", width: "36%",
@@ -262,17 +270,20 @@ export default function SaudePage() {
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
                         <h2 className="text-lg font-bold text-text">Atividade recente</h2>
                         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-                            <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => setAttemptsOnlyFailures(event.target.checked)} className="accent-red-500" />
+                            <input type="checkbox" checked={attemptsOnlyFailures} onChange={event => { setAttemptsOnlyFailures(event.target.checked); setActivityPage(1); }} className="accent-red-500" />
                             Apenas falhas
                         </label>
                     </div>
                     <DataTable
                         columns={attemptColumns}
-                        rows={attempts.slice(0, 80)}
+                        rows={paginatedAttempts}
                         getRowKey={(item) => item.id}
                         emptyMessage="Sem tentativas disponíveis."
                         minWidth={700}
                     />
+                    {activityTotalPages > 1 && <div className="flex justify-end px-4 pt-4 sm:px-6">
+                        <Pagination totalPages={activityTotalPages} currentPage={visibleActivityPage} onPageChange={setActivityPage} activeTone="brand" />
+                    </div>}
                 </section>
             </div>}
         </section>
