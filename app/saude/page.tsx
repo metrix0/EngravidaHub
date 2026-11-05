@@ -234,17 +234,25 @@ export default function SaudePage() {
                         rows={filtered}
                         getRowKey={(item) => item.id}
                         onRowClick={(item) => setExpandedService(current => current === item.id ? null : item.id)}
-                        renderExpandedRow={(item) => item.id === expandedService ? (
-                            <div className="border-b border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-600 md:px-6">
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                    <p><strong>Rota:</strong> {item.path}</p>
-                                    <p><strong>Agendamento:</strong> {item.schedule || "—"}</p>
-                                    <p><strong>Último sucesso:</strong> {formatDate(item.last_success)}</p>
-                                    <p><strong>Última falha:</strong> {formatDate(item.last_failure)}</p>
+                        renderExpandedRow={(item) => (
+                            <div
+                                className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${item.id === expandedService ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+                                aria-hidden={item.id !== expandedService}
+                                inert={item.id !== expandedService}
+                            >
+                                <div className="min-h-0 overflow-hidden">
+                                    <div className="border-b border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-600 md:px-6">
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                            <p><strong>Rota:</strong> {item.path}</p>
+                                            <p><strong>Agendamento:</strong> {item.schedule || "—"}</p>
+                                            <p><strong>Último sucesso:</strong> {formatDate(item.last_success)}</p>
+                                            <p><strong>Última falha:</strong> {formatDate(item.last_failure)}</p>
+                                        </div>
+                                        <p className="mt-3">{item.detail}</p>
+                                    </div>
                                 </div>
-                                <p className="mt-3">{item.detail}</p>
                             </div>
-                        ) : null}
+                        )}
                         emptyMessage="Nenhum serviço encontrado."
                         minWidth={800}
                     />
