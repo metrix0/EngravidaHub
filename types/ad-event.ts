@@ -10,6 +10,7 @@ export type AdPlatform = (typeof AD_PLATFORMS)[number];
 export const AD_EVENT_TYPES = [
     "lead",
     "schedule",
+    "attendance",
 ] as const;
 
 export type AdEventType = (typeof AD_EVENT_TYPES)[number];
@@ -42,6 +43,7 @@ export const AD_PLATFORM_LABELS: Record<AdPlatform, string> = {
 export const AD_EVENT_TYPE_LABELS: Record<AdEventType, string> = {
     lead: "Qualified Lead",
     schedule: "Schedule",
+    attendance: "Comparecimento",
 };
 
 export const AD_EVENT_STATUS_LABELS: Record<AdEventStatus, string> = {

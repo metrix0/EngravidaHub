@@ -109,13 +109,13 @@ type EventsData = {
         percentage: number | null;
     }>;
     by_type: Array<{
-        event_type: "lead" | "schedule";
+        event_type: "lead" | "schedule" | "attendance";
         label: string;
         count: number;
         percentage: number | null;
     }>;
     previous_by_type: Array<{
-        event_type: "lead" | "schedule";
+        event_type: "lead" | "schedule" | "attendance";
         label: string;
         count: number;
         percentage: number | null;
@@ -128,11 +128,14 @@ const DAILY_EVENT_COLORS: Record<string, string> = {
     meta_ads_schedule: "#639aeb",
     google_ads_lead: "#E29229",
     google_ads_schedule: "#e0a569",
+    meta_ads_attendance: "#16a34a",
+    google_ads_attendance: "#65a30d",
 };
 
 const EVENT_TYPE_CHART_COLORS = {
     lead: "#8b5cf6",
     schedule: "#e83e8c",
+    attendance: "#16a34a",
 } as const;
 
 export default function SourceFaithfulDashboardWidgetRenderer({
@@ -643,6 +646,8 @@ function EventsByDayCard({ data }: { data: EventsData }) {
         ["meta_ads_schedule", "Meta Ads · Schedule"],
         ["google_ads_lead", "Google Ads · Qualified Lead"],
         ["google_ads_schedule", "Google Ads · Schedule"],
+        ["meta_ads_attendance", "Meta Ads · Comparecimento"],
+        ["google_ads_attendance", "Google Ads · Comparecimento"],
     ] as const;
     return (
         <Card>

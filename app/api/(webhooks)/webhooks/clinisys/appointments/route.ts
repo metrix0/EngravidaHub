@@ -6,6 +6,7 @@ import { persistResolvedBookingTeams } from "@/lib/scheduling/bookingTeamProcess
 import {
     markClinisysScheduleCancelled,
     processClinisysAppointmentCreated,
+    processClinisysAppointmentAttended,
 } from "@/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds";
 import {
     normalizeWebhookDate,
@@ -206,6 +207,26 @@ export async function POST(request: Request) {
                     scheduleId: conversion.scheduleId,
                 });
                 return NextResponse.json({ ok: false, error: "Conversion delivery failed" }, { status: 503 });
+            }
+        }
+
+        if (appointment.status === "completed") {
+            const attendance = await processClinisysAppointmentAttended({
+                externalId: body.externalId,
+                clientId,
+                startsAt: appointment.startsAt,
+                status: appointment.status,
+                patientName: appointment.patient.name,
+                patientPhone: appointment.patient.phone ?? null,
+                unitName: appointment.unitName,
+                procedureName: appointment.procedureName,
+            });
+            if (!attendance.ok) {
+                console.error("[clinisys-appointments] attendance delivery failed", {
+                    externalId: body.externalId,
+                    scheduleId: attendance.scheduleId,
+                });
+                return NextResponse.json({ ok: false, error: "Attendance delivery failed" }, { status: 503 });
             }
         }
 
