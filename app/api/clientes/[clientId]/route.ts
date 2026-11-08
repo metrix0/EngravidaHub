@@ -103,18 +103,10 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             fetchCurrentOrFutureAppointments(clientId),
         ]);
 
-    const liveConversationId = liveThread?.latest_conversation_id ?? null;
-    const historicalConversations = conversations.filter(
-        (conversation) => conversation.id !== liveConversationId,
+    const historicalConversations = await buildConversationHistory(
+        conversations,
+        liveThread?.latest_conversation_id ?? null,
     );
-    const conversationIds = historicalConversations.map((item) => item.id);
-    const analysisIds = historicalConversations
-        .map((item) => item.conversation_analysis_id)
-        .filter(Boolean) as string[];
-    const [analysesById, messageCountsByConversationId] = await Promise.all([
-        fetchAnalysesById(analysisIds),
-        fetchMessageCountsByConversationId(conversationIds),
-    ]);
 
     return NextResponse.json({
         client: {
@@ -129,33 +121,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         units,
         upcoming_appointment_count: upcomingAppointments.length,
         live_thread: liveThread,
-        conversations: historicalConversations.map((conversation) => {
-            const analysis = conversation.conversation_analysis_id
-                ? analysesById.get(conversation.conversation_analysis_id)
-                : null;
-
-            return {
-                id: conversation.id,
-                source: conversation.source,
-                started_at: conversation.started_at,
-                ended_at: conversation.ended_at,
-                attendant_id: conversation.attendant_id,
-                attendant_name: conversation.attendant_chat_name ?? "Sem atendente",
-                tunnel: conversation.tunnel,
-                origin: conversation.origin,
-                conversation_analysis_id: conversation.conversation_analysis_id,
-                message_count: messageCountsByConversationId.get(conversation.id) ?? 0,
-                objective: analysis
-                    ? getGoalLabel(analysis.conversation_goal)
-                    : "Sem análise",
-                result: getConversationResult(analysis?.resolution_result),
-                customer_final_state: analysis?.customer_final_state ?? null,
-                notable: Boolean(analysis?.notable),
-                satisfaction_score: analysis?.satisfaction_score ?? null,
-                dropoff_happened: Boolean(analysis?.dropoff_happened),
-                dropoff_moment: analysis?.dropoff_moment ?? null,
-            };
-        }),
+        conversations: historicalConversations,
     });
 }
 
@@ -195,7 +161,10 @@ async function fetchSocialClientProfile(socialId: string) {
         units: [],
         upcoming_appointment_count: 0,
         live_thread: null,
-        conversations: [],
+        conversations: await buildConversationHistory(
+            await fetchClientConversations(null, socialId),
+            null,
+        ),
     });
 }
 
@@ -575,7 +544,42 @@ async function fetchLiveThread(clientId: string) {
     return data ?? null;
 }
 
-async function fetchClientConversations(clientId: string) {
+async function fetchClientConversations(clientId: string | null, socialId?: string) {
+    let socialIds = socialId ? [socialId] : [];
+
+    if (clientId) {
+        const { data: linkedUsers, error } = await supabase
+            .from("instagram_users")
+            .select("id")
+            .eq("client_id", clientId);
+        if (error) throw error;
+        socialIds = (linkedUsers ?? []).map((user) => user.id);
+    }
+
+    const [clientConversations, socialConversations] = await Promise.all([
+        clientId
+            ? fetchIdentityConversations("client_id", [clientId])
+            : Promise.resolve([]),
+        socialIds.length
+            ? fetchIdentityConversations("instagram_user_id", socialIds)
+            : Promise.resolve([]),
+    ]);
+
+    const byId = new Map(
+        [...clientConversations, ...socialConversations].map((conversation) => [
+            conversation.id,
+            conversation,
+        ]),
+    );
+    return [...byId.values()].sort((a, b) =>
+        b.started_at.localeCompare(a.started_at),
+    );
+}
+
+async function fetchIdentityConversations(
+    identityColumn: "client_id" | "instagram_user_id",
+    identityIds: string[],
+) {
     const { data, error } = await supabase
         .from("conversations")
         .select(
@@ -596,12 +600,57 @@ async function fetchClientConversations(clientId: string) {
             updated_at
             `,
         )
-        .eq("client_id", clientId)
+        .in(identityColumn, identityIds)
         .order("started_at", { ascending: false })
         .limit(100);
 
     if (error) throw error;
     return data ?? [];
+}
+
+async function buildConversationHistory(
+    conversations: Awaited<ReturnType<typeof fetchClientConversations>>,
+    liveConversationId: string | null,
+) {
+    const historicalConversations = conversations.filter(
+        (conversation) => conversation.id !== liveConversationId,
+    );
+    const conversationIds = historicalConversations.map((item) => item.id);
+    const analysisIds = historicalConversations
+        .map((item) => item.conversation_analysis_id)
+        .filter(Boolean) as string[];
+    const [analysesById, messageCountsByConversationId] = await Promise.all([
+        fetchAnalysesById(analysisIds),
+        fetchMessageCountsByConversationId(conversationIds),
+    ]);
+
+    return historicalConversations.map((conversation) => {
+        const analysis = conversation.conversation_analysis_id
+            ? analysesById.get(conversation.conversation_analysis_id)
+            : null;
+
+        return {
+            id: conversation.id,
+            source: conversation.source,
+            started_at: conversation.started_at,
+            ended_at: conversation.ended_at,
+            attendant_id: conversation.attendant_id,
+            attendant_name: conversation.attendant_chat_name ?? "Sem atendente",
+            tunnel: conversation.tunnel,
+            origin: conversation.origin,
+            conversation_analysis_id: conversation.conversation_analysis_id,
+            message_count: messageCountsByConversationId.get(conversation.id) ?? 0,
+            objective: analysis
+                ? getGoalLabel(analysis.conversation_goal)
+                : "Sem análise",
+            result: getConversationResult(analysis?.resolution_result),
+            customer_final_state: analysis?.customer_final_state ?? null,
+            notable: Boolean(analysis?.notable),
+            satisfaction_score: analysis?.satisfaction_score ?? null,
+            dropoff_happened: Boolean(analysis?.dropoff_happened),
+            dropoff_moment: analysis?.dropoff_moment ?? null,
+        };
+    });
 }
 
 type ConversationAnalysisSummaryRow = {
