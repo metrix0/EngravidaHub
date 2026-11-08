@@ -7,7 +7,7 @@ import type { SchedulingDoctorOption } from "@/types/scheduling";
 
 export async function GET() {
     try {
-        const { user } = await getCurrentAttendantFromRequest();
+        const { user, attendant } = await getCurrentAttendantFromRequest();
 
         if (!user) {
             return NextResponse.json(
@@ -16,7 +16,7 @@ export async function GET() {
             );
         }
 
-        const [unitsResult, doctorsResult] = await Promise.all([
+        const [unitsResult, doctorsResult, queueResult] = await Promise.all([
             supabase
                 .from("units")
                 .select(
@@ -41,10 +41,14 @@ export async function GET() {
                 `)
                 .eq("active", true)
                 .eq("doctor.active", true),
+            attendant?.queue_id
+                ? supabase.from("queues").select("name").eq("id", attendant.queue_id).maybeSingle()
+                : Promise.resolve({ data: null, error: null }),
         ]);
 
         if (unitsResult.error) throw unitsResult.error;
         if (doctorsResult.error) throw doctorsResult.error;
+        if (queueResult.error) throw queueResult.error;
 
         const doctors = (doctorsResult.data ?? [])
             .flatMap((row) => {
@@ -73,6 +77,7 @@ export async function GET() {
             ok: true,
             units: unitsResult.data ?? [],
             doctors,
+            isRaQueue: queueResult.data?.name?.trim().toUpperCase() === "RA",
         });
     } catch (error) {
         console.error("[scheduling-options] failed", error);
