@@ -11,16 +11,18 @@ function failure(error: string, status: number) {
 
 async function allowRead() {
     const inbox = await getServerTabAccess("inbox");
-    if (inbox.ok) return null;
+    if (inbox.ok === true) return null;
     if (inbox.status !== 403) return failure(inbox.error, inbox.status);
 
     const settings = await getServerTabAccess("configuracoes_inbox");
-    return settings.ok ? null : failure(settings.error, settings.status);
+    if (settings.ok === false) return failure(settings.error, settings.status);
+    return null;
 }
 
 async function allowWrite() {
     const access = await getServerTabAccess("configuracoes_inbox");
-    return access.ok ? null : failure(access.error, access.status);
+    if (access.ok === false) return failure(access.error, access.status);
+    return null;
 }
 
 function parseTemplate(body: unknown) {

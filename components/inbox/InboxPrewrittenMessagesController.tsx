@@ -77,8 +77,8 @@ export default function InboxPrewrittenMessagesController({
             const id = window.requestIdleCallback(load, { timeout: 1500 });
             return () => { cancelled = true; window.cancelIdleCallback(id); };
         }
-        const id = window.setTimeout(load, 0);
-        return () => { cancelled = true; window.clearTimeout(id); };
+        const id = setTimeout(load, 0);
+        return () => { cancelled = true; clearTimeout(id); };
     }, [isInbox]);
 
     const filteredMessages = useMemo(() => {
