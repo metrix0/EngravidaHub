@@ -39,7 +39,7 @@ const fold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g,
 const literal = (text: string) => text.replace(/\s+/g, " ").trim();
 
 const supportingEvidence: Record<(typeof INFERABLE_TUNNELS)[number], RegExp> = {
-    Problemas: /dificuldad|nao consigu|nao engravid|tentando engravid|infertil|problema para engravid|abortos? recorrentes?/,
+    Problemas: /dificuldad|nao (?:consig|conseg)|nao engravid|tentando engravid|infertil|problema para engravid|abortos? recorrentes?/,
     Laqueadura: /laqueadur|reversa[oã] de ligadura|reverte[r]? (?:a )?ligadura|trompas? ligadas?/,
     LGBT: /\bropa\b|\blgbt\b|duas mulheres|dois homens|casal de mulheres|casal de homens|casal homo/,
     Congelamento: /congel|preserv[a-z ]{0,18}fertilidad|guardar (?:meus? )?(?:ovulos|embrioes|semen)/,
@@ -47,6 +47,20 @@ const supportingEvidence: Record<(typeof INFERABLE_TUNNELS)[number], RegExp> = {
     "Bio Instagram": /\bbio\b/,
     "Site - Home | Engravida": /\bsite\b|\bpagina (?:da |de )?(?:engravida|voces)\b|\bhome\b/,
 };
+
+// Require a stated acquisition path, not a casual mention of the site or bio.
+const explicitOriginEvidence: Partial<Record<(typeof INFERABLE_TUNNELS)[number], RegExp>> = {
+    "Bio Instagram": /\b(?:vim|cheguei|conheci|encontrei|achei|entrei|acessei|descobri|cliquei|fui direcionad[ao])\b.{0,60}?\b(?:pelo|pela|no|na|via|atraves d[ao])\b.{0,25}?\b(?:link (?:da|na) )?bio\b/,
+    "Site - Home | Engravida": /\b(?:vim|cheguei|conheci|encontrei|achei|entrei|acessei|descobri|cliquei|fui direcionad[ao])\b.{0,60}?\b(?:pelo|pela|no|na|via|atraves d[ao])\b.{0,25}?\bsite\b/,
+};
+
+const negatedOrUncertainIntent = /\b(?:nao (?:quero|desejo|busco|pretendo|preciso|gostaria|tenho interesse|sei se quero|tenho certeza se quero|vim|cheguei|acessei|cliquei|entrei|encontrei|conheci|achei|fui direcionad[ao])|sem interesse|nunca quis)\b/;
+
+function hasAffirmativeSupport(tunnel: (typeof INFERABLE_TUNNELS)[number], text: string): boolean {
+    const matcher = explicitOriginEvidence[tunnel] ?? supportingEvidence[tunnel];
+    return fold(text).split(/[,;.!?\n]|\b(?:mas|porem|contudo)\b/).some(clause =>
+        !negatedOrUncertainIntent.test(clause) && matcher.test(clause));
+}
 
 // The quote must actually occur in a client message. A model confidence score
 // without an independently checkable excerpt is never enough for attribution.
@@ -63,7 +77,9 @@ export function validateTunnelAttribution(raw: unknown, messages: Message[]): Tu
     })) return null;
 
     // Reject citations that have no concrete connection to the selected tunnel.
-    if (!attribution.evidence.some(item => supportingEvidence[attribution.tunnel].test(fold(item.quote)))) return null;
+    if (!attribution.evidence.some(item =>
+        supportingEvidence[attribution.tunnel].test(fold(item.quote)) &&
+        hasAffirmativeSupport(attribution.tunnel, messageById.get(item.message_id)!.text))) return null;
     return attribution;
 }
 
