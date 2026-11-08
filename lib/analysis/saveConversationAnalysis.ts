@@ -1,9 +1,11 @@
 // lib/analysis/saveConversationAnalysis.ts
 import { supabase } from "@/lib";
 import { deriveInboxClosingTag } from "@/lib/analysis/deriveInboxClosingTag";
+import { inferTunnelFromAnalysis } from "@/lib/analysis/tunnelAttribution";
 import type { ConversationAnalysis } from "@/types";
 
 export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
+    const tunnelAttribution = inferTunnelFromAnalysis(analysis);
     const { data, error } = await supabase
         .from("conversation_analysis")
         .upsert(
@@ -22,6 +24,7 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
                 customer_final_state: analysis.customer_final_state,
                 outcome_events: analysis.outcome_events,
                 pattern_signals: analysis.pattern_signals ?? null,
+                tunnel_attribution: tunnelAttribution,
                 objections: analysis.objections,
                 dropoff_happened: analysis.dropoff.happened,
                 dropoff_moment: analysis.dropoff.moment,
@@ -61,6 +64,17 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
         .single();
 
     if (error) throw new Error(`Failed to save conversation analysis: ${error.message}`);
+
+    // Only replace missing/generic tunnel values. A specific tracked tunnel wins,
+    // including when the sheet updates it while analysis is running.
+    if (tunnelAttribution) {
+        const { error: attributionError } = await supabase
+            .from("conversations")
+            .update({ tunnel: tunnelAttribution.tunnel })
+            .eq("id", analysis.conversation_id)
+            .or("tunnel.is.null,tunnel.eq.,tunnel.eq.Entrada Organica");
+        if (attributionError) throw new Error(`Failed to attribute conversation tunnel: ${attributionError.message}`);
+    }
 
     // Tag only a finalized Inbox thread, using the existing client closing-tag mechanism.
     // Tagging failures must not discard an otherwise successfully saved AI analysis.
