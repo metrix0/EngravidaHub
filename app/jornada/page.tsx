@@ -81,8 +81,24 @@ type JourneyFunnelStage = {
     fill: string;
 };
 
+type TunnelRoiData = {
+    available: boolean;
+    currency_code: string;
+    total_spend: number;
+    tunnels: {
+        tunnel: string;
+        paid_clients: number;
+        authorized_clients: number;
+        attributed_revenue: number;
+        investment: number;
+        investment_share: number | null;
+        roi_percent: number | null;
+    }[];
+};
+
 type JourneyDashboardData = {
     full_pipeline: FullJourneyPipeline;
+    tunnel_roi: TunnelRoiData | null;
     journey_funnel: JourneyFunnelStage[];
     evaluation_journeys: {
         presencial: JourneyFunnelStage[];
@@ -268,6 +284,7 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
 
 const EMPTY_DATA: JourneyDashboardData = {
     full_pipeline: EMPTY_PIPELINE,
+    tunnel_roi: null,
     journey_funnel: [],
     evaluation_journeys: {
         presencial: [],
@@ -367,6 +384,9 @@ export default function JourneyPage() {
                         Array.isArray(json.full_pipeline.transitions)
                             ? json.full_pipeline
                             : EMPTY_PIPELINE,
+                    tunnel_roi: json.tunnel_roi && Array.isArray(json.tunnel_roi.tunnels)
+                        ? json.tunnel_roi
+                        : null,
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
                         : [],
@@ -422,6 +442,7 @@ export default function JourneyPage() {
         sections: data && loadedQueryKey === currentQueryKey && !loadingData && !isRefreshing ? [
             { id: "jornada-whatsapp", title: "Cobertura WhatsApp", data: data.full_pipeline?.audit?.whatsapp_coverage },
             { id: "jornada-origens", title: "Origem de WhatsApp rastreado", data: data.full_pipeline?.audit?.tracked_sources },
+            { id: "jornada-roi-tuneis", title: "ROI por túnel", data: data.tunnel_roi },
             { id: "jornada-conversa", title: "Jornada na conversa", data: data.journey_funnel },
             { id: "jornada-abandono", title: "Pontos de abandono", data: data.dropoff_moments },
             { id: "jornada-intencoes", title: "Intenções iniciais", data: data.intent_paths },
@@ -502,6 +523,10 @@ export default function JourneyPage() {
                             <TrackedWhatsappSourcesCard
                                 pipeline={current.full_pipeline}
                             />
+                        </section>
+
+                        <section data-assistant-section="jornada-roi-tuneis" className="mb-6 min-w-0 max-w-full">
+                            <TunnelRoiCard data={current.tunnel_roi} />
                         </section>
 
                         <section data-assistant-section="jornada-conversa" className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
@@ -687,6 +712,99 @@ function WhatsappCoverageTooltip({
 
 function TrackedWhatsappSourcesCard({ pipeline }: { pipeline: FullJourneyPipeline }) {
     return <SharedTrackedWhatsappSourcesCard pipeline={pipeline} />;
+}
+
+function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
+    const tunnels = data?.tunnels ?? [];
+
+    return (
+        <Card className="min-w-0">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h2 className="text-lg font-bold">ROI por túnel</h2>
+                    <p className="mt-1 max-w-3xl text-xs text-slate-500">
+                        Investimento estimado: gasto em Google e Meta Ads distribuído proporcionalmente
+                        aos clientes pagos rastreados por plataforma e túnel. Resultado atribuído:
+                        receita fiscal autorizada vinculada a esses clientes. ROI = (resultado − investimento) / investimento.
+                    </p>
+                </div>
+                {data && (
+                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        Investimento total em mídia: <span className="font-semibold text-slate-700">{formatTunnelMoney(data.total_spend)}</span>
+                    </div>
+                )}
+            </div>
+
+            {!data || !data.available ? (
+                <EmptyCardMessage message="Não foi possível carregar o ROI por túnel." />
+            ) : tunnels.length === 0 ? (
+                <EmptyCardMessage message="Nenhum túnel com conversas no período." />
+            ) : (
+                <div className="space-y-3">
+                    {tunnels.map((tunnel) => (
+                        <div key={tunnel.tunnel} className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-4">
+                            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_20px_minmax(0,1.1fr)_20px_minmax(0,1fr)_minmax(0,0.8fr)] xl:items-center">
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Investimento estimado</p>
+                                    <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                                        {formatTunnelPercentage(tunnel.investment_share)}
+                                    </p>
+                                    <p className="mt-0.5 break-words text-sm font-medium tabular-nums text-slate-600">
+                                        {formatTunnelMoney(tunnel.investment)}
+                                    </p>
+                                </div>
+                                <ArrowRight size={18} className="hidden text-slate-300 xl:block" aria-hidden="true" />
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Túnel</p>
+                                    <p className="mt-1 break-words text-base font-bold text-slate-900" title={tunnel.tunnel}>
+                                        {tunnel.tunnel === "__NULL__" ? "Sem túnel" : tunnel.tunnel}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                        {tunnel.paid_clients.toLocaleString("pt-BR")} clientes pagos rastreados
+                                    </p>
+                                </div>
+                                <ArrowRight size={18} className="hidden text-slate-300 xl:block" aria-hidden="true" />
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Resultado atribuído</p>
+                                    <p className="mt-1 break-words text-xl font-bold tabular-nums text-slate-900">
+                                        {formatTunnelMoney(tunnel.attributed_revenue)}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                        {tunnel.authorized_clients.toLocaleString("pt-BR")} clientes com receita autorizada
+                                    </p>
+                                </div>
+                                <div className="min-w-0 border-t border-slate-200 pt-3 sm:border-0 sm:pt-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">ROI estimado</p>
+                                    <p className={
+                                        tunnel.roi_percent === null
+                                            ? "mt-1 text-xl font-bold tabular-nums text-slate-400"
+                                            : tunnel.roi_percent >= 0
+                                              ? "mt-1 text-xl font-bold tabular-nums text-emerald-600"
+                                              : "mt-1 text-xl font-bold tabular-nums text-red-600"
+                                    }>
+                                        {formatTunnelPercentage(tunnel.roi_percent)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function formatTunnelMoney(value: number) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
+function formatTunnelPercentage(value: number | null) {
+    return value === null ? "—" : value.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 }
 
 type TrackedWhatsappSourceEvidence =

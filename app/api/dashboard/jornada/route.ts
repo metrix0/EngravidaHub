@@ -374,7 +374,7 @@ export async function GET(request: Request) {
         }
 
         if (searchParams.get("summary_only") === "1") {
-            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult] = await Promise.all([
+            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult, tunnelRoiResult] = await Promise.all([
                 supabase.rpc(
                     "dashboard_journey_prepared_v1",
                     executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
@@ -385,11 +385,18 @@ export async function GET(request: Request) {
                     "dashboard_journey_whatsapp_coverage_prepared_v1",
                     executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
                 ).abortSignal(request.signal),
+                supabase.rpc(
+                    "dashboard_journey_tunnel_roi_v1",
+                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+                ).abortSignal(request.signal),
             ]);
             if (preparedResult.error) throw preparedResult.error;
             if (coverageResult.error) throw coverageResult.error;
             if (!preparedResult.data?.ready || !Array.isArray(preparedResult.data.groups) || !preparedAnalysis || !coverageResult.data) {
                 throw new Error("Os dados pré-calculados da jornada não estão disponíveis.");
+            }
+            if (tunnelRoiResult.error) {
+                console.warn("[dashboard/jornada] tunnel ROI unavailable", tunnelRoiResult.error.code);
             }
             const fullPipeline = buildPreparedJourneyPipeline(
                 preparedResult.data as PreparedJourneyRead, range, filters,
@@ -405,6 +412,7 @@ export async function GET(request: Request) {
                     intent_paths: preparedAnalysis.intent_paths,
                     objections: preparedAnalysis.objections,
                     audit: preparedAnalysis.audit,
+                    tunnel_roi: tunnelRoiResult.error ? null : tunnelRoiResult.data,
                 },
                 { headers: { "Cache-Control": "private, no-store" } },
             );
