@@ -1,11 +1,12 @@
 // app/api/dashboard/jornada/insights/route.ts
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
-import { readDashboardFilters, resolveDashboardDateRange } from "@/lib/dashboard/metrics";
+import { readDashboardFilters, resolveDashboardDateRange, type DashboardDateRange, type DashboardFilters } from "@/lib/dashboard/metrics";
 import { supabase } from "@/lib/supabase/client";
 
 export const maxDuration = 60;
-const SHARDS = 8;
+const SHARDS = 16;
 const SHARDS_PER_BATCH = 2;
 
 type Histogram = { n: number; days?: number; value?: number; metric?: string; segment?: string; kind?: string };
@@ -114,6 +115,66 @@ function mergeShards(parts: Shard[]) {
     };
 }
 
+async function loadShard(
+    range: Pick<DashboardDateRange, "startAt" | "endAt">,
+    filters: DashboardFilters,
+    shard: number,
+    shards: number,
+): Promise<Shard[]> {
+    const result = await supabase.rpc("dashboard_journey_deep_insights", {
+        p_start_at: range.startAt,
+        p_end_at: range.endAt,
+        p_unit_ids: filters.unitIds,
+        p_attendant_ids: filters.attendantIds,
+        p_tunnels: filters.tunnels,
+        p_origins: filters.origins,
+        p_shard: shard,
+        p_shards: shards,
+    });
+
+    if (!result.error && result.data) return [result.data as Shard];
+
+    // The database imposes an 8-second statement limit. Retry only timed-out
+    // partitions as two smaller disjoint partitions, preserving all clients.
+    if (result.error?.code === "57014" && shards < SHARDS * 4) {
+        console.warn("[jornada/insights] splitting timed-out shard", { shard, shards });
+        const [left, right] = await Promise.all([
+            loadShard(range, filters, shard, shards * 2),
+            loadShard(range, filters, shard + shards, shards * 2),
+        ]);
+        return [...left, ...right];
+    }
+    throw result.error ?? new Error("Retorno inválido da análise da jornada.");
+}
+
+// Persist successful results across requests/deployments. On refresh failures,
+// Next.js retains the last successful cached value instead of breaking the page.
+const getCachedInsights = unstable_cache(async (
+    range: Pick<DashboardDateRange, "startAt" | "endAt">,
+    filters: DashboardFilters,
+) => {
+    const parts: Shard[] = [];
+    for (let start = 0; start < SHARDS; start += SHARDS_PER_BATCH) {
+        const batches = await Promise.all(
+            Array.from({ length: Math.min(SHARDS_PER_BATCH, SHARDS - start) }, (_, index) =>
+                loadShard(range, filters, start + index, SHARDS)),
+        );
+        parts.push(...batches.flat());
+    }
+
+    const creativeResult = await supabase.rpc("dashboard_journey_creative_outcomes", {
+        p_start_at: range.startAt,
+        p_end_at: range.endAt,
+    });
+    if (creativeResult.error) console.error("[jornada/insights] creative metrics", creativeResult.error);
+
+    return {
+        analytics: mergeShards(parts),
+        creatives: creativeResult.error ? null : creativeResult.data,
+        creative_error: Boolean(creativeResult.error),
+    };
+}, ["jornada-deep-insights-v2"], { revalidate: 900 });
+
 export async function GET(request: Request) {
     try {
         const { user } = await getCurrentAttendantFromRequest();
@@ -123,43 +184,10 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const range = resolveDashboardDateRange(searchParams);
         const filters = readDashboardFilters(searchParams);
-        const creativeRequest = supabase.rpc("dashboard_journey_creative_outcomes", {
-            p_start_at: range.startAt,
-            p_end_at: range.endAt,
-        }).abortSignal(request.signal);
-
-        const parts: Shard[] = [];
-        for (let start = 0; start < SHARDS; start += SHARDS_PER_BATCH) {
-            request.signal.throwIfAborted();
-            const results = await Promise.all(
-                Array.from({ length: Math.min(SHARDS_PER_BATCH, SHARDS - start) }, (_, index) => supabase.rpc("dashboard_journey_deep_insights", {
-                    p_start_at: range.startAt,
-                    p_end_at: range.endAt,
-                    p_unit_ids: filters.unitIds,
-                    p_attendant_ids: filters.attendantIds,
-                    p_tunnels: filters.tunnels,
-                    p_origins: filters.origins,
-                    p_shard: start + index,
-                    p_shards: SHARDS,
-                }).abortSignal(request.signal)),
-            );
-            request.signal.throwIfAborted();
-            for (const result of results) {
-                if (result.error) throw result.error;
-                parts.push(result.data as Shard);
-            }
-        }
-
+        const data = await getCachedInsights({ startAt: range.startAt, endAt: range.endAt }, filters);
         request.signal.throwIfAborted();
-        const creativeResult = await creativeRequest;
-        request.signal.throwIfAborted();
-        if (creativeResult.error) console.error("[jornada/insights] creative metrics", creativeResult.error);
 
-        return NextResponse.json({
-            analytics: mergeShards(parts),
-            creatives: creativeResult.error ? null : creativeResult.data,
-            creative_error: Boolean(creativeResult.error),
-        }, { headers: { "Cache-Control": "private, no-store" } });
+        return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store" } });
     } catch (error) {
         if (request.signal.aborted) return new NextResponse(null, { status: 499 });
         console.error("[jornada/insights] failed", error);
