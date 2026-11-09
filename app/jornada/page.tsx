@@ -12,6 +12,7 @@ import {
     ArrowRight,
     BadgeCheck,
     CalendarCheck2,
+    ChevronDown,
     CircleDollarSign,
     HelpCircle,
     MousePointerClick,
@@ -790,17 +791,23 @@ function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
                                 </div>
                             </div>
                             {tunnel.campaigns.length > 0 && (
-                                <div className="mt-3 border-t border-slate-200 pt-3">
-                                    <p className="text-xs font-semibold text-slate-500">
+                                <details className="group mt-3 border-t border-slate-200 pt-3">
+                                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-slate-500 [&::-webkit-details-marker]:hidden">
                                         Campanhas vinculadas ({tunnel.campaigns.length})
-                                    </p>
+                                        <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-150 group-open:rotate-180" />
+                                    </summary>
                                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                                         {tunnel.campaigns.map((campaign, index) => (
                                             <div key={`${campaign.platform}-${campaign.campaign_id}-${index}`} className="flex min-w-0 items-start justify-between gap-2 text-xs">
                                                 <span className="min-w-0 break-words text-slate-600">
                                                     {campaign.campaign_name}
-                                                    <span className="ml-1 text-slate-400">
-                                                        ({campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"})
+                                                    <span
+                                                        className="ml-1 inline-flex align-middle text-slate-400"
+                                                        role="img"
+                                                        aria-label={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                                        title={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                                    >
+                                                        {campaign.platform === "google_ads" ? <FaGoogle size={14} /> : <FaMeta size={14} />}
                                                     </span>
                                                 </span>
                                                 <span className="shrink-0 font-semibold tabular-nums text-slate-700">
@@ -809,7 +816,7 @@ function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
                                             </div>
                                         ))}
                                     </div>
-                                </div>
+                                </details>
                             )}
                         </div>
                     ))}
