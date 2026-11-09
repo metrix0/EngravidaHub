@@ -3,6 +3,7 @@
 
 import {
     useEffect,
+    useId,
     useRef,
     useState,
     type PointerEvent as ReactPointerEvent,
@@ -791,38 +792,71 @@ function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
                                 </div>
                             </div>
                             {tunnel.campaigns.length > 0 && (
-                                <details className="group mt-3 border-t border-slate-200 pt-3">
-                                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-slate-500 [&::-webkit-details-marker]:hidden">
-                                        Campanhas vinculadas ({tunnel.campaigns.length})
-                                        <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-150 group-open:rotate-180" />
-                                    </summary>
-                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                        {tunnel.campaigns.map((campaign, index) => (
-                                            <div key={`${campaign.platform}-${campaign.campaign_id}-${index}`} className="flex min-w-0 items-start justify-between gap-2 text-xs">
-                                                <span className="min-w-0 break-words text-slate-600">
-                                                    {campaign.campaign_name}
-                                                    <span
-                                                        className="ml-1 inline-flex align-middle text-slate-400"
-                                                        role="img"
-                                                        aria-label={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
-                                                        title={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
-                                                    >
-                                                        {campaign.platform === "google_ads" ? <FaGoogle size={14} /> : <FaMeta size={14} />}
-                                                    </span>
-                                                </span>
-                                                <span className="shrink-0 font-semibold tabular-nums text-slate-700">
-                                                    {formatTunnelMoney(campaign.spend)}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </details>
+                                <TunnelCampaignsDropdown campaigns={tunnel.campaigns} />
                             )}
                         </div>
                     ))}
                 </div>
             )}
         </Card>
+    );
+}
+
+
+function TunnelCampaignsDropdown({
+    campaigns,
+}: {
+    campaigns: TunnelRoiData["tunnels"][number]["campaigns"];
+}) {
+    const [expanded, setExpanded] = useState(false);
+    const panelId = useId();
+
+    return (
+        <div className="mt-3 border-t border-slate-200 pt-3">
+            <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={panelId}
+                onClick={() => setExpanded((value) => !value)}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 text-xs font-semibold text-slate-500"
+            >
+                Campanhas vinculadas ({campaigns.length})
+                <ChevronDown
+                    size={16}
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`}
+                />
+            </button>
+            <div
+                id={panelId}
+                aria-hidden={!expanded}
+                inert={!expanded}
+                className={`grid transition-[grid-template-rows,opacity] duration-150 ease-in-out motion-reduce:transition-none ${expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+            >
+                <div className="min-h-0 overflow-hidden">
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {campaigns.map((campaign, index) => (
+                            <div key={`${campaign.platform}-${campaign.campaign_id}-${index}`} className="flex min-w-0 items-start justify-between gap-2 text-xs">
+                                <span className="min-w-0 break-words text-slate-600">
+                                    {campaign.campaign_name}
+                                    <span
+                                        className="ml-1 inline-flex align-middle text-slate-400"
+                                        role="img"
+                                        aria-label={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                        title={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                    >
+                                        {campaign.platform === "google_ads" ? <FaGoogle size={14} /> : <FaMeta size={14} />}
+                                    </span>
+                                </span>
+                                <span className="shrink-0 font-semibold tabular-nums text-slate-700">
+                                    {formatTunnelMoney(campaign.spend)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 }
 
