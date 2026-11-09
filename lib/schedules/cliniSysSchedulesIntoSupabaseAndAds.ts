@@ -14,6 +14,7 @@ import {
 import {
     normalizeScheduleStatus,
     scheduleIsInactive,
+    scheduleShowedUp,
 } from "@/lib/schedules/status";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
 import {
@@ -195,7 +196,20 @@ async function syncScheduleRows(rows: BigqueryScheduleRow[], daysBack: number, l
         existing_match_collisions: existingMatchCollisions,
     });
 
+
     await updateExistingSchedules(changedSchedules);
+
+    // BigQuery can report attendance after the initial Schedule event.
+    for (const { existing: old, schedule } of changedSchedules) {
+        if (!old.client_id || !scheduleShowedUp(normalizeScheduleStatus(schedule.status))) continue;
+        const { data: client, error } = await supabase.from("clients")
+            .select("id, name, phone, email, unit_id, funnel_stage_id")
+            .eq("id", old.client_id).maybeSingle();
+        if (error) throw error;
+        if (client) await sendAttendanceConversion({
+            schedule, client: client as ClientForSchedule, scheduleId: old.id,
+        });
+    }
 
     const results = [];
     let insertedToSupabase = 0;
@@ -260,6 +274,9 @@ async function syncScheduleRows(rows: BigqueryScheduleRow[], daysBack: number, l
         });
         if (isSuccessfulDelivery(meta)) metaSent += 1;
         if (isSuccessfulDelivery(google)) googleSent += 1;
+        if (scheduleShowedUp(normalizeScheduleStatus(schedule.status))) {
+            await sendAttendanceConversion({ schedule, client, scheduleId: insertedSchedule.id });
+        }
 
         // Meta and Google delivery state is stored only in public.ad_events.
         results.push({
@@ -448,6 +465,124 @@ export async function processClinisysAppointmentCreated(appointment: ClinisysCre
         (result as { skipped?: boolean }).skipped !== true,
     );
     return { ok: !failed, skipped: false, scheduleId, meta, google };
+}
+
+export async function processClinisysAppointmentAttended(appointment: ClinisysCreatedAppointment) {
+    const schedule = normalizeBigquerySchedule({
+        source_schedule_id: appointment.externalId,
+        data: saoPauloDate(new Date(appointment.startsAt)),
+        agendamento_criado_em: saoPauloDate(new Date()),
+        agenda_autor_original: null,
+        agenda_paciente: appointment.patientName,
+        agenda_celular: appointment.patientPhone,
+        unidade: appointment.unitName,
+        procedimentos_procedimento: appointment.procedureName,
+        agenda_chegou: "Atendido",
+    });
+    if (!schedule) throw new Error("Invalid attendance date from CliniSYS");
+
+    const { data: byExternalId, error: lookupError } = await supabase.from("schedules")
+        .select("id, client_id").in("source", CLINISYS_SCHEDULE_SOURCES)
+        .eq("source_external_id", appointment.externalId).limit(1).maybeSingle();
+    if (lookupError) throw lookupError;
+    const { data: byHash, error: hashError } = byExternalId
+        ? { data: null, error: null }
+        : await supabase.from("schedules").select("id, client_id")
+            .eq("source_hash", schedule.source_hash).maybeSingle();
+    if (hashError) throw hashError;
+
+    let existing = byExternalId ?? byHash;
+    if (!existing) {
+        const { data: inserted, error } = await supabase.from("schedules")
+            .upsert({
+                source: "clinisys",
+                source_external_id: schedule.source_external_id,
+                source_hash: schedule.source_hash,
+                client_id: appointment.clientId,
+                scheduled_for: schedule.scheduled_for,
+                created_in_source_at: schedule.created_in_source_at,
+                patient_name: schedule.patient_name,
+                phone: schedule.phone,
+                normalized_phone: schedule.normalized_phone,
+                unit_name: schedule.unit_name,
+                attendant_name: schedule.attendant_name,
+                procedure_name: schedule.procedure_name,
+                status: "Atendido",
+                updated_at: new Date().toISOString(),
+            }, { onConflict: "source_hash", ignoreDuplicates: true })
+            .select("id, client_id").maybeSingle();
+        if (error) throw error;
+        existing = inserted;
+        if (!existing) {
+            const { data, error: collisionError } = await supabase.from("schedules")
+                .select("id, client_id").eq("source_hash", schedule.source_hash).single();
+            if (collisionError) throw collisionError;
+            existing = data;
+        }
+    }
+
+    if (!existing) throw new Error("Could not resolve CliniSYS attendance schedule");
+
+    const { error: updateError } = await supabase.from("schedules")
+        .update({
+            status: "Atendido",
+            client_id: existing.client_id ?? appointment.clientId,
+            updated_at: new Date().toISOString(),
+        }).eq("id", existing.id);
+    if (updateError) throw updateError;
+
+    const { data: client, error: clientError } = await supabase.from("clients")
+        .select("id, name, phone, email, unit_id, funnel_stage_id")
+        .eq("id", existing.client_id ?? appointment.clientId).single();
+    if (clientError) throw clientError;
+
+    const { meta, google } = await sendAttendanceConversion({
+        schedule, client: client as ClientForSchedule, scheduleId: existing.id,
+    });
+    const failed = [meta, google].some((result) =>
+        typeof result === "object" && result !== null &&
+        (result as { ok?: boolean; skipped?: boolean }).ok === false &&
+        (result as { skipped?: boolean }).skipped !== true,
+    );
+    return { ok: !failed, scheduleId: existing.id, meta, google };
+}
+
+async function sendAttendanceConversion({
+    schedule, client, scheduleId,
+}: {
+    schedule: NormalizedSchedule;
+    client: ClientForSchedule;
+    scheduleId: string;
+}) {
+    const event: DerivedAdEvent = {
+        type: "attendance",
+        meta_event_name: "Comparecimento",
+        google_conversion_name: "attendance",
+        occurred_at: new Date().toISOString(),
+        confidence: 1,
+    };
+    const meta = await sendScheduleConversionOnce({
+        scheduleId, platform: "Meta Ads", eventType: "attendance",
+        send: () => sendMetaEvents({
+            events: [event],
+            phone: client.phone ?? schedule.phone,
+            email: client.email,
+            schedule_id: scheduleId,
+            client_id: client.id,
+        }),
+    });
+    const google = await sendScheduleConversionOnce({
+        scheduleId, platform: "Google Ads", eventType: "attendance",
+        send: () => sendGoogleEvents({
+            events: [event],
+            phone: client.phone ?? schedule.phone,
+            email: client.email,
+            name: client.name ?? schedule.patient_name,
+            schedule_id: scheduleId,
+            client_id: client.id,
+        }),
+    });
+    return { meta, google };
 }
 
 export async function markClinisysScheduleCancelled(externalId: string) {

@@ -30,6 +30,7 @@ type GoogleAdsAccount = {
     customerId: string;
     qualifiedLeadConversionAction: string;
     bookAppointmentConversionAction: string;
+    attendanceConversionAction?: string;
 };
 
 type FinalGoogleAdEventStatus = "sent" | "failed";
@@ -48,6 +49,7 @@ const googleAdsAccounts: GoogleAdsAccount[] = [
             process.env.GOOGLE_ADS_CONVERSION_ACTION_QUALIFIED_LEAD!,
         bookAppointmentConversionAction:
             process.env.GOOGLE_ADS_CONVERSION_ACTION_BOOK_APPOINTMENT!,
+        attendanceConversionAction: process.env.GOOGLE_ADS_CONVERSION_ACTION_ATTENDANCE,
     },
     ...(process.env.GOOGLE_ADS_CUSTOMER_ID_2
         ? [
@@ -63,6 +65,7 @@ const googleAdsAccounts: GoogleAdsAccount[] = [
                 bookAppointmentConversionAction:
                     process.env
                         .GOOGLE_ADS_CONVERSION_ACTION_BOOK_APPOINTMENT_2!,
+                attendanceConversionAction: process.env.GOOGLE_ADS_CONVERSION_ACTION_ATTENDANCE_2,
             },
         ]
         : []),
@@ -127,6 +130,7 @@ export async function sendGoogleEvents({
         if (
             schedule_id &&
             client_id &&
+            events.some((event) => event.type === "schedule") &&
             await hasSentMonthlyScheduleConversion({
                 clientId: client_id,
                 platform: "Google Ads",
@@ -209,7 +213,7 @@ export async function sendGoogleEvents({
                     buildClickConversion({
                         event,
                         sourceId,
-                        eventTime: sentAt,
+                        eventTime: event.type === "attendance" ? event.occurred_at : sentAt,
                         tracking,
                         account,
                         phone,
@@ -661,7 +665,9 @@ export async function sendGoogleEvents({
         const value =
             conversionName === "qualified_lead"
                 ? account.qualifiedLeadConversionAction
-                : account.bookAppointmentConversionAction;
+                : conversionName === "book_appointment"
+                  ? account.bookAppointmentConversionAction
+                  : account.attendanceConversionAction;
 
         if (!value) {
             throw new Error(
@@ -700,6 +706,12 @@ export async function sendGoogleEvents({
                 missing.push([
                     `${account.key}.bookAppointmentConversionAction`,
                     account.bookAppointmentConversionAction,
+                ]);
+            }
+            if (events.some((event) => event.type === "attendance") && !account.attendanceConversionAction) {
+                missing.push([
+                    `${account.key}.attendanceConversionAction`,
+                    account.attendanceConversionAction,
                 ]);
             }
         }

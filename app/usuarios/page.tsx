@@ -47,6 +47,7 @@ type TabId =
     | "usuarios"
     | "saude"
     | "inbox"
+    | "configuracoes_inbox"
     | "performance"
     | "agendamentos"
     | "orcamentos"
@@ -184,6 +185,7 @@ const TABS: PermissionTab[] = [
     { id: "usuarios", label: "Usuários", href: "/usuarios", color: "red", position: 50 },
     { id: "saude", label: "Saúde", href: "/saude", color: "red", position: 55 },
     { id: "inbox", label: "Inbox", href: "/inbox", color: "green", position: 60 },
+    { id: "configuracoes_inbox", label: "Configurações Inbox", href: "/configuracoes-inbox", color: "red", position: 61 },
     { id: "performance", label: "Performance", href: "/performance", color: "red", position: 62 },
     { id: "agendamentos", label: "Agendamentos", href: "/agendamentos", color: "green", position: 65 },
     { id: "orcamentos", label: "Orçamentos", href: "/orcamentos", color: "green", position: 65.25 },
@@ -211,6 +213,7 @@ const PRESETS: PermissionPreset[] = [
             "usuarios",
             "saude",
             "inbox",
+            "configuracoes_inbox",
             "performance",
             "agendamentos",
             "orcamentos",

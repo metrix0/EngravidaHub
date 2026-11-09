@@ -26,6 +26,7 @@ import {
     MessageCircle,
     PanelsTopLeft,
     Send,
+    Settings2,
     Sparkles,
     UserCog,
     Users,
@@ -195,6 +196,12 @@ const defaultItems: SidePanelEntry[] = [
         href: "/usuarios",
         icon: <UserCog size={18} />,
         tabId: "usuarios",
+    },
+    {
+        label: "Configurações Inbox",
+        href: "/configuracoes-inbox",
+        icon: <Settings2 size={18} />,
+        tabId: "configuracoes_inbox",
     },
     {
         label: "Saúde",

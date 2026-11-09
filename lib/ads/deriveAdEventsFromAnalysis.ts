@@ -6,9 +6,9 @@ import {
 } from "@/lib/ads/adEventRules";
 
 export type DerivedAdEvent = {
-    type: "lead" | "schedule";
-    meta_event_name: "CompleteRegistration" | "Schedule";
-    google_conversion_name: "qualified_lead" | "book_appointment";
+    type: "lead" | "schedule" | "attendance";
+    meta_event_name: "CompleteRegistration" | "Schedule" | "Comparecimento";
+    google_conversion_name: "qualified_lead" | "book_appointment" | "attendance";
     occurred_at: string;
     confidence: number;
 };

@@ -1,6 +1,7 @@
 // lib/ai/analyzeConversation.ts
 import { z } from "zod";
 import { patternSignalsSchema, PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
+import { TUNNEL_ATTRIBUTION_PROMPT, validateTunnelAttribution } from "@/lib/analysis/tunnelAttribution";
 import { INBOX_CLOSING_TAG_PROMPT } from "@/lib/analysis/deriveInboxClosingTag";
 
 import { getGroqClient } from "./groq";
@@ -13,7 +14,7 @@ import type {
 
 const GROQ_MODEL =
     process.env.GROQ_MODEL_ANALYSIS_PRIMARY ?? "openai/gpt-oss-120b";
-const PROMPT_VERSION = "groq-evidence-ledger-v5-patterns";
+const PROMPT_VERSION = "groq-evidence-ledger-v6-tunnel-attribution";
 const EVIDENCE_OUTPUT_TOKENS = 3_600;
 const ANALYSIS_OUTPUT_TOKENS = 3_000;
 const TECHNICAL_ATTEMPTS = 2;
@@ -433,7 +434,8 @@ CONTRAEXEMPLOS IMPORTANTES
 3. Cliente recebe resposta e diz "obrigada". Isso não é abandono.
 4. Bot diz "aguarde um atendente". Isso é encaminhamento, não consulta oferecida nem informação respondida.
 5. Cliente vê horários disponíveis, mas não confirma um deles. Não houve appointment_scheduled.
-${INBOX_CLOSING_TAG_PROMPT}`;
+${INBOX_CLOSING_TAG_PROMPT}
+${TUNNEL_ATTRIBUTION_PROMPT}`;
 }
 
 function analysisUserPrompt(args: {
@@ -708,6 +710,7 @@ function validateAndNormalize(
         goal_status: raw.goal_status,
         customer_final_state: raw.customer_final_state,
         outcome_events: dedupeEvents(outcomeEvents),
+        tunnel_attribution: validateTunnelAttribution(raw.tunnel_attribution, messages),
         dropoff: {
             happened: raw.dropoff.happened,
             moment: raw.dropoff.happened ? raw.dropoff.moment : null,

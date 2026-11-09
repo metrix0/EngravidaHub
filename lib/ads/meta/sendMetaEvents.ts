@@ -88,6 +88,7 @@ export async function sendMetaEvents({
         if (
             schedule_id &&
             client_id &&
+            events.some((event) => event.type === "schedule") &&
             await hasSentMonthlyScheduleConversion({
                 clientId: client_id,
                 platform: "Meta Ads",
@@ -165,7 +166,7 @@ export async function sendMetaEvents({
                 ),
                 event_id: `${sourceId}:${event.type}`,
 
-                action_source: "chat",
+                action_source: event.type === "attendance" ? "physical_store" : "chat",
 
                 user_data: userData,
 
