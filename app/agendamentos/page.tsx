@@ -171,7 +171,7 @@ export default function AppointmentsPage() {
             {
                 id: "ra",
                 title: "Atendimento RA",
-                options: [{ label: "Somente horários permitidos ao RA", value: "enabled" }],
+                options: [{ label: "Horários permitidos RA", value: "enabled" }],
                 values: raFilterValues,
                 onChange: setRaFilterValues,
                 multi: false,
