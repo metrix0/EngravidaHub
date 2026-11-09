@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { LoaderCircle, PencilLine, Plus, Trash2 } from "lucide-react";
-import { Card, DataTable, Modal, Pagination, SearchFilter, SidePanel, Skeleton, type DataTableColumn } from "@/components";
+import { DataTable, Modal, Pagination, SearchFilter, SidePanel, Skeleton, type DataTableColumn } from "@/components";
 import type { PrewrittenMessage } from "@/components/inbox/InboxPrewrittenMessagesController";
 
 const PAGE_SIZE = 20;
@@ -132,25 +132,23 @@ export default function ConfiguracoesInboxPage() {
                 </header>
 
                 {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-                <Card>
-                    <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-                        <SearchFilter value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Buscar comando ou mensagem..." widthClassName="w-[340px]" />
-                        <span className="text-sm text-slate-500">{filtered.length} mensagens</span>
-                    </div>
-                    {loading ? (
-                        <div className="space-y-3"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
-                    ) : (
-                        <>
-                            <DataTable columns={columns} rows={visible} getRowKey={(item) => item.id} emptyMessage="Nenhuma mensagem encontrada." />
-                            {filtered.length > PAGE_SIZE && (
-                                <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
-                                    <span className="text-sm text-slate-500">Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} de {filtered.length}</span>
-                                    <Pagination totalPages={totalPages} currentPage={currentPage} onPageChange={setPage} activeTone="brand" />
-                                </div>
-                            )}
-                        </>
-                    )}
-                </Card>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+                    <SearchFilter value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Buscar comando ou mensagem..." widthClassName="w-[340px]" />
+                    <span className="text-sm text-slate-500">{filtered.length} mensagens</span>
+                </div>
+                {loading ? (
+                    <div className="space-y-3"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+                ) : (
+                    <>
+                        <DataTable columns={columns} rows={visible} getRowKey={(item) => item.id} emptyMessage="Nenhuma mensagem encontrada." />
+                        {filtered.length > PAGE_SIZE && (
+                            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+                                <span className="text-sm text-slate-500">Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} de {filtered.length}</span>
+                                <Pagination totalPages={totalPages} currentPage={currentPage} onPageChange={setPage} activeTone="brand" />
+                            </div>
+                        )}
+                    </>
+                )}
             </section>
 
             <Modal open={editing !== null} onClose={() => { if (!saving) setEditing(null); }} width={640} height="auto" maxHeight="82vh" ariaLabelledBy="inbox-template-modal-title">
