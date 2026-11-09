@@ -10,13 +10,16 @@ const CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
 export async function sendScheduleConversionOnce<T extends DeliveryResult>({
     scheduleId,
     platform,
+    eventType = "schedule",
     send,
 }: {
     scheduleId: string;
     platform: SchedulePlatform;
+    eventType?: "schedule" | "attendance";
     send: () => Promise<T>;
 }): Promise<T | { ok: true; skipped: true; reason: string }> {
-    const wasSent = await hasSentScheduleEvent(scheduleId, platform);
+    const claimPlatform = eventType === "attendance" ? `${platform}:attendance` : platform;
+    const wasSent = await hasSentScheduleEvent(scheduleId, platform, eventType);
     if (wasSent) return { ok: true, skipped: true, reason: "already_sent_for_appointment" };
 
     const now = new Date().toISOString();
@@ -24,7 +27,7 @@ export async function sendScheduleConversionOnce<T extends DeliveryResult>({
         .from("schedule_conversion_claims")
         .upsert({
             schedule_id: scheduleId,
-            platform,
+            platform: claimPlatform,
             status: "processing",
             claimed_at: now,
         }, { onConflict: "schedule_id,platform", ignoreDuplicates: true })
@@ -38,7 +41,7 @@ export async function sendScheduleConversionOnce<T extends DeliveryResult>({
             .from("schedule_conversion_claims")
             .select("status,claimed_at")
             .eq("schedule_id", scheduleId)
-            .eq("platform", platform)
+            .eq("platform", claimPlatform)
             .single();
         if (error) throw error;
         if (current.status === "sent") {
@@ -52,7 +55,7 @@ export async function sendScheduleConversionOnce<T extends DeliveryResult>({
             .from("schedule_conversion_claims")
             .update({ claimed_at: now })
             .eq("schedule_id", scheduleId)
-            .eq("platform", platform)
+            .eq("platform", claimPlatform)
             .eq("status", "processing")
             .eq("claimed_at", current.claimed_at)
             .select("claimed_at")
@@ -65,20 +68,20 @@ export async function sendScheduleConversionOnce<T extends DeliveryResult>({
     let delivered = false;
     try {
         // Covers conversions recorded by an older worker before claims were introduced.
-        if (await hasSentScheduleEvent(scheduleId, platform)) {
+        if (await hasSentScheduleEvent(scheduleId, platform, eventType)) {
             delivered = true;
         } else {
             const result = await send();
             delivered = result.ok === true && result.skipped !== true;
             if (!delivered) {
-                await releaseClaim(scheduleId, platform, ownedAt);
+                await releaseClaim(scheduleId, claimPlatform, ownedAt);
                 return result;
             }
             const { error } = await supabase
                 .from("schedule_conversion_claims")
                 .update({ status: "sent" })
                 .eq("schedule_id", scheduleId)
-                .eq("platform", platform)
+                .eq("platform", claimPlatform)
                 .eq("claimed_at", ownedAt);
             if (error) throw error;
             return result;
@@ -87,23 +90,23 @@ export async function sendScheduleConversionOnce<T extends DeliveryResult>({
             .from("schedule_conversion_claims")
             .update({ status: "sent" })
             .eq("schedule_id", scheduleId)
-            .eq("platform", platform)
+            .eq("platform", claimPlatform)
             .eq("claimed_at", ownedAt);
         if (error) throw error;
         return { ok: true, skipped: true, reason: "already_sent_for_appointment" };
     } catch (error) {
         // Never release a claim after the provider accepted a conversion.
-        if (!delivered) await releaseClaim(scheduleId, platform, ownedAt);
+        if (!delivered) await releaseClaim(scheduleId, claimPlatform, ownedAt);
         throw error;
     }
 }
 
-async function hasSentScheduleEvent(scheduleId: string, platform: SchedulePlatform) {
+async function hasSentScheduleEvent(scheduleId: string, platform: SchedulePlatform, eventType: "schedule" | "attendance") {
     const { data, error } = await supabase.from("ad_events")
         .select("id")
         .eq("schedule_id", scheduleId)
         .eq("platform", platform)
-        .eq("event_type", "schedule")
+        .eq("event_type", eventType)
         .eq("status", "sent")
         .limit(1)
         .maybeSingle();
@@ -111,11 +114,11 @@ async function hasSentScheduleEvent(scheduleId: string, platform: SchedulePlatfo
     return Boolean(data);
 }
 
-async function releaseClaim(scheduleId: string, platform: SchedulePlatform, claimedAt: string) {
+async function releaseClaim(scheduleId: string, claimPlatform: string, claimedAt: string) {
     const { error } = await supabase.from("schedule_conversion_claims")
         .delete()
         .eq("schedule_id", scheduleId)
-        .eq("platform", platform)
+        .eq("platform", claimPlatform)
         .eq("status", "processing")
         .eq("claimed_at", claimedAt);
     if (error) throw error;

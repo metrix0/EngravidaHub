@@ -3,6 +3,7 @@
 
 import {
     useEffect,
+    useId,
     useRef,
     useState,
     type PointerEvent as ReactPointerEvent,
@@ -12,6 +13,7 @@ import {
     ArrowRight,
     BadgeCheck,
     CalendarCheck2,
+    ChevronDown,
     CircleDollarSign,
     HelpCircle,
     MousePointerClick,
@@ -81,8 +83,30 @@ type JourneyFunnelStage = {
     fill: string;
 };
 
+type TunnelRoiData = {
+    available: boolean;
+    currency_code: string;
+    total_spend: number;
+    tunnels: {
+        tunnel: string;
+        paid_clients: number;
+        authorized_clients: number;
+        attributed_revenue: number;
+        investment: number;
+        investment_share: number | null;
+        roi_percent: number | null;
+        campaigns: {
+            platform: "google_ads" | "meta_ads";
+            campaign_id: string;
+            campaign_name: string;
+            spend: number;
+        }[];
+    }[];
+};
+
 type JourneyDashboardData = {
     full_pipeline: FullJourneyPipeline;
+    tunnel_roi: TunnelRoiData | null;
     journey_funnel: JourneyFunnelStage[];
     evaluation_journeys: {
         presencial: JourneyFunnelStage[];
@@ -268,6 +292,7 @@ const EMPTY_PIPELINE: FullJourneyPipeline = {
 
 const EMPTY_DATA: JourneyDashboardData = {
     full_pipeline: EMPTY_PIPELINE,
+    tunnel_roi: null,
     journey_funnel: [],
     evaluation_journeys: {
         presencial: [],
@@ -367,6 +392,9 @@ export default function JourneyPage() {
                         Array.isArray(json.full_pipeline.transitions)
                             ? json.full_pipeline
                             : EMPTY_PIPELINE,
+                    tunnel_roi: json.tunnel_roi && Array.isArray(json.tunnel_roi.tunnels)
+                        ? json.tunnel_roi
+                        : null,
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
                         : [],
@@ -422,6 +450,7 @@ export default function JourneyPage() {
         sections: data && loadedQueryKey === currentQueryKey && !loadingData && !isRefreshing ? [
             { id: "jornada-whatsapp", title: "Cobertura WhatsApp", data: data.full_pipeline?.audit?.whatsapp_coverage },
             { id: "jornada-origens", title: "Origem de WhatsApp rastreado", data: data.full_pipeline?.audit?.tracked_sources },
+            { id: "jornada-roi-tuneis", title: "ROI por túnel", data: data.tunnel_roi },
             { id: "jornada-conversa", title: "Jornada na conversa", data: data.journey_funnel },
             { id: "jornada-abandono", title: "Pontos de abandono", data: data.dropoff_moments },
             { id: "jornada-intencoes", title: "Intenções iniciais", data: data.intent_paths },
@@ -502,6 +531,10 @@ export default function JourneyPage() {
                             <TrackedWhatsappSourcesCard
                                 pipeline={current.full_pipeline}
                             />
+                        </section>
+
+                        <section data-assistant-section="jornada-roi-tuneis" className="mb-6 min-w-0 max-w-full">
+                            <TunnelRoiCard data={current.tunnel_roi} />
                         </section>
 
                         <section data-assistant-section="jornada-conversa" className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_0.8fr]">
@@ -687,6 +720,157 @@ function WhatsappCoverageTooltip({
 
 function TrackedWhatsappSourcesCard({ pipeline }: { pipeline: FullJourneyPipeline }) {
     return <SharedTrackedWhatsappSourcesCard pipeline={pipeline} />;
+}
+
+function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
+    const tunnels = [...(data?.tunnels ?? [])].sort((a, b) => {
+        if (a.roi_percent === null) return b.roi_percent === null ? 0 : 1;
+        if (b.roi_percent === null) return -1;
+        return b.roi_percent - a.roi_percent;
+    });
+
+    return (
+        <Card className="min-w-0">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h2 className="text-lg font-bold">ROI por túnel</h2>
+                </div>
+                {data && (
+                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        Investimento total em mídia: <span className="font-semibold text-slate-700">{formatTunnelMoney(data.total_spend)}</span>
+                    </div>
+                )}
+            </div>
+
+            {!data || !data.available ? (
+                <EmptyCardMessage message="Não foi possível carregar o ROI por túnel." />
+            ) : tunnels.length === 0 ? (
+                <EmptyCardMessage message="Nenhum túnel com conversas no período." />
+            ) : (
+                <div className="space-y-3">
+                    {tunnels.map((tunnel) => (
+                        <div key={tunnel.tunnel} className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-4">
+                            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_20px_minmax(0,1.1fr)_20px_minmax(0,1fr)_minmax(0,0.8fr)] xl:items-center">
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Investimento</p>
+                                    <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                                        {formatTunnelPercentage(tunnel.investment_share)}
+                                    </p>
+                                    <p className="mt-0.5 break-words text-sm font-medium tabular-nums text-slate-600">
+                                        {formatTunnelMoney(tunnel.investment)}
+                                    </p>
+                                </div>
+                                <ArrowRight size={18} className="hidden text-slate-300 xl:block" aria-hidden="true" />
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Túnel</p>
+                                    <p className="mt-1 break-words text-base font-bold text-slate-900" title={tunnel.tunnel}>
+                                        {tunnel.tunnel === "__NULL__" ? "Sem túnel" : tunnel.tunnel}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                        {tunnel.paid_clients.toLocaleString("pt-BR")} clientes pagos rastreados
+                                    </p>
+                                </div>
+                                <ArrowRight size={18} className="hidden text-slate-300 xl:block" aria-hidden="true" />
+                                <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">Resultado atribuído</p>
+                                    <p className="mt-1 break-words text-xl font-bold tabular-nums text-slate-900">
+                                        {formatTunnelMoney(tunnel.attributed_revenue)}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                        {tunnel.authorized_clients.toLocaleString("pt-BR")} clientes com receita autorizada
+                                    </p>
+                                </div>
+                                <div className="min-w-0 border-t border-slate-200 pt-3 sm:border-0 sm:pt-0">
+                                    <p className="text-[11px] font-semibold text-slate-500">ROI</p>
+                                    <p className={
+                                        tunnel.roi_percent === null
+                                            ? "mt-1 text-xl font-bold tabular-nums text-slate-400"
+                                            : "mt-1 text-xl font-bold tabular-nums text-emerald-600"
+                                    }>
+                                        {formatTunnelPercentage(tunnel.roi_percent)}
+                                    </p>
+                                </div>
+                            </div>
+                            {tunnel.campaigns.length > 0 && (
+                                <TunnelCampaignsDropdown campaigns={tunnel.campaigns} />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+
+function TunnelCampaignsDropdown({
+    campaigns,
+}: {
+    campaigns: TunnelRoiData["tunnels"][number]["campaigns"];
+}) {
+    const [expanded, setExpanded] = useState(false);
+    const panelId = useId();
+
+    return (
+        <div className="mt-3 border-t border-slate-200 pt-3">
+            <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={panelId}
+                onClick={() => setExpanded((value) => !value)}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 text-xs font-semibold text-slate-500"
+            >
+                Campanhas vinculadas ({campaigns.length})
+                <ChevronDown
+                    size={16}
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`}
+                />
+            </button>
+            <div
+                id={panelId}
+                aria-hidden={!expanded}
+                inert={!expanded}
+                className={`grid transition-[grid-template-rows,opacity] duration-150 ease-in-out motion-reduce:transition-none ${expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+            >
+                <div className="min-h-0 overflow-hidden">
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {campaigns.map((campaign, index) => (
+                            <div key={`${campaign.platform}-${campaign.campaign_id}-${index}`} className="flex min-w-0 items-start justify-between gap-2 text-xs">
+                                <span className="min-w-0 break-words text-slate-600">
+                                    {campaign.campaign_name}
+                                    <span
+                                        className="ml-1 inline-flex align-middle text-slate-400"
+                                        role="img"
+                                        aria-label={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                        title={campaign.platform === "google_ads" ? "Google Ads" : "Meta Ads"}
+                                    >
+                                        {campaign.platform === "google_ads" ? <FaGoogle size={14} /> : <FaMeta size={14} />}
+                                    </span>
+                                </span>
+                                <span className="shrink-0 font-semibold tabular-nums text-slate-700">
+                                    {formatTunnelMoney(campaign.spend)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function formatTunnelMoney(value: number) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
+function formatTunnelPercentage(value: number | null) {
+    return value === null ? "—" : value.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 }
 
 type TrackedWhatsappSourceEvidence =

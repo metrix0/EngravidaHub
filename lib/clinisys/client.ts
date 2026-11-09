@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const AVAILABILITY_CACHE_TTL_MS = 90_000;
 const SAO_PAULO_TZ = "America/Sao_Paulo";
 
 type ClinisysStatus = "Agendado" | "Atendido" | "Desmarcou" | "Faltou";
@@ -63,6 +64,7 @@ export async function createClinisysAppointment(appointment: AppointmentForClini
     );
     const externalId = text(response.agendamento?.id);
     if (!externalId) throw new Error("CliniSYS não retornou o ID do agendamento.");
+    await invalidateAvailabilityCache(context.agendaId);
     return { externalId, protocol: text(response.protocolo) };
 }
 
@@ -79,6 +81,7 @@ export async function updateClinisysAppointment(appointment: AppointmentForClini
             ...buildAppointmentBody(appointment, context),
         },
     );
+    await invalidateAvailabilityCache(context.agendaId);
     return { protocol: text(response.protocolo) };
 }
 
@@ -88,6 +91,7 @@ export async function deleteClinisysAppointment(externalId: string) {
         "/Agenda/Agendamentos",
         { id: externalId },
     );
+    await invalidateAvailabilityCache();
 }
 
 export async function listClinisysAgendas() {
@@ -155,6 +159,18 @@ export async function listClinisysAvailabilityByAgenda({
     dateFrom?: string | null;
     dateTo?: string | null;
 }) {
+    const cacheKey = [agendaId, procedureId, dateFrom ?? "", dateTo ?? ""].join("|");
+    const { data: cached, error: cacheReadError } = await supabase
+        .from("clinisys_availability_cache")
+        .select("slots")
+        .eq("cache_key", cacheKey)
+        .gt("expires_at", new Date().toISOString())
+        .maybeSingle();
+    if (cacheReadError) console.warn("[clinisys] availability cache read failed", cacheReadError);
+    if (Array.isArray(cached?.slots)) {
+        return cached.slots as NonNullable<ClinisysApiResponse["horarios"]>;
+    }
+
     const params = new URLSearchParams({
         acao: "listarHorariosDisponiveis",
         agenda: agendaId,
@@ -168,7 +184,24 @@ export async function listClinisysAvailabilityByAgenda({
         undefined,
         true,
     );
-    return response.horarios ?? [];
+    const slots = response.horarios ?? [];
+    const { error: cacheWriteError } = await supabase.from("clinisys_availability_cache")
+        .upsert({
+            cache_key: cacheKey,
+            agenda_id: agendaId,
+            slots,
+            expires_at: new Date(Date.now() + AVAILABILITY_CACHE_TTL_MS).toISOString(),
+            updated_at: new Date().toISOString(),
+        }, { onConflict: "cache_key" });
+    if (cacheWriteError) console.warn("[clinisys] availability cache write failed", cacheWriteError);
+    return slots;
+}
+
+async function invalidateAvailabilityCache(agendaId?: string) {
+    let query = supabase.from("clinisys_availability_cache").delete();
+    query = agendaId ? query.eq("agenda_id", agendaId) : query.neq("cache_key", "");
+    const { error } = await query;
+    if (error) console.warn("[clinisys] availability cache invalidation failed", error);
 }
 
 async function resolveContext(appointment: AppointmentForClinisys) {
@@ -305,6 +338,36 @@ async function clinisysRequest<T>(
     const token = process.env.CLINISYS_TOKEN?.trim();
     if (!token) throw new Error("CLINISYS_TOKEN não está configurado.");
 
+    // Atomic, database-backed pacing across cron and interactive Hub instances.
+    // 500 ms spacing caps Hub traffic at 20 requests per 10 seconds per egress IP.
+    const { data: reservation, error: reservationError } = await supabase
+        .rpc("reserve_clinisys_api_request")
+        .single();
+    const rateReservation = reservation as { wait_ms: number; cooldown_until: string | null } | null;
+    if (reservationError || !rateReservation) {
+        throw reservationError ?? new Error("CliniSYS rate-limit reservation failed.");
+    }
+    if (rateReservation.cooldown_until && Date.parse(rateReservation.cooldown_until) > Date.now()) {
+        throw new Error("CliniSYS HTTP 429: IP em pausa por 10 minutos.");
+    }
+    const waitMs = Number(rateReservation.wait_ms) || 0;
+    if (waitMs > 15_000) {
+        throw new Error("CliniSYS: excesso de consultas simultâneas. Tente novamente em instantes.");
+    }
+    if (waitMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    }
+    // A 429 from another worker may have started a cooldown while we waited.
+    const { data: throttle, error: throttleError } = await supabase
+        .from("clinisys_api_throttle")
+        .select("blocked_until")
+        .eq("id", true)
+        .single();
+    if (throttleError) throw throttleError;
+    if (throttle?.blocked_until && Date.parse(throttle.blocked_until) > Date.now()) {
+        throw new Error("CliniSYS HTTP 429: IP em pausa por 10 minutos.");
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -318,6 +381,11 @@ async function clinisysRequest<T>(
             cache: "no-store",
             signal: controller.signal,
         });
+        if (response.status === 429) {
+            const { error: cooldownError } = await supabase.rpc("cooldown_clinisys_api_requests");
+            if (cooldownError) console.error("[clinisys] failed to persist 429 cooldown", cooldownError);
+            throw new Error("CliniSYS HTTP 429: IP bloqueado. Novas consultas suspensas por 10 minutos.");
+        }
         const raw = await response.text();
         let data: ClinisysApiResponse | null = null;
         try {

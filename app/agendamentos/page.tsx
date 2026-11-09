@@ -34,6 +34,7 @@ import type { RecoveryCandidate } from "@/lib/scheduling/slotRecoveryServer";
 import AgendaIndicators, { AGENDA_NOTE_COLOR, AgendaLegend } from "@/components/scheduling/AgendaIndicators";
 import { DetailsSidePanel } from "@/components/ui/DetailsSidePanel";
 import type { AgendaFreeSlot, OperationalAgendaReport } from "@/lib/scheduling/operationalAgenda";
+import { filterRaFreeSlots } from "@/lib/scheduling/raAvailability";
 import WeekCalendar, {
     formatLocalDateKey,
 } from "@/components/scheduling/WeekCalendar";
@@ -85,7 +86,7 @@ export default function AppointmentsPage() {
     const recoveryFailures = useRef(new Map<number, number>());
     const [metricsOpen, setMetricsOpen] = useState(false);
     const [initialSlot, setInitialSlot] = useState<AgendaFreeSlot | null>(null);
-    const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }> }) | null>(null);
+    const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }>; raFirstEvaluationCounts?: Record<string, number> }) | null>(null);
     const [loadingReport, setLoadingReport] = useState(true);
     const [reportError, setReportError] = useState<string | null>(null);
 
@@ -95,6 +96,7 @@ export default function AppointmentsPage() {
     const [doctorValues, setDoctorValues] = useState<string[]>([]);
     const [statusValues, setStatusValues] = useState<string[]>([]);
     const [formatValues, setFormatValues] = useState<string[]>([]);
+    const [raFilterValues, setRaFilterValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
     const [loadingOptions, setLoadingOptions] = useState(true);
@@ -143,6 +145,13 @@ export default function AppointmentsPage() {
         [notes, unitValues, doctorValues],
     );
 
+    const raFreeSlots = useMemo(() =>
+        raFilterValues.includes("enabled")
+            ? filterRaFreeSlots(agendaReport?.slots ?? [], units, doctors, agendaReport?.raFirstEvaluationCounts)
+            : agendaReport?.slots ?? [],
+        [raFilterValues, agendaReport, units, doctors],
+    );
+
     const advancedFilterSections = useMemo(
         () => [
             {
@@ -159,8 +168,16 @@ export default function AppointmentsPage() {
                 values: formatValues,
                 onChange: setFormatValues,
             },
+            {
+                id: "ra",
+                title: "Atendimento RA",
+                options: [{ label: "Horários permitidos RA", value: "enabled" }],
+                values: raFilterValues,
+                onChange: setRaFilterValues,
+                multi: false,
+            },
         ],
-        [statusValues, formatValues],
+        [statusValues, formatValues, raFilterValues],
     );
 
     useEffect(() => {
@@ -185,6 +202,7 @@ export default function AppointmentsPage() {
                 if (!active) return;
                 setUnits(json.units ?? []);
                 setDoctors(json.doctors ?? []);
+                setRaFilterValues(json.isRaQueue ? ["enabled"] : []);
             } catch (loadError) {
                 if (!active) return;
                 setError(
@@ -341,11 +359,11 @@ export default function AppointmentsPage() {
     }, []);
 
     useEffect(() => {
-        if (!freeOnly || loadingCalendar || loadingReport || !agendaReport?.slots?.length || recoverySelection) return;
+        if (!freeOnly || loadingCalendar || loadingReport || !raFreeSlots.length || recoverySelection) return;
         const upcoming = recoveryVacancies
             .filter(vacancy => !vacancy.filled &&
                 (!doctorValues.length || doctorValues.includes(vacancy.doctorId)) &&
-                agendaReport.slots.some(slot => matchesRecoveredSlot(slot, vacancy)))
+                raFreeSlots.some(slot => matchesRecoveredSlot(slot, vacancy)))
             .slice(0, 4);
         if (!upcoming.length) return;
 
@@ -367,7 +385,7 @@ export default function AppointmentsPage() {
             if (timeoutId !== null) window.clearTimeout(timeoutId);
         };
     }, [freeOnly, loadingCalendar, loadingReport, agendaReport, recoveryVacancies,
-        doctorValues, recoverySelection, prefetchRecovery]);
+        doctorValues, recoverySelection, prefetchRecovery, raFreeSlots]);
 
     useEffect(() => {
         function handleAppointmentChanged() {
@@ -634,7 +652,7 @@ export default function AppointmentsPage() {
 
     useAssistantPageContext("agendamentos", () => ({
         title: "Agendamentos",
-        filters: { semana_inicio: rangeStart, semana_fim: formatLocalDateKey(addDays(weekStart, 6)), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, carregando: loadingCalendar || loadingReport },
+        filters: { semana_inicio: rangeStart, semana_fim: formatLocalDateKey(addDays(weekStart, 6)), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport },
         sections: [
             { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
             { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
@@ -773,7 +791,7 @@ export default function AppointmentsPage() {
                     appointments={freeOnly ? [] : appointments}
                     notes={freeOnly ? [] : visibleNotes}
                     blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
-                    freeSlots={freeOnly ? agendaReport?.slots ?? [] : undefined}
+                    freeSlots={freeOnly ? raFreeSlots : undefined}
                     doctorLoads={agendaReport?.byDoctor}
                     recoveryVacancies={freeOnly ? recoveryVacancies.filter(v => !doctorValues.length || doctorValues.includes(v.doctorId)) : undefined}
                     onRecoverSlot={(slot, vacancyId) => setRecoverySelection({ slot, vacancyId })}

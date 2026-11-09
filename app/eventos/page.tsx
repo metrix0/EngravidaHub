@@ -10,6 +10,7 @@ import {
     MessageCircleMore,
     Send,
     UsersRound,
+    UserCheck,
 } from "lucide-react";
 import {
     Bar,
@@ -133,10 +134,13 @@ const DAILY_EVENT_COLORS: Record<string, string> = {
     meta_ads_schedule: "#639aeb",
     google_ads_lead: "#E29229",
     google_ads_schedule: "#e0a569",
+    meta_ads_attendance: "#16a34a",
+    google_ads_attendance: "#65a30d",
 };
 const EVENT_TYPE_CHART_COLORS: Record<AdEventType, string> = {
     lead: "#8b5cf6",
     schedule: "#e83e8c",
+    attendance: "#16a34a",
 };
 
 export default function EventsPage() {
@@ -456,6 +460,16 @@ function KpiSection({ data }: { data: EventsDashboardData }) {
                         previousValue={getPreviousTypeCount(data, "schedule")}
                         formatter={(value) => value.toLocaleString("pt-BR")}
                         color="purple"
+                    />
+                </KpiContainer>
+                <KpiContainer>
+                    <KpiCard
+                        icon={<UserCheck size={26} />}
+                        label="Comparecimento"
+                        currentValue={getTypeCount(data, "attendance")}
+                        previousValue={getPreviousTypeCount(data, "attendance")}
+                        formatter={(value) => value.toLocaleString("pt-BR")}
+                        color="green"
                     />
                 </KpiContainer>
                 <KpiContainer>

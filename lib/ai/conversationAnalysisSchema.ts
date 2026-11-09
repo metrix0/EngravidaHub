@@ -1,6 +1,7 @@
 // lib/ai/conversationAnalysisSchema.ts
 import { z } from "zod";
 import { patternSignalsSchema } from "@/lib/analysis/patternSignals";
+import { tunnelAttributionSchema } from "@/lib/analysis/tunnelAttribution";
 import { EXISTING_INBOX_CLOSING_TAGS } from "@/lib/analysis/deriveInboxClosingTag";
 
 const messageIds = z.array(z.string()).default([]);
@@ -9,6 +10,8 @@ const nullableScore = z.number().int().min(0).max(100).nullable();
 export const conversationAnalysisSchema = z.object({
     // Null supports results submitted before pattern extraction existed.
     pattern_signals: patternSignalsSchema.nullable().default(null),
+    // Optional for older batch jobs that were submitted before this field existed.
+    tunnel_attribution: tunnelAttributionSchema,
     conversation_id: z.string(),
     client_id: z.string().nullable(),
     instagram_user_id: z.string().nullable().default(null),

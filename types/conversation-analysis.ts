@@ -13,6 +13,7 @@ export type EvidenceIds = string[];
 
 export type ConversationAnalysis = {
     pattern_signals?: import("@/lib/analysis/patternSignals").PatternSignal[] | null;
+    tunnel_attribution?: import("@/lib/analysis/tunnelAttribution").TunnelAttribution;
     conversation_id: string; client_id: string | null; instagram_user_id: string | null; started_at: string; ended_at: string;
     attendant_id: string | null; unit_id: string | null; service_id: string | null;
     customer_start_intent: CustomerStartIntent; conversation_goal: ConversationGoal;

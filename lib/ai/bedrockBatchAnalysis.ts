@@ -1,5 +1,6 @@
 import { INBOX_CLOSING_TAG_PROMPT } from "@/lib/analysis/deriveInboxClosingTag";
 import { PATTERN_SIGNALS_PROMPT, validatePatternSignals } from "@/lib/analysis/patternSignals";
+import { TUNNEL_ATTRIBUTION_PROMPT, validateTunnelAttribution } from "@/lib/analysis/tunnelAttribution";
 // lib/ai/bedrockBatchAnalysis.ts
 import { z } from "zod";
 
@@ -385,7 +386,8 @@ REGRAS ABSOLUTAS
 - short_label deve ser curto, factual e em português do Brasil.
 - Não invente fatos ausentes. Em dúvida, use estados conservadores como unclear, null ou baixa confiança.
 ${PATTERN_SIGNALS_PROMPT}
-${INBOX_CLOSING_TAG_PROMPT}`;
+${INBOX_CLOSING_TAG_PROMPT}
+${TUNNEL_ATTRIBUTION_PROMPT}`;
 }
 
 async function persistCompletedAnalysis(conversationId: string, rawContent: string) {
@@ -414,6 +416,7 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
     const normalizedAnalysis: ConversationAnalysis = {
         ...parsed,
         pattern_signals: parsed.pattern_signals === null ? null : validatePatternSignals(parsed.pattern_signals, messages),
+        tunnel_attribution: validateTunnelAttribution(parsed.tunnel_attribution, messages),
         conversation_id: conversationId,
         client_id: conversation.client_id,
         instagram_user_id: conversation.instagram_user_id,
@@ -434,7 +437,7 @@ async function persistCompletedAnalysis(conversationId: string, rawContent: stri
         },
         analysis_provider: "bedrock",
         analysis_model: MODEL_ID,
-        analysis_prompt_version: parsed.pattern_signals === null ? "bedrock-batch-single-pass-v1" : "bedrock-batch-single-pass-v2-patterns",
+        analysis_prompt_version: "bedrock-batch-single-pass-v3-tunnel-attribution",
         analysis_message_count: messages.length,
     };
 
