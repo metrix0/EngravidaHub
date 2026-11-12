@@ -622,6 +622,7 @@ async function loadScheduleAnalytics(
                 .from("schedules")
                 .select("id, source_hash, source_external_id, client_id, normalized_phone, patient_name, scheduled_for, created_in_source_at, unit_name, status, updated_at")
                 .ilike("procedure_name", "%1%Avalia%Reprodu%")
+                .eq("source_visible", true)
                 .gte("scheduled_for", startDate)
                 .lte("scheduled_for", tableEndDate)
                 .order("scheduled_for", { ascending: true })
@@ -698,9 +699,14 @@ async function loadScheduleAnalytics(
 
             daily.unique_total += 1;
             if (group === "cancelled") daily.unique_cancelled += 1;
-            if (scheduleShowedUp(group)) daily.unique_showed_up += 1;
+
             if (group === "no_show") daily.unique_no_show += 1;
             if (group === "rescheduled") daily.unique_rescheduled += 1;
+        }
+
+        for (const row of latestUniqueScheduleRows(currentRows.filter(row => scheduleShowedUp(normalizeScheduleStatus(row.status))))) {
+            const daily = evolutionByDate.get(row.scheduled_for);
+            if (daily) daily.unique_showed_up += 1;
         }
 
         const byUnit = [...units.values()]
@@ -810,6 +816,7 @@ async function loadScheduleCreationAnalytics(
                 .from("schedules")
                 .select("id, created_in_source_at, unit_name")
                 .ilike("procedure_name", "%1%Avalia%Reprodu%")
+                .eq("source_visible", true)
                 .gte("created_in_source_at", startDate)
                 .lte("created_in_source_at", endDate)
                 .order("created_in_source_at", { ascending: true })
@@ -880,6 +887,7 @@ async function loadScheduleTotal(
             .from("schedules")
             .select("id", { count: "exact", head: true })
             .ilike("procedure_name", "%1%Avalia%Reprodu%")
+                .eq("source_visible", true)
             .gte("scheduled_for", startDate)
             .lte("scheduled_for", endDate);
 
@@ -1366,6 +1374,9 @@ function summarizeScheduleUnit(
         if (group === "cancelled") counts.cancelled += 1;
         if (group === "no_show") counts.noShow += 1;
     }
+
+    // A later cancellation/reschedule must not erase an observed attendance.
+    counts.showedUp = latestUniqueScheduleRows(rows.filter(row => scheduleShowedUp(normalizeScheduleStatus(row.status)))).length;
 
     return {
         unit_name: unitName,

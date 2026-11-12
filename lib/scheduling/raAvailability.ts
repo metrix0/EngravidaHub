@@ -81,6 +81,7 @@ export function filterRaFreeSlots(
     doctors: Pick<SchedulingDoctorOption, "id" | "unit_id" | "name">[],
     firstEvaluations: Record<string, number> = {},
     limitQuotas = false,
+    isAvailable?: (slot: AgendaFreeSlot) => boolean,
 ): AgendaFreeSlot[] {
     const unitsById = new Map(units.map(unit => [unit.id, unit]));
     const doctorsById = new Map(doctors.map(doctor => [doctor.unit_id + ":" + doctor.id, doctor]));
@@ -129,8 +130,10 @@ export function filterRaFreeSlots(
             const startsAt = anchorEpoch + (startMinutes - anchorMinutes) * 60_000;
             const endsAt = startsAt + raRule.duration * 60_000;
             if (!contiguous.some(interval => interval.start <= startsAt && interval.end >= endsAt)) continue;
+            const candidate = { ...first, id: first.unitId + ":" + first.doctorId + ":" + startsAt, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), durationMinutes: raRule.duration };
+            if (isAvailable && !isAvailable(candidate)) continue;
             if (limitQuotas && quota !== undefined) selectedByQuota.set(quotaKey, (selectedByQuota.get(quotaKey) ?? 0) + 1);
-            eligible.push({ ...first, id: first.unitId + ":" + first.doctorId + ":" + startsAt, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), durationMinutes: raRule.duration });
+            eligible.push(candidate);
         }
     }
     return eligible.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.doctorName.localeCompare(b.doctorName));

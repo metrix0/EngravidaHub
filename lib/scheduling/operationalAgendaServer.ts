@@ -21,7 +21,7 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
     const until = [end, horizonEnd].sort().at(-1)!;
     const [agendas, appointments, doctorUnits] = await Promise.all([
         readAll<OperationalAgenda>(cursor => {
-            let query = supabase.from("clinisys_agendas").select("id,unit_id,unit_name,doctor_id,doctor_name,timezone,slot_duration_minutes,working_hours,exceptions,blocks,availability_snapshot")
+            let query = supabase.from("clinisys_agendas").select("id,unit_id,unit_name,doctor_id,doctor_name,timezone,slot_duration_minutes,working_hours,exceptions,blocks,procedures,availability_snapshot")
                 .eq("active", true).not("unit_id", "is", null).not("doctor_id", "is", null).order("id").limit(500);
             if (unitIds.length) query = query.in("unit_id", unitIds);
             if (doctorIds.length) query = query.in("doctor_id", doctorIds);

@@ -1,5 +1,6 @@
 // app/api/(cron)/(automations)/resgate/route.ts
 import { NextResponse } from "next/server";
+import { loadResgateClinicalHistory } from "@/lib/active-messages/resgateEligibility";
 
 import {
     ActiveMessageBatchError,
@@ -134,7 +135,7 @@ export async function GET(request: Request) {
     const runs: ResgateRunResult[] = [];
 
     for (const targetDate of targetDates) {
-        runs.push(await runResgateForTargetDate({ requestedCount, targetDate }));
+        runs.push(await runResgateForTargetDate({ requestedCount, targetDate, dryRun: searchParams.get("dry_run") === "1" }));
     }
 
     if (runs.length === 1) {
@@ -164,9 +165,11 @@ export async function GET(request: Request) {
 async function runResgateForTargetDate({
     requestedCount,
     targetDate,
+    dryRun = false,
 }: {
     requestedCount: number;
     targetDate: string;
+    dryRun?: boolean;
 }): Promise<ResgateRunResult> {
     const { start, end } = getSaoPauloDayBounds(targetDate);
 
@@ -200,6 +203,11 @@ async function runResgateForTargetDate({
             candidatesByBucket,
             requestedCount,
         });
+        if (dryRun) return { status: 200, body: {
+            ok: true, dry_run: true, automation: "resgate", target_last_client_message_date: targetDate,
+            eligible_count: eligibleClients.length, selected_count: RESGATE_BUCKETS.reduce((sum, bucket) => sum + selectedByBucket[bucket.key].length, 0),
+            sent_count: 0, failed_count: 0,
+        } };
         const groupResults: GroupResult[] = [];
 
         for (const bucketConfig of RESGATE_BUCKETS) {
@@ -437,10 +445,11 @@ async function loadEligibleClients({
         ]),
     );
 
+    const clinicalHistory = await loadResgateClinicalHistory(clients.filter(client => threadsByClientId.has(client.id)).map(client => client.id));
     return clients
         .flatMap((client): EligibleClient[] => {
             const lastClientMessageAt = threadsByClientId.get(client.id);
-            if (!lastClientMessageAt || !client.phone?.trim()) return [];
+            if (!lastClientMessageAt || !client.phone?.trim() || clinicalHistory.has(client.id)) return [];
 
             if (!hasEligibleClosingTag(client.last_closing_tag)) return [];
 

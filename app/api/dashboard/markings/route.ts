@@ -183,6 +183,7 @@ async function loadMarkingRows(endExclusive: string, signal: AbortSignal) {
                 "id, source_hash, client_id, normalized_phone, patient_name, created_in_source_at, unit_name, status",
             )
             .ilike("procedure_name", "%1%Avalia%Reprodu%")
+                .eq("source_visible", true)
             .not("created_in_source_at", "is", null)
             .lt("created_in_source_at", endExclusive)
             .order("created_in_source_at", { ascending: true })

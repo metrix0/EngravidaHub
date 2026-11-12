@@ -125,7 +125,7 @@ export function renderAgendaReportImage(canvas: HTMLCanvasElement, report: Image
     });
     fill("#f8f8fa", 0, top + 5, width, footerHeight - 5);
     fill("#e8e9ed", padding, top + 5, contentWidth, 1);
-    text("¹ 3+ vagas livres no mesmo dia, somando todos os médicos da unidade.", padding, top + 26, 18, "#777e8a");
+    text("¹ 3+ vagas para primeira avaliação, em data posterior à primeira vaga; regras RA aplicadas.", padding, top + 26, 18, "#777e8a");
     const updated = new Date(report.generatedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
     const horizon = `${report.horizonEnd.slice(8, 10)}/${report.horizonEnd.slice(5, 7)}/${report.horizonEnd.slice(0, 4)}`;
     text(`Atualizado em ${updated}`, padding, top + 77, 18, "#777e8a");

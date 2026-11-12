@@ -1,4 +1,5 @@
 // lib/active-messages/sendActiveMessageBatch.ts
+import { loadResgateClinicalHistory } from "@/lib/active-messages/resgateEligibility";
 import type { ActiveMessageTemplate } from "@/lib/active-messages/templates";
 import {
     getActiveMessageTemplateParameters,
@@ -240,6 +241,11 @@ export async function sendActiveMessageBatch({
                 }
 
                 try {
+                    // Recheck immediately before delivery: a booking may have arrived
+                    // after the rescue candidate list was loaded. Errors stop this send.
+                    if (filters.automation === "resgate" && (await loadResgateClinicalHistory([client.id])).has(client.id)) {
+                        throw new Error("Resgate bloqueado: cliente possui histórico de agendamento/procedimento.");
+                    }
                     const outbound = windowOpen
                         ? await sendBlipTextMessage({
                               recipientNumber: client.phone,

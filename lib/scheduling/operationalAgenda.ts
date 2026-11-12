@@ -14,6 +14,13 @@ type Interval = { start: number; end: number };
 // CliniSYS labels may contain UTF-8 bytes decoded as DOS CP850.
 const AGENDA_TEXT_REPAIRS: Record<string, string> = {"├ü": "Á", "├Ç": "À", "├é": "Â", "├â": "Ã", "├ä": "Ä", "├ë": "É", "├ê": "È", "├è": "Ê", "├ï": "Ë", "├ì": "Í", "├î": "Ì", "├Ä": "Î", "├Å": "Ï", "├ô": "Ó", "├Æ": "Ò", "├ö": "Ô", "├ò": "Õ", "├û": "Ö", "├Ü": "Ú", "├Ö": "Ù", "├ø": "Û", "├£": "Ü", "├ç": "Ç", "├í": "á", "├á": "à", "├ó": "â", "├ú": "ã", "├ñ": "ä", "├®": "é", "├¿": "è", "├¬": "ê", "├½": "ë", "├¡": "í", "├¼": "ì", "├«": "î", "├»": "ï", "├│": "ó", "├▓": "ò", "├┤": "ô", "├Á": "õ", "├Â": "ö", "├║": "ú", "├╣": "ù", "├╗": "û", "├╝": "ü", "├º": "ç"};
 export const normalizeAgendaText = (value: string) => value.replace(/├[\s\S]/g, pair => AGENDA_TEXT_REPAIRS[pair] ?? pair);
+// Report availability must be backed by the requested first-evaluation procedure.
+function verifiedReportAgenda(agenda: OperationalAgenda, date: string, now: number) {
+    if (!hasFreshClinisysAvailabilitySnapshot(agenda, date, now)) return false;
+    const snapshot = agenda.availability_snapshot as { procedureId?: string };
+    return Array.isArray(agenda.procedures) && agenda.procedures.some((procedure: { id?: string; name?: string }) =>
+        procedure.id === snapshot.procedureId && /1.*avaliacao.*reproducao.*humana/.test((procedure.name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+}
 const DAY = 86_400_000, MINUTE = 60_000;
 const BUSY = new Set(["scheduled", "confirmed", "completed", "no_show"]);
 export const agendaDate = (value: number | string = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
@@ -51,7 +58,7 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     const horizonEnd = agendaMonthStart(reportDate, 2);
     const last = [input.end, horizonEnd, agendaMonthStart(input.start, 1)].sort().at(-1)!;
     const groups = new Map<string, OperationalAgenda[]>();
-    input.agendas.forEach(source => { const agenda = { ...source, unit_name: normalizeAgendaText(source.unit_name), doctor_name: normalizeAgendaText(source.doctor_name) }; const key = `${agenda.unit_id}:${agenda.doctor_id}`; groups.set(key, [...(groups.get(key) ?? []), agenda]); });
+    input.agendas.forEach(source => { const agenda = { ...source, unit_name: normalizeAgendaText(source.unit_name), doctor_name: normalizeAgendaText(source.doctor_name), timezone: input.reportAvailability && source.unit_name.trim().toLowerCase() === "manaus" ? "America/Manaus" : source.timezone }; const key = `${agenda.unit_id}:${agenda.doctor_id}`; groups.set(key, [...(groups.get(key) ?? []), agenda]); });
     const daily: Array<AgendaCounts & { date: string; unitId: string; unitName: string; doctorId: string; doctorName: string }> = [];
     const freeSlots: AgendaFreeSlot[] = [], blocks: AgendaBlock[] = [];
     const appointmentsByDoctor = new Map<string, OperationalAppointment[]>();
@@ -78,12 +85,19 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
             }
             const counts = agendaCounts(); counts.blocked = blocked;
             const free = subtract(usable, busy);
+            const verifiedFree = input.reportAvailability ? subtract(mergeIntervals(agendas.filter(row => verifiedReportAgenda(row, date, now)).flatMap(row => replicatedAgendaCapacity(row, date, now))), busy) : free;
+            // Keep the entire verified interval for RA duration/start validation,
+            // including a trailing fraction of the nominal agenda cadence.
+            if (input.reportAvailability && date >= reportDate) for (const interval of verifiedFree) {
+                const start = Math.max(interval.start, Math.ceil(reportNow / (15 * MINUTE)) * 15 * MINUTE);
+                if (start < interval.end) freeSlots.push({ id: `${key}:${start}`, unitId: agenda.unit_id, unitName: agenda.unit_name, doctorId: agenda.doctor_id, doctorName: agenda.doctor_name, date, startsAt: new Date(start).toISOString(), endsAt: new Date(interval.end).toISOString(), durationMinutes: (interval.end - start) / MINUTE });
+            }
             for (const interval of free) {
                 // Non-overlapping consultations, rather than all overlapping 15-minute alternatives.
                 let cursor = Math.ceil(interval.start / (15 * MINUTE)) * 15 * MINUTE;
                 for (; cursor + duration * MINUTE <= interval.end; cursor += duration * MINUTE) {
                     if (cursor < reportNow) counts.open++; else counts.available++;
-                    if (cursor >= reportNow && date >= reportDate) freeSlots.push({ id: `${key}:${cursor}`, unitId: agenda.unit_id, unitName: agenda.unit_name, doctorId: agenda.doctor_id, doctorName: agenda.doctor_name, date, startsAt: new Date(cursor).toISOString(), endsAt: new Date(cursor + duration * MINUTE).toISOString(), durationMinutes: duration });
+                    if (!input.reportAvailability && cursor >= reportNow && date >= reportDate) freeSlots.push({ id: `${key}:${cursor}`, unitId: agenda.unit_id, unitName: agenda.unit_name, doctorId: agenda.doctor_id, doctorName: agenda.doctor_name, date, startsAt: new Date(cursor).toISOString(), endsAt: new Date(cursor + duration * MINUTE).toISOString(), durationMinutes: duration });
                 }
             }
             for (const interval of busy) {
@@ -120,8 +134,25 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     // Unknown booking origins must not produce a deceptively precise team projection.
     const projection = { month: monthStart.slice(0, 7), base: monthlyBase, ra: denominator && !previous.unknown ? Math.round(monthlyBase * previous.ra / denominator) : null, unit: denominator && !previous.unknown ? Math.round(monthlyBase * previous.unit / denominator) : null, historicalMonths: previousMonths.filter(row => row.total > 0).length, unknown: previous.unknown };
     const weekStart = agendaWeekStart(reportDate);
+    const providerStarts = new Set<string>();
+    const providerClocks = new Map<string, Intl.DateTimeFormat>();
+    if (input.reportAvailability) for (const agenda of [...groups.values()].flat()) {
+        const key = `${agenda.unit_id}:${agenda.doctor_id}`;
+        providerClocks.set(key, new Intl.DateTimeFormat("en-GB", { timeZone: agenda.timezone || "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }));
+        const snapshot = agenda.availability_snapshot as { slots?: Array<{ data: string; inicio: string }> } | null;
+        for (const slot of snapshot?.slots ?? []) {
+            const [day, month, year] = slot.data.split("/");
+            const date = `${year}-${month}-${day}`;
+            if (verifiedReportAgenda(agenda, date, now)) providerStarts.add(`${key}:${date}:${slot.inicio}`);
+        }
+    }
+    const providerHasStart = (slot: AgendaFreeSlot) => {
+        const key = `${slot.unitId}:${slot.doctorId}`;
+        const clock = providerClocks.get(key)?.format(new Date(slot.startsAt));
+        return providerStarts.has(`${key}:${slot.date}:${clock}`);
+    };
     const reportSlots = input.reportAvailability
-        ? filterRaFreeSlots(freeSlots, byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })), byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })), input.raFirstEvaluationCounts, true)
+        ? filterRaFreeSlots(freeSlots, byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })), byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })), input.raFirstEvaluationCounts, true, providerHasStart)
         : freeSlots;
     const availability = byUnit.map(unit => {
         const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));
@@ -135,8 +166,12 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
         const weeks = Array.from({ length: 4 }, (_, index) => input.reportAvailability
             ? reportSlots.filter(slot => slot.unitId === unit.unitId && slot.date >= agendaAddDays(weekStart, index * 7) && slot.date < agendaAddDays(weekStart, (index + 1) * 7)).length
             : daily.filter(row => row.unitId === unit.unitId && row.date >= agendaAddDays(weekStart, index * 7) && row.date < agendaAddDays(weekStart, (index + 1) * 7)).reduce((total, row) => total + row.available + row.open, 0));
-        return { ...unit, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks, saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
+        const verified = input.agendas.some(row => row.unit_id === unit.unitId && verifiedReportAgenda(row, agendaAddDays(reportDate, 1), now));
+        return { ...unit, availabilityVerified: !input.reportAvailability || verified, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks, saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
     });
-    return { generatedAt: new Date(now).toISOString(), start: input.start, end: input.end, reportDate, horizonEnd: last, counts: sum(period), byUnit, byDoctor, blocks, slots: freeSlots.filter(slot => slot.date >= input.start && slot.date < input.end), availability, daily: Array.from(new Set(period.map(row => row.date))).sort().map(date => ({ date, ...sum(period.filter(row => row.date === date)) })), previousMonths, averagePreviousMonths: previousMonths.some(row => row.total) ? Math.round(previous.total / previousMonths.filter(row => row.total).length) : null, projection, hasLiveAvailability: input.agendas.some(row => hasFreshClinisysAvailabilitySnapshot(row, reportDate, now)) };
+    const verifiedDates = input.agendas.filter(row => verifiedReportAgenda(row, agendaAddDays(reportDate, 1), now)).map(row => (row.availability_snapshot as { dateTo: string }).dateTo);
+    const verifiedEnd = verifiedDates.sort().at(-1);
+    const unverifiedAvailabilityDoctors = input.reportAvailability ? [...groups.values()].filter(rows => !rows.some(row => verifiedReportAgenda(row, agendaAddDays(reportDate, 1), now))).map(([row]) => row.doctor_name) : [];
+    return { unverifiedAvailabilityDoctors, generatedAt: new Date(now).toISOString(), start: input.start, end: input.end, reportDate, horizonEnd: input.reportAvailability ? (verifiedEnd ? [verifiedEnd, agendaAddDays(last, -1)].sort()[0] : reportDate) : last, counts: sum(period), byUnit, byDoctor, blocks, slots: freeSlots.filter(slot => slot.date >= input.start && slot.date < input.end), availability, daily: Array.from(new Set(period.map(row => row.date))).sort().map(date => ({ date, ...sum(period.filter(row => row.date === date)) })), previousMonths, averagePreviousMonths: previousMonths.some(row => row.total) ? Math.round(previous.total / previousMonths.filter(row => row.total).length) : null, projection, hasLiveAvailability: input.agendas.some(row => hasFreshClinisysAvailabilitySnapshot(row, reportDate, now)) };
 }
 export type OperationalAgendaReport = ReturnType<typeof buildOperationalAgenda>;
