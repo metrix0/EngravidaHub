@@ -296,7 +296,28 @@ export default function WeekCalendar(props: Props) {
                                     <div className="mb-2 flex items-center justify-between"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${today ? "bg-brand text-white" : ""}`}>{day.getDate()}</span><button type="button" onClick={() => void props.onAddNote(key)} aria-label={`Adicionar nota em ${key}`} className="rounded p-1 text-slate-400 hover:bg-selection"><Plus size={12} /></button></div>
                                     {freeOnly ? <button type="button" disabled={!slots.length} onClick={() => setExpandedFreeSlots(slots)} className="w-full rounded-lg bg-green-soft px-2 py-2 text-left text-xs font-medium text-green disabled:bg-transparent disabled:text-slate-400">{slots.length ? `${slots.length} horários livres` : "Sem horários"}</button> : <>
                                         {items.slice(0, 3).map(item => <button key={item.id} type="button" onClick={() => props.onSelectAppointment(item)} className="mb-1 block w-full truncate rounded-md border-l-2 border-brand bg-brand-soft/40 px-1.5 py-1 text-left text-xs text-slate-700" title={`${time(item.starts_at)} · ${item.patient_name}`}><span className="mr-1 font-semibold">{time(item.starts_at)}</span>{item.patient_name}</button>)}
-                                        {items.length > 3 && <button type="button" onClick={() => setExpandedGroup(items)} className="px-1 text-xs font-semibold text-brand">+{items.length - 3} agendamentos</button>}
+                                        {items.length > 3 && (
+                                            <InfoTooltip
+                                                portal
+                                                widthClassName="w-[360px]"
+                                                text={
+                                                    <span className="block max-h-72 overflow-y-auto overscroll-contain">
+                                                        <span className="mb-2 block font-bold text-slate-800">{items.length - 3} agendamentos</span>
+                                                        {items.slice(3).map(appointment => (
+                                                            <span key={appointment.id} className="flex gap-2 border-t border-slate-100 py-1.5">
+                                                                <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: appointmentColor(appointment) }} />
+                                                                <span className="min-w-0">
+                                                                    <span className="block font-semibold">{time(appointment.starts_at)}–{time(appointment.ends_at)} · {appointment.doctor?.name ?? "Sem médico"}</span>
+                                                                    <span className="block break-words">{appointment.patient_name}</span>
+                                                                </span>
+                                                            </span>
+                                                        ))}
+                                                    </span>
+                                                }
+                                            >
+                                                <button type="button" onClick={() => setExpandedGroup(items)} className="px-1 text-xs font-semibold text-brand">+{items.length - 3} agendamentos</button>
+                                            </InfoTooltip>
+                                        )}
                                     </>}
                                     {notes.slice(0, 1).map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">Nota do dia</button>)}
                                 </div>;
