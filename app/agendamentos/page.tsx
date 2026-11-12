@@ -65,6 +65,7 @@ export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
     const lockedUnitId = currentUser?.permission?.unit_lock?.id ?? null;
 
+    const [monthView, setMonthView] = useState(false);
     const [weekStart, setWeekStart] = useState(() => startOfWeekSunday(new Date()));
     const [units, setUnits] = useState<SchedulingUnitOption[]>([]);
     const [doctors, setDoctors] = useState<SchedulingDoctorOption[]>([]);
@@ -105,11 +106,18 @@ export default function AppointmentsPage() {
     const [reloadKey, setReloadKey] = useState(0);
 
     const weekDays = useMemo(
-        () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
-        [weekStart],
+        () => {
+            if (!monthView) return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+            const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
+            const last = new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 0);
+            const start = startOfWeekSunday(first);
+            const count = Math.ceil((first.getDay() + last.getDate()) / 7) * 7;
+            return Array.from({ length: count }, (_, index) => addDays(start, index));
+        },
+        [weekStart, monthView],
     );
-    const rangeStart = formatLocalDateKey(weekStart);
-    const rangeEnd = formatLocalDateKey(addDays(weekStart, 7));
+    const rangeStart = formatLocalDateKey(weekDays[0]);
+    const rangeEnd = formatLocalDateKey(addDays(weekDays[weekDays.length - 1], 1));
 
     const visibleDoctors = useMemo(() => {
         const filtered = unitValues.length === 0
@@ -652,13 +660,13 @@ export default function AppointmentsPage() {
 
     useAssistantPageContext("agendamentos", () => ({
         title: "Agendamentos",
-        filters: { semana_inicio: rangeStart, semana_fim: formatLocalDateKey(addDays(weekStart, 6)), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport },
+        filters: { visualizacao: monthView ? "mes" : "semana", semana_inicio: rangeStart, semana_fim: formatLocalDateKey(weekDays[weekDays.length - 1]), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport },
         sections: [
             { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
             { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
             { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: loadingReport, erro: reportError } },
             { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport && !loadingReport && !reportError && agendaReport.start === rangeStart && agendaReport.end === rangeEnd ? {
-                inicio: rangeStart, fim_inclusivo: formatLocalDateKey(addDays(weekStart, 6)),
+                inicio: rangeStart, fim_inclusivo: formatLocalDateKey(weekDays[weekDays.length - 1]),
                 counts: agendaReport.counts, byUnit: agendaReport.byUnit,
                 projection: agendaReport.projection,
                 metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O fim exibido da semana é inclusivo; a consulta técnica termina antes do domingo seguinte.",
@@ -677,7 +685,7 @@ export default function AppointmentsPage() {
                             Agendamentos
                         </h1>
                         <p className="mt-1 text-sm text-slate-500">
-                            Agenda semanal por unidade e médico
+                            Agenda por unidade e médico
                         </p>
                     </div>
 
@@ -692,29 +700,30 @@ export default function AppointmentsPage() {
                         </button>
                         <button type="button" onClick={() => setFreeOnly(value => !value)} aria-pressed={freeOnly} title={freeOnly ? "Mostrar agendamentos" : "Mostrar apenas horários livres"} className={`flex h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold shadow-sm transition ${freeOnly ? "border-green bg-green-soft text-green" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}><Clock3 size={17} />Horários Livres</button>
                         <button type="button" onClick={() => setMetricsOpen(true)} aria-expanded={metricsOpen} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"><ChartNoAxesCombined size={17} />Métricas</button>
+                        <button type="button" aria-pressed={monthView} onClick={() => { setMonthView(value => !value); setWeekStart(current => monthView ? startOfWeekSunday(current) : new Date(current.getFullYear(), current.getMonth(), 1)); }} className={`h-10 w-16 shrink-0 cursor-pointer rounded-xl border text-sm font-semibold shadow-sm transition ${monthView ? "border-brand bg-brand-soft text-brand" : "border-slate-200 bg-white text-slate-600 hover:bg-selection"}`}>Mês</button>
                         <button
                             type="button"
-                            onClick={() => setWeekStart(startOfWeekSunday(new Date()))}
+                            onClick={() => setWeekStart(monthView ? new Date(new Date().getFullYear(), new Date().getMonth(), 1) : startOfWeekSunday(new Date()))}
                             className="h-10 cursor-pointer rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-selection"
                         >
                             Hoje
                         </button>
                         <button
                             type="button"
-                            onClick={() => setWeekStart((current) => addDays(current, -7))}
+                            onClick={() => setWeekStart((current) => monthView ? new Date(current.getFullYear(), current.getMonth() - 1, 1) : addDays(current, -7))}
                             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-selection"
-                            aria-label="Semana anterior"
+                            aria-label={monthView ? "Mês anterior" : "Semana anterior"}
                         >
                             <ChevronLeft size={18} />
                         </button>
                         <div className="min-w-0 flex-1 text-center text-sm font-bold text-slate-700 md:min-w-52 md:flex-none">
-                            {formatWeekRange(weekDays)}
+                            {monthView ? new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(weekStart) : formatWeekRange(weekDays)}
                         </div>
                         <button
                             type="button"
-                            onClick={() => setWeekStart((current) => addDays(current, 7))}
+                            onClick={() => setWeekStart((current) => monthView ? new Date(current.getFullYear(), current.getMonth() + 1, 1) : addDays(current, 7))}
                             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-selection"
-                            aria-label="Próxima semana"
+                            aria-label={monthView ? "Próximo mês" : "Próxima semana"}
                         >
                             <ChevronRight size={18} />
                         </button>
@@ -787,6 +796,8 @@ export default function AppointmentsPage() {
                 )}
 
                 <WeekCalendar
+                    monthView={monthView}
+                    month={weekStart.getMonth()}
                     weekDays={weekDays}
                     appointments={freeOnly ? [] : appointments}
                     notes={freeOnly ? [] : visibleNotes}

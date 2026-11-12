@@ -33,9 +33,9 @@ export async function POST(
 
     const { data: thread, error: threadError } = await supabase
         .from("thread")
-        .select("id, status, assigned_attendant_id")
+        .select("id, status, assigned_attendant_id, channel")
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendant.id)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`)
         .maybeSingle();
 
     if (threadError) {
@@ -57,6 +57,14 @@ export async function POST(
     }
 
     try {
+        if (thread.assigned_attendant_id !== attendant.id && thread.status === "open") {
+            let claim = supabase.from("thread").update({ assigned_attendant_id: attendant.id })
+                .eq("id", threadId).eq("status", "open").in("channel", ["Instagram", "Facebook"]);
+            claim = thread.assigned_attendant_id ? claim.eq("assigned_attendant_id", thread.assigned_attendant_id) : claim.is("assigned_attendant_id", null);
+            const { data: claimed, error: claimError } = await claim.select("id").maybeSingle();
+            if (claimError) throw claimError;
+            if (!claimed) return NextResponse.json({ ok: false, error: "A conversa mudou. Atualize e tente novamente." }, { status: 409 });
+        }
         const result = await finalizeInboxThreadAndAnalyze({
             threadId,
             attendantId: attendant.id,

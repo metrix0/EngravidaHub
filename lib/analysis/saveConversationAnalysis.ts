@@ -1,7 +1,7 @@
 // lib/analysis/saveConversationAnalysis.ts
 import { supabase } from "@/lib";
 import { deriveInboxClosingTag } from "@/lib/analysis/deriveInboxClosingTag";
-import { inferTunnelFromAnalysis } from "@/lib/analysis/tunnelAttribution";
+import { inferTunnelFromAnalysis, inferTunnelFromTracking } from "@/lib/analysis/tunnelAttribution";
 import type { ConversationAnalysis } from "@/types";
 
 export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
@@ -67,10 +67,12 @@ export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
 
     // Only replace missing/generic tunnel values. A specific tracked tunnel wins,
     // including when the sheet updates it while analysis is running.
-    if (tunnelAttribution) {
+    const trackedTunnel = await loadTrackedTunnel(analysis);
+    const effectiveTunnel = trackedTunnel ?? tunnelAttribution?.tunnel;
+    if (effectiveTunnel) {
         const { error: attributionError } = await supabase
             .from("conversations")
-            .update({ tunnel: tunnelAttribution.tunnel })
+            .update({ tunnel: effectiveTunnel })
             .eq("id", analysis.conversation_id)
             .or("tunnel.is.null,tunnel.eq.,tunnel.eq.Entrada Organica");
         if (attributionError) throw new Error(`Failed to attribute conversation tunnel: ${attributionError.message}`);
@@ -139,4 +141,24 @@ async function syncInboxClosingTag(analysis: ConversationAnalysis) {
         }],
     });
     if (error) throw error;
+}
+
+async function loadTrackedTunnel(analysis: ConversationAnalysis) {
+    if (analysis.instagram_user_id) {
+        const { data, error } = await supabase.from("conversation_ad_attributions")
+            .select("campaign_name,ad_set_name,ad_name,referral_ad_title")
+            .eq("instagram_user_id", analysis.instagram_user_id)
+            .lte("referral_received_at", analysis.ended_at ?? new Date().toISOString())
+            .order("referral_received_at", { ascending: false }).limit(1).maybeSingle();
+        if (error) throw error;
+        const tunnel = inferTunnelFromTracking(data?.campaign_name, data?.ad_set_name, data?.ad_name, data?.referral_ad_title);
+        if (tunnel) return tunnel;
+    }
+    if (!analysis.client_id) return null;
+    const { data, error } = await supabase.from("clients")
+        .select("utm_campaign,utm_content,utm_term,tracking_updated_at")
+        .eq("id", analysis.client_id).maybeSingle();
+    if (error) throw error;
+    if (data?.tracking_updated_at && analysis.ended_at && data.tracking_updated_at > analysis.ended_at) return null;
+    return inferTunnelFromTracking(data?.utm_campaign, data?.utm_content, data?.utm_term);
 }

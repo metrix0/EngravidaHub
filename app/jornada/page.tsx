@@ -734,6 +734,7 @@ function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-bold">ROI por túnel</h2>
+                    <p className="mt-1 text-xs text-slate-500">Campanhas sem indicação de túnel ficam em “Sem túnel”, com o investimento preservado.</p>
                 </div>
                 {data && (
                     <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">

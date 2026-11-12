@@ -152,14 +152,14 @@ async function attendantCanAccessIdentity(
                 .from("thread")
                 .select("id")
                 .eq(identityColumn, identityId)
-                .eq("assigned_attendant_id", attendantId)
+                .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
                 .limit(1)
                 .maybeSingle(),
             supabase
                 .from("conversations")
                 .select("id")
                 .eq(identityColumn, identityId)
-                .eq("attendant_id", attendantId)
+                .or(`channel.in.(Instagram,Facebook),attendant_id.eq.${attendantId}`)
                 .limit(1)
                 .maybeSingle(),
         ]);
@@ -208,6 +208,7 @@ function formatConversationLabel(startedAt: string, endedAt: string | null) {
 
 function formatMessageTime(value: string) {
     return new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
         hour: "2-digit",
         minute: "2-digit",
     }).format(new Date(value));

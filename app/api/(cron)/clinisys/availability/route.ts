@@ -97,7 +97,7 @@ export async function GET(request: Request) {
             }
         }
         const from = brazilDate();
-        const to = new Date(Date.parse(`${from}T12:00:00Z`) + 30 * 86_400_000).toISOString().slice(0, 10);
+        const to = new Date(Date.parse(`${from}T12:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10);
         const results: Array<{ agenda: string; ok: boolean; error?: string }> = [];
         let discovered = 0;
         let cursor = 0;
@@ -113,9 +113,9 @@ export async function GET(request: Request) {
                     }
                     if (!procedure) throw new Error("No registered procedures");
                     const slots = [];
-                    for (let offset = 0; offset <= 30; offset += 15) {
+                    for (let offset = 0; offset <= 60; offset += 15) {
                         const dateFrom = new Date(Date.parse(`${from}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
-                        const dateTo = new Date(Date.parse(`${from}T12:00:00Z`) + Math.min(offset + 14, 30) * 86_400_000).toISOString().slice(0, 10);
+                        const dateTo = new Date(Date.parse(`${from}T12:00:00Z`) + Math.min(offset + 14, 60) * 86_400_000).toISOString().slice(0, 10);
                         slots.push(...await pacedClinisysRequest(() => listClinisysAvailabilityByAgenda({
                             agendaId: agenda.external_id,
                             procedureId: procedure.id,

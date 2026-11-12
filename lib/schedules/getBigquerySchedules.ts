@@ -195,3 +195,37 @@ function getGoogleCredentials() {
 
     return JSON.parse(raw);
 }
+
+export type BigqueryScheduleState = {
+    id: string;
+    visible: boolean;
+    scheduled_for: string | null;
+    created_in_source_at: string | null;
+    procedure_name: string | null;
+    status: string | null;
+};
+
+// Reconcile existing IDs without the first-evaluation/date filters: procedures
+// can change and records can be hidden or removed in the source.
+export async function getBigqueryScheduleStates(ids: string[]): Promise<BigqueryScheduleState[]> {
+    if (!ids.length) return [];
+    const credentials = getGoogleCredentials();
+    const bigquery = new BigQuery({ projectId: credentials.project_id, credentials });
+    scheduleIdColumnPromise ??= resolveScheduleIdColumn(bigquery);
+    const column = await scheduleIdColumnPromise;
+    if (!column) throw new Error("CliniSYS schedule identifier is required for reconciliation");
+    const [rows] = await bigquery.query({
+        location: BIGQUERY_LOCATION,
+        query: `SELECT CAST(source.\`${column}\` AS STRING) id,
+            source.agenda_oculto = 0 AS visible,
+            FORMAT_DATE('%F', SAFE_CAST(source.agenda_data_us AS DATE)) scheduled_for,
+            FORMAT_DATE('%F', DATE(SAFE.PARSE_DATETIME('%d/%m/%Y %H:%M:%S', NULLIF(TRIM(source.agenda_data_agendamento_original), '')))) created_in_source_at,
+            source.procedimentos_procedimento procedure_name, source.agenda_chegou status
+            FROM \`dashboards-384718.datastudio.view_agendamentos_uptodate\` source
+            WHERE CAST(source.\`${column}\` AS STRING) IN UNNEST(@ids)
+            QUALIFY ROW_NUMBER() OVER(PARTITION BY source.\`${column}\` ORDER BY source.agenda_oculto,
+                CASE WHEN source.procedimentos_procedimento LIKE '%1ª Avaliação de Reprodução Humana%' THEN 0 ELSE 1 END) = 1`,
+        params: { ids },
+    });
+    return rows as BigqueryScheduleState[];
+}

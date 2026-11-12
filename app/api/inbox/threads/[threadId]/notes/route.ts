@@ -32,7 +32,7 @@ export async function POST(
 
     const { data: thread, error: threadError } = await supabase
         .from("thread")
-        .select("id, client_id, assigned_attendant_id")
+        .select("id, client_id, assigned_attendant_id, channel")
         .eq("id", threadId)
         .maybeSingle();
 
@@ -61,7 +61,8 @@ export async function POST(
 
     if (
         thread.assigned_attendant_id &&
-        thread.assigned_attendant_id !== attendant.id
+        thread.assigned_attendant_id !== attendant.id &&
+        thread.channel !== "Instagram" && thread.channel !== "Facebook"
     ) {
         return NextResponse.json(
             { ok: false, error: "Not allowed" },

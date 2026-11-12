@@ -171,6 +171,7 @@ export default function InboxPage() {
     const [isLoadingCurrentAttendant, setIsLoadingCurrentAttendant] = useState(true);
     const [isSettingOnline, setIsSettingOnline] = useState(false);
 
+    const [socialChannel, setSocialChannel] = useState<"Instagram" | "Facebook">("Instagram");
     const [queueCount, setQueueCount] = useState(0);
     const [socialQueueCount, setSocialQueueCount] = useState(0);
     const [isPullingConversation, setIsPullingConversation] = useState(false);
@@ -219,6 +220,7 @@ export default function InboxPage() {
                 search,
                 page: currentPage,
                 pageSize: PAGE_SIZE,
+                channel: socialChannel,
             });
 
             setThreads(response.items);
@@ -264,7 +266,7 @@ export default function InboxPage() {
                 setIsLoadingThreads(false);
             }
         }
-    }, [status, search, currentPage]);
+    }, [status, search, currentPage, socialChannel]);
 
     const loadQueueCount = useCallback(async () => {
         try {
@@ -964,6 +966,8 @@ export default function InboxPage() {
                 ) : (
                     <>
                         <ConversationListPanel
+                            channel={socialChannel}
+                            onChannelChange={channel => { setSocialChannel(channel); setCurrentPage(1); }}
                             status={status}
                             onStatusChange={handleStatusChange}
                             queueCount={queueCount}
@@ -1112,6 +1116,8 @@ export default function InboxPage() {
 }
 
 function ConversationListPanel({
+                                   channel,
+                                   onChannelChange,
                                    status,
                                    onStatusChange,
                                    queueCount,
@@ -1130,6 +1136,8 @@ function ConversationListPanel({
                                    onSelectConversation,
                                    isLoading,
                                }: {
+    channel: "Instagram" | "Facebook";
+    onChannelChange: (channel: "Instagram" | "Facebook") => void;
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
     queueCount: number;
@@ -1160,7 +1168,8 @@ function ConversationListPanel({
                 </p>
             </div>
 
-            <div className="mb-4 shrink-0 rounded-xl p-1">
+            {/* The pull workflow remains available in code for a future return. */}
+            <div className="hidden">
                 <div className="flex items-center justify-left gap-3">
                     <button
                         type="button"
@@ -1196,6 +1205,11 @@ function ConversationListPanel({
 
 
                 </div>
+            </div>
+
+            <div className="mb-3 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1" aria-label="Canal">
+                <InboxStatusButton active={channel === "Instagram"} onClick={() => onChannelChange("Instagram")}><span className="inline-flex items-center gap-2"><FaInstagram size={15} />Instagram</span></InboxStatusButton>
+                <InboxStatusButton active={channel === "Facebook"} onClick={() => onChannelChange("Facebook")}><span className="inline-flex items-center gap-2"><FaFacebookMessenger size={15} />Messenger</span></InboxStatusButton>
             </div>
 
             <div className="mb-4 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1">

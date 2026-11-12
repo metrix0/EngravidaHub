@@ -30,6 +30,12 @@ export type TintimPayload = {
     utm_content?: string | null;
     utm_term?: string | null;
 
+    campaign_id?: string | number | null;
+    ad_id?: string | number | null;
+    adset_id?: string | number | null;
+    account_id?: string | number | null;
+    utm_id?: string | null;
+
     location?: {
         state?: string | null;
         country?: string | null;
@@ -43,6 +49,11 @@ export type TintimPayload = {
             } | null;
         } | null;
         params?: {
+            campaign_id?: string | number | null;
+            ad_id?: string | number | null;
+            adset_id?: string | number | null;
+            account_id?: string | number | null;
+            utm_id?: string | null;
             fbclid?: string | null;
             fbc?: string | null;
             fbp?: string | null;
@@ -132,6 +143,25 @@ export function buildTintimAttributionEvent({
         platform,
         source,
         occurred_at: occurredAt,
+        tracking: Object.fromEntries(Object.entries({
+            fbclid: tracking.fbclid,
+            fbc: tracking.fbc,
+            fbp: tracking.fbp,
+            gclid: tracking.gclid,
+            gbraid: tracking.gbraid,
+            wbraid: tracking.wbraid,
+            ctwa_clid: tracking.ctwa_clid,
+            utm_source: tracking.utm_source,
+            utm_medium: tracking.utm_medium,
+            utm_campaign: tracking.utm_campaign,
+            utm_content: tracking.utm_content,
+            utm_term: tracking.utm_term,
+            utm_id: firstValue(payload.utm_id, payload.visit?.params?.utm_id),
+            campaign_id: identifier(payload.campaign_id, payload.visit?.params?.campaign_id),
+            ad_id: identifier(payload.ad_id, payload.visit?.params?.ad_id),
+            adset_id: identifier(payload.adset_id, payload.visit?.params?.adset_id),
+            account_id: identifier(payload.account_id, payload.visit?.params?.account_id),
+        }).filter(([, value]) => value !== null)),
     };
 }
 
@@ -262,6 +292,12 @@ function firstValidTimestamp(...values: unknown[]) {
         }
     }
     return null;
+}
+
+function identifier(...values: unknown[]) {
+    return firstValue(...values.map(value =>
+        typeof value === "number" && Number.isSafeInteger(value) ? String(value) : value,
+    ));
 }
 
 function firstValue(...values: unknown[]) {

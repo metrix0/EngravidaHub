@@ -65,7 +65,7 @@ export async function PATCH(
             .from("thread")
             .update({ unread_count: 0 })
             .eq("id", threadId)
-            .eq("assigned_attendant_id", attendant.id);
+            .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`);
 
         if (error) {
             return NextResponse.json(
@@ -199,7 +199,7 @@ async function loadThreadDetail({
         `)
         .eq("id", threadId)
         .eq("status", "open")
-        .eq("assigned_attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (threadError) {
@@ -235,7 +235,7 @@ async function loadThreadDetail({
         .from("thread")
         .update({ unread_count: 0 })
         .eq("id", thread.id)
-        .eq("assigned_attendant_id", attendantId);
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`);
 
     const mappedMessages = (messages ?? []).map(mapMessage);
     const historyBefore =
@@ -363,7 +363,7 @@ async function loadConversationDetail({
             )
         `)
         .eq("id", conversationId)
-        .eq("attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (conversationError) {
@@ -405,7 +405,7 @@ async function loadConversationDetail({
     const canReply =
         Boolean(thread) &&
         thread?.status === "closed" &&
-        thread?.assigned_attendant_id === attendantId &&
+        (thread?.assigned_attendant_id === attendantId || thread?.channel === "Instagram" || thread?.channel === "Facebook") &&
         replyState.canReply;
 
     const mappedMessages = (messages ?? []).map(mapMessage);
@@ -524,7 +524,7 @@ async function moveClientByDirection({
             )
         `)
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (threadError) {
@@ -601,7 +601,7 @@ async function moveClientToStage({
             )
         `)
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (threadError) {
@@ -960,6 +960,7 @@ function formatTimeAgo(value: string | null) {
 
 function formatMessageTime(value: string) {
     return new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
         hour: "2-digit",
         minute: "2-digit",
     }).format(new Date(value));

@@ -1,5 +1,6 @@
 // lib/zernio/conversationAdAttribution.ts
 import { randomUUID } from "crypto";
+import { inferTunnelFromTracking } from "@/lib/analysis/tunnelAttribution";
 
 import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 import type { ParsedZernioMessage } from "@/lib/importers/zernio/parseZernioWebhook";
@@ -366,8 +367,9 @@ async function loadCachedConversationAd(
             "zernio_ad_id, platform, campaign_id, campaign_name, ad_set_id, ad_set_name, ad_name, creative_image_url, creative_video_url",
         )
         .eq("meta_ad_id", metaAdId)
-        .eq("enrichment_status", "resolved")
-        .order("enriched_at", { ascending: false })
+        .not("campaign_id", "is", null)
+        .order("enriched_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -520,12 +522,21 @@ async function getMetaGraphAd(metaAdId: string): Promise<ConversationAdDetails> 
         }
     }
 
+    for (const accessToken of accessTokens) {
+        try {
+            return await requestMetaGraphAd(metaAdId, accessToken, false);
+        } catch (error) {
+            firstError ??= error;
+        }
+    }
+
     throw firstError ?? new Error("Meta ad lookup failed");
 }
 
 async function requestMetaGraphAd(
     metaAdId: string,
     accessToken: string,
+    includeCreative = true,
 ): Promise<ConversationAdDetails> {
     const apiVersion = (
         process.env.META_GRAPH_API_VERSION?.trim() || "v25.0"
@@ -535,7 +546,8 @@ async function requestMetaGraphAd(
     );
     url.searchParams.set(
         "fields",
-        "id,name,campaign{id,name},adset{id,name},creative{image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec}",
+        "id,name,campaign{id,name},adset{id,name}" +
+            (includeCreative ? ",creative{image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec}" : ""),
     );
 
     const response = await fetch(url, {
@@ -716,7 +728,7 @@ async function updateInstagramUserLatestAttribution({
 }) {
     const { data: current, error: readError } = await supabase
         .from("instagram_users")
-        .select("last_paid_attribution_at, location")
+        .select("last_paid_attribution_at, location, client_id")
         .eq("id", instagramUserId)
         .maybeSingle();
 
@@ -753,6 +765,21 @@ async function updateInstagramUserLatestAttribution({
             `[zernio-webhook:${requestId}] Instagram attribution profile update failed`,
             error,
         );
+    }
+    if (error) return;
+    const tunnel = inferTunnelFromTracking(values.last_ad_campaign_name, values.last_ad_set_name, values.last_ad_name);
+    if (!tunnel) return;
+    const { error: tunnelError } = await supabase.from("conversations")
+        .update({ tunnel }).eq("instagram_user_id", instagramUserId)
+        .lte("started_at", receivedAt)
+        .or(`ended_at.is.null,ended_at.gte.${receivedAt}`)
+        .or("tunnel.is.null,tunnel.eq.,tunnel.eq.Entrada Organica");
+    if (tunnelError) throw tunnelError;
+    if (current?.client_id) {
+        const { error: clientError } = await supabase.from("clients")
+            .update({ last_tunnel: tunnel }).eq("id", current.client_id)
+            .or("last_tunnel.is.null,last_tunnel.eq.,last_tunnel.eq.Entrada Organica");
+        if (clientError) throw clientError;
     }
 }
 

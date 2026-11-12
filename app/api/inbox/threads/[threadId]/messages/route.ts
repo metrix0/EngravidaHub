@@ -399,7 +399,7 @@ export async function POST(
             })
             .eq("id", thread.id)
             .eq("status", "closed")
-            .eq("assigned_attendant_id", attendant.id)
+            .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`)
             .select("id")
             .maybeSingle();
 
@@ -856,7 +856,7 @@ async function rollbackReopenedThread(
         .update({ status: "closed" })
         .eq("id", threadId)
         .eq("status", "open")
-        .eq("assigned_attendant_id", attendantId);
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`);
 
     if (error) {
         console.error(
@@ -1127,7 +1127,7 @@ async function resolveThread({
                 external_account_id
             `)
             .eq("id", itemId)
-            .eq("assigned_attendant_id", attendantId)
+            .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
             .maybeSingle();
 
         if (error) {
@@ -1156,7 +1156,7 @@ async function resolveThread({
         .from("conversations")
         .select("id, client_id, instagram_user_id, thread_id")
         .eq("id", itemId)
-        .eq("attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (conversationError) {
@@ -1210,7 +1210,7 @@ async function resolveThread({
         };
     }
 
-    if (!thread || thread.assigned_attendant_id !== attendantId) {
+    if (!thread || thread.assigned_attendant_id !== attendantId && thread.channel !== "Instagram" && thread.channel !== "Facebook") {
         return {
             ok: false as const,
             status: 409,

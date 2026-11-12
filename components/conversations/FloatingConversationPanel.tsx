@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
-import { AssistantChat } from "@/app/assistente/page";
+import { AssistantChat } from "@/components/assistant/AssistantChat";
 import { openClientProfile } from "@/components/clientes/PermanentClientProfilePanel";
 import { InitialsAvatar } from "@/components/conversations/InitialsAvatar";
 import {

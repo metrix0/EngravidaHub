@@ -1,5 +1,6 @@
 // lib/schedules/cliniSysSchedulesIntoSupabaseAndAds.ts
 import crypto from "crypto";
+import { reconcileScheduleSource } from "@/lib/schedules/reconcileScheduleSource";
 
 import { supabase } from "@/lib";
 import { sendScheduleConversionOnce } from "@/lib/schedules/sendScheduleConversionOnce";
@@ -85,7 +86,9 @@ export async function syncBigquerySchedules({
     limit?: number;
 } = {}) {
     const rows = await getBigquerySchedules({ daysBack, limit });
-    return syncScheduleRows(rows, daysBack, limit);
+    const result = await syncScheduleRows(rows, daysBack, limit);
+    const sourceReconciliation = await reconcileScheduleSource(Math.max(daysBack, 32));
+    return { ...result, source_reconciliation: sourceReconciliation };
 }
 
 async function syncScheduleRows(rows: BigqueryScheduleRow[], daysBack: number, limit: number) {
@@ -230,6 +233,7 @@ async function syncScheduleRows(rows: BigqueryScheduleRow[], daysBack: number, l
             .from("schedules")
             .upsert({
                 source: CLINISYS_SCHEDULE_SOURCE,
+                source_visible: true,
                 source_external_id: schedule.source_external_id,
                 source_hash: schedule.source_hash,
                 client_id: client.id,
@@ -894,6 +898,7 @@ async function updateExistingSchedules(
             ({ existing, schedule, persistedSourceHash }) => ({
                 id: existing.id,
                 source: CLINISYS_SCHEDULE_SOURCE,
+                source_visible: true,
                 source_external_id: schedule.source_external_id,
                 source_hash: persistedSourceHash,
                 client_id: existing.client_id,
