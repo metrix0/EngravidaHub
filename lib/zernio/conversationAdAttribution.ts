@@ -367,8 +367,9 @@ async function loadCachedConversationAd(
             "zernio_ad_id, platform, campaign_id, campaign_name, ad_set_id, ad_set_name, ad_name, creative_image_url, creative_video_url",
         )
         .eq("meta_ad_id", metaAdId)
-        .eq("enrichment_status", "resolved")
-        .order("enriched_at", { ascending: false })
+        .not("campaign_id", "is", null)
+        .order("enriched_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -521,12 +522,21 @@ async function getMetaGraphAd(metaAdId: string): Promise<ConversationAdDetails> 
         }
     }
 
+    for (const accessToken of accessTokens) {
+        try {
+            return await requestMetaGraphAd(metaAdId, accessToken, false);
+        } catch (error) {
+            firstError ??= error;
+        }
+    }
+
     throw firstError ?? new Error("Meta ad lookup failed");
 }
 
 async function requestMetaGraphAd(
     metaAdId: string,
     accessToken: string,
+    includeCreative = true,
 ): Promise<ConversationAdDetails> {
     const apiVersion = (
         process.env.META_GRAPH_API_VERSION?.trim() || "v25.0"
@@ -536,7 +546,8 @@ async function requestMetaGraphAd(
     );
     url.searchParams.set(
         "fields",
-        "id,name,campaign{id,name},adset{id,name},creative{image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec}",
+        "id,name,campaign{id,name},adset{id,name}" +
+            (includeCreative ? ",creative{image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec}" : ""),
     );
 
     const response = await fetch(url, {

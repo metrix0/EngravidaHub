@@ -19,6 +19,7 @@ export type BigqueryInvoice = {
     doctor_name: string | null;
     patient_code: number | null;
     patient_phone: string | null;
+    patient_cpf: string | null;
     nfe_number: number | null;
 };
 
@@ -265,6 +266,7 @@ function normalizeInvoice(
         doctor_name: cleanText(row.medico),
         patient_code: patientCode,
         patient_phone: resolvePatientPhone(row, patient),
+        patient_cpf: digits(row.paciente_cpf) || null,
         nfe_number: positiveInteger(row.nfe_numero),
     };
 }

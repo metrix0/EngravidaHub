@@ -19,6 +19,7 @@ type ClientPhoneRow = {
     phone: string | null;
     phone_identity: string | null;
     updated_at: string;
+    cpf: string | null;
 };
 
 type UnitRow = {
@@ -42,6 +43,8 @@ export async function syncBigqueryInvoices({
     ]);
 
     const clientsByPhone = buildClientsByPhone(clients);
+    const clientsByCpf = buildClientsByCpf(clients);
+    const cpfByClient = new Map(clients.map(client => [client.id, normalizedCpf(client.cpf)]));
     const unitsByName = new Map(
         units.map((unit) => [normalizeText(unit.name), unit]),
     );
@@ -51,7 +54,7 @@ export async function syncBigqueryInvoices({
     let linkedDoctors = 0;
 
     const rows = invoices.map((invoice) => {
-        const clientId = findClientId(invoice, clientsByPhone);
+        const clientId = findClientId(invoice, clientsByPhone, clientsByCpf, cpfByClient);
         const unitId = invoice.unit_name
             ? unitsByName.get(normalizeText(invoice.unit_name))?.id ?? null
             : null;
@@ -117,7 +120,7 @@ async function loadClients() {
     for (let from = 0; ; from += PAGE_SIZE) {
         const { data, error } = await supabase
             .from("clients")
-            .select("id, phone, phone_identity, updated_at")
+            .select("id, phone, phone_identity, cpf, updated_at")
             .order("updated_at", { ascending: false })
             .range(from, from + PAGE_SIZE - 1);
 
@@ -153,7 +156,7 @@ async function loadDoctors() {
 }
 
 function buildClientsByPhone(clients: ClientPhoneRow[]) {
-    const map = new Map<string, string>();
+    const map = new Map<string, string | null>();
 
     for (const client of clients) {
         const identities = [
@@ -163,18 +166,54 @@ function buildClientsByPhone(clients: ClientPhoneRow[]) {
 
         for (const identity of identities) {
             if (!map.has(identity)) map.set(identity, client.id);
+            else if (map.get(identity) !== client.id) map.set(identity, null);
         }
     }
 
     return map;
 }
 
+function buildClientsByCpf(clients: ClientPhoneRow[]) {
+    const map = new Map<string, string | null>();
+    for (const client of clients) {
+        const cpf = normalizedCpf(client.cpf);
+        if (!cpf) continue;
+        if (!map.has(cpf)) map.set(cpf, client.id);
+        else if (map.get(cpf) !== client.id) map.set(cpf, null);
+    }
+    return map;
+}
+
+function normalizedCpf(value: string | null | undefined) {
+    const cpf = value?.replace(/\D/g, "");
+    if (!cpf || cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return null;
+    for (const length of [9, 10]) {
+        let sum = 0;
+        for (let index = 0; index < length; index++) {
+            sum += Number(cpf[index]) * (length + 1 - index);
+        }
+        if (((sum * 10) % 11) % 10 !== Number(cpf[length])) return null;
+    }
+    return cpf;
+}
+
 function findClientId(
     invoice: BigqueryInvoice,
-    clientsByPhone: Map<string, string>,
+    clientsByPhone: Map<string, string | null>,
+    clientsByCpf: Map<string, string | null>,
+    cpfByClient: Map<string, string | null>,
 ) {
-    const phoneIdentity = normalizePhoneIdentity(invoice.patient_phone);
-    return phoneIdentity ? clientsByPhone.get(phoneIdentity) ?? null : null;
+    const cpf = normalizedCpf(invoice.patient_cpf);
+    // An explicit recipient CPF must not fall through to a spouse's phone.
+    if (cpf && clientsByCpf.has(cpf)) return clientsByCpf.get(cpf) ?? null;
+
+    const phone = normalizePhoneIdentity(invoice.patient_phone);
+    const clientId = phone ? clientsByPhone.get(phone) : null;
+    if (!clientId) return null;
+
+    const clientCpf = cpfByClient.get(clientId);
+    if (cpf && clientCpf && clientCpf !== cpf) return null;
+    return clientId;
 }
 
 function normalizeText(value: string) {

@@ -76,6 +76,18 @@ async function main() {
 
     const unavailable = load(mockFetch(() => { throw new Error("denied"); }), { cached: { ad_name: "Known ad", campaign_name: "Known campaign" } });
     assert.equal((await unavailable.resolveConversationAd("ad")).name, "Known ad", "A denied creative refresh must preserve existing metadata");
+    const metadataOnly = load(mockFetch(url => url.searchParams.get("fields")?.includes("creative")
+        ? response({ error: { message: "Creative access denied" } }, false)
+        : response({ id: "ad", campaign: { id: "campaign-id", name: "Campaign without media" } })));
+    const mapped = await metadataOnly.getMetaGraphAd("ad");
+    assert.equal(mapped.campaignId, "campaign-id");
+    assert.equal(mapped.imageUrl, null);
+
+    const failedCached = load(mockFetch(() => { throw new Error("denied"); }), {
+        cached: { campaign_id: "cached-campaign", campaign_name: "Retained", ad_name: "Known" },
+    });
+    assert.equal((await failedCached.resolveConversationAd("ad")).campaignId, "cached-campaign");
+
     const denied = load(mockFetch(() => response({ error: { message: "Denied", code: 100, error_subcode: 33 } }, false)));
     await assert.rejects(denied.resolveConversationAd("ad"), /100\/33/);
     console.log("PASS ad media: full image, dynamic video, video denial, token fallback, partial enrichment, cached metadata and inaccessible ads.");

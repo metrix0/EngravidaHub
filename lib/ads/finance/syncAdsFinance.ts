@@ -153,6 +153,10 @@ export async function syncAdsFinance({
     }
 
     const platforms = await Promise.all(jobs);
+    if (platform === "all" || platform === "meta_ads") {
+        const { error } = await supabase.rpc("reconcile_instagram_client_links");
+        if (error) throw error;
+    }
     const metaResult = platforms.find(
         (item) => item.platform === "meta_ads" && item.ok && !item.skipped,
     );
