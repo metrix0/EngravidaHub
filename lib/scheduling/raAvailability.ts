@@ -16,7 +16,7 @@ const times = (from: string, last: string, step: number) => {
     return values;
 };
 const rule = (duration: number, days: RaRule["days"], quotas?: RaRule["quotas"]): RaRule => ({ duration, days, quotas });
-const normalize = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/^dr(?:a)?\.?\s+/, "");
+const normalize = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, " ").replace(/^dr(?:a)?\.?\s+/, "");
 
 // These are permitted consultation START times, not full CliniSYS opening hours.
 // Quinzenal and "conforme escala" dates remain governed by actual CliniSYS availability.
@@ -77,9 +77,10 @@ export function raQuotaKey(doctorId: string, date: string, startMinutes: number)
 
 export function filterRaFreeSlots(
     slots: AgendaFreeSlot[],
-    units: SchedulingUnitOption[],
-    doctors: SchedulingDoctorOption[],
+    units: Pick<SchedulingUnitOption, "id" | "name">[],
+    doctors: Pick<SchedulingDoctorOption, "id" | "unit_id" | "name">[],
     firstEvaluations: Record<string, number> = {},
+    limitQuotas = false,
 ): AgendaFreeSlot[] {
     const unitsById = new Map(units.map(unit => [unit.id, unit]));
     const doctorsById = new Map(doctors.map(doctor => [doctor.unit_id + ":" + doctor.id, doctor]));
@@ -90,6 +91,7 @@ export function filterRaFreeSlots(
     }
 
     const eligible: AgendaFreeSlot[] = [];
+    const selectedByQuota = new Map<string, number>();
     for (const group of grouped.values()) {
         const first = group[0];
         const unit = unitsById.get(first.unitId);
@@ -122,10 +124,12 @@ export function filterRaFreeSlots(
         for (const clock of allowedStarts) {
             const startMinutes = minutes(clock);
             const quota = raRule.quotas?.[day]?.[startMinutes < 720 ? "morning" : "afternoon"];
-            if (quota !== undefined && (firstEvaluations[raQuotaKey(first.doctorId, first.date, startMinutes)] ?? 0) >= quota) continue;
+            const quotaKey = raQuotaKey(first.doctorId, first.date, startMinutes);
+            if (quota !== undefined && (firstEvaluations[quotaKey] ?? 0) + (limitQuotas ? selectedByQuota.get(quotaKey) ?? 0 : 0) >= quota) continue;
             const startsAt = anchorEpoch + (startMinutes - anchorMinutes) * 60_000;
             const endsAt = startsAt + raRule.duration * 60_000;
             if (!contiguous.some(interval => interval.start <= startsAt && interval.end >= endsAt)) continue;
+            if (limitQuotas && quota !== undefined) selectedByQuota.set(quotaKey, (selectedByQuota.get(quotaKey) ?? 0) + 1);
             eligible.push({ ...first, id: first.unitId + ":" + first.doctorId + ":" + startsAt, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), durationMinutes: raRule.duration });
         }
     }

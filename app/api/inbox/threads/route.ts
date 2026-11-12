@@ -13,6 +13,7 @@ import type {
 
 const PAGE_SIZE_DEFAULT = 10;
 const MAX_FETCH = 5000;
+type ListWindow = { channel: "Instagram" | "Facebook"; from: number; size: number; search: string };
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -34,14 +35,15 @@ export async function GET(request: Request) {
         });
     }
 
-    const result =
-        status === "closed"
-            ? await loadClosedConversations(attendant.id)
-            : await loadOpenThreads(attendant.id);
+    const channelParam = searchParams.get("channel");
+    const channel = channelParam === "Instagram" || channelParam === "Facebook" ? channelParam : null;
+    const window: ListWindow | undefined = channel ? { channel, from: (page - 1) * pageSize, size: pageSize, search } : undefined;
+    const load = status === "closed" ? loadClosedConversations : loadOpenThreads;
+    const result = await load(attendant.id, window);
 
     if (!result.ok) return result.response;
 
-    const filtered = search
+    const filtered = search && !channel
         ? result.items.filter((item) =>
               [
                   item.name,
@@ -64,8 +66,8 @@ export async function GET(request: Request) {
     const start = (page - 1) * pageSize;
     const end = start + pageSize;
     const response: InboxThreadsResponse = {
-        items: filtered.slice(start, end),
-        total: filtered.length,
+        items: channel ? filtered : filtered.slice(start, end),
+        total: channel ? result.total ?? 0 : filtered.length,
         page,
         page_size: pageSize,
     };
@@ -73,10 +75,13 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
 }
 
-async function loadOpenThreads(attendantId: string) {
-    const { data, error } = await supabase
+async function loadOpenThreads(attendantId: string, window?: ListWindow) {
+    let query = supabase
         .from("thread")
         .select(`
+            client_search:clients(),
+            social_search:instagram_users!thread_instagram_user_id_fkey(),
+            attendant_search:attendants(),
             *,
             clients (
                 id,
@@ -155,11 +160,20 @@ async function loadOpenThreads(attendantId: string) {
                     short_label
                 )
             )
-        `)
+        `, { count: "exact" })
         .eq("status", "open")
-        .eq("assigned_attendant_id", attendantId)
         .order("last_message_at", { ascending: false, nullsFirst: false })
-        .limit(MAX_FETCH);
+        .order("id", { ascending: false });
+    query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("assigned_attendant_id", attendantId).limit(MAX_FETCH);
+    if (window?.search) {
+        const term = window.search.replace(/[%,()*"\\]/g, " ").trim().replace(/\s+/g, " ");
+        if (term) query = query
+            .or(["name", "phone", "state", "last_origin", "utm_campaign"].map(field => `${field}.ilike.*${term}*`).join(","), { referencedTable: "client_search" })
+            .or(`display_name.ilike.*${term}*,username.ilike.*${term}*`, { referencedTable: "social_search" })
+            .ilike("attendant_search.name", `*${term}*`)
+            .or(`client_search.not.is.null,social_search.not.is.null,attendant_search.not.is.null,last_message_text.ilike.*${term}*`);
+    }
+    const { data, error, count } = await query;
 
     if (error) {
         return {
@@ -174,13 +188,17 @@ async function loadOpenThreads(attendantId: string) {
     return {
         ok: true as const,
         items: (data ?? []).map(mapOpenThread),
+        total: count,
     };
 }
 
-async function loadClosedConversations(attendantId: string) {
-    const { data, error } = await supabase
+async function loadClosedConversations(attendantId: string, window?: ListWindow) {
+    let query = supabase
         .from("conversations")
         .select(`
+            client_search:clients(),
+            social_search:instagram_users!conversations_instagram_user_id_fkey(),
+            attendant_search:attendants(),
             id,
             client_id,
             instagram_user_id,
@@ -267,11 +285,20 @@ async function loadClosedConversations(attendantId: string) {
                 customer_final_state,
                 short_label
             )
-        `)
-        .eq("attendant_id", attendantId)
+        `, { count: "exact" })
         .not("ended_at", "is", null)
-        .order("ended_at", { ascending: false, nullsFirst: false })
-        .limit(MAX_FETCH);
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: false });
+    query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("attendant_id", attendantId).limit(MAX_FETCH);
+    if (window?.search) {
+        const term = window.search.replace(/[%,()*"\\]/g, " ").trim().replace(/\s+/g, " ");
+        if (term) query = query
+            .or(["name", "phone", "state", "last_origin", "utm_campaign"].map(field => `${field}.ilike.*${term}*`).join(","), { referencedTable: "client_search" })
+            .or(`display_name.ilike.*${term}*,username.ilike.*${term}*`, { referencedTable: "social_search" })
+            .ilike("attendant_search.name", `*${term}*`)
+            .or(`client_search.not.is.null,social_search.not.is.null,attendant_search.not.is.null,last_message_text.ilike.*${term}*`);
+    }
+    const { data, error, count } = await query;
 
     if (error) {
         return {
@@ -286,6 +313,7 @@ async function loadClosedConversations(attendantId: string) {
     return {
         ok: true as const,
         items: (data ?? []).map(mapClosedConversation),
+        total: count,
     };
 }
 

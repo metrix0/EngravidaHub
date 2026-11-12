@@ -30,6 +30,8 @@ const CALENDAR_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 const TZ = "America/Sao_Paulo";
 
 type Props = {
+    monthView?: boolean;
+    month?: number;
     weekDays: Date[];
     appointments: CalendarAppointment[];
     notes: AppointmentDayNote[];
@@ -278,6 +280,29 @@ export default function WeekCalendar(props: Props) {
             <div className="min-h-0 w-full flex-1 touch-pan-x touch-pan-y overflow-auto border-t border-slate-200 bg-white">
                 {props.loading ? (
                     <WeekCalendarSkeleton freeOnly={freeOnly} />
+                ) : props.monthView ? (
+                    <div className="min-w-[700px]">
+                        <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                            {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(day => <div key={day} className="py-2 text-center text-xs font-semibold text-slate-500">{day}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7">
+                            {props.weekDays.map(day => {
+                                const key = formatLocalDateKey(day);
+                                const items = appointmentsByDay.get(key) ?? [];
+                                const slots = freeSlotsByDay.get(key) ?? [];
+                                const notes = notesByDay.get(key) ?? [];
+                                const today = key === formatLocalDateKey(new Date());
+                                return <div key={key} className={`min-h-32 min-w-0 border-b border-r border-slate-100 p-2 ${day.getMonth() !== props.month ? "bg-slate-50 text-slate-400" : "bg-white"}`}>
+                                    <div className="mb-2 flex items-center justify-between"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${today ? "bg-brand text-white" : ""}`}>{day.getDate()}</span><button type="button" onClick={() => void props.onAddNote(key)} aria-label={`Adicionar nota em ${key}`} className="rounded p-1 text-slate-400 hover:bg-selection"><Plus size={12} /></button></div>
+                                    {freeOnly ? <button type="button" disabled={!slots.length} onClick={() => setExpandedFreeSlots(slots)} className="w-full rounded-lg bg-green-soft px-2 py-2 text-left text-xs font-medium text-green disabled:bg-transparent disabled:text-slate-400">{slots.length ? `${slots.length} horários livres` : "Sem horários"}</button> : <>
+                                        {items.slice(0, 3).map(item => <button key={item.id} type="button" onClick={() => props.onSelectAppointment(item)} className="mb-1 block w-full truncate rounded-md border-l-2 border-brand bg-brand-soft/40 px-1.5 py-1 text-left text-xs text-slate-700" title={`${time(item.starts_at)} · ${item.patient_name}`}><span className="mr-1 font-semibold">{time(item.starts_at)}</span>{item.patient_name}</button>)}
+                                        {items.length > 3 && <button type="button" onClick={() => setExpandedGroup(items)} className="px-1 text-xs font-semibold text-brand">+{items.length - 3} agendamentos</button>}
+                                    </>}
+                                    {notes.slice(0, 1).map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">Nota do dia</button>)}
+                                </div>;
+                            })}
+                        </div>
+                    </div>
                 ) : (
                     <div className="min-w-[1180px]">
                         <div className="sticky top-0 z-40 grid grid-cols-[72px_repeat(7,minmax(150px,1fr))] border-b border-slate-200 bg-white">

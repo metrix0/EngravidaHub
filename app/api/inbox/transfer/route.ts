@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         .update(updates)
         .eq("id", threadId)
         .eq("status", "open")
-        .eq("assigned_attendant_id", attendant.id)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`)
         .select("id")
         .maybeSingle();
     if (error) {

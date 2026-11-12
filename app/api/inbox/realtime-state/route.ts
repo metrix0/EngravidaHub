@@ -54,7 +54,7 @@ export async function GET(request: Request) {
             "id, status, last_message_at, updated_at, unread_count, latest_conversation_id",
         )
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendant.id)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`)
         .maybeSingle();
 
     if (threadError) {

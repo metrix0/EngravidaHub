@@ -122,3 +122,22 @@ export function inferTunnelFromAnalysis(analysis: {
         evidence: strongest.signal.evidence.slice(0, 3),
     } : null;
 }
+
+// Campaign/ad/UTM metadata is acquisition evidence and takes precedence over AI
+// topic inference. Ambiguous values do not get an arbitrary tunnel.
+export function inferTunnelFromTracking(...values: Array<string | null | undefined>): (typeof INFERABLE_TUNNELS)[number] | null {
+    for (const value of values) {
+        const text = fold(value ?? "").replace(/[^a-z0-9]+/g, " ");
+        const matches = new Set<(typeof INFERABLE_TUNNELS)[number]>();
+        if (/\bproblemas?\b|\binfertil/.test(text)) matches.add("Problemas");
+        if (/\blaqueadur/.test(text)) matches.add("Laqueadura");
+        if (/\blgbt(?:qia)?\b|\bropa\b/.test(text)) matches.add("LGBT");
+        if (/\bcongel|\bcriopreserv|\bpreservacao/.test(text)) matches.add("Congelamento");
+        if (/\bovodoa|\bfiv\b|\bfertiliz|\binsemin|\btratamento|\bdoacao de (?:ovul|embr)/.test(text)) matches.add("Tratamentos");
+        if (/\bbio instagram\b/.test(text)) matches.add("Bio Instagram");
+        if (/\bsite home engravida\b/.test(text)) matches.add("Site - Home | Engravida");
+        if (matches.size > 1) return null;
+        if (matches.size === 1) return [...matches][0];
+    }
+    return null;
+}

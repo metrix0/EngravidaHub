@@ -2,6 +2,8 @@
 import { hasFreshClinisysAvailabilitySnapshot, replicatedAgendaCapacity, replicatedAgendaRestrictions, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
 import { mergeIntervals } from "@/lib/scheduling/agendaIntelligence";
 
+import { filterRaFreeSlots } from "./raAvailability";
+
 import type { BookingTeam } from "@/lib/scheduling/bookingOrigin";
 export type OperationalAgenda = AgendaRow & { id?: string; unit_id: string; unit_name: string; doctor_name: string };
 export type OperationalAppointment = { id: string; unit_id: string; doctor_id: string; starts_at: string; ends_at: string; status: string; booking_team?: BookingTeam; source_external_id?: string | null };
@@ -42,7 +44,7 @@ function sum(rows: AgendaCounts[]) {
     return result;
 }
 
-export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean }) {
+export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number> }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
     const reportNow = reportDate === agendaDate(now) ? now : epoch(reportDate);
     const historyStart = [input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6), agendaWeekStart(reportDate)].sort()[0];
@@ -118,16 +120,21 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     // Unknown booking origins must not produce a deceptively precise team projection.
     const projection = { month: monthStart.slice(0, 7), base: monthlyBase, ra: denominator && !previous.unknown ? Math.round(monthlyBase * previous.ra / denominator) : null, unit: denominator && !previous.unknown ? Math.round(monthlyBase * previous.unit / denominator) : null, historicalMonths: previousMonths.filter(row => row.total > 0).length, unknown: previous.unknown };
     const weekStart = agendaWeekStart(reportDate);
+    const reportSlots = input.reportAvailability
+        ? filterRaFreeSlots(freeSlots, byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })), byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })), input.raFirstEvaluationCounts, true)
+        : freeSlots;
     const availability = byUnit.map(unit => {
-        const slots = freeSlots.filter(slot => slot.unitId === unit.unitId);
+        const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));
         const dates = [...new Set(slots.map(slot => slot.date))];
-        const threeDate = dates.find(date => slots.filter(slot => slot.date === date).length >= 3) ?? null;
+        const threeDate = dates.find(date => (!input.reportAvailability || date !== dates[0]) && slots.filter(slot => slot.date === date).length >= 3) ?? null;
         const wait = (date: string | null) => date ? Math.round((epoch(date) - epoch(reportDate)) / DAY) : null;
         const saturdayDates = dates.filter(date => new Date(`${date}T12:00:00Z`).getUTCDay() === 6);
         const servesSaturday = daily.some(row => row.unitId === unit.unitId && row.date >= reportDate && new Date(`${row.date}T12:00:00Z`).getUTCDay() === 6 && row.total > 0);
         // The reference's weekly totals include unfilled slots earlier in the
         // current week; only the next-date search excludes elapsed time.
-        const weeks = Array.from({ length: 4 }, (_, index) => daily.filter(row => row.unitId === unit.unitId && row.date >= agendaAddDays(weekStart, index * 7) && row.date < agendaAddDays(weekStart, (index + 1) * 7)).reduce((total, row) => total + row.available + row.open, 0));
+        const weeks = Array.from({ length: 4 }, (_, index) => input.reportAvailability
+            ? reportSlots.filter(slot => slot.unitId === unit.unitId && slot.date >= agendaAddDays(weekStart, index * 7) && slot.date < agendaAddDays(weekStart, (index + 1) * 7)).length
+            : daily.filter(row => row.unitId === unit.unitId && row.date >= agendaAddDays(weekStart, index * 7) && row.date < agendaAddDays(weekStart, (index + 1) * 7)).reduce((total, row) => total + row.available + row.open, 0));
         return { ...unit, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks, saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
     });
     return { generatedAt: new Date(now).toISOString(), start: input.start, end: input.end, reportDate, horizonEnd: last, counts: sum(period), byUnit, byDoctor, blocks, slots: freeSlots.filter(slot => slot.date >= input.start && slot.date < input.end), availability, daily: Array.from(new Set(period.map(row => row.date))).sort().map(date => ({ date, ...sum(period.filter(row => row.date === date)) })), previousMonths, averagePreviousMonths: previousMonths.some(row => row.total) ? Math.round(previous.total / previousMonths.filter(row => row.total).length) : null, projection, hasLiveAvailability: input.agendas.some(row => hasFreshClinisysAvailabilitySnapshot(row, reportDate, now)) };

@@ -80,7 +80,7 @@ export async function loadSchedulingContext(
             )
         `)
         .eq("id", threadId)
-        .eq("assigned_attendant_id", attendantId)
+        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
         .maybeSingle();
 
     if (threadError) throw threadError;

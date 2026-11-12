@@ -621,6 +621,7 @@ async function loadScheduleAnalytics(
             let query = supabase
                 .from("schedules")
                 .select("id, source_hash, source_external_id, client_id, normalized_phone, patient_name, scheduled_for, created_in_source_at, unit_name, status, updated_at")
+                .ilike("procedure_name", "%1%Avalia%Reprodu%")
                 .gte("scheduled_for", startDate)
                 .lte("scheduled_for", tableEndDate)
                 .order("scheduled_for", { ascending: true })
@@ -808,6 +809,7 @@ async function loadScheduleCreationAnalytics(
             let query = supabase
                 .from("schedules")
                 .select("id, created_in_source_at, unit_name")
+                .ilike("procedure_name", "%1%Avalia%Reprodu%")
                 .gte("created_in_source_at", startDate)
                 .lte("created_in_source_at", endDate)
                 .order("created_in_source_at", { ascending: true })
@@ -877,6 +879,7 @@ async function loadScheduleTotal(
         let query = supabase
             .from("schedules")
             .select("id", { count: "exact", head: true })
+            .ilike("procedure_name", "%1%Avalia%Reprodu%")
             .gte("scheduled_for", startDate)
             .lte("scheduled_for", endDate);
 

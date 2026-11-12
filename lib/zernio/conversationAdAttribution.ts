@@ -1,5 +1,6 @@
 // lib/zernio/conversationAdAttribution.ts
 import { randomUUID } from "crypto";
+import { inferTunnelFromTracking } from "@/lib/analysis/tunnelAttribution";
 
 import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 import type { ParsedZernioMessage } from "@/lib/importers/zernio/parseZernioWebhook";
@@ -716,7 +717,7 @@ async function updateInstagramUserLatestAttribution({
 }) {
     const { data: current, error: readError } = await supabase
         .from("instagram_users")
-        .select("last_paid_attribution_at, location")
+        .select("last_paid_attribution_at, location, client_id")
         .eq("id", instagramUserId)
         .maybeSingle();
 
@@ -753,6 +754,21 @@ async function updateInstagramUserLatestAttribution({
             `[zernio-webhook:${requestId}] Instagram attribution profile update failed`,
             error,
         );
+    }
+    if (error) return;
+    const tunnel = inferTunnelFromTracking(values.last_ad_campaign_name, values.last_ad_set_name, values.last_ad_name);
+    if (!tunnel) return;
+    const { error: tunnelError } = await supabase.from("conversations")
+        .update({ tunnel }).eq("instagram_user_id", instagramUserId)
+        .lte("started_at", receivedAt)
+        .or(`ended_at.is.null,ended_at.gte.${receivedAt}`)
+        .or("tunnel.is.null,tunnel.eq.,tunnel.eq.Entrada Organica");
+    if (tunnelError) throw tunnelError;
+    if (current?.client_id) {
+        const { error: clientError } = await supabase.from("clients")
+            .update({ last_tunnel: tunnel }).eq("id", current.client_id)
+            .or("last_tunnel.is.null,last_tunnel.eq.,last_tunnel.eq.Entrada Organica");
+        if (clientError) throw clientError;
     }
 }
 

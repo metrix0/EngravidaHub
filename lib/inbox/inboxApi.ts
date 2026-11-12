@@ -89,7 +89,9 @@ export async function fetchInboxThreads({
     search,
     page,
     pageSize,
+    channel,
 }: {
+    channel?: "Instagram" | "Facebook";
     status: InboxStatus;
     search: string;
     page: number;
@@ -98,6 +100,7 @@ export async function fetchInboxThreads({
     const params = new URLSearchParams();
 
     params.set("status", status);
+    if (channel) params.set("channel", channel);
     params.set("page", String(page));
     params.set("page_size", String(pageSize));
 
@@ -837,6 +840,7 @@ function createOptimisticMessageId() {
 
 function formatMessageTime(value: string) {
     return new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
         hour: "2-digit",
         minute: "2-digit",
     }).format(new Date(value));
