@@ -26,12 +26,12 @@ const workingHoursSchema = z.object({
     startsAt: timeSchema,
     endsAt: timeSchema,
     validFrom: isoDateSchema,
-    validUntil: isoDateSchema.nullable(),
-}).strict().superRefine((value, context) => {
+    validUntil: isoDateSchema.nullable().default(null),
+}).strip().superRefine((value, context) => {
     validateTimeRange(value, context);
     validateDateRange(value, context);
 });
-const exceptionPeriodSchema = z.object({ startsAt: timeSchema, endsAt: timeSchema }).strict().superRefine(validateTimeRange);
+const exceptionPeriodSchema = z.object({ startsAt: timeSchema, endsAt: timeSchema }).strip().superRefine(validateTimeRange);
 const exceptionSchema = z.object({
     id: z.string().trim().min(1).max(180),
     date: isoDateSchema,
@@ -41,7 +41,7 @@ const exceptionSchema = z.object({
     daysOfWeek: daysOfWeekSchema.nullable().optional(),
     validFrom: isoDateSchema.nullable().optional(),
     validUntil: isoDateSchema.nullable().optional(),
-}).strict().superRefine((value, context) => {
+}).strip().superRefine((value, context) => {
     if (value.validFrom && value.validUntil && value.validUntil < value.validFrom) {
         context.addIssue({ code: "custom", path: ["validUntil"], message: "validUntil must be on or after validFrom" });
     }
@@ -52,7 +52,7 @@ const oneTimeBlockSchema = z.object({
     startsAt: z.string().datetime({ offset: true }),
     endsAt: z.string().datetime({ offset: true }),
     reason: z.string().trim().max(500).nullable().optional(),
-}).strict().superRefine((value, context) => {
+}).strip().superRefine((value, context) => {
     if (new Date(value.endsAt).getTime() <= new Date(value.startsAt).getTime()) {
         context.addIssue({ code: "custom", path: ["endsAt"], message: "endsAt must be after startsAt" });
     }
@@ -64,9 +64,9 @@ const recurringBlockSchema = z.object({
     startsAt: timeSchema,
     endsAt: timeSchema,
     validFrom: isoDateSchema,
-    validUntil: isoDateSchema.nullable(),
+    validUntil: isoDateSchema.nullable().default(null),
     reason: z.string().trim().max(500).nullable().optional(),
-}).strict().superRefine((value, context) => {
+}).strip().superRefine((value, context) => {
     validateTimeRange(value, context);
     validateDateRange(value, context);
 });
@@ -78,11 +78,11 @@ const agendaSchema = z.object({
     workingHours: z.array(workingHoursSchema),
     exceptions: z.array(exceptionSchema),
     blocks: z.array(z.union([oneTimeBlockSchema, recurringBlockSchema])),
-}).strict();
+}).strip();
 const scheduleWebhookSchema = z.discriminatedUnion("event", [
-    z.object({ event: z.literal("agenda.created"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180), agenda: agendaSchema }).strict(),
-    z.object({ event: z.literal("agenda.updated"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180), agenda: agendaSchema }).strict(),
-    z.object({ event: z.literal("agenda.deleted"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180) }).strict(),
+    z.object({ event: z.literal("agenda.created"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180), agenda: agendaSchema }).strip(),
+    z.object({ event: z.literal("agenda.updated"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180), agenda: agendaSchema }).strip(),
+    z.object({ event: z.literal("agenda.deleted"), source: z.literal("clinisys"), externalId: z.string().trim().min(1).max(180) }).strip(),
 ]);
 
 export async function POST(request: Request) {
@@ -110,6 +110,11 @@ export async function POST(request: Request) {
     }
     const parsed = scheduleWebhookSchema.safeParse(payload);
     if (!parsed.success) {
+        console.warn("[clinisys-schedules] rejected payload fields", parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            code: issue.code,
+            ...(issue.code === "unrecognized_keys" ? { keys: issue.keys.slice(0, 20) } : {}),
+        })));
         return NextResponse.json({
             ok: false,
             error: "Invalid schedule webhook payload",
