@@ -558,6 +558,11 @@ async function sendAttendanceConversion({
     client: ClientForSchedule;
     scheduleId: string;
 }) {
+    if (!isFirstEvaluationProcedure(schedule.procedure_name)) {
+        const skipped = { ok: true, skipped: true, reason: "not_a_first_evaluation" };
+        return { meta: skipped, google: skipped };
+    }
+
     const event: DerivedAdEvent = {
         type: "attendance",
         meta_event_name: "Comparecimento",
