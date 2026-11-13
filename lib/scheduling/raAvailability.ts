@@ -82,6 +82,7 @@ export function filterRaFreeSlots(
     firstEvaluations: Record<string, number> = {},
     limitQuotas = false,
     isAvailable?: (slot: AgendaFreeSlot) => boolean,
+    datedPeriods: Record<string, Array<{ startsAt: string; endsAt: string }>> = {},
 ): AgendaFreeSlot[] {
     const unitsById = new Map(units.map(unit => [unit.id, unit]));
     const doctorsById = new Map(doctors.map(doctor => [doctor.unit_id + ":" + doctor.id, doctor]));
@@ -101,7 +102,9 @@ export function filterRaFreeSlots(
         const raRule = RA_RULES[normalize(unit.name)]?.[normalize(doctor.name)];
         if (!raRule) continue;
         const day = new Date(first.date + "T12:00:00Z").getUTCDay();
-        const allowedStarts = raRule.days[day] ?? [];
+        const special = datedPeriods[first.unitId + ":" + first.doctorId + ":" + first.date];
+        const allowedStarts = raRule.days[day] ?? (special ?? []).flatMap(period =>
+            times(period.startsAt, period.endsAt, raRule.duration).filter(clock => minutes(clock) + raRule.duration <= minutes(period.endsAt)));
         if (!allowedStarts.length) continue;
 
         // CliniSYS may publish 15-minute capacity for a 45-minute evaluation.

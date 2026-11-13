@@ -77,7 +77,7 @@ export default function AgendaReports({ unitIds, doctorIds, units, doctors, read
             ...(daily.report ? [{ id: "agenda-disponibilidade", title: "Disponibilidade da agenda", data: {
                 data: date, atualizado_em: daily.report.generatedAt, horizonte: daily.report.horizonEnd,
                 unidades: daily.report.availability, medicos_sem_agenda: daily.report.missingDoctors,
-                metodologia: "Espera em dias de calendário; dia com 3+ soma vagas dos médicos da unidade. Somente disponibilidade confirmada para primeira avaliação e regras RA. Próximas datas começam amanhã; dia com 3+ não repete a primeira data.",
+                metodologia: "Espera em dias de calendário; dia com 3+ soma vagas dos médicos da unidade. Somente disponibilidade confirmada para primeira avaliação no CliniSYS. Próximas datas começam amanhã; dia com 3+ não repete a primeira data.",
             } }] : []),
             { id: "agenda-indicadores-estado", title: "Estado dos indicadores mensais", data: { carregando: monthly.loading, erro: monthly.error, dados_disponiveis: Boolean(monthly.report) } },
             ...(monthly.report ? [{ id: "agenda-indicadores", title: "Indicadores da agenda por mês e unidade", data: {
@@ -191,7 +191,7 @@ function dailyTables(report: OperationalAgendaReport, units?: Array<{ id: string
         ? units.map(unit => ({ name: unit.name, row: report.availability.find(row => row.unitId === unit.id) }))
         : report.availability.map(row => ({ name: row.unitName, row }));
     return [
-        { title: "Tempo de espera", columns: ["Unidade", "1ª vaga", "Dia com 3+"], rows: entries.map(({ name, row }) => [name, row ? row.availabilityVerified === false ? "Não verificada" : days(row.firstWaitDays, row.total) : "Sem agenda vigente", row ? row.availabilityVerified === false ? "Não verificada" : days(row.threeWaitDays, row.total) : "Sem agenda vigente"]), note: "3+ vagas soma os horários confirmados para primeira avaliação, respeitando as regras RA, em uma data posterior à primeira vaga." },
+        { title: "Tempo de espera", columns: ["Unidade", "1ª vaga", "Dia com 3+"], rows: entries.map(({ name, row }) => [name, row ? row.availabilityVerified === false ? "Não verificada" : days(row.firstWaitDays, row.total) : "Sem agenda vigente", row ? row.availabilityVerified === false ? "Não verificada" : days(row.threeWaitDays, row.total) : "Sem agenda vigente"]), note: "3+ vagas soma os horários confirmados para primeira avaliação, publicados pelo CliniSYS, em uma data posterior à primeira vaga." },
         { title: "Próximas datas", columns: ["Unidade", "1ª data", "2ª data", "3ª data"], rows: entries.map(({ name, row }) => [name, ...Array.from({ length: 3 }, (_, index) => row?.nextDates[index] ? shortDate(row.nextDates[index]) : "—")]) },
         { title: "Disponibilidade semanal", columns: ["Unidade", "Atual", "+1 sem.", "+2 sem.", "+3 sem."], rows: entries.map(({ name, row }) => [name, ...(row?.availabilityVerified === false ? ["—", "—", "—", "—"] : row?.weeks ?? [0, 0, 0, 0])]) },
         { title: "Próximos sábados", columns: ["Unidade", "Datas disponíveis"], rows: entries.map(({ name, row }) => [name, !row ? "Sem agenda vigente" : row.availabilityVerified === false ? "Não verificada" : row.saturdays.length ? row.saturdays.map(item => `${shortDate(item.date)}${item.threeOrMore ? " (3+)" : ""}`).join(" · ") : row.servesSaturday ? "Sem vaga no período" : row.total ? "Não atende no período" : "Sem agenda vigente"]) },
