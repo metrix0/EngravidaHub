@@ -71,3 +71,31 @@ console.log("PASS: Manaus provider times and RA restrictions use the same local 
 const trailing = buildOperationalAgenda({ ...input, agendas: [{ ...liveAgenda, slot_duration_minutes: 45, availability_snapshot: { ...liveAgenda.availability_snapshot, slots: [{ data: "17/11/2026", inicio: "08:30", termino: "09:45" }, { data: "17/11/2026", inicio: "09:00", termino: "09:45" }] } }], reportAvailability: true });
 assert.equal(trailing.availability[0].firstDate, "2026-11-17");
 console.log("PASS: a valid full consultation at the end of verified capacity is preserved.");
+
+const sundayDate = "2026-11-29";
+const sundayNow = Date.parse(`${sundayDate}T18:00:00-03:00`);
+const saturdayAgenda = { ...agenda, unit_name: "São Paulo", doctor_name: "Dr. Bárbara Tavares", availability_snapshot: {
+    dateFrom: "2026-11-28", dateTo: "2026-12-20", syncedAt: new Date(sundayNow).toISOString(), procedureId: "rh",
+    slots: ["28/11/2026", "05/12/2026", "12/12/2026", "19/12/2026"].map(data => ({ data, inicio: "08:00", termino: "08:45" })),
+} };
+const sundayReport = buildOperationalAgenda({ ...input, agendas: [saturdayAgenda], start: "2026-11-01", end: "2026-12-01", reportDate: sundayDate, now: sundayNow, reportAvailability: true });
+assert.deepEqual(sundayReport.availability[0].weeks, [0, 1, 1, 1]);
+assert.equal(sundayReport.availability[0].firstDate, "2026-12-05");
+
+const fridayDate = "2026-11-13";
+const fridayNow = Date.parse(`${fridayDate}T18:00:00-03:00`);
+const morningAgenda = { ...agenda, unit_name: "Bauru", doctor_name: "Dr. Paula Nunes", availability_snapshot: {
+    dateFrom: fridayDate, dateTo: "2026-11-20", syncedAt: new Date(fridayNow).toISOString(), procedureId: "rh",
+    slots: [{ data: "13/11/2026", inicio: "08:00", termino: "08:45" }],
+} };
+const fridayInput = { ...input, agendas: [morningAgenda], reportDate: fridayDate, now: fridayNow };
+const fridayReport = buildOperationalAgenda({ ...fridayInput, reportAvailability: true });
+assert.equal(fridayReport.availability[0].weeks[0], 1);
+assert.equal(fridayReport.availability[0].firstDate, null);
+assert.equal(buildOperationalAgenda(fridayInput).slots.length, 0);
+console.log("PASS: RA weeks start Monday, include D0 in full, end Sunday and cross months without changing the calendar.");
+
+const specialSaturday = { ...liveAgenda, unit_name: "Juiz de Fora", doctor_name: "Dr. Leila Lamas", exceptions: [{ id: "explicit-opening", date: "2026-11-21", available: true, periods: [{ startsAt: "08:00", endsAt: "12:00" }] }], availability_snapshot: { ...liveAgenda.availability_snapshot, slots: [{ data: "21/11/2026", inicio: "08:00", termino: "08:45" }] } };
+assert.equal(buildOperationalAgenda({ ...input, agendas: [specialSaturday], reportAvailability: true }).availability[0].saturdays[0]?.date, "2026-11-21");
+assert.equal(buildOperationalAgenda({ ...input, agendas: [{ ...specialSaturday, exceptions: [{ ...specialSaturday.exceptions[0], id: "clinisys-availability:generated" }] }], reportAvailability: true }).availability[0].firstDate, null);
+console.log("PASS: explicit special Saturday openings survive RA filtering; generated availability cannot approve a new RA weekday.");

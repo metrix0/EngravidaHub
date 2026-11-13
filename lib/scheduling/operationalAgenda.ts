@@ -53,7 +53,7 @@ function sum(rows: AgendaCounts[]) {
 
 export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number> }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
-    const reportNow = reportDate === agendaDate(now) ? now : epoch(reportDate);
+    const reportNow = input.reportAvailability ? epoch(reportDate) : reportDate === agendaDate(now) ? now : epoch(reportDate);
     const historyStart = [input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6), agendaWeekStart(reportDate)].sort()[0];
     const horizonEnd = agendaMonthStart(reportDate, 2);
     const last = [input.end, horizonEnd, agendaMonthStart(input.start, 1)].sort().at(-1)!;
@@ -133,7 +133,9 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     const denominator = previous.total - previous.blocked, monthlyBase = month.total - month.blocked;
     // Unknown booking origins must not produce a deceptively precise team projection.
     const projection = { month: monthStart.slice(0, 7), base: monthlyBase, ra: denominator && !previous.unknown ? Math.round(monthlyBase * previous.ra / denominator) : null, unit: denominator && !previous.unknown ? Math.round(monthlyBase * previous.unit / denominator) : null, historicalMonths: previousMonths.filter(row => row.total > 0).length, unknown: previous.unknown };
-    const weekStart = agendaWeekStart(reportDate);
+    const weekStart = input.reportAvailability
+        ? agendaAddDays(reportDate, -((new Date(`${reportDate}T12:00:00Z`).getUTCDay() + 6) % 7))
+        : agendaWeekStart(reportDate);
     const providerStarts = new Set<string>();
     const providerClocks = new Map<string, Intl.DateTimeFormat>();
     if (input.reportAvailability) for (const agenda of [...groups.values()].flat()) {
@@ -151,8 +153,16 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
         const clock = providerClocks.get(key)?.format(new Date(slot.startsAt));
         return providerStarts.has(`${key}:${slot.date}:${clock}`);
     };
+    // Explicit dated openings may enable a day outside the regular RA week.
+    // Generated availability exceptions are not explicit schedule approvals.
+    const datedPeriods: Record<string, Array<{ startsAt: string; endsAt: string }>> = {};
+    if (input.reportAvailability) for (const agenda of input.agendas) for (const exception of (Array.isArray(agenda.exceptions) ? agenda.exceptions : []) as Array<{ id?: string; date: string; available: boolean; periods?: Array<{ startsAt: string; endsAt: string }> }>) {
+        if (!exception.available || exception.id?.startsWith("clinisys-availability:")) continue;
+        const key = `${agenda.unit_id}:${agenda.doctor_id}:${exception.date}`;
+        datedPeriods[key] = [...(datedPeriods[key] ?? []), ...(exception.periods ?? [])];
+    }
     const reportSlots = input.reportAvailability
-        ? filterRaFreeSlots(freeSlots, byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })), byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })), input.raFirstEvaluationCounts, true, providerHasStart)
+        ? filterRaFreeSlots(freeSlots, byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })), byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })), input.raFirstEvaluationCounts, true, providerHasStart, datedPeriods)
         : freeSlots;
     const availability = byUnit.map(unit => {
         const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));
@@ -161,10 +171,10 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
         const wait = (date: string | null) => date ? Math.round((epoch(date) - epoch(reportDate)) / DAY) : null;
         const saturdayDates = dates.filter(date => new Date(`${date}T12:00:00Z`).getUTCDay() === 6);
         const servesSaturday = daily.some(row => row.unitId === unit.unitId && row.date >= reportDate && new Date(`${row.date}T12:00:00Z`).getUTCDay() === 6 && row.total > 0);
-        // The reference's weekly totals include unfilled slots earlier in the
-        // current week; only the next-date search excludes elapsed time.
+        // RA reports count D0 through Sunday, followed by three Monday–Sunday weeks.
+        // The calendar retains its own week boundaries and elapsed-time rules.
         const weeks = Array.from({ length: 4 }, (_, index) => input.reportAvailability
-            ? reportSlots.filter(slot => slot.unitId === unit.unitId && slot.date >= agendaAddDays(weekStart, index * 7) && slot.date < agendaAddDays(weekStart, (index + 1) * 7)).length
+            ? reportSlots.filter(slot => slot.unitId === unit.unitId && slot.date >= (index === 0 ? reportDate : agendaAddDays(weekStart, index * 7)) && slot.date < agendaAddDays(weekStart, (index + 1) * 7)).length
             : daily.filter(row => row.unitId === unit.unitId && row.date >= agendaAddDays(weekStart, index * 7) && row.date < agendaAddDays(weekStart, (index + 1) * 7)).reduce((total, row) => total + row.available + row.open, 0));
         const verified = input.agendas.some(row => row.unit_id === unit.unitId && verifiedReportAgenda(row, agendaAddDays(reportDate, 1), now));
         return { ...unit, availabilityVerified: !input.reportAvailability || verified, firstDate: dates[0] ?? null, firstWaitDays: wait(dates[0] ?? null), threeDate, threeWaitDays: wait(threeDate), nextDates: dates.slice(0, 3), weeks, saturdays: saturdayDates.slice(0, 2).map(date => ({ date, threeOrMore: slots.filter(slot => slot.date === date).length >= 3 })), servesSaturday };
