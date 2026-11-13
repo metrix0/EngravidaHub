@@ -364,7 +364,7 @@ export default function InboxPrewrittenMessagesController({
                                     <p title={message.text} className="min-w-0 flex-1 truncate text-sm text-slate-600">
                                         {message.text}
                                     </p>
-                                    <code className="inline-flex shrink-0 rounded-md bg-brand-soft px-2 py-1 text-xs font-bold text-brand">
+                                    <code title={message.command} className="block max-w-[45%] shrink-0 truncate rounded-md bg-brand-soft px-2 py-1 text-xs font-bold text-brand">
                                         {message.command}
                                     </code>
                                     <button

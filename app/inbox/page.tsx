@@ -68,7 +68,7 @@ import type {
 
 type Conversation = InboxThreadDetail;
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 50;
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_MIME_TYPES = new Set([
     "image/jpeg",
