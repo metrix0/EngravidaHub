@@ -565,7 +565,7 @@ async function sendAttendanceConversion({
 
     const event: DerivedAdEvent = {
         type: "attendance",
-        meta_event_name: "Comparecimento",
+        meta_event_name: "FindLocation",
         google_conversion_name: "attendance",
         occurred_at: new Date().toISOString(),
         confidence: 1,

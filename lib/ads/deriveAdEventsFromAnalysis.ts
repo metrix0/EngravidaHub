@@ -7,7 +7,7 @@ import {
 
 export type DerivedAdEvent = {
     type: "lead" | "schedule" | "attendance";
-    meta_event_name: "CompleteRegistration" | "Schedule" | "Comparecimento";
+    meta_event_name: "CompleteRegistration" | "Schedule" | "FindLocation";
     google_conversion_name: "qualified_lead" | "book_appointment" | "attendance";
     occurred_at: string;
     confidence: number;
