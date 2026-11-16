@@ -1162,10 +1162,6 @@ function ConversationListPanel({
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                     Inbox
                 </h1>
-
-                <p className="mt-2 text-sm text-slate-500">
-                    Atendimento omnichannel em tempo real
-                </p>
             </div>
 
             {/* The pull workflow remains available in code for a future return. */}
@@ -1310,13 +1306,16 @@ function ConversationListItem({
         <button
             type="button"
             onClick={onClick}
-            className={`grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-4 text-left transition-colors ${
+            className={`grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border px-3 py-3.5 text-left transition-colors ${
                 active
                     ? "border-brand bg-brand-soft/50 shadow-sm"
                     : "border-slate-200 bg-white hover:bg-slate-50"
             }`}
         >
-            <InitialsAvatar name={conversation.name}/>
+            <span className="relative inline-flex w-9">
+                <InitialsAvatar name={conversation.name}/>
+                <ChannelBadge channel={conversation.channel} avatarOverlay />
+            </span>
 
             <div className="min-w-0">
                 <div
@@ -1332,13 +1331,9 @@ function ConversationListItem({
                 >
                     {conversation.preview}
                 </div>
-
-                <div className="mt-2">
-                    <ChannelBadge channel={conversation.channel}/>
-                </div>
             </div>
 
-            <div className="flex h-full shrink-0 flex-col items-end justify-between">
+            <div className="relative flex min-h-12 min-w-20 items-start justify-end self-stretch">
                 <span
                     className={`whitespace-nowrap text-xs font-medium ${
                         active ? "text-brand" : "text-slate-500"
@@ -1349,12 +1344,11 @@ function ConversationListItem({
 
                 {conversation.unread ? (
                     <span
-                        className="flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-2 text-xs font-bold text-white">
+                        className="absolute right-0 bottom-0 h-5 min-w-5 whitespace-nowrap rounded-full bg-brand px-1 text-center text-xs/5 font-bold tabular-nums text-white"
+                    >
                         {conversation.unread}
                     </span>
-                ) : (
-                    <span/>
-                )}
+                ) : null}
             </div>
         </button>
     );
@@ -2095,19 +2089,18 @@ function ConversationItemsSkeleton() {
             {Array.from({length: 8}).map((_, index) => (
                 <div
                     key={index}
-                    className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                    className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3.5"
                 >
-                    <Skeleton className="h-11 w-11 rounded-full" />
+                    <Skeleton className="h-9 w-9 rounded-full" />
 
-                    <div className="min-w-0">
-                        <Skeleton className="h-4 w-32 rounded-lg" />
-                        <Skeleton className="mt-2 h-4 w-full rounded-lg" />
-                        <Skeleton className="mt-3 h-6 w-24 rounded-lg" />
+                    <div className="flex min-w-0 flex-col gap-2">
+                        <Skeleton className="h-4 w-32 max-w-full rounded-lg" />
+                        <Skeleton className="h-3.5 w-full rounded-lg" />
                     </div>
 
-                    <div className="flex h-full shrink-0 flex-col items-end justify-between">
+                    <div className="flex min-h-12 min-w-20 flex-col items-end justify-between self-stretch">
                         <Skeleton className="h-3 w-10 rounded-lg" />
-                        <Skeleton className="h-6 w-6 rounded-full" />
+                        <Skeleton className="h-5 w-5 rounded-full" />
                     </div>
                 </div>
             ))}
@@ -2328,7 +2321,13 @@ function InboxStatusButton({
     );
 }
 
-function ChannelBadge({channel}: { channel: InboxChannel }) {
+function ChannelBadge({
+                          channel,
+                          avatarOverlay = false,
+                      }: {
+    channel: InboxChannel;
+    avatarOverlay?: boolean;
+}) {
     const className =
         channel === "WhatsApp"
             ? "bg-green-soft text-green"
@@ -2338,9 +2337,16 @@ function ChannelBadge({channel}: { channel: InboxChannel }) {
 
     return (
         <span
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${className}`}
+            className={`inline-flex items-center ${className} ${
+                avatarOverlay
+                    ? "pointer-events-none absolute -top-1 -right-1 size-5 justify-center rounded-full ring-2 ring-white"
+                    : "gap-1.5 rounded-lg px-2 py-1 text-xs font-bold"
+            }`}
         >
             <ChannelIcon channel={channel}/>
+            {avatarOverlay && (
+                <span className="sr-only">{channel === "Facebook" ? "Messenger" : channel}</span>
+            )}
         </span>
     );
 }
