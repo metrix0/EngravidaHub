@@ -1,7 +1,7 @@
 // app/inbox/page.tsx
 "use client";
 
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {
     Bot,
     Archive,
@@ -400,6 +400,20 @@ export default function InboxPage() {
         }
     }, [selectedId, selectedItemType]);
 
+    const sendSelectionRef = useRef({
+        id: selectedId,
+        itemType: selectedItemType,
+        reload: loadSelectedThread,
+    });
+
+    useLayoutEffect(() => {
+        sendSelectionRef.current = {
+            id: selectedId,
+            itemType: selectedItemType,
+            reload: loadSelectedThread,
+        };
+    }, [selectedId, selectedItemType, loadSelectedThread]);
+
     useEffect(() => {
         historyLoadedRef.current = false;
         setHistoryConversations([]);
@@ -503,7 +517,7 @@ export default function InboxPage() {
         changeThreadFilters({unreadOnly: !unreadOnly});
     }
 
-    async function focusOpenThread(threadId: string) {
+    async function focusOpenThread(threadId: string, sentMessages?: InboxMessage[]) {
         forcedSelectionRef.current = { id: threadId, itemType: "thread" };
         selectedThreadRequestRef.current += 1;
 
@@ -511,7 +525,18 @@ export default function InboxPage() {
         if (filtersChanged) changeThreadFilters({status: "open", search: "", unreadOnly: false});
         setSelectedId(threadId);
         setSelectedItemType("thread");
-        setSelectedThread(null);
+        // A reply to a closed conversation reuses the current composer while the open thread loads.
+        setSelectedThread((currentThread) => sentMessages && currentThread ? {
+            ...currentThread,
+            id: threadId,
+            thread_id: threadId,
+            item_type: "thread",
+            conversation_id: null,
+            status: "open",
+            can_reply: true,
+            preview: getMessagePreview(sentMessages.at(-1)?.text ?? ""),
+            messages: sentMessages,
+        } : null);
 
         if (!filtersChanged) await loadThreads();
     }
@@ -661,8 +686,17 @@ export default function InboxPage() {
     }
 
     async function applySendResult(result: InboxSendResult) {
-        if (result.reopened) {
-            await focusOpenThread(result.thread_id);
+        const selection = sendSelectionRef.current;
+        const sourceIsSelected =
+            selection.id === selectedId && selection.itemType === selectedItemType;
+        const sentThreadIsSelected =
+            selection.id === result.thread_id && selection.itemType === "thread";
+
+        if (result.reopened && sourceIsSelected) {
+            const messages = (result.messages ?? [result.message])
+                .map(mapPersistedSentMessage)
+                .filter((message) => message !== null);
+            void focusOpenThread(result.thread_id, messages);
             return;
         }
 
@@ -670,7 +704,7 @@ export default function InboxPage() {
             const lastMessage = result.messages?.[result.messages.length - 1] ?? null;
             const preview = getMessagePreview(lastMessage?.text ?? "");
 
-            await loadSelectedThread();
+            if (sourceIsSelected || sentThreadIsSelected) await selection.reload();
 
             if (preview) {
                 setThreads((currentThreads) =>
@@ -695,7 +729,7 @@ export default function InboxPage() {
         const sentMessage = mapPersistedSentMessage(result.message);
 
         if (!sentMessage) {
-            await loadSelectedThread();
+            if (sourceIsSelected || sentThreadIsSelected) await selection.reload();
             return;
         }
 
@@ -704,7 +738,8 @@ export default function InboxPage() {
         setSelectedThread((currentThread) => {
             if (
                 !currentThread ||
-                currentThread.thread_id !== result.thread_id ||
+                currentThread.item_type !== "thread" ||
+                currentThread.id !== result.thread_id ||
                 currentThread.messages.some((message) => message.id === sentMessage.id)
             ) {
                 return currentThread;
@@ -990,6 +1025,11 @@ export default function InboxPage() {
                                     clientId={selectedClientId}
                                     itemId={selectedId}
                                     itemType={selectedItemType}
+                                    composerId={
+                                        (selectedThreadMatchesSelection ? selectedThread?.thread_id : null) ??
+                                        selectedListThread?.thread_id ??
+                                        selectedId
+                                    }
                                     displayMessages={displayedMessages}
                                     onSendMessage={handleSendMessage}
                                     onSendAttachment={handleSendAttachment}
@@ -1374,6 +1414,7 @@ function ChatPanel({
                        clientId,
                        itemId,
                        itemType,
+                       composerId,
                        displayMessages,
                        onSendMessage,
                        onSendAttachment,
@@ -1392,6 +1433,7 @@ function ChatPanel({
     clientId: string | null;
     itemId: string | null;
     itemType: InboxItemType;
+    composerId: string;
     displayMessages: InboxMessage[];
     onSendMessage: (text: string) => Promise<void>;
     onSendAttachment: (file: File) => Promise<void>;
@@ -1409,19 +1451,41 @@ function ChatPanel({
     const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
-    const [isSending, setIsSending] = useState(false);
+    const [pendingConversations, setPendingConversations] = useState<Set<string>>(new Set());
+    const [failedSends, setFailedSends] = useState<{
+        id: string;
+        composerId: string;
+        text: string;
+        attachment: File | null;
+        error: string;
+    }[]>([]);
+    const sendQueuesRef = useRef(new Map<string, Promise<void>>());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const headerName = headerConversation?.name ?? "Carregando conversa";
     const headerChannel = headerConversation?.channel ?? "WhatsApp";
+    const isSending = pendingConversations.has(composerId);
+    // A closed item can temporarily report can_reply=false while its thread reopens.
+    const canReply = conversation?.can_reply || (
+        isSending && itemType === "conversation" && conversation?.thread_id === composerId
+    );
+    const hasDraft = Boolean(messageText.trim() || selectedAttachment);
 
     useEffect(() => {
         setMessageText("");
         setSelectedAttachment(null);
         setEmojiPickerOpen(false);
         setSendError(null);
-    }, [itemId, itemType]);
+    }, [composerId]);
+
+    useLayoutEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+
+        textarea.style.height = "auto";
+        if (messageText) textarea.style.height = `${textarea.scrollHeight}px`;
+    }, [messageText]);
 
     function insertEmoji(emoji: string) {
         const textarea = textareaRef.current;
@@ -1458,40 +1522,52 @@ function ChatPanel({
         setSendError(null);
     }
 
-    async function handleSubmit() {
+    function handleSubmit() {
         const text = messageText.trim();
         const attachment = selectedAttachment;
 
-        if (
-            !conversation ||
-            !conversation.can_reply ||
-            (!text && !attachment) ||
-            isSending
-        ) {
-            return;
-        }
+        if (!canReply || (!text && !attachment)) return;
 
-        setIsSending(true);
+        setMessageText("");
+        setSelectedAttachment(null);
         setSendError(null);
+        textareaRef.current?.focus({preventScroll: true});
 
-        try {
-            if (text) {
-                await onSendMessage(text);
-                setMessageText("");
+        // The provider and history must receive messages in submission order.
+        const previousSend = sendQueuesRef.current.get(composerId);
+        const send = (previousSend ?? Promise.resolve()).then(async () => {
+            let unsentText = text;
+            try {
+                if (text) {
+                    await onSendMessage(text);
+                    unsentText = "";
+                }
+                if (attachment) await onSendAttachment(attachment);
+            } catch (error) {
+                const failure = {
+                    id: crypto.randomUUID(),
+                    composerId,
+                    text: unsentText,
+                    attachment,
+                    error: error instanceof Error
+                        ? error.message
+                        : "Não foi possível enviar a mensagem.",
+                };
+                setFailedSends((current) => [...current, failure]);
             }
+        }).finally(() => {
+            if (sendQueuesRef.current.get(composerId) !== send) return;
+            sendQueuesRef.current.delete(composerId);
+            setPendingConversations((current) => {
+                const next = new Set(current);
+                next.delete(composerId);
+                return next;
+            });
+        });
 
-            if (attachment) {
-                await onSendAttachment(attachment);
-                setSelectedAttachment(null);
-            }
-        } catch (error) {
-            setSendError(
-                error instanceof Error
-                    ? error.message
-                    : "Não foi possível enviar a mensagem.",
-            );
-        } finally {
-            setIsSending(false);
+        sendQueuesRef.current.set(composerId, send);
+        if (!previousSend) {
+            setPendingConversations((current) => new Set(current).add(composerId));
         }
     }
 
@@ -1560,7 +1636,7 @@ function ChatPanel({
                     {itemType === "thread" && (
                         <button
                             type="button"
-                            disabled={!canFinalize || !itemId || isFinalizingConversation}
+                            disabled={!canFinalize || !itemId || isFinalizingConversation || isSending}
                             title="Transferir atendimento"
                             aria-label="Transferir atendimento"
                             onClick={onTransferConversation}
@@ -1573,7 +1649,7 @@ function ChatPanel({
                     {itemType === "thread" && (
                         <button
                             type="button"
-                            disabled={!canFinalize || !itemId || isFinalizingConversation}
+                            disabled={!canFinalize || !itemId || isFinalizingConversation || isSending}
                             title="Finalizar conversa"
                             onClick={() => void onFinalizeConversation()}
                             className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-red/30 hover:bg-red-soft hover:text-red disabled:cursor-not-allowed disabled:opacity-50"
@@ -1619,6 +1695,27 @@ function ChatPanel({
                     </div>
                 ) : null}
 
+                {failedSends.filter((failure) => failure.composerId === composerId).map((failure) => (
+                    <div key={failure.id} role="alert" className="mb-2 rounded-xl bg-red-soft px-3 py-2 text-xs font-semibold text-red">
+                        <p>{failure.error}</p>
+                        {failure.text && <p className="max-h-20 overflow-y-auto whitespace-pre-wrap break-words">{failure.text}</p>}
+                        {failure.attachment && <p className="truncate">{failure.attachment.name}</p>}
+                        <button
+                            type="button"
+                            disabled={hasDraft || !canReply}
+                            className="mt-1 cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                                setMessageText(failure.text);
+                                setSelectedAttachment(failure.attachment);
+                                setFailedSends((current) => current.filter((entry) => entry.id !== failure.id));
+                                textareaRef.current?.focus({preventScroll: true});
+                            }}
+                        >
+                            Recuperar rascunho
+                        </button>
+                    </div>
+                ))}
+
                 {selectedAttachment ? (
                     <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                         <Paperclip size={16} className="shrink-0 text-slate-500" />
@@ -1633,7 +1730,6 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Remover anexo"
-                            disabled={isSending}
                             onClick={() => setSelectedAttachment(null)}
                             className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -1647,28 +1743,23 @@ function ChatPanel({
                         ref={textareaRef}
                         rows={1}
                         value={messageText}
-                        disabled={!conversation || !conversation.can_reply || isSending}
+                        disabled={!canReply}
                         onChange={(event) => {
                             setMessageText(event.target.value);
                             setSendError(null);
                         }}
                         onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
+                            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                                 event.preventDefault();
-                                void handleSubmit();
+                                handleSubmit();
                             }
                         }}
                         placeholder={
-                            conversation && !conversation.can_reply
+                            conversation && !canReply
                                 ? "Janela de 24h encerrada"
                                 : "Responder como atendente..."
                         }
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
-                        onInput={(event) => {
-                            const target = event.currentTarget;
-                            target.style.height = "auto";
-                            target.style.height = `${target.scrollHeight}px`;
-                        }}
                     />
 
                     <div className="flex shrink-0 items-center gap-1 pb-1">
@@ -1676,7 +1767,7 @@ function ChatPanel({
                             <button
                                 type="button"
                                 title="Emoji"
-                                disabled={!conversation || !conversation.can_reply || isSending}
+                                disabled={!canReply}
                                 onClick={() => setEmojiPickerOpen((current) => !current)}
                                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -1736,7 +1827,7 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Anexo"
-                            disabled={!conversation || !conversation.can_reply || isSending}
+                            disabled={!canReply}
                             onClick={() => {
                                 fileInputRef.current?.click();
                             }}
@@ -1748,16 +1839,12 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Enviar"
-                            disabled={
-                                isSending ||
-                                (!messageText.trim() && !selectedAttachment) ||
-                                !conversation ||
-                                !conversation.can_reply
-                            }
-                            onClick={() => void handleSubmit()}
+                            disabled={!hasDraft || !canReply}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={handleSubmit}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {isSending ? (
+                            {isSending && !hasDraft ? (
                                 <LoaderCircle size={17} className="animate-spin" />
                             ) : (
                                 <Send size={17}/>
