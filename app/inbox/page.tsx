@@ -348,7 +348,7 @@ export default function InboxPage() {
         }
     }, []);
 
-    const loadSelectedThread = useCallback(async () => {
+    const loadSelectedThread = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
         if (
             selectedItemType === "thread" &&
             selectedId !== null &&
@@ -371,6 +371,7 @@ export default function InboxPage() {
             const response = await fetchInboxThread(
                 selectedId,
                 selectedItemType,
+                { force },
             );
 
             if (requestId !== selectedThreadRequestRef.current) {
@@ -474,6 +475,7 @@ export default function InboxPage() {
     }, [loadQueueCount, loadThreads]);
 
     useInboxRealtime({
+        attendantId: canShowInbox ? currentAttendant?.id ?? null : null,
         selectedItemId: canShowInbox ? selectedId : null,
         selectedItemType,
         selectedThreadId: canShowInbox

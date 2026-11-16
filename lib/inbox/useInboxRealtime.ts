@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -12,6 +13,14 @@ import type { InboxItemType } from "@/types/inbox";
 
 type InboxThreadCacheChangedDetail = {
     threadId: string;
+};
+
+type InboxChangeNotification = {
+    thread_id?: string;
+    conversation_id?: string;
+    unread_count?: number;
+    sender_type?: string;
+    table?: string;
 };
 
 type RealtimeStateResponse = {
@@ -26,6 +35,7 @@ const ACTIVE_CONVERSATION_SELECTOR =
     'button[class*="grid-cols-[52px_minmax"][class*="border-brand"]';
 
 export function useInboxRealtime({
+    attendantId,
     selectedItemId,
     selectedItemType,
     selectedThreadId,
@@ -33,13 +43,18 @@ export function useInboxRealtime({
     onThreadChange,
     onSelectedThreadChange,
 }: {
+    attendantId: string | null;
     selectedItemId: string | null;
     selectedItemType: InboxItemType;
     selectedThreadId: string | null;
     selectedClientId: string | null;
     onThreadChange: () => void;
-    onSelectedThreadChange: () => void;
+    onSelectedThreadChange: (options?: { force?: boolean }) => void;
 }) {
+    const notificationHandlerRef = useRef<(change: InboxChangeNotification) => void>(() => {});
+    const subscribedHandlerRef = useRef<() => void>(() => {});
+    const notificationCleanupRef = useRef<Promise<unknown>>(Promise.resolve());
+    const notificationConnectedRef = useRef(false);
     const selectedStateVersionRef = useRef<string | null>(null);
     const pollInFlightRef = useRef(false);
     const markReadInFlightRef = useRef<Promise<void> | null>(null);
@@ -102,6 +117,7 @@ export function useInboxRealtime({
         let threadRefreshTimer: ReturnType<typeof setTimeout> | null = null;
         let selectedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
         let shouldMarkReadOnSelectedRefresh = false;
+        let forceSelectedRefresh = false;
 
         function scheduleThreadRefresh() {
             if (threadRefreshTimer) return;
@@ -117,10 +133,13 @@ export function useInboxRealtime({
 
         function scheduleSelectedRefresh({
             markRead = false,
+            force = true,
         }: {
             markRead?: boolean;
+            force?: boolean;
         } = {}) {
             shouldMarkReadOnSelectedRefresh ||= markRead;
+            forceSelectedRefresh ||= force;
 
             if (selectedRefreshTimer) return;
 
@@ -129,7 +148,8 @@ export function useInboxRealtime({
 
                 if (disposed) return;
 
-                onSelectedThreadChange();
+                onSelectedThreadChange({ force: forceSelectedRefresh });
+                forceSelectedRefresh = false;
 
                 if (shouldMarkReadOnSelectedRefresh) {
                     shouldMarkReadOnSelectedRefresh = false;
@@ -192,6 +212,7 @@ export function useInboxRealtime({
         }
 
         async function pollSelectedThreadState() {
+            if (attendantId && !notificationConnectedRef.current) scheduleThreadRefresh();
             if (
                 !selectedThreadId ||
                 disposed ||
@@ -254,6 +275,7 @@ export function useInboxRealtime({
             if (customEvent.detail?.threadId === selectedThreadId) {
                 scheduleSelectedRefresh({
                     markRead: selectedItemType === "thread",
+                    force: false,
                 });
             }
         }
@@ -262,6 +284,24 @@ export function useInboxRealtime({
             INBOX_THREAD_CACHE_CHANGED_EVENT,
             handleThreadCacheChanged,
         );
+
+        notificationHandlerRef.current = (change) => {
+            if (disposed) return;
+            if (isInboxOptimisticSendPending(change.thread_id) &&
+                (change.table === "thread" || change.sender_type === "attendant")) return;
+            scheduleThreadRefresh();
+            if (change.thread_id === selectedThreadId ||
+                selectedItemType === "conversation" && change.conversation_id === selectedItemId) {
+                selectedStateVersionRef.current = null;
+                scheduleSelectedRefresh({
+                    markRead: selectedItemType === "thread" && (change.unread_count ?? 0) > 0,
+                });
+            }
+        };
+        subscribedHandlerRef.current = () => {
+            scheduleThreadRefresh();
+            if (selectedItemId) scheduleSelectedRefresh();
+        };
 
         const channel = supabase
             .channel(`inbox-realtime-${crypto.randomUUID()}`)
@@ -446,6 +486,7 @@ export function useInboxRealtime({
             supabase.removeChannel(channel);
         };
     }, [
+        attendantId,
         selectedItemId,
         selectedItemType,
         selectedThreadId,
@@ -453,4 +494,41 @@ export function useInboxRealtime({
         onThreadChange,
         onSelectedThreadChange,
     ]);
+
+    // Keep the authenticated notification subscription while the selection or
+    // filters change; only its handlers need the latest conversation state.
+    useEffect(() => {
+        if (!attendantId) return;
+        const realtimeClient = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        );
+        let disposed = false;
+        let channel: ReturnType<typeof realtimeClient.channel> | null = null;
+        void (async () => {
+            // React Strict Mode can unmount and remount before unsubscribe
+            // finishes. Do not reuse a channel that is still being removed.
+            await notificationCleanupRef.current;
+            if (disposed) return;
+            channel = realtimeClient.channel("inbox:social", { config: { private: true } })
+                .on("broadcast", { event: "changed" }, ({ payload }) => {
+                    notificationHandlerRef.current(payload as InboxChangeNotification);
+                })
+                .subscribe((status, error) => {
+                    if (disposed) return;
+                    notificationConnectedRef.current = status === "SUBSCRIBED";
+                    if (status === "SUBSCRIBED") {
+                        subscribedHandlerRef.current();
+                    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                        console.warn("[inbox-realtime] notification subscription failed", status, error?.message ?? null);
+                    }
+                });
+        })();
+        return () => {
+            disposed = true;
+            notificationConnectedRef.current = false;
+            if (channel) notificationCleanupRef.current = realtimeClient.removeChannel(channel);
+        };
+    }, [attendantId]);
+
 }

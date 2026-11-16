@@ -21,7 +21,7 @@ export async function loadTunnelPerformance(
     return data && Array.isArray(data.tunnels) ? groupProblemAndTreatmentRoi(data) : null;
 }
 
-function groupProblemAndTreatmentRoi(data: TunnelRoiData): TunnelRoiData {
+export function groupProblemAndTreatmentRoi(data: TunnelRoiData): TunnelRoiData {
     const [first, second] = data.tunnels.filter(
         ({ tunnel }) => tunnel === "Problemas" || tunnel === "Tratamentos",
     );

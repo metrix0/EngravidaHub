@@ -299,10 +299,11 @@ export default function JourneyPage() {
         setSelectedRange,
         ready: dateFilterReady,
     } = useDashboardDateFilter("mature_journey", JOURNEY_CALENDAR_PRESETS, { persistCustomRange: true });
-    const [loadingFilters, setLoadingFilters] = useState(true);
     const [loadingData, setLoadingData] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
+    const [dataError, setDataError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
     const [pipelineMethodology, setPipelineMethodology] = useState("Carregando detalhes da jornada...");
 
     const pipelineParams = new URLSearchParams();
@@ -328,8 +329,6 @@ export default function JourneyPage() {
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[jornada] filters failed", error);
-            } finally {
-                if (!controller.signal.aborted) setLoadingFilters(false);
             }
         }
 
@@ -343,6 +342,7 @@ export default function JourneyPage() {
         const controller = new AbortController();
 
         async function loadData() {
+            setDataError(null);
             if (hasDataRef.current) setIsRefreshing(true);
             else setLoadingData(true);
 
@@ -353,16 +353,13 @@ export default function JourneyPage() {
 
                 const response = await fetch(
                     `/api/dashboard/jornada?${params.toString()}`,
-                    { signal: controller.signal },
+                    { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) },
                 );
                 const json = await response.json();
                 if (controller.signal.aborted) return;
 
                 if (!response.ok) {
-                    console.error("[jornada] failed to load dashboard", json);
-                    setData(EMPTY_DATA);
-                    setLoadedQueryKey(currentQueryKey);
-                    return;
+                    throw new Error(json.error || "Não foi possível carregar a jornada.");
                 }
 
                 setData({
@@ -406,6 +403,11 @@ export default function JourneyPage() {
             } catch (error) {
                 if (controller.signal.aborted) return;
                 console.error("[jornada] failed to load dashboard", error);
+                setData(null);
+                setLoadedQueryKey(currentQueryKey);
+                setDataError(error instanceof Error && error.name === "TimeoutError"
+                    ? "A consulta demorou mais que o esperado. Tente novamente."
+                    : error instanceof Error ? error.message : "Não foi possível carregar a jornada.");
             } finally {
                 if (!controller.signal.aborted) {
                     setLoadingData(false);
@@ -422,7 +424,7 @@ export default function JourneyPage() {
             window.clearTimeout(debounceId);
             controller.abort();
         };
-    }, [currentQueryKey, dateFilterReady]);
+    }, [currentQueryKey, dateFilterReady, attempt]);
 
     useAssistantPageContext("jornada", () => ({
         title: "Jornada",
@@ -497,9 +499,10 @@ export default function JourneyPage() {
 
                 <div className="pb-12">
                     <section data-assistant-section="jornada-pipeline" className="-mx-4 mb-6 min-w-0 md:-mx-8">
-                        <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology} />
+                        <FullJourneyPipelineCard data={current} queryParams={pipelineParams.toString()} onSourceTooltipChange={setPipelineMethodology}
+                            loading={loadingData || isRefreshing || loadedQueryKey !== currentQueryKey} error={dataError} onRetry={() => setAttempt(value => value + 1)} />
                     </section>
-                    {isRefreshing || loadingData || loadingFilters || loadedQueryKey !== currentQueryKey ? <JourneyBodySkeleton /> : <>
+                    {isRefreshing || loadingData || loadedQueryKey !== currentQueryKey ? <JourneyBodySkeleton /> : dataError ? null : <>
 
                         <section data-assistant-section="jornada-whatsapp" className="mb-6 min-w-0 max-w-full">
                             <WhatsappCoverageCard
@@ -603,8 +606,8 @@ const PIPELINE_STAGE_STYLE: Record<
     },
 };
 
-function FullJourneyPipelineCard({ data, queryParams, onSourceTooltipChange }: { data: JourneyDashboardData; queryParams: string; onSourceTooltipChange: (text: string) => void }) {
-    return <SharedFullJourneyPipelineCard data={{ ...data, full_pipeline: { ...data.full_pipeline, query_params: queryParams } }} onSourceTooltipChange={onSourceTooltipChange} />;
+function FullJourneyPipelineCard({ data, queryParams, onSourceTooltipChange, loading, error, onRetry }: { data: JourneyDashboardData; queryParams: string; onSourceTooltipChange: (text: string) => void; loading: boolean; error: string | null; onRetry: () => void }) {
+    return <SharedFullJourneyPipelineCard data={{ ...data, full_pipeline: { ...data.full_pipeline, query_params: queryParams } }} onSourceTooltipChange={onSourceTooltipChange} provided={{ loading, error, onRetry }} />;
 }
 
 function procedureBottleneckDetail(

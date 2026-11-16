@@ -788,6 +788,23 @@ async function persistSentMessageOnce({
     externalContactId: string | null;
     externalThreadId: string | null;
 }) {
+    if (thread.instagram_user_id) {
+        const { data, error } = await supabase.rpc("persist_zernio_message", {
+            p_thread_id: thread.id,
+            p_message: {
+                sender_type: "attendant",
+                sender_name: attendantName,
+                text,
+                sent_at: sentAt,
+                external_id: externalId,
+                external_thread_id: externalThreadId,
+            },
+        });
+        return error
+            ? { ok: false as const, error }
+            : { ok: true as const, message: data.message };
+    }
+
     const { data: lastMessage, error: lastMessageError } = await supabase
         .from("messages")
         .select("sequence_index")
