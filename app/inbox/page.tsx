@@ -1287,15 +1287,22 @@ function ConversationListPanel({
 
                 <button
                     type="button"
+                    aria-label="Não lidos"
                     aria-pressed={unreadOnly}
+                    title="Não lidos"
                     onClick={onToggleUnread}
-                    className={`flex h-11 shrink-0 cursor-pointer items-center rounded-xl border px-3 text-xs font-bold shadow-sm transition-colors ${
+                    className={`flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border shadow-sm transition-colors ${
                         unreadOnly
                             ? "border-brand bg-brand text-white hover:bg-brand/90"
                             : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                     }`}
                 >
-                    Não lidos
+                    <span className="relative" aria-hidden="true">
+                        <MessagesSquare size={18} />
+                        {unreadOnly && (
+                            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-white ring-2 ring-brand" />
+                        )}
+                    </span>
                 </button>
             </div>
 
