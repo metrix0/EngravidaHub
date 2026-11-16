@@ -1199,7 +1199,7 @@ function ConversationListPanel({
     }, [conversations, hasMore, isLoading, isLoadingMore, loadMoreError, onLoadMore]);
 
     return (
-        <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:min-w-0">
+        <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:h-[calc(100%+var(--spacing)*3)] md:min-w-0">
             <div className="mb-4 shrink-0">
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                     Inbox
