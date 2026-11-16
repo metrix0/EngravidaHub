@@ -18,6 +18,13 @@ const referral = (campaign_name: string | null, text: string) => ({
 });
 assert.equal(inferTunnelFromReferrals([referral(null, "Oi"), referral("Problemas", "Quero saber sobre FIV")]), "Problemas");
 assert.equal(inferTunnelFromReferrals([referral(null, "Olá! Gostaria de saber mais sobre congelamento de óvulos.")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Vocês fazem congelamento de óvulos?")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Qual valor para congelamento dos óvulos")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Congelamento")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Criopreservação de óvulos")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Congelamento? Não tenho interesse.")]), null);
+assert.equal(inferTunnelFromReferrals([referral(null, "Minha amiga fez congelamento de óvulos")]), null);
+assert.equal(inferTunnelFromReferrals([referral(null, "Qual o valor de FIV e congelamento?")]), null);
 assert.equal(inferTunnelFromReferrals([referral(null, "Não tenho interesse em congelamento de óvulos")]), null);
 assert.equal(inferTunnelFromReferrals([referral(null, "Quero informações sobre FIV e congelamento")]), null);
 assert.equal(inferTunnelFromReferrals([referral(null, "Minha amiga fez FIV, quero marcar uma consulta")]), null);

@@ -46,7 +46,7 @@ const supportingEvidence: Record<(typeof INFERABLE_TUNNELS)[number], RegExp> = {
     Problemas: /dificuldad|nao (?:consig|conseg)|nao engravid|tentando engravid|infertil|problema para engravid|abortos? recorrentes?/,
     Laqueadura: /laqueadur|reversa[oã] de ligadura|reverte[r]? (?:a )?ligadura|trompas? ligadas?/,
     LGBT: /\bropa\b|\blgbt\w*|duas mulheres|dois homens|casal de mulheres|casal de homens|homoafetiv/,
-    Congelamento: /congel|preserv[a-z ]{0,18}fertilidad|guardar (?:meus? )?(?:ovulos|embrioes|semen)/,
+    Congelamento: /congel|criopreserv|preserv[a-z ]{0,18}fertilidad|guardar (?:meus? )?(?:ovulos|embrioes|semen)/,
     Tratamentos: /tratament|fertilizacao in vitro|insemin|ovodoa|ovorecep|doacao de (?:ovulos|semen|esperma|embrio|espermatozoide)|reproducao assistida|\bfiv\b|transferencia de embr/,
     "Bio Instagram": /\bbio\b/,
     "Site - Home | Engravida": /\bsite\b|\bpagina (?:da |de )?(?:engravida|voces)\b|\bhome\b/,
@@ -167,6 +167,10 @@ export type TunnelReferral = {
     messages: { text: string | null };
 };
 
+const entryIntent = /\b(?:queria|quero|gostaria|tenho interesse|busco|procuro|me interesso|desejo)\b.*|\b(?:nao consigo|dificuldade para) engravidar\b/;
+const entryQuestion = /\b(?:voces (?:fazem|realizam|oferecem)|qual (?:e )?(?:o )?(?:valor|preco|custo)|quanto (?:custa|fica)|como funciona)\b.*/;
+const explicitFreezingTopic = /^(?:congelamento|criopreservacao)(?: d[eo]s? (?:ovulos|embrioes|semen))?[.!?]*$/;
+
 export function inferTunnelFromReferrals(referrals: TunnelReferral[]): Tunnel | null {
     // Referrals are ordered from newest to oldest and belong to this conversation.
     for (const referral of referrals) {
@@ -178,9 +182,10 @@ export function inferTunnelFromReferrals(referrals: TunnelReferral[]): Tunnel | 
 
     const interests = new Set<Tunnel>();
     for (const referral of referrals) {
-        const text = fold(referral.messages.text ?? "");
+        const text = fold(referral.messages.text ?? "").trim();
+        if (explicitFreezingTopic.test(text)) interests.add("Congelamento");
         for (const clause of text.split(/[,;.!?\n]|\b(?:mas|porem|contudo)\b/)) {
-            const intent = /\b(?:queria|quero|gostaria|tenho interesse|busco|procuro|me interesso|desejo)\b.*|\b(?:nao consigo|dificuldade para) engravidar\b/.exec(clause)?.[0];
+            const intent = entryIntent.exec(clause)?.[0] ?? entryQuestion.exec(clause)?.[0];
             if (!intent || negatedOrUncertainIntent.test(clause)) continue;
             const tunnel = inferTunnelFromTracking(intent);
             if (tunnel && hasAffirmativeSupport(tunnel, intent)) interests.add(tunnel);
