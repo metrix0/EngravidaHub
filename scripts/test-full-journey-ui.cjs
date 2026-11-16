@@ -183,6 +183,29 @@ const settle = () => { flushTimers(150); return new Promise(resolve => setImmedi
     assert.equal(nodes(node, item => item.type === "button" && item.props.children === "Tentar novamente").length, 0);
     slots.forEach(slot => slot?.cleanup?.());
     slots = []; cursor = 0; queue = [];
+    const requestsBeforeProvided = requests.length;
+    let parentRetries = 0;
+    const provided = { loading: true, error: null, onRetry: () => { parentRetries++; } };
+    function renderProvided() {
+        cursor = 0;
+        const result = Widget({ data: { full_pipeline: { ...fixture, query_params: params } }, provided });
+        queue.splice(0).forEach(run => run());
+        return result;
+    }
+    renderProvided();
+    assert.equal(readGraphContext().sections[0].data.carregando, true);
+    provided.loading = false;
+    renderProvided();
+    assert.equal(readGraphContext().sections.find(section => section.id === "jornada-pipeline-paid-stages-0").data.valores[0].value, 2);
+    provided.error = "Resumo indisponível";
+    button(renderProvided(), "Tentar novamente").props.onClick();
+    assert.equal(parentRetries, 1, "Retry must reload the parent summary");
+    params = "start_date=2026-09-01&end_date=2026-09-30";
+    provided.error = null;
+    renderProvided();
+    assert.equal(requests.length, requestsBeforeProvided, "Provided graphs must reuse the summary across loading, errors, retries and date changes");
+    slots.forEach(slot => slot?.cleanup?.());
+    slots = []; cursor = 0; queue = [];
     const props = { scheduled: fixture.stages[1], attended: fixture.stages[2], branches: [{ key: "exam", procedure_name: "Consulta específica", scheduled_appointments: 2, attended_appointments: 1 }], topOffset: 0, idPrefix: "paid" };
     let details = Widget.details(props);
     const toggle = nodes(details, item => item.type === "button")[0];

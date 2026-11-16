@@ -4,7 +4,7 @@ import { hasConversationTrackingEvidence, hasTintimTrackingEvidence, trackingIsN
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
-import { loadTunnelPerformance } from "@/lib/dashboard/tunnelPerformance";
+import { groupProblemAndTreatmentRoi } from "@/lib/dashboard/tunnelPerformance";
 import {
     paidMediaPlatformFromOrigin,
     resolvePaidMediaAttribution,
@@ -361,42 +361,35 @@ export async function GET(request: Request) {
             );
         if (pipelineOnly) {
             const { data: prepared, error: preparedError } = await supabase.rpc(
-                "dashboard_journey_prepared_v1",
+                "dashboard_journey_snapshot_v1",
                 executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
             ).abortSignal(request.signal);
             if (preparedError) throw preparedError;
-            if (!prepared?.ready || !Array.isArray(prepared.groups)) {
+            if (!prepared?.pipeline?.ready || !Array.isArray(prepared.pipeline.groups)) {
                 throw new Error("A jornada pré-calculada não está disponível.");
             }
             return NextResponse.json(
-                { full_pipeline: buildPreparedJourneyPipeline(prepared as PreparedJourneyRead, range, filters) },
+                { full_pipeline: buildPreparedJourneyPipeline(prepared.pipeline as PreparedJourneyRead, range, filters) },
                 { headers: { "Cache-Control": "private, no-store" } },
             );
         }
 
         if (searchParams.get("summary_only") === "1") {
-            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult, tunnelRoi] = await Promise.all([
-                supabase.rpc(
-                    "dashboard_journey_prepared_v1",
-                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
-                ).abortSignal(request.signal),
-                loadPreparedConversationMetrics(range, filters, request.signal),
-                loadPreparedEvaluationJourneyFunnels(range, filters, request.signal),
-                supabase.rpc(
-                    "dashboard_journey_whatsapp_coverage_prepared_v1",
-                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
-                ).abortSignal(request.signal),
-                loadTunnelPerformance(range, filters, request.signal),
-            ]);
-            if (preparedResult.error) throw preparedResult.error;
-            if (coverageResult.error) throw coverageResult.error;
-            if (!preparedResult.data?.ready || !Array.isArray(preparedResult.data.groups) || !preparedAnalysis || !coverageResult.data) {
+            const { data: snapshot, error } = await supabase.rpc(
+                "dashboard_journey_snapshot_v1",
+                executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
+            ).abortSignal(request.signal);
+            if (error) throw error;
+            if (!snapshot?.pipeline?.ready || !Array.isArray(snapshot.pipeline.groups) ||
+                !snapshot.analysis?.counts || !Array.isArray(snapshot.analysis.intents) || !snapshot.coverage) {
                 throw new Error("Os dados pré-calculados da jornada não estão disponíveis.");
             }
+            const preparedAnalysis = buildPreparedConversationMetrics(snapshot.analysis);
+            const evaluationJourneys = buildPreparedEvaluationJourneyFunnels(snapshot.evaluation_funnels);
             const fullPipeline = buildPreparedJourneyPipeline(
-                preparedResult.data as PreparedJourneyRead, range, filters,
+                snapshot.pipeline as PreparedJourneyRead, range, filters,
             );
-            fullPipeline.audit.whatsapp_coverage = coverageResult.data as WhatsappCoverage;
+            fullPipeline.audit.whatsapp_coverage = snapshot.coverage as WhatsappCoverage;
             fullPipeline.query_params = searchParams.toString();
             return NextResponse.json(
                 {
@@ -407,7 +400,7 @@ export async function GET(request: Request) {
                     intent_paths: preparedAnalysis.intent_paths,
                     objections: preparedAnalysis.objections,
                     audit: preparedAnalysis.audit,
-                    tunnel_roi: tunnelRoi,
+                    tunnel_roi: snapshot.tunnel_roi ? groupProblemAndTreatmentRoi(snapshot.tunnel_roi) : null,
                 },
                 { headers: { "Cache-Control": "private, no-store" } },
             );
@@ -534,7 +527,10 @@ async function loadPreparedConversationMetrics(range: DashboardDateRange, filter
         console.warn("[dashboard/jornada] prepared analysis unavailable", error?.code);
         return null;
     }
-    const result = data as PreparedAnalysisRead;
+    return buildPreparedConversationMetrics(data as PreparedAnalysisRead);
+}
+
+function buildPreparedConversationMetrics(result: PreparedAnalysisRead) {
     const c = result.counts;
     const totalDropoffs = result.dropoffs.reduce((sum, row) => sum + row.n, 0);
     return {
@@ -969,20 +965,7 @@ function funnelStage(
     };
 }
 
-async function loadPreparedEvaluationJourneyFunnels(
-    range: DashboardDateRange,
-    filters: DashboardFilters,
-    signal: AbortSignal,
-) {
-    const startDate = range.startDate ?? saoPauloDate(range.startAt);
-    const endDate = range.endDate ??
-        saoPauloDate(new Date(new Date(range.endAt).getTime() - 1).toISOString());
-    const { data, error } = await supabase.rpc("dashboard_journey_evaluation_funnels_v1", {
-        p_start_date: startDate,
-        p_end_date: endDate,
-        p_unit_ids: filters.unitIds,
-    }).abortSignal(signal);
-    if (error) throw error;
+function buildPreparedEvaluationJourneyFunnels(data: Record<EvaluationJourneyMode, { evaluated: number; scheduled: number; attended: number; paid: number }> | null) {
     if (!data?.presencial || !data?.online) {
         throw new Error("Os funis de avaliação pré-calculados não estão disponíveis.");
     }

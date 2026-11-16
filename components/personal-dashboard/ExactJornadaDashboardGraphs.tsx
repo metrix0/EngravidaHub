@@ -198,7 +198,7 @@ export default function ExactJornadaDashboardGraphs({ widgetId, data }: Props) {
     return null;
 }
 
-export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data: JourneyDashboardData; onSourceTooltipChange?: (text: string) => void }) {
+export function FullJourneyPipelineCard({ data, onSourceTooltipChange, provided }: { data: JourneyDashboardData; onSourceTooltipChange?: (text: string) => void; provided?: { loading: boolean; error: string | null; onRetry: () => void } }) {
     const [patients, setPatients] = useState<(JourneyPatientSelection & { query: string }) | null>(null);
     const [attempt, setAttempt] = useState(0);
     const [loaded, setLoaded] = useState<{ key: string; pipeline: FullJourneyPipeline } | null>(null);
@@ -209,14 +209,15 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     params.set("full_pipeline_only", "1");
     const query = data.full_pipeline.query_params === undefined ? null : params.toString();
     const requestKey = `${query}:${attempt}`;
-    const loading = query !== null && loaded?.key !== requestKey && failure?.key !== requestKey;
-    const pipeline = loaded?.key === requestKey
+    const parentManaged = provided !== undefined;
+    const loading = provided?.loading ?? (query !== null && loaded?.key !== requestKey && failure?.key !== requestKey);
+    const pipeline = !parentManaged && loaded?.key === requestKey
         ? { ...loaded.pipeline, audit: {
             ...loaded.pipeline.audit,
             whatsapp_coverage: data.full_pipeline.audit.whatsapp_coverage ?? loaded.pipeline.audit.whatsapp_coverage,
         } }
         : data.full_pipeline;
-    const error = failure?.key === requestKey ? failure.message : pipeline.audit.error;
+    const error = parentManaged ? provided.error : failure?.key === requestKey ? failure.message : pipeline.audit.error;
 
     useAssistantPageContext(`jornada-grafo-${query}`, () => ({
         title: "Jornada",
@@ -224,7 +225,7 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
     }));
 
     useEffect(() => {
-        if (query === null) return;
+        if (parentManaged || query === null) return;
         const controller = new AbortController();
         const changingPeriod = previousQuery.current !== null && previousQuery.current !== query;
         previousQuery.current = query;
@@ -261,14 +262,20 @@ export function FullJourneyPipelineCard({ data, onSourceTooltipChange }: { data:
             window.clearTimeout(timeout);
             controller.abort();
         };
-    }, [query, requestKey, onSourceTooltipChange]);
+    }, [query, requestKey, onSourceTooltipChange, parentManaged]);
+
+    useEffect(() => {
+        if (parentManaged && !loading && !error) {
+            onSourceTooltipChange?.(buildPipelineSourceTooltip(data.full_pipeline));
+        }
+    }, [parentManaged, loading, error, data.full_pipeline, onSourceTooltipChange]);
 
     return (
         <div data-assistant-section="jornada-pipeline" className="min-w-0 overflow-hidden">
             {error ? (
                 <div className="border-b border-rose-100 bg-rose-50 px-6 py-3 text-sm text-rose-700">
                     A jornada completa não pôde ser carregada: {error}
-                    <button type="button" onClick={() => setAttempt(value => value + 1)} className="ml-2 cursor-pointer underline">Tentar novamente</button>
+                    <button type="button" onClick={provided?.onRetry ?? (() => setAttempt(value => value + 1))} className="ml-2 cursor-pointer underline">Tentar novamente</button>
                 </div>
             ) : null}
 
