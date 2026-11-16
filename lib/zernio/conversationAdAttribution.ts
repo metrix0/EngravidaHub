@@ -1,6 +1,6 @@
 // lib/zernio/conversationAdAttribution.ts
 import { randomUUID } from "crypto";
-import { inferTunnelFromTracking } from "@/lib/analysis/tunnelAttribution";
+import { reconcileConversationTunnel } from "@/lib/analysis/reconcileConversationTunnel";
 
 import { matchMediaBudgetCity } from "@/lib/ads/mediaBudgetByCity";
 import type { ParsedZernioMessage } from "@/lib/importers/zernio/parseZernioWebhook";
@@ -81,6 +81,7 @@ type UnresolvedAttributionRow = {
     instagram_user_id: string;
     meta_ad_id: string;
     referral_received_at: string;
+    message_id: string | null;
 };
 
 export async function persistConversationAdAttribution({
@@ -159,17 +160,22 @@ export async function persistConversationAdAttribution({
 
     // Only skip enrichment when the webhook also supplies the ad and its media.
     if (referral.campaign_id && referral.campaign_name &&
-        (referral.ad_name || referral.ad_title) && (referral.photo_url || referral.video_url)) return;
+        (referral.ad_name || referral.ad_title) && (referral.photo_url || referral.video_url)) {
+        await reconcileReferralTunnels([messageId]);
+        return;
+    }
 
+    let enrichedMessageIds: Array<string | null> = [];
     try {
         const ad = await resolveConversationAd(referral.ad_id);
         const enrichedAt = new Date().toISOString();
-        const { error: updateError } = await supabase
+        const { data: enriched, error: updateError } = await supabase
             .from("conversation_ad_attributions")
             .update(attributionUpdateValues(ad, enrichedAt))
-            .eq("meta_ad_id", referral.ad_id);
+            .eq("meta_ad_id", referral.ad_id).select("message_id");
 
         if (updateError) throw updateError;
+        enrichedMessageIds = (enriched ?? []).map(row => row.message_id);
 
         await updateInstagramUserLatestAttribution({
             instagramUserId,
@@ -220,6 +226,7 @@ export async function persistConversationAdAttribution({
             },
         );
     }
+    await reconcileReferralTunnels([messageId, ...enrichedMessageIds]);
 }
 
 // Explicit IDs also refresh already-resolved metadata, for controlled repairs.
@@ -268,6 +275,7 @@ export async function backfillConversationAdAttributions(metaAdIds?: string[]) {
     });
 
     const locationsUpdated = await backfillInstagramLocations(rows, resolvedAds);
+    await reconcileReferralTunnels(rows.filter(row => resolvedAds.has(row.meta_ad_id)).map(row => row.message_id));
     const result = {
         attempted_ads: adIds.length,
         resolved_ads: resolvedAds.size,
@@ -643,7 +651,7 @@ async function loadUnresolvedAttributionRows(metaAdIds?: string[]) {
     for (let from = 0; ; from += BACKFILL_PAGE_SIZE) {
         let query = supabase
             .from("conversation_ad_attributions")
-            .select("instagram_user_id, meta_ad_id, referral_received_at")
+            .select("instagram_user_id, meta_ad_id, referral_received_at, message_id")
             .order("referral_received_at", { ascending: false })
             .range(from, from + BACKFILL_PAGE_SIZE - 1);
         query = metaAdIds ? query.in("meta_ad_id", metaAdIds)
@@ -728,7 +736,7 @@ async function updateInstagramUserLatestAttribution({
 }) {
     const { data: current, error: readError } = await supabase
         .from("instagram_users")
-        .select("last_paid_attribution_at, location, client_id")
+        .select("last_paid_attribution_at, location")
         .eq("id", instagramUserId)
         .maybeSingle();
 
@@ -766,21 +774,17 @@ async function updateInstagramUserLatestAttribution({
             error,
         );
     }
-    if (error) return;
-    const tunnel = inferTunnelFromTracking(values.last_ad_campaign_name, values.last_ad_set_name, values.last_ad_name);
-    if (!tunnel) return;
-    const { error: tunnelError } = await supabase.from("conversations")
-        .update({ tunnel }).eq("instagram_user_id", instagramUserId)
-        .lte("started_at", receivedAt)
-        .or(`ended_at.is.null,ended_at.gte.${receivedAt}`)
-        .or("tunnel.is.null,tunnel.eq.,tunnel.eq.Entrada Organica");
-    if (tunnelError) throw tunnelError;
-    if (current?.client_id) {
-        const { error: clientError } = await supabase.from("clients")
-            .update({ last_tunnel: tunnel }).eq("id", current.client_id)
-            .or("last_tunnel.is.null,last_tunnel.eq.,last_tunnel.eq.Entrada Organica");
-        if (clientError) throw clientError;
+}
+
+async function reconcileReferralTunnels(messageIds: Array<string | null>) {
+    const conversationIds = new Set<string>();
+    for (const ids of chunk([...new Set(messageIds.filter((id): id is string => !!id))], BACKFILL_UPDATE_BATCH_SIZE)) {
+        const { data, error } = await supabase.from("messages").select("conversation_id")
+            .in("id", ids).not("conversation_id", "is", null);
+        if (error) throw error;
+        for (const row of data ?? []) conversationIds.add(row.conversation_id);
     }
+    await runWithConcurrency([...conversationIds], META_LOOKUP_CONCURRENCY, id => reconcileConversationTunnel(id));
 }
 
 async function runWithConcurrency<T>(

@@ -38,7 +38,7 @@ for (const procedure of [
     assert.deepEqual(calls.map(([platform]) => platform), ['meta', 'google'], procedure);
     assert.equal(claims.length, 2);
     assert.ok(claims.every(([, type, id]) => type === 'attendance' && id === 'qa-schedule'));
-    assert.equal(calls[0][1].events[0].meta_event_name, 'Comparecimento');
+    assert.equal(calls[0][1].events[0].meta_event_name, 'FindLocation');
 }
 for (const procedure of [null, '', 'Reavaliação de Reprodução Humana - presencial',
     'Avaliação de Reprodução Humana - online', 'Avaliação de Ciclo - Online',

@@ -38,8 +38,14 @@ export async function GET(request: Request) {
     const channelParam = searchParams.get("channel");
     const channel = channelParam === "Instagram" || channelParam === "Facebook" ? channelParam : null;
     const window: ListWindow | undefined = channel ? { channel, from: (page - 1) * pageSize, size: pageSize, search } : undefined;
-    const load = status === "closed" ? loadClosedConversations : loadOpenThreads;
-    const result = await load(attendant.id, window);
+    const unreadOnly = searchParams.get("unread") === "true";
+    if (unreadOnly && !window) {
+        return NextResponse.json({ error: "A social channel is required" }, { status: 400 });
+    }
+
+    const result = status === "closed" && !unreadOnly
+        ? await loadClosedConversations(attendant.id, window)
+        : await loadThreads(attendant.id, window, unreadOnly);
 
     if (!result.ok) return result.response;
 
@@ -75,7 +81,7 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
 }
 
-async function loadOpenThreads(attendantId: string, window?: ListWindow) {
+async function loadThreads(attendantId: string, window?: ListWindow, unreadOnly = false) {
     let query = supabase
         .from("thread")
         .select(`
@@ -152,6 +158,11 @@ async function loadOpenThreads(attendantId: string, window?: ListWindow) {
                 tunnel,
                 origin,
                 conversation_analysis_id,
+                started_at,
+                last_message_at,
+                last_message_text,
+                attendant_chat_name,
+                attendants (id, name),
                 analysis:conversation_analysis!conversations_conversation_analysis_id_fkey (
                     id,
                     conversation_goal,
@@ -161,9 +172,11 @@ async function loadOpenThreads(attendantId: string, window?: ListWindow) {
                 )
             )
         `, { count: "exact" })
-        .eq("status", "open")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("id", { ascending: false });
+    query = unreadOnly
+        ? query.gt("unread_count", 0).or("status.eq.open,latest_conversation_id.not.is.null")
+        : query.eq("status", "open");
     query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("assigned_attendant_id", attendantId).limit(MAX_FETCH);
     if (window?.search) {
         const term = window.search.replace(/[%,()*"\\]/g, " ").trim().replace(/\s+/g, " ");
@@ -187,7 +200,15 @@ async function loadOpenThreads(attendantId: string, window?: ListWindow) {
 
     return {
         ok: true as const,
-        items: (data ?? []).map(mapOpenThread),
+        items: (data ?? []).map((row) => {
+            if (row.status === "open") return mapOpenThread(row);
+
+            const conversation = normalizeRelation(row.conversations);
+            return mapClosedConversation(
+                { ...row, ...conversation, id: row.latest_conversation_id, thread_id: row.id },
+                row.unread_count,
+            );
+        }),
         total: count,
     };
 }
@@ -214,6 +235,7 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
             conversation_analysis_id,
             tunnel,
             origin,
+            latest_thread:thread!thread_latest_conversation_id_fkey(unread_count),
             clients (
                 id,
                 name,
@@ -290,6 +312,9 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("id", { ascending: false });
     query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("attendant_id", attendantId).limit(MAX_FETCH);
+    if (window) {
+        query = query.eq("latest_thread.status", "closed").gt("latest_thread.unread_count", 0);
+    }
     if (window?.search) {
         const term = window.search.replace(/[%,()*"\\]/g, " ").trim().replace(/\s+/g, " ");
         if (term) query = query
@@ -312,7 +337,10 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
 
     return {
         ok: true as const,
-        items: (data ?? []).map(mapClosedConversation),
+        items: (data ?? []).map((row) => {
+            const latestThread = window ? normalizeRelation(row.latest_thread) : null;
+            return mapClosedConversation(row, latestThread?.unread_count ?? 0);
+        }),
         total: count,
     };
 }
@@ -370,7 +398,7 @@ function mapOpenThread(row: any): InboxThreadListItem {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapClosedConversation(row: any): InboxThreadListItem {
+function mapClosedConversation(row: any, unread: number): InboxThreadListItem {
     const instagramUser = normalizeRelation(row.instagram_user);
     const client =
         normalizeRelation(row.clients) ??
@@ -405,7 +433,7 @@ function mapClosedConversation(row: any): InboxThreadListItem {
             cleanMessageText(analysis?.short_label ?? "Conversa finalizada"),
         ),
         time: formatTimeAgo(lastActivity),
-        unread: 0,
+        unread,
         status: "closed",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),

@@ -170,7 +170,7 @@ async function updateExistingThread({
         updates.queued_at = receivedAt;
         updates.claimed_at = null;
         updates.closed_at = null;
-        updates.unread_count = 0;
+        if (channel === "WhatsApp") updates.unread_count = 0;
     }
 
     console.info("[inbox-queue] Updating existing thread", {

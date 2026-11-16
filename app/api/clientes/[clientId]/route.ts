@@ -70,7 +70,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
             updated_at,
             external_contact_id,
             last_origin,
-            last_tunnel,
+            last_tunnel:effective_tunnel,
             utm_medium,
             utm_campaign,
             utm_content,
@@ -594,7 +594,7 @@ async function fetchIdentityConversations(
             unit_id,
             service_id,
             conversation_analysis_id,
-            tunnel,
+            tunnel:effective_tunnel,
             origin,
             created_at,
             updated_at

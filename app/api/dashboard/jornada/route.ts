@@ -4,6 +4,7 @@ import { hasConversationTrackingEvidence, hasTintimTrackingEvidence, trackingIsN
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib";
+import { loadTunnelPerformance } from "@/lib/dashboard/tunnelPerformance";
 import {
     paidMediaPlatformFromOrigin,
     resolvePaidMediaAttribution,
@@ -374,7 +375,7 @@ export async function GET(request: Request) {
         }
 
         if (searchParams.get("summary_only") === "1") {
-            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult, tunnelRoiResult] = await Promise.all([
+            const [preparedResult, preparedAnalysis, evaluationJourneys, coverageResult, tunnelRoi] = await Promise.all([
                 supabase.rpc(
                     "dashboard_journey_prepared_v1",
                     executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
@@ -385,18 +386,12 @@ export async function GET(request: Request) {
                     "dashboard_journey_whatsapp_coverage_prepared_v1",
                     executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
                 ).abortSignal(request.signal),
-                supabase.rpc(
-                    "dashboard_journey_tunnel_roi_v1",
-                    executiveRpcParams({ startAt: range.startAt, endAt: range.endAt }, filters),
-                ).abortSignal(request.signal),
+                loadTunnelPerformance(range, filters, request.signal),
             ]);
             if (preparedResult.error) throw preparedResult.error;
             if (coverageResult.error) throw coverageResult.error;
             if (!preparedResult.data?.ready || !Array.isArray(preparedResult.data.groups) || !preparedAnalysis || !coverageResult.data) {
                 throw new Error("Os dados pré-calculados da jornada não estão disponíveis.");
-            }
-            if (tunnelRoiResult.error) {
-                console.warn("[dashboard/jornada] tunnel ROI unavailable", tunnelRoiResult.error.code);
             }
             const fullPipeline = buildPreparedJourneyPipeline(
                 preparedResult.data as PreparedJourneyRead, range, filters,
@@ -412,7 +407,7 @@ export async function GET(request: Request) {
                     intent_paths: preparedAnalysis.intent_paths,
                     objections: preparedAnalysis.objections,
                     audit: preparedAnalysis.audit,
-                    tunnel_roi: tunnelRoiResult.error ? null : tunnelRoiResult.data,
+                    tunnel_roi: tunnelRoi,
                 },
                 { headers: { "Cache-Control": "private, no-store" } },
             );
@@ -1837,7 +1832,7 @@ async function loadPaidWhatsappConversations(
         let query = supabase
             .from("conversations")
             .select(
-                "id, thread_id, client_id, started_at, origin, tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
+                "id, thread_id, client_id, started_at, origin, tunnel:effective_tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
             .eq("channel", "WhatsApp")
             .lt("started_at", range.endAt)
@@ -2076,7 +2071,7 @@ async function loadInstagramDestinationClicks(startDate: string, endDate: string
 }
 
 async function loadInstagramJourney(range: DashboardDateRange, filters: DashboardFilters, signal: AbortSignal) {
-    const select = "id,thread_id,instagram_user_id,started_at,origin,tunnel,unit_id,service_id,attendant_id,instagram_users!conversations_instagram_user_id_fkey(id,client_id,last_meta_ad_id,last_paid_attribution_at)";
+    const select = "id,thread_id,instagram_user_id,started_at,origin,tunnel:effective_tunnel,unit_id,service_id,attendant_id,instagram_users!conversations_instagram_user_id_fkey(id,client_id,last_meta_ad_id,last_paid_attribution_at)";
     const { data: linked, error: linkError } = await supabase.from("instagram_users")
         .select("id,client_id,last_meta_ad_id,last_paid_attribution_at").not("client_id", "is", null).abortSignal(signal);
     if (linkError) throw linkError;

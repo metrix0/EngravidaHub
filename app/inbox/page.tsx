@@ -1,7 +1,7 @@
 // app/inbox/page.tsx
 "use client";
 
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {
     Bot,
     Archive,
@@ -14,11 +14,11 @@ import {
     Funnel,
     MapPin,
     LoaderCircle,
+    Mail,
     MessagesSquare,
     Paperclip, Pin,
     Search,
     Send,
-    SlidersHorizontal,
     ArrowLeftRight,
     Smile,
     UserRound,
@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import {FaFacebookF, FaFacebookMessenger, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
-import {Card, Pagination, Skeleton} from "@/components";
+import {Card, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
 import {openClientProfile} from "@/components/clientes/PermanentClientProfilePanel";
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
@@ -69,6 +69,14 @@ import type {
 type Conversation = InboxThreadDetail;
 
 const PAGE_SIZE = 50;
+const LOAD_MORE_DISTANCE = 240;
+const INITIAL_THREAD_FILTERS: ThreadFilters = {status: "open", channel: "Instagram", search: "", unreadOnly: false};
+type ThreadFilters = {
+    status: InboxStatus;
+    channel: "Instagram" | "Facebook";
+    search: string;
+    unreadOnly: boolean;
+};
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_MIME_TYPES = new Set([
     "image/jpeg",
@@ -150,15 +158,22 @@ const scrollbarClass =
     "[scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]";
 
 export default function InboxPage() {
-    const [status, setStatus] = useState<InboxStatus>("open");
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<ThreadFilters>(INITIAL_THREAD_FILTERS);
+    const {status, channel: socialChannel, search, unreadOnly} = filters;
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [selectedItemType, setSelectedItemType] =
         useState<InboxItemType>("thread");
-    const [currentPage, setCurrentPage] = useState(1);
 
     const [threads, setThreads] = useState<InboxThreadListItem[]>([]);
-    const [totalThreads, setTotalThreads] = useState(0);
+    const [hasMoreThreads, setHasMoreThreads] = useState(false);
+    const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
+    const [loadMoreError, setLoadMoreError] = useState(false);
+    const threadListRef = useRef({
+        filters: INITIAL_THREAD_FILTERS,
+        pages: 0,
+        total: 0,
+        request: null as Promise<InboxThreadListItem[] | null> | null,
+    });
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
     const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -171,7 +186,6 @@ export default function InboxPage() {
     const [isLoadingCurrentAttendant, setIsLoadingCurrentAttendant] = useState(true);
     const [isSettingOnline, setIsSettingOnline] = useState(false);
 
-    const [socialChannel, setSocialChannel] = useState<"Instagram" | "Facebook">("Instagram");
     const [queueCount, setQueueCount] = useState(0);
     const [socialQueueCount, setSocialQueueCount] = useState(0);
     const [isPullingConversation, setIsPullingConversation] = useState(false);
@@ -189,8 +203,7 @@ export default function InboxPage() {
     } | null>(null);
     const selectedThreadRequestRef = useRef(0);
     const finalizingThreadIdRef = useRef<string | null>(null);
-
-    const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
+    const refreshAfterReadRef = useRef<(() => Promise<void>) | null>(null);
 
     const isNotLinkedToAttendant =
         !isLoadingCurrentAttendant && !currentAttendant;
@@ -205,68 +218,123 @@ export default function InboxPage() {
         !!currentAttendant &&
         currentAttendant.is_online;
 
+    function changeThreadFilters(next: Partial<ThreadFilters>) {
+        const nextFilters = {...filters, ...next};
+        threadListRef.current = {filters: nextFilters, pages: 0, total: 0, request: null};
+        setIsLoadingThreads(true);
+        setHasMoreThreads(false);
+        setIsLoadingMoreThreads(false);
+        setLoadMoreError(false);
+        setFilters(nextFilters);
+    }
+
     const loadThreads = useCallback(async ({
-        showLoading = true,
+        append = false,
+        showLoading = false,
     }: {
+        append?: boolean;
         showLoading?: boolean;
     } = {}) => {
-        if (showLoading) {
-            setIsLoadingThreads(true);
+        const list = threadListRef.current;
+        if (filters !== list.filters) return null;
+
+        if (append) {
+            const loadedPages = list.pages;
+            while (list.request) {
+                await list.request;
+                if (list !== threadListRef.current || list.pages !== loadedPages) return null;
+            }
+            if (list.pages * PAGE_SIZE >= list.total) return null;
+            setIsLoadingMoreThreads(true);
+            setLoadMoreError(false);
+        } else if (list.request) {
+            await list.request;
+            if (list !== threadListRef.current) return null;
+            if (list.request) return list.request;
         }
 
-        try {
-            const response = await fetchInboxThreads({
-                status,
-                search,
-                page: currentPage,
-                pageSize: PAGE_SIZE,
-                channel: socialChannel,
-            });
+        if (showLoading) setIsLoadingThreads(true);
 
-            setThreads(response.items);
-            setTotalThreads(response.total);
+        // Refresh the loaded window so realtime changes can reorder conversations
+        // without dropping batches the attendant already scrolled through.
+        const pages = append
+            ? [list.pages + 1]
+            : Array.from({length: Math.max(1, list.pages)}, (_, index) => index + 1);
+
+        const request = Promise.all(pages.map((page) => fetchInboxThreads({
+            ...filters,
+            page,
+            pageSize: PAGE_SIZE,
+        }))).then((responses) => {
+            if (list !== threadListRef.current) return null;
+
+            list.total = responses[0].total;
+            list.pages = Math.min(pages[pages.length - 1], Math.max(1, Math.ceil(list.total / PAGE_SIZE)));
+            setHasMoreThreads(list.pages * PAGE_SIZE < list.total);
+
+            const items = [...new Map(
+                responses.flatMap((response) => response.items).map((item) => [item.id, item]),
+            ).values()];
+
+            if (append) {
+                setThreads((current) => {
+                    const ids = new Set(current.map((item) => item.id));
+                    return [...current, ...items.filter((item) => !ids.has(item.id))];
+                });
+                return items;
+            }
+
+            setThreads(items);
+            if (filters.unreadOnly) return items;
 
             setSelectedId((currentSelectedId) => {
                 const expectedItemType: InboxItemType =
-                    status === "closed" ? "conversation" : "thread";
+                    filters.status === "closed" ? "conversation" : "thread";
                 const forcedSelection = forcedSelectionRef.current;
 
-                if (
-                    forcedSelection &&
-                    forcedSelection.itemType === expectedItemType
-                ) {
+                if (forcedSelection?.itemType === expectedItemType) {
                     setSelectedItemType(forcedSelection.itemType);
                     return forcedSelection.id;
                 }
 
-                // The selected conversation belongs to the middle panel.
-                // Changing the left-side tab must never replace it.
-                if (currentSelectedId) {
-                    return currentSelectedId;
-                }
+                // The left-side list can change while the middle panel stays open.
+                if (currentSelectedId) return currentSelectedId;
 
-                // Select the first list item only when nothing is open yet.
-                const nextItem = response.items[0] ?? null;
-
-                setSelectedItemType(
-                    nextItem?.item_type ?? expectedItemType,
-                );
-
-                return nextItem?.id ?? null;
+                const firstItem = items[0];
+                setSelectedItemType(firstItem?.item_type ?? expectedItemType);
+                return firstItem?.id ?? null;
             });
-        } catch (error) {
+            return items;
+        }).catch((error) => {
+            if (list !== threadListRef.current) return null;
             console.error("[inbox] failed to load threads", error);
 
-            if (showLoading) {
+            if (append) {
+                setLoadMoreError(true);
+            } else if (showLoading) {
                 setThreads([]);
-                setTotalThreads(0);
             }
-        } finally {
-            if (showLoading) {
-                setIsLoadingThreads(false);
-            }
-        }
-    }, [status, search, currentPage, socialChannel]);
+            return null;
+        }).finally(() => {
+            list.request = null;
+            if (list !== threadListRef.current) return;
+            if (append) setIsLoadingMoreThreads(false);
+            if (showLoading) setIsLoadingThreads(false);
+        });
+
+        list.request = request;
+        return request;
+    }, [filters]);
+
+    const loadMoreThreads = useCallback(() => {
+        void loadThreads({ append: true });
+    }, [loadThreads]);
+
+    useEffect(() => {
+        refreshAfterReadRef.current = unreadOnly
+            ? async () => { await loadThreads(); }
+            : null;
+    }, [unreadOnly, loadThreads]);
 
     const loadQueueCount = useCallback(async () => {
         try {
@@ -317,6 +385,8 @@ export default function InboxPage() {
                     response.item.has_older_conversations,
                 );
             }
+
+            void refreshAfterReadRef.current?.();
         } catch (error) {
             if (requestId !== selectedThreadRequestRef.current) {
                 return;
@@ -330,6 +400,20 @@ export default function InboxPage() {
             }
         }
     }, [selectedId, selectedItemType]);
+
+    const sendSelectionRef = useRef({
+        id: selectedId,
+        itemType: selectedItemType,
+        reload: loadSelectedThread,
+    });
+
+    useLayoutEffect(() => {
+        sendSelectionRef.current = {
+            id: selectedId,
+            itemType: selectedItemType,
+            reload: loadSelectedThread,
+        };
+    }, [selectedId, selectedItemType, loadSelectedThread]);
 
     useEffect(() => {
         historyLoadedRef.current = false;
@@ -373,7 +457,7 @@ export default function InboxPage() {
     useEffect(() => {
         if (!canShowInbox) return;
 
-        void Promise.all([loadThreads(), loadQueueCount()]);
+        void Promise.all([loadThreads({ showLoading: true }), loadQueueCount()]);
     }, [canShowInbox, loadQueueCount, loadThreads]);
 
     useEffect(() => {
@@ -384,7 +468,7 @@ export default function InboxPage() {
 
     const handleRealtimeThreadChange = useCallback(() => {
         void Promise.all([
-            loadThreads({ showLoading: false }),
+            loadThreads(),
             loadQueueCount(),
         ]);
     }, [loadQueueCount, loadThreads]);
@@ -423,11 +507,39 @@ export default function InboxPage() {
     }
 
     function handleStatusChange(nextStatus: InboxStatus) {
-        if (nextStatus === status) return;
+        if (nextStatus === status && !unreadOnly) return;
 
         forcedSelectionRef.current = null;
-        setStatus(nextStatus);
-        setCurrentPage(1);
+        changeThreadFilters({status: nextStatus, unreadOnly: false});
+    }
+
+    function handleToggleUnread() {
+        forcedSelectionRef.current = null;
+        changeThreadFilters({unreadOnly: !unreadOnly});
+    }
+
+    async function focusOpenThread(threadId: string, sentMessages?: InboxMessage[]) {
+        forcedSelectionRef.current = { id: threadId, itemType: "thread" };
+        selectedThreadRequestRef.current += 1;
+
+        const filtersChanged = status !== "open" || search !== "" || unreadOnly;
+        if (filtersChanged) changeThreadFilters({status: "open", search: "", unreadOnly: false});
+        setSelectedId(threadId);
+        setSelectedItemType("thread");
+        // A reply to a closed conversation reuses the current composer while the open thread loads.
+        setSelectedThread((currentThread) => sentMessages && currentThread ? {
+            ...currentThread,
+            id: threadId,
+            thread_id: threadId,
+            item_type: "thread",
+            conversation_id: null,
+            status: "open",
+            can_reply: true,
+            preview: getMessagePreview(sentMessages.at(-1)?.text ?? ""),
+            messages: sentMessages,
+        } : null);
+
+        if (!filtersChanged) await loadThreads();
     }
 
     async function handlePullConversation() {
@@ -444,32 +556,7 @@ export default function InboxPage() {
                 return;
             }
 
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
-
-            setStatus("open");
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+            await focusOpenThread(result.thread_id);
         } catch (error) {
             console.error("[inbox] failed to claim conversation", error);
         } finally {
@@ -492,32 +579,7 @@ export default function InboxPage() {
                 return;
             }
 
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
-
-            setStatus("open");
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+            await focusOpenThread(result.thread_id);
         } catch (error) {
             console.error("[inbox] failed to claim conversation", error);
         } finally {
@@ -549,55 +611,24 @@ export default function InboxPage() {
         try {
             const result = await finalizeInboxThread(threadId);
 
-            // Keep the current Abertas/Fechadas tab and its current search.
-            let targetPage = currentPage;
-
-            let listResponse = await fetchInboxThreads({
-                status,
-                search,
-                page: targetPage,
-                pageSize: PAGE_SIZE,
-            });
-
-            // Closing the last item on a page can reduce the page count.
-            const lastAvailablePage = Math.max(
-                1,
-                Math.ceil(listResponse.total / PAGE_SIZE),
-            );
-
-            if (targetPage > lastAvailablePage) {
-                targetPage = lastAvailablePage;
-
-                listResponse = await fetchInboxThreads({
-                    status,
-                    search,
-                    page: targetPage,
-                    pageSize: PAGE_SIZE,
-                });
+            if (unreadOnly) {
+                forcedSelectionRef.current = null;
+                setSelectedId(null);
+                setSelectedThread(null);
+                await Promise.all([loadThreads(), loadQueueCount()]);
+                return;
             }
 
-            // Never automatically open the conversation that was just closed.
-            const availableItems = listResponse.items.filter(
-                (item) =>
-                    item.id !== result.conversation_id &&
-                    item.id !== threadId,
-            );
+            const items = await loadThreads();
 
+            // Never automatically open the conversation that was just closed.
+            const availableItems = (items ?? threads).filter(
+                (item) => item.id !== result.conversation_id && item.id !== threadId,
+            );
             const nextItem =
-                availableItems[
-                    Math.min(
-                        selectedIndex,
-                        Math.max(availableItems.length - 1, 0),
-                    )
-                ] ??
-                availableItems[0] ??
-                null;
+                availableItems[Math.min(selectedIndex, availableItems.length - 1)] ?? null;
 
             selectedThreadRequestRef.current += 1;
-
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
-            setCurrentPage(targetPage);
 
             if (nextItem) {
                 forcedSelectionRef.current = {
@@ -656,33 +687,17 @@ export default function InboxPage() {
     }
 
     async function applySendResult(result: InboxSendResult) {
-        if (result.reopened) {
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
+        const selection = sendSelectionRef.current;
+        const sourceIsSelected =
+            selection.id === selectedId && selection.itemType === selectedItemType;
+        const sentThreadIsSelected =
+            selection.id === result.thread_id && selection.itemType === "thread";
 
-            setStatus("open");
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+        if (result.reopened && sourceIsSelected) {
+            const messages = (result.messages ?? [result.message])
+                .map(mapPersistedSentMessage)
+                .filter((message) => message !== null);
+            void focusOpenThread(result.thread_id, messages);
             return;
         }
 
@@ -690,7 +705,7 @@ export default function InboxPage() {
             const lastMessage = result.messages?.[result.messages.length - 1] ?? null;
             const preview = getMessagePreview(lastMessage?.text ?? "");
 
-            await loadSelectedThread();
+            if (sourceIsSelected || sentThreadIsSelected) await selection.reload();
 
             if (preview) {
                 setThreads((currentThreads) =>
@@ -715,7 +730,7 @@ export default function InboxPage() {
         const sentMessage = mapPersistedSentMessage(result.message);
 
         if (!sentMessage) {
-            await loadSelectedThread();
+            if (sourceIsSelected || sentThreadIsSelected) await selection.reload();
             return;
         }
 
@@ -724,7 +739,8 @@ export default function InboxPage() {
         setSelectedThread((currentThread) => {
             if (
                 !currentThread ||
-                currentThread.thread_id !== result.thread_id ||
+                currentThread.item_type !== "thread" ||
+                currentThread.id !== result.thread_id ||
                 currentThread.messages.some((message) => message.id === sentMessage.id)
             ) {
                 return currentThread;
@@ -904,6 +920,11 @@ export default function InboxPage() {
     const isOpeningPage =
         canShowInbox && isLoadingThreads && threads.length === 0 && !selectedThread;
 
+    const visibleThreads = useMemo(
+        () => unreadOnly ? threads.filter((thread) => thread.unread > 0) : threads,
+        [threads, unreadOnly],
+    );
+
     const selectedListThread =
         threads.find((thread) => thread.id === selectedId) ?? null;
 
@@ -967,9 +988,14 @@ export default function InboxPage() {
                     <>
                         <ConversationListPanel
                             channel={socialChannel}
-                            onChannelChange={channel => { setSocialChannel(channel); setCurrentPage(1); }}
+                            onChannelChange={(channel) => {
+                                if (channel === socialChannel) return;
+                                changeThreadFilters({channel});
+                            }}
                             status={status}
                             onStatusChange={handleStatusChange}
+                            unreadOnly={unreadOnly}
+                            onToggleUnread={handleToggleUnread}
                             queueCount={queueCount}
                             socialQueueCount={socialQueueCount}
                             isPullingConversation={isPullingConversation}
@@ -978,20 +1004,13 @@ export default function InboxPage() {
                             search={search}
                             onSearchChange={(value) => {
                                 forcedSelectionRef.current = null;
-                                setSearch(value);
-                                setCurrentPage(1);
+                                changeThreadFilters({search: value});
                             }}
-                            conversations={threads}
-                            totalConversations={totalThreads}
-                            totalPages={totalPages}
-                            currentPage={currentPage}
-                            onPageChange={(page) => {
-                                forcedSelectionRef.current = null;
-                                selectedThreadRequestRef.current += 1;
-                                setSelectedId(null);
-                                setSelectedThread(null);
-                                setCurrentPage(page);
-                            }}
+                            conversations={visibleThreads}
+                            hasMore={hasMoreThreads}
+                            isLoadingMore={isLoadingMoreThreads}
+                            loadMoreError={loadMoreError}
+                            onLoadMore={loadMoreThreads}
                             selectedConversationId={selectedId ?? ""}
                             onSelectConversation={handleSelectThread}
                             isLoading={isLoadingThreads}
@@ -1007,6 +1026,11 @@ export default function InboxPage() {
                                     clientId={selectedClientId}
                                     itemId={selectedId}
                                     itemType={selectedItemType}
+                                    composerId={
+                                        (selectedThreadMatchesSelection ? selectedThread?.thread_id : null) ??
+                                        selectedListThread?.thread_id ??
+                                        selectedId
+                                    }
                                     displayMessages={displayedMessages}
                                     onSendMessage={handleSendMessage}
                                     onSendAttachment={handleSendAttachment}
@@ -1083,7 +1107,7 @@ export default function InboxPage() {
                 onClose={() => setSchedulingPanelOpen(false)}
                 onCreated={() => {
                     void Promise.all([
-                        loadThreads({ showLoading: false }),
+                        loadThreads(),
                         loadSelectedThread(),
                     ]);
                 }}
@@ -1120,6 +1144,8 @@ function ConversationListPanel({
                                    onChannelChange,
                                    status,
                                    onStatusChange,
+                                   unreadOnly,
+                                   onToggleUnread,
                                    queueCount,
                                    socialQueueCount,
                                    isPullingConversation,
@@ -1128,10 +1154,10 @@ function ConversationListPanel({
                                    search,
                                    onSearchChange,
                                    conversations,
-                                   totalConversations,
-                                   totalPages,
-                                   currentPage,
-                                   onPageChange,
+                                   hasMore,
+                                   isLoadingMore,
+                                   loadMoreError,
+                                   onLoadMore,
                                    selectedConversationId,
                                    onSelectConversation,
                                    isLoading,
@@ -1140,6 +1166,8 @@ function ConversationListPanel({
     onChannelChange: (channel: "Instagram" | "Facebook") => void;
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
+    unreadOnly: boolean;
+    onToggleUnread: () => void;
     queueCount: number;
     socialQueueCount: number;
     isPullingConversation: boolean;
@@ -1148,24 +1176,35 @@ function ConversationListPanel({
     search: string;
     onSearchChange: (value: string) => void;
     conversations: InboxThreadListItem[];
-    totalConversations: number;
-    totalPages: number;
-    currentPage: number;
-    onPageChange: (page: number) => void;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    loadMoreError: boolean;
+    onLoadMore: () => void;
     selectedConversationId: string;
     onSelectConversation: (item: InboxThreadListItem) => void;
     isLoading: boolean;
 }) {
+    const listRef = useRef<HTMLDivElement>(null);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const root = listRef.current;
+        const sentinel = sentinelRef.current;
+        if (!root || !sentinel || !hasMore || isLoading || isLoadingMore || loadMoreError) return;
+
+        const observer = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting) onLoadMore();
+        }, { root, rootMargin: `0px 0px ${LOAD_MORE_DISTANCE}px 0px` });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [conversations, hasMore, isLoading, isLoadingMore, loadMoreError, onLoadMore]);
+
     return (
-        <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:min-w-0">
+        <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:h-[calc(100%+var(--spacing)*3)] md:min-w-0">
             <div className="mb-4 shrink-0">
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950">
                     Inbox
                 </h1>
-
-                <p className="mt-2 text-sm text-slate-500">
-                    Atendimento omnichannel em tempo real
-                </p>
             </div>
 
             {/* The pull workflow remains available in code for a future return. */}
@@ -1208,20 +1247,26 @@ function ConversationListPanel({
             </div>
 
             <div className="mb-3 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1" aria-label="Canal">
-                <InboxStatusButton active={channel === "Instagram"} onClick={() => onChannelChange("Instagram")}><span className="inline-flex items-center gap-2"><FaInstagram size={15} />Instagram</span></InboxStatusButton>
-                <InboxStatusButton active={channel === "Facebook"} onClick={() => onChannelChange("Facebook")}><span className="inline-flex items-center gap-2"><FaFacebookMessenger size={15} />Messenger</span></InboxStatusButton>
+                <InboxStatusButton active={channel === "Instagram"} onClick={() => onChannelChange("Instagram")}>
+                    <FaInstagram size={15} aria-hidden="true" />
+                    Instagram
+                </InboxStatusButton>
+                <InboxStatusButton active={channel === "Facebook"} onClick={() => onChannelChange("Facebook")}>
+                    <FaFacebookMessenger size={15} aria-hidden="true" />
+                    Messenger
+                </InboxStatusButton>
             </div>
 
             <div className="mb-4 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1">
                 <InboxStatusButton
-                    active={status === "open"}
+                    active={!unreadOnly && status === "open"}
                     onClick={() => onStatusChange("open")}
                 >
                     Abertas
                 </InboxStatusButton>
 
                 <InboxStatusButton
-                    active={status === "closed"}
+                    active={!unreadOnly && status === "closed"}
                     onClick={() => onStatusChange("closed")}
                 >
                     Fechadas
@@ -1243,13 +1288,30 @@ function ConversationListPanel({
 
                 <button
                     type="button"
-                    className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+                    aria-label="Não lidos"
+                    aria-pressed={unreadOnly}
+                    title="Não lidos"
+                    onClick={onToggleUnread}
+                    className={`flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border shadow-sm transition-colors ${
+                        unreadOnly
+                            ? "border-brand bg-brand text-white hover:bg-brand/90"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
                 >
-                    <SlidersHorizontal size={18}/>
+                    <span className="relative" aria-hidden="true">
+                        <Mail size={18} />
+                        <span
+                            className={`absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current ring-2 ${
+                                unreadOnly ? "ring-brand" : "ring-white"
+                            }`}
+                        />
+                    </span>
                 </button>
             </div>
 
             <div
+                key={`${channel}:${status}:${unreadOnly}:${search}`}
+                ref={listRef}
                 className={`min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 ${scrollbarClass}`}
             >
                 {isLoading && <ConversationItemsSkeleton />}
@@ -1271,25 +1333,23 @@ function ConversationListPanel({
                     </div>
                 )}
 
-                {!isLoading && totalConversations > 0 && (
-                    <div className="space-y-4 py-3">
-                        <div className="flex items-center justify-between px-2 text-sm text-slate-500">
-                            <span>
-                                Mostrando{" "}
-                                {Math.min(
-                                    (currentPage - 1) * PAGE_SIZE + 1,
-                                    totalConversations
-                                )}
-                                –{Math.min(currentPage * PAGE_SIZE, totalConversations)}{" "}
-                                de {totalConversations} conversas
-                            </span>
-                        </div>
-
-                        <Pagination
-                            totalPages={totalPages}
-                            currentPage={currentPage}
-                            onPageChange={onPageChange}
-                        />
+                {!isLoading && hasMore && (
+                    <div ref={sentinelRef} className="min-h-px">
+                        {isLoadingMore && (
+                            <div role="status" className="flex items-center justify-center gap-2 py-3 text-sm text-slate-500">
+                                <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                                Carregando mais conversas…
+                            </div>
+                        )}
+                        {loadMoreError && (
+                            <button
+                                type="button"
+                                onClick={onLoadMore}
+                                className="mx-auto flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                Tentar carregar mais conversas
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
@@ -1310,13 +1370,16 @@ function ConversationListItem({
         <button
             type="button"
             onClick={onClick}
-            className={`grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-4 text-left transition-colors ${
+            className={`grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border px-3 py-3.5 text-left transition-colors ${
                 active
                     ? "border-brand bg-brand-soft/50 shadow-sm"
                     : "border-slate-200 bg-white hover:bg-slate-50"
             }`}
         >
-            <InitialsAvatar name={conversation.name}/>
+            <span className="relative inline-flex w-9">
+                <InitialsAvatar name={conversation.name}/>
+                <ChannelBadge channel={conversation.channel} avatarOverlay />
+            </span>
 
             <div className="min-w-0">
                 <div
@@ -1332,13 +1395,9 @@ function ConversationListItem({
                 >
                     {conversation.preview}
                 </div>
-
-                <div className="mt-2">
-                    <ChannelBadge channel={conversation.channel}/>
-                </div>
             </div>
 
-            <div className="flex h-full shrink-0 flex-col items-end justify-between">
+            <div className="relative flex min-h-12 min-w-20 items-start justify-end self-stretch">
                 <span
                     className={`whitespace-nowrap text-xs font-medium ${
                         active ? "text-brand" : "text-slate-500"
@@ -1349,12 +1408,11 @@ function ConversationListItem({
 
                 {conversation.unread ? (
                     <span
-                        className="flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-2 text-xs font-bold text-white">
+                        className="absolute right-0 bottom-0 h-5 min-w-5 whitespace-nowrap rounded-full bg-brand px-1 text-center text-xs/5 font-bold tabular-nums text-white"
+                    >
                         {conversation.unread}
                     </span>
-                ) : (
-                    <span/>
-                )}
+                ) : null}
             </div>
         </button>
     );
@@ -1366,6 +1424,7 @@ function ChatPanel({
                        clientId,
                        itemId,
                        itemType,
+                       composerId,
                        displayMessages,
                        onSendMessage,
                        onSendAttachment,
@@ -1384,6 +1443,7 @@ function ChatPanel({
     clientId: string | null;
     itemId: string | null;
     itemType: InboxItemType;
+    composerId: string;
     displayMessages: InboxMessage[];
     onSendMessage: (text: string) => Promise<void>;
     onSendAttachment: (file: File) => Promise<void>;
@@ -1401,19 +1461,41 @@ function ChatPanel({
     const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
-    const [isSending, setIsSending] = useState(false);
+    const [pendingConversations, setPendingConversations] = useState<Set<string>>(new Set());
+    const [failedSends, setFailedSends] = useState<{
+        id: string;
+        composerId: string;
+        text: string;
+        attachment: File | null;
+        error: string;
+    }[]>([]);
+    const sendQueuesRef = useRef(new Map<string, Promise<void>>());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const headerName = headerConversation?.name ?? "Carregando conversa";
     const headerChannel = headerConversation?.channel ?? "WhatsApp";
+    const isSending = pendingConversations.has(composerId);
+    // A closed item can temporarily report can_reply=false while its thread reopens.
+    const canReply = conversation?.can_reply || (
+        isSending && itemType === "conversation" && conversation?.thread_id === composerId
+    );
+    const hasDraft = Boolean(messageText.trim() || selectedAttachment);
 
     useEffect(() => {
         setMessageText("");
         setSelectedAttachment(null);
         setEmojiPickerOpen(false);
         setSendError(null);
-    }, [itemId, itemType]);
+    }, [composerId]);
+
+    useLayoutEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+
+        textarea.style.height = "auto";
+        if (messageText) textarea.style.height = `${textarea.scrollHeight}px`;
+    }, [messageText]);
 
     function insertEmoji(emoji: string) {
         const textarea = textareaRef.current;
@@ -1450,40 +1532,52 @@ function ChatPanel({
         setSendError(null);
     }
 
-    async function handleSubmit() {
+    function handleSubmit() {
         const text = messageText.trim();
         const attachment = selectedAttachment;
 
-        if (
-            !conversation ||
-            !conversation.can_reply ||
-            (!text && !attachment) ||
-            isSending
-        ) {
-            return;
-        }
+        if (!canReply || (!text && !attachment)) return;
 
-        setIsSending(true);
+        setMessageText("");
+        setSelectedAttachment(null);
         setSendError(null);
+        textareaRef.current?.focus({preventScroll: true});
 
-        try {
-            if (text) {
-                await onSendMessage(text);
-                setMessageText("");
+        // The provider and history must receive messages in submission order.
+        const previousSend = sendQueuesRef.current.get(composerId);
+        const send = (previousSend ?? Promise.resolve()).then(async () => {
+            let unsentText = text;
+            try {
+                if (text) {
+                    await onSendMessage(text);
+                    unsentText = "";
+                }
+                if (attachment) await onSendAttachment(attachment);
+            } catch (error) {
+                const failure = {
+                    id: crypto.randomUUID(),
+                    composerId,
+                    text: unsentText,
+                    attachment,
+                    error: error instanceof Error
+                        ? error.message
+                        : "Não foi possível enviar a mensagem.",
+                };
+                setFailedSends((current) => [...current, failure]);
             }
+        }).finally(() => {
+            if (sendQueuesRef.current.get(composerId) !== send) return;
+            sendQueuesRef.current.delete(composerId);
+            setPendingConversations((current) => {
+                const next = new Set(current);
+                next.delete(composerId);
+                return next;
+            });
+        });
 
-            if (attachment) {
-                await onSendAttachment(attachment);
-                setSelectedAttachment(null);
-            }
-        } catch (error) {
-            setSendError(
-                error instanceof Error
-                    ? error.message
-                    : "Não foi possível enviar a mensagem.",
-            );
-        } finally {
-            setIsSending(false);
+        sendQueuesRef.current.set(composerId, send);
+        if (!previousSend) {
+            setPendingConversations((current) => new Set(current).add(composerId));
         }
     }
 
@@ -1552,7 +1646,7 @@ function ChatPanel({
                     {itemType === "thread" && (
                         <button
                             type="button"
-                            disabled={!canFinalize || !itemId || isFinalizingConversation}
+                            disabled={!canFinalize || !itemId || isFinalizingConversation || isSending}
                             title="Transferir atendimento"
                             aria-label="Transferir atendimento"
                             onClick={onTransferConversation}
@@ -1565,7 +1659,7 @@ function ChatPanel({
                     {itemType === "thread" && (
                         <button
                             type="button"
-                            disabled={!canFinalize || !itemId || isFinalizingConversation}
+                            disabled={!canFinalize || !itemId || isFinalizingConversation || isSending}
                             title="Finalizar conversa"
                             onClick={() => void onFinalizeConversation()}
                             className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-red/30 hover:bg-red-soft hover:text-red disabled:cursor-not-allowed disabled:opacity-50"
@@ -1611,6 +1705,27 @@ function ChatPanel({
                     </div>
                 ) : null}
 
+                {failedSends.filter((failure) => failure.composerId === composerId).map((failure) => (
+                    <div key={failure.id} role="alert" className="mb-2 rounded-xl bg-red-soft px-3 py-2 text-xs font-semibold text-red">
+                        <p>{failure.error}</p>
+                        {failure.text && <p className="max-h-20 overflow-y-auto whitespace-pre-wrap break-words">{failure.text}</p>}
+                        {failure.attachment && <p className="truncate">{failure.attachment.name}</p>}
+                        <button
+                            type="button"
+                            disabled={hasDraft || !canReply}
+                            className="mt-1 cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                                setMessageText(failure.text);
+                                setSelectedAttachment(failure.attachment);
+                                setFailedSends((current) => current.filter((entry) => entry.id !== failure.id));
+                                textareaRef.current?.focus({preventScroll: true});
+                            }}
+                        >
+                            Recuperar rascunho
+                        </button>
+                    </div>
+                ))}
+
                 {selectedAttachment ? (
                     <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                         <Paperclip size={16} className="shrink-0 text-slate-500" />
@@ -1625,7 +1740,6 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Remover anexo"
-                            disabled={isSending}
                             onClick={() => setSelectedAttachment(null)}
                             className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -1639,28 +1753,23 @@ function ChatPanel({
                         ref={textareaRef}
                         rows={1}
                         value={messageText}
-                        disabled={!conversation || !conversation.can_reply || isSending}
+                        disabled={!canReply}
                         onChange={(event) => {
                             setMessageText(event.target.value);
                             setSendError(null);
                         }}
                         onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
+                            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                                 event.preventDefault();
-                                void handleSubmit();
+                                handleSubmit();
                             }
                         }}
                         placeholder={
-                            conversation && !conversation.can_reply
+                            conversation && !canReply
                                 ? "Janela de 24h encerrada"
                                 : "Responder como atendente..."
                         }
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
-                        onInput={(event) => {
-                            const target = event.currentTarget;
-                            target.style.height = "auto";
-                            target.style.height = `${target.scrollHeight}px`;
-                        }}
                     />
 
                     <div className="flex shrink-0 items-center gap-1 pb-1">
@@ -1668,7 +1777,7 @@ function ChatPanel({
                             <button
                                 type="button"
                                 title="Emoji"
-                                disabled={!conversation || !conversation.can_reply || isSending}
+                                disabled={!canReply}
                                 onClick={() => setEmojiPickerOpen((current) => !current)}
                                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -1728,7 +1837,7 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Anexo"
-                            disabled={!conversation || !conversation.can_reply || isSending}
+                            disabled={!canReply}
                             onClick={() => {
                                 fileInputRef.current?.click();
                             }}
@@ -1740,16 +1849,12 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Enviar"
-                            disabled={
-                                isSending ||
-                                (!messageText.trim() && !selectedAttachment) ||
-                                !conversation ||
-                                !conversation.can_reply
-                            }
-                            onClick={() => void handleSubmit()}
+                            disabled={!hasDraft || !canReply}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={handleSubmit}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {isSending ? (
+                            {isSending && !hasDraft ? (
                                 <LoaderCircle size={17} className="animate-spin" />
                             ) : (
                                 <Send size={17}/>
@@ -2095,19 +2200,18 @@ function ConversationItemsSkeleton() {
             {Array.from({length: 8}).map((_, index) => (
                 <div
                     key={index}
-                    className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                    className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3.5"
                 >
-                    <Skeleton className="h-11 w-11 rounded-full" />
+                    <Skeleton className="h-9 w-9 rounded-full" />
 
-                    <div className="min-w-0">
-                        <Skeleton className="h-4 w-32 rounded-lg" />
-                        <Skeleton className="mt-2 h-4 w-full rounded-lg" />
-                        <Skeleton className="mt-3 h-6 w-24 rounded-lg" />
+                    <div className="flex min-w-0 flex-col gap-2">
+                        <Skeleton className="h-4 w-32 max-w-full rounded-lg" />
+                        <Skeleton className="h-3.5 w-full rounded-lg" />
                     </div>
 
-                    <div className="flex h-full shrink-0 flex-col items-end justify-between">
+                    <div className="flex min-h-12 min-w-20 flex-col items-end justify-between self-stretch">
                         <Skeleton className="h-3 w-10 rounded-lg" />
-                        <Skeleton className="h-6 w-6 rounded-full" />
+                        <Skeleton className="h-5 w-5 rounded-full" />
                     </div>
                 </div>
             ))}
@@ -2317,7 +2421,8 @@ function InboxStatusButton({
         <button
             type="button"
             onClick={onClick}
-            className={`cursor-pointer rounded-lg text-xs font-bold transition-colors ${
+            aria-pressed={active}
+            className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg text-xs font-bold transition-colors ${
                 active
                     ? "bg-brand text-white shadow-sm"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
@@ -2328,7 +2433,13 @@ function InboxStatusButton({
     );
 }
 
-function ChannelBadge({channel}: { channel: InboxChannel }) {
+function ChannelBadge({
+                          channel,
+                          avatarOverlay = false,
+                      }: {
+    channel: InboxChannel;
+    avatarOverlay?: boolean;
+}) {
     const className =
         channel === "WhatsApp"
             ? "bg-green-soft text-green"
@@ -2338,9 +2449,16 @@ function ChannelBadge({channel}: { channel: InboxChannel }) {
 
     return (
         <span
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${className}`}
+            className={`inline-flex items-center ${className} ${
+                avatarOverlay
+                    ? "pointer-events-none absolute -right-1 -bottom-1 size-5 justify-center rounded-full"
+                    : "gap-1.5 rounded-lg px-2 py-1 text-xs font-bold"
+            }`}
         >
             <ChannelIcon channel={channel}/>
+            {avatarOverlay && (
+                <span className="sr-only">{channel === "Facebook" ? "Messenger" : channel}</span>
+            )}
         </span>
     );
 }

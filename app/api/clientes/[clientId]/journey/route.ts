@@ -70,7 +70,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
             clientId = typeof social.rows[0].client_id === "string" ? social.rows[0].client_id : null;
         }
         const [clientRows, linkedSocial] = await Promise.all([
-            loadRows("clients", "id,first_seen_at,created_at,last_origin,last_tunnel,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid,fbc,fbp,ctwa_clid,tracking_updated_at,last_active_message_sent_at", "id", clientId ? [clientId] : []),
+            loadRows("clients", "id,first_seen_at,created_at,last_origin,last_tunnel:effective_tunnel,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid,fbc,fbp,ctwa_clid,tracking_updated_at,last_active_message_sent_at", "id", clientId ? [clientId] : []),
             loadRows("instagram_users", "id,client_id,username,display_name,first_seen_at", "client_id", clientId ? [clientId] : []),
         ]);
         if (!isSocial && !clientRows.rows.length) return NextResponse.json({ error: "Cliente não encontrado." }, { status: 404 });
@@ -80,8 +80,8 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         const [directConversations, socialConversations, directThreads, socialThreads,
             analysesDirect, analysesSocial, tintim, calls, funnelHistory, appointments,
             clinisys, schedules, invoices] = await Promise.all([
-            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,attendant_chat_name", "client_id", clientId ? [clientId] : []),
-            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,attendant_chat_name", "instagram_user_id", socialIds),
+            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,tunnel:effective_tunnel,attendant_chat_name", "client_id", clientId ? [clientId] : []),
+            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,tunnel:effective_tunnel,attendant_chat_name", "instagram_user_id", socialIds),
             loadRows("thread", "id,client_id,instagram_user_id,channel,claimed_at,closed_at", "client_id", clientId ? [clientId] : []),
             loadRows("thread", "id,client_id,instagram_user_id,channel,claimed_at,closed_at", "instagram_user_id", socialIds),
             loadRows("conversation_analysis", "id,conversation_id,client_id,outcome_events", "client_id", clientId ? [clientId] : []),

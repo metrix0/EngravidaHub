@@ -6,6 +6,7 @@ import { resolvePaidMediaPlatform } from "@/lib/ads/paidMediaAttribution";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     FINANCIAL_CATEGORIES,
+    classifyInvoiceTunnel,
     getFinancialCategoryLabel,
 } from "@/lib/invoices/categories";
 import {
@@ -15,14 +16,17 @@ import {
 import {
     parseTextArray,
     parseUuidArray,
+    readDashboardFilters,
     resolveDashboardDateRange,
 } from "@/lib/dashboard/metrics";
+import { loadTunnelPerformance } from "@/lib/dashboard/tunnelPerformance";
 import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
 import type {
     FinancialDashboardData,
     FinancialKpis,
     PaidMediaKpis,
 } from "@/types";
+import type { TunnelFinanceRow, TunnelRoiData } from "@/types/tunnel-performance";
 
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
@@ -170,6 +174,13 @@ export async function GET(request: Request) {
             range.startAt,
             range.endAt,
         );
+        const tunnelPerformancePromise = searchParams.get("include_tunnels") === "1"
+            ? loadTunnelPerformance(
+                  range,
+                  readDashboardFilters(new URLSearchParams({ unit_ids: filters.unitIds.join(",") })),
+                  request.signal,
+              )
+            : Promise.resolve(null);
         const twelveMonthTrendPromise = loadTwelveMonthTrend(filters);
         const schedulesPromise = unitsPromise.then((units) =>
             loadSchedules(
@@ -203,6 +214,7 @@ export async function GET(request: Request) {
             previousSchedules,
             currentCityAdMetrics,
             twelveMonthTrend,
+            tunnelPerformance,
         ] = await Promise.all([
             unitsPromise,
             doctorsPromise,
@@ -216,6 +228,7 @@ export async function GET(request: Request) {
             previousSchedulesPromise,
             currentCityAdMetricsPromise,
             twelveMonthTrendPromise,
+            tunnelPerformancePromise,
         ]);
 
         const clientIds = Array.from(
@@ -290,6 +303,9 @@ export async function GET(request: Request) {
             crm: buildCrmMetrics(currentInvoices, schedules, clients),
             ads: {
                 has_data: currentAdMetrics.length > 0,
+                by_tunnel: tunnelPerformance
+                    ? buildTunnelFinanceRows(tunnelPerformance.tunnels, currentInvoices)
+                    : null,
                 comparison_available: comparisonAvailable,
                 kpis: currentAds.kpis,
                 previous_kpis: previousAds.kpis,
@@ -327,6 +343,35 @@ export async function GET(request: Request) {
             { status: 500 },
         );
     }
+}
+
+function buildTunnelFinanceRows(
+    investments: Pick<TunnelRoiData["tunnels"][number], "tunnel" | "investment">[],
+    invoices: InvoiceRow[],
+): TunnelFinanceRow[] {
+    const rows = new Map<string, Omit<TunnelFinanceRow, "invoice_descriptions"> & { invoice_descriptions: Set<string> }>(
+        investments.map(({ tunnel, investment }) => [
+            tunnel,
+            { tunnel, investment, invoice_total: 0, invoice_descriptions: new Set() },
+        ]),
+    );
+    for (const invoice of invoices) {
+        if (statusGroup(invoice.status) !== "authorized") continue;
+        const tunnel = classifyInvoiceTunnel(invoice.description);
+        if (!tunnel) continue;
+
+        const row = rows.get(tunnel) ?? {
+            tunnel, investment: 0, invoice_total: 0, invoice_descriptions: new Set<string>(),
+        };
+        row.invoice_total += numeric(invoice.amount);
+        row.invoice_descriptions.add(invoice.description.replace(/\s+/g, " ").trim());
+        rows.set(tunnel, row);
+    }
+    return Array.from(rows.values(), (row) => ({
+        ...row,
+        invoice_total: roundMoney(row.invoice_total),
+        invoice_descriptions: [...row.invoice_descriptions].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    }));
 }
 
 function readFinancialFilters(searchParams: URLSearchParams): FinancialFilters {

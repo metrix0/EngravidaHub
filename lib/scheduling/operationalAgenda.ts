@@ -1,7 +1,7 @@
 // lib/scheduling/operationalAgenda.ts
 import { zonedDateTimeToEpoch, hasFreshClinisysAvailabilitySnapshot, replicatedAgendaCapacity, replicatedAgendaRestrictions, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
 import { mergeIntervals } from "@/lib/scheduling/agendaIntelligence";
-
+import { filterRaFreeSlots } from "./raAvailability";
 
 import type { BookingTeam } from "@/lib/scheduling/bookingOrigin";
 export type OperationalAgenda = AgendaRow & { id?: string; unit_id: string; unit_name: string; doctor_name: string };
@@ -135,15 +135,25 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
     const weekStart = input.reportAvailability
         ? agendaAddDays(reportDate, -((new Date(`${reportDate}T12:00:00Z`).getUTCDay() + 6) % 7))
         : agendaWeekStart(reportDate);
-    // The procedure-specific API response is authoritative for reports. Do not
-    // apply the calendar's RA timetable, quotas, cadence or replicated busy rows.
+    // The API also publishes procedure-only periods and overlapping alternatives.
+    // Consultation availability must satisfy both the source and the RA timetable.
     const publishedSlots = new Map<string, AgendaFreeSlot>();
+    const datedPeriods: Record<string, Array<{ startsAt: string; endsAt: string }>> = {};
     if (input.reportAvailability) for (const agenda of [...groups.values()].flat()) {
+        // Preserve explicitly opened Saturdays, without treating generated API
+        // exceptions (or Sunday procedure shifts) as consultation openings.
+        if (Array.isArray(agenda.exceptions)) for (const exception of agenda.exceptions) {
+            if (!exception.available || exception.recurrence || !exception.date ||
+                String(exception.id ?? "").startsWith("clinisys-availability:") ||
+                new Date(`${exception.date}T12:00:00Z`).getUTCDay() !== 6 || !Array.isArray(exception.periods)) continue;
+            const key = `${agenda.unit_id}:${agenda.doctor_id}:${exception.date}`;
+            datedPeriods[key] = [...(datedPeriods[key] ?? []), ...exception.periods];
+        }
         const snapshot = agenda.availability_snapshot as { slots?: Array<{ data: string; inicio: string; termino: string }> } | null;
         for (const slot of snapshot?.slots ?? []) {
             const [day, month, year] = slot.data.split("/");
             const date = `${year}-${month}-${day}`;
-            if (date < reportDate || !verifiedReportAgenda(agenda, date, now)) continue;
+            if (date < reportDate || new Date(`${date}T12:00:00Z`).getUTCDay() === 0 || !verifiedReportAgenda(agenda, date, now)) continue;
             const timezone = agenda.timezone || "America/Sao_Paulo";
             const startsAt = zonedDateTimeToEpoch(date, slot.inicio, timezone);
             const endsAt = zonedDateTimeToEpoch(date, slot.termino, timezone);
@@ -152,8 +162,20 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
             publishedSlots.set(id, { id, unitId: agenda.unit_id, unitName: agenda.unit_name, doctorId: agenda.doctor_id, doctorName: agenda.doctor_name, date, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), durationMinutes: (endsAt - startsAt) / MINUTE });
         }
     }
+    const consultationEnds = new Map<string, number>();
     const reportSlots = input.reportAvailability
-        ? [...publishedSlots.values()].sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.doctorId.localeCompare(b.doctorId))
+        ? filterRaFreeSlots([...publishedSlots.values()],
+            byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })),
+            byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })),
+            input.raFirstEvaluationCounts, true,
+            slot => publishedSlots.has(slot.id) && !(appointmentsByDoctor.get(`${slot.unitId}:${slot.doctorId}`) ?? []).some(appointment =>
+                Date.parse(appointment.starts_at) < Date.parse(slot.endsAt) && Date.parse(appointment.ends_at) > Date.parse(slot.startsAt)),
+            datedPeriods).filter(slot => {
+                const key = `${slot.unitId}:${slot.doctorId}:${slot.date}`;
+                if (Date.parse(slot.startsAt) < (consultationEnds.get(key) ?? 0)) return false;
+                consultationEnds.set(key, Date.parse(slot.endsAt));
+                return true;
+            })
         : freeSlots;
     const availability = byUnit.map(unit => {
         const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));

@@ -1,6 +1,7 @@
 // lib/inbox/finalizeInboxThreadAndAnalyze.ts
 import { supabase } from "@/lib";
 
+import { reconcileConversationTunnel } from "@/lib/analysis/reconcileConversationTunnel";
 import { analyzeConversationById } from "@/lib/conversations/analyzeConversationsByIds";
 
 type FinalizeMode = "manual" | "automatic";
@@ -200,6 +201,15 @@ export async function finalizeInboxThreadAndAnalyze({
         conversationId: normalizedConversationId,
         mode,
     });
+
+    // Manual finalization defers AI analysis. Its ad referral is already usable.
+    if (!analyze && normalizedConversationId) {
+        try {
+            await reconcileConversationTunnel(normalizedConversationId);
+        } catch (tunnelError) {
+            console.error(`${logPrefix} Tunnel reconciliation failed`, normalizedConversationId, tunnelError);
+        }
+    }
 
     const analysis =
         analyze && normalizedConversationId

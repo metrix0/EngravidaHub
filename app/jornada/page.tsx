@@ -73,6 +73,7 @@ import {
 import { JOURNEY_CALENDAR_PRESETS } from "@/lib/funnel/fullJourney";
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
+import type { TunnelRoiData } from "@/types/tunnel-performance";
 
 type JourneyFunnelStage = {
     key: string;
@@ -81,27 +82,6 @@ type JourneyFunnelStage = {
     percentage: number | null;
     relative_percentage: number | null;
     fill: string;
-};
-
-type TunnelRoiData = {
-    available: boolean;
-    currency_code: string;
-    total_spend: number;
-    tunnels: {
-        tunnel: string;
-        paid_clients: number;
-        authorized_clients: number;
-        attributed_revenue: number;
-        investment: number;
-        investment_share: number | null;
-        roi_percent: number | null;
-        campaigns: {
-            platform: "google_ads" | "meta_ads";
-            campaign_id: string;
-            campaign_name: string;
-            spend: number;
-        }[];
-    }[];
 };
 
 type JourneyDashboardData = {

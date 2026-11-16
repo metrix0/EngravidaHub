@@ -63,6 +63,7 @@ import {
     useFinancialUnitSummary,
 } from "@/components/dashboard/FinancialDashboardExtras";
 import { useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
+import { INVOICE_TUNNEL_RULES } from "@/lib/invoices/categories";
 import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
 import {
     StatusCard as SharedStatusCard,
@@ -114,7 +115,7 @@ export default function FinancialDashboardPage() {
     const dashboardQueryKey = useMemo(() => {
         if (!dateFilterReady) return "";
 
-        const params = new URLSearchParams();
+        const params = new URLSearchParams({ include_tunnels: "1" });
         applyCalendarDateParams({
             params,
             selectedRange,
@@ -463,6 +464,11 @@ function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
     const ads = data.ads;
+    const tunnelInvestmentCard = (
+        <div className="mb-5">
+            <TunnelInvestmentCard rows={ads.by_tunnel ?? null} />
+        </div>
+    );
     const metaSpend =
         ads.by_platform.find((item) => item.platform === "meta_ads")?.spend ?? 0;
     const googleSpend =
@@ -487,9 +493,12 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
             </div>
 
             {!ads.has_data ? (
-                <Card>
-                    <EmptyState message="Nenhum dado do Google Ads ou Meta Ads foi sincronizado neste período." />
-                </Card>
+                <>
+                    {tunnelInvestmentCard}
+                    <Card>
+                        <EmptyState message="Nenhum dado do Google Ads ou Meta Ads foi sincronizado neste período." />
+                    </Card>
+                </>
             ) : (
                 <>
                     {!ads.comparison_available ? (
@@ -607,6 +616,8 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                         <AdsPlatformCard data={data} />
                     </div>
 
+                    {tunnelInvestmentCard}
+
                     <div className="mb-5">
                         <PaidCityReturnCard data={data} />
                     </div>
@@ -619,6 +630,100 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                 </>
             )}
         </section>
+    );
+}
+
+const tunnelMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const hiddenInvestmentTunnels = new Set(["Bio Instagram", "Site - Home | Engravida"]);
+const tunnelInvoiceCriteria = [
+    "As NFS-e autorizadas no período são classificadas pela descrição. Cada nota entra no primeiro túnel correspondente.",
+    ...INVOICE_TUNNEL_RULES
+        .filter(({ tunnel }) => !hiddenInvestmentTunnels.has(tunnel))
+        .map(({ tunnel, summary }) => `${tunnel} — ${summary}`),
+    "Sem túnel — Investimento de campanhas sem túnel identificado.",
+].join("\n\n");
+
+function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardData["ads"]["by_tunnel"]> | null }) {
+    const tunnels = (rows ?? [])
+        .filter(({ tunnel }) => !hiddenInvestmentTunnels.has(tunnel))
+        .map((row) => ({
+            ...row,
+            ratio: row.investment > 0 ? row.invoice_total / row.investment : null,
+        }))
+        .sort((a, b) =>
+            (b.ratio ?? -Infinity) - (a.ratio ?? -Infinity) || b.invoice_total - a.invoice_total,
+        );
+
+    return (
+        <Card className="min-w-0">
+            <h3 className="mb-4 text-lg font-bold text-slate-900">Investido em cada túnel</h3>
+
+            {tunnels.length === 0 ? (
+                <EmptyState message={rows
+                    ? "Nenhum investimento ou NFS-e com descrição correspondente no período."
+                    : "Não foi possível carregar o investimento por túnel."}
+                />
+            ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+                            <tr>
+                                <th scope="col" className="px-3 py-3 sm:px-4">Túnel</th>
+                                <th scope="col" className="px-3 py-3 text-right sm:px-4">Investido</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
+                                    <span className="inline-flex items-center gap-1.5">
+                                        Total em NFS-e
+                                        <InfoTooltip
+                                            text={tunnelInvoiceCriteria}
+                                            portal
+                                            widthClassName="w-[420px] max-h-[calc(100dvh-24px)] overflow-y-auto text-left"
+                                        >
+                                            <HelpCircle size={13} className="text-slate-400" />
+                                        </InfoTooltip>
+                                    </span>
+                                </th>
+                                <th scope="col" aria-sort="descending" className="px-3 py-3 text-right sm:px-4" title="Total em NFS-e dividido pelo investimento">
+                                    Razão
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tunnels.map(({ tunnel, investment, invoice_total, invoice_descriptions, ratio }) => (
+                                <tr key={tunnel} className="border-t border-slate-100 text-sm transition-colors hover:bg-slate-50">
+                                    <th scope="row" className="px-3 py-3 font-semibold text-slate-800 sm:px-4">
+                                        {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
+                                    </th>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-slate-600 sm:px-4">
+                                        {tunnelMoney.format(investment)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-900 sm:px-4">
+                                        <span className="inline-flex items-center gap-1.5">
+                                            {tunnelMoney.format(invoice_total)}
+                                            <InfoTooltip
+                                                text={invoice_descriptions?.join("\n") || "Nenhuma NFS-e nesta linha no período."}
+                                                portal
+                                                widthClassName="w-[420px] max-h-[65dvh] overflow-y-auto break-words text-left"
+                                            >
+                                                <HelpCircle size={13} className="text-slate-400" />
+                                            </InfoTooltip>
+                                        </span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
+                                        {ratio === null ? (
+                                            <span title="Sem investimento no período" className="text-slate-400">—</span>
+                                        ) : (
+                                            <span className={`inline-flex min-w-[4.5rem] justify-center rounded-md px-2.5 py-1 text-xs font-bold tabular-nums ${ratio >= 1 ? "bg-blue-soft text-blue" : "bg-slate-100 text-slate-700"}`}>
+                                                {formatMultiplier(ratio)}
+                                            </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </Card>
     );
 }
 
