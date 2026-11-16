@@ -1,7 +1,7 @@
 // app/financeiro/page.tsx
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
     BadgeDollarSign,
     Ban,
@@ -634,10 +634,13 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
 }
 
 const tunnelMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const tunnelInvoiceCriteria = [
+    "As NFS-e autorizadas no período são classificadas pela descrição. Cada nota entra no primeiro túnel correspondente.",
+    ...INVOICE_TUNNEL_RULES.map(({ tunnel, summary }) => `${tunnel} — ${summary}`),
+    "Sem túnel — Investimento de campanhas sem túnel identificado.",
+].join("\n\n");
 
 function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardData["ads"]["by_tunnel"]> | null }) {
-    const [showInvoiceRules, setShowInvoiceRules] = useState(false);
-    const rulesId = useId();
     const tunnels = (rows ?? []).map((row) => ({
         ...row,
         ratio: row.investment > 0 ? row.invoice_total / row.investment : null,
@@ -647,12 +650,7 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
 
     return (
         <Card className="min-w-0">
-            <div className="mb-4 flex items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-soft text-blue">
-                    <ChartNoAxesCombined size={20} aria-hidden="true" />
-                </span>
-                <h3 className="text-lg font-bold text-slate-900">Investido em cada túnel</h3>
-            </div>
+            <h3 className="mb-4 text-lg font-bold text-slate-900">Investido em cada túnel</h3>
 
             {tunnels.length === 0 ? (
                 <EmptyState message={rows
@@ -660,79 +658,55 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
                     : "Não foi possível carregar o investimento por túnel."}
                 />
             ) : (
-                <>
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-xs font-bold text-slate-600">
-                                <tr>
-                                    <th scope="col" className="px-3 py-3 sm:px-4">Túnel</th>
-                                    <th scope="col" className="px-3 py-3 text-right sm:px-4">Investido</th>
-                                    <th scope="col" className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
-                                        <span className="inline-flex items-center gap-1.5">
-                                            Total em NFS-e
-                                            <button
-                                                type="button"
-                                                aria-label="Critérios do Total em NFS-e"
-                                                aria-expanded={showInvoiceRules}
-                                                aria-controls={rulesId}
-                                                onClick={() => setShowInvoiceRules((open) => !open)}
-                                                className="inline-grid h-6 w-6 place-items-center rounded-md text-slate-500 transition-colors hover:bg-blue-soft hover:text-blue focus-visible:outline-2 focus-visible:outline-blue aria-expanded:bg-blue-soft aria-expanded:text-blue"
-                                            >
-                                                <HelpCircle size={15} aria-hidden="true" />
-                                            </button>
-                                        </span>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+                            <tr>
+                                <th scope="col" className="px-3 py-3 sm:px-4">Túnel</th>
+                                <th scope="col" className="px-3 py-3 text-right sm:px-4">Investido</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
+                                    <span className="inline-flex items-center gap-1.5">
+                                        Total em NFS-e
+                                        <InfoTooltip
+                                            text={tunnelInvoiceCriteria}
+                                            portal
+                                            widthClassName="w-[420px] max-h-[calc(100dvh-24px)] overflow-y-auto text-left"
+                                        >
+                                            <HelpCircle size={13} className="text-slate-400" />
+                                        </InfoTooltip>
+                                    </span>
+                                </th>
+                                <th scope="col" aria-sort="descending" className="px-3 py-3 text-right sm:px-4" title="Total em NFS-e dividido pelo investimento">
+                                    Razão
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tunnels.map(({ tunnel, investment, invoice_total, ratio }) => (
+                                <tr key={tunnel} className="border-t border-slate-100 text-sm transition-colors hover:bg-slate-50">
+                                    <th scope="row" className="px-3 py-3 font-semibold text-slate-800 sm:px-4">
+                                        {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
                                     </th>
-                                    <th scope="col" aria-sort="descending" className="px-3 py-3 text-right sm:px-4" title="Total em NFS-e dividido pelo investimento">
-                                        Razão
-                                    </th>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-slate-600 sm:px-4">
+                                        {tunnelMoney.format(investment)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-900 sm:px-4">
+                                        {tunnelMoney.format(invoice_total)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
+                                        {ratio === null ? (
+                                            <span title="Sem investimento no período" className="text-slate-400">—</span>
+                                        ) : (
+                                            <span className={`inline-flex min-w-[4.5rem] justify-center rounded-md px-2.5 py-1 text-xs font-bold tabular-nums ${ratio >= 1 ? "bg-blue-soft text-blue" : "bg-slate-100 text-slate-700"}`}>
+                                                {formatMultiplier(ratio)}
+                                            </span>
+                                        )}
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {tunnels.map(({ tunnel, investment, invoice_total, ratio }) => (
-                                    <tr key={tunnel} className="border-t border-slate-100 text-sm transition-colors hover:bg-slate-50">
-                                        <th scope="row" className="px-3 py-3 font-semibold text-slate-800 sm:px-4">
-                                            {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
-                                        </th>
-                                        <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-slate-600 sm:px-4">
-                                            {tunnelMoney.format(investment)}
-                                        </td>
-                                        <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-900 sm:px-4">
-                                            {tunnelMoney.format(invoice_total)}
-                                        </td>
-                                        <td className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
-                                            {ratio === null ? (
-                                                <span title="Sem investimento no período" className="text-slate-400">—</span>
-                                            ) : (
-                                                <span className={`inline-flex min-w-[4.5rem] justify-center rounded-md px-2.5 py-1 text-xs font-bold tabular-nums ${ratio >= 1 ? "bg-blue-soft text-blue" : "bg-slate-100 text-slate-700"}`}>
-                                                    {formatMultiplier(ratio)}
-                                                </span>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div id={rulesId} hidden={!showInvoiceRules} className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                        <p className="font-semibold text-slate-900">Como as NFS-e são classificadas</p>
-                        <p className="mt-1">
-                            NFS-e autorizadas no período entram pela descrição, seguindo a ordem abaixo. Cada nota entra uma vez. Descrições genéricas ficam fora da soma por túnel.
-                        </p>
-                        <dl className="mt-3 grid gap-x-6 gap-y-3 md:grid-cols-2">
-                            {INVOICE_TUNNEL_RULES.map(({ tunnel, summary }) => (
-                                <div key={tunnel}>
-                                    <dt className="font-semibold text-slate-800">{tunnel}</dt>
-                                    <dd>{summary}</dd>
-                                </div>
                             ))}
-                            <div>
-                                <dt className="font-semibold text-slate-800">Sem túnel</dt>
-                                <dd>Investimento de campanhas sem túnel identificado. A linha fica sem total de NFS-e associado.</dd>
-                            </div>
-                        </dl>
-                    </div>
-                </>
+                        </tbody>
+                    </table>
+                </div>
             )}
         </Card>
     );
