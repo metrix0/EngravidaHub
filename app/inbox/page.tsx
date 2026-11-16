@@ -14,6 +14,7 @@ import {
     Funnel,
     MapPin,
     LoaderCircle,
+    Mail,
     MessagesSquare,
     Paperclip, Pin,
     Search,
@@ -1298,10 +1299,12 @@ function ConversationListPanel({
                     }`}
                 >
                     <span className="relative" aria-hidden="true">
-                        <MessagesSquare size={18} />
-                        {unreadOnly && (
-                            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-white ring-2 ring-brand" />
-                        )}
+                        <Mail size={18} />
+                        <span
+                            className={`absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2 ${
+                                unreadOnly ? "bg-white ring-brand" : "bg-brand ring-white"
+                            }`}
+                        />
                     </span>
                 </button>
             </div>
