@@ -393,7 +393,7 @@ export default function JourneyPage() {
                             ? json.full_pipeline
                             : EMPTY_PIPELINE,
                     tunnel_roi: json.tunnel_roi && Array.isArray(json.tunnel_roi.tunnels)
-                        ? json.tunnel_roi
+                        ? groupProblemAndTreatmentRoi(json.tunnel_roi)
                         : null,
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
@@ -720,6 +720,35 @@ function WhatsappCoverageTooltip({
 
 function TrackedWhatsappSourcesCard({ pipeline }: { pipeline: FullJourneyPipeline }) {
     return <SharedTrackedWhatsappSourcesCard pipeline={pipeline} />;
+}
+
+function groupProblemAndTreatmentRoi(data: TunnelRoiData): TunnelRoiData {
+    const [first, second] = data.tunnels.filter(
+        ({ tunnel }) => tunnel === "Problemas" || tunnel === "Tratamentos",
+    );
+    if (!first) return data;
+
+    const combined = { ...first, tunnel: "Problemas e Tratamentos" };
+    if (second) {
+        combined.paid_clients += second.paid_clients;
+        combined.authorized_clients += second.authorized_clients;
+        combined.attributed_revenue = Number((first.attributed_revenue + second.attributed_revenue).toFixed(2));
+        combined.investment = Number((first.investment + second.investment).toFixed(2));
+        combined.investment_share = data.total_spend > 0
+            ? Number((100 * combined.investment / data.total_spend).toFixed(1))
+            : null;
+        combined.roi_percent = combined.investment > 0
+            ? Number((100 * (combined.attributed_revenue - combined.investment) / combined.investment).toFixed(1))
+            : null;
+        combined.campaigns = [...first.campaigns, ...second.campaigns].sort((a, b) => b.spend - a.spend);
+    }
+
+    return {
+        ...data,
+        tunnels: data.tunnels
+            .filter((row) => row !== second)
+            .map((row) => row === first ? combined : row),
+    };
 }
 
 function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {
