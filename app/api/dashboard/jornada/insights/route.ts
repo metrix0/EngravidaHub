@@ -1,13 +1,10 @@
 // app/api/dashboard/jornada/insights/route.ts
-import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { readDashboardFilters, resolveDashboardDateRange, type DashboardDateRange, type DashboardFilters } from "@/lib/dashboard/metrics";
 import { supabase } from "@/lib/supabase/client";
 
 export const maxDuration = 60;
-const SHARDS = 16;
-const SHARDS_PER_BATCH = 2;
 
 type Histogram = { n: number; days?: number; value?: number; metric?: string; segment?: string; kind?: string };
 type Shard = {
@@ -115,12 +112,11 @@ function mergeShards(parts: Shard[]) {
     };
 }
 
-async function loadShard(
+async function loadPreparedInsights(
     range: Pick<DashboardDateRange, "startAt" | "endAt">,
     filters: DashboardFilters,
-    shard: number,
-    shards: number,
-): Promise<Shard[]> {
+    signal: AbortSignal,
+) {
     const result = await supabase.rpc("dashboard_journey_deep_insights", {
         p_start_at: range.startAt,
         p_end_at: range.endAt,
@@ -128,52 +124,29 @@ async function loadShard(
         p_attendant_ids: filters.attendantIds,
         p_tunnels: filters.tunnels,
         p_origins: filters.origins,
-        p_shard: shard,
-        p_shards: shards,
-    });
+        p_shard: 0,
+        p_shards: 1,
+    }).abortSignal(signal);
 
-    if (!result.error && result.data) return [result.data as Shard];
-
-    // The database imposes an 8-second statement limit. Retry only timed-out
-    // partitions as two smaller disjoint partitions, preserving all clients.
-    if (result.error?.code === "57014" && shards < SHARDS * 4) {
-        console.warn("[jornada/insights] splitting timed-out shard", { shard, shards });
-        const [left, right] = await Promise.all([
-            loadShard(range, filters, shard, shards * 2),
-            loadShard(range, filters, shard + shards, shards * 2),
-        ]);
-        return [...left, ...right];
-    }
-    throw result.error ?? new Error("Retorno inválido da análise da jornada.");
-}
-
-// Persist successful results across requests/deployments. On refresh failures,
-// Next.js retains the last successful cached value instead of breaking the page.
-const getCachedInsights = unstable_cache(async (
-    range: Pick<DashboardDateRange, "startAt" | "endAt">,
-    filters: DashboardFilters,
-) => {
-    const parts: Shard[] = [];
-    for (let start = 0; start < SHARDS; start += SHARDS_PER_BATCH) {
-        const batches = await Promise.all(
-            Array.from({ length: Math.min(SHARDS_PER_BATCH, SHARDS - start) }, (_, index) =>
-                loadShard(range, filters, start + index, SHARDS)),
-        );
-        parts.push(...batches.flat());
+    signal.throwIfAborted();
+    if (result.error || !result.data) {
+        throw result.error ?? new Error("Retorno inválido da análise da jornada.");
     }
 
+    // Both RPCs read facts refreshed by the existing background preparation job.
+    // Cold page loads never rebuild or recursively split raw-history queries.
     const creativeResult = await supabase.rpc("dashboard_journey_creative_outcomes", {
         p_start_at: range.startAt,
         p_end_at: range.endAt,
-    });
+    }).abortSignal(signal);
     if (creativeResult.error) console.error("[jornada/insights] creative metrics", creativeResult.error);
 
     return {
-        analytics: mergeShards(parts),
+        analytics: mergeShards([result.data as Shard]),
         creatives: creativeResult.error ? null : creativeResult.data,
         creative_error: Boolean(creativeResult.error),
     };
-}, ["jornada-deep-insights-v2"], { revalidate: 900 });
+}
 
 export async function GET(request: Request) {
     try {
@@ -184,7 +157,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const range = resolveDashboardDateRange(searchParams);
         const filters = readDashboardFilters(searchParams);
-        const data = await getCachedInsights({ startAt: range.startAt, endAt: range.endAt }, filters);
+        const data = await loadPreparedInsights({ startAt: range.startAt, endAt: range.endAt }, filters, request.signal);
         request.signal.throwIfAborted();
 
         return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store" } });

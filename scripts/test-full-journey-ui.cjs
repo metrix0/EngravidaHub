@@ -264,17 +264,19 @@ console.log("PASS insights context: loading, success, failed requests and change
         return { response, calls, signal: request.signal };
     }
     const abandoned = await runInsights(true);
-    assert.equal(abandoned.response.status, 499, "Abandoned date queries must not complete all eight expensive shards");
-    assert.ok(abandoned.calls.length <= 2, "Cancellation must stop the next batch and creative query");
+    assert.equal(abandoned.response.status, 499, "Abandoned date queries must stop after the prepared insight read");
+    assert.equal(abandoned.calls.length, 1, "Cancellation must stop the creative query");
     assert.ok(abandoned.calls.every(call => call.signal === abandoned.signal), "Every RPC must receive the request's abort signal");
     const cancelledBeforeStart = await runInsights(false, true);
     assert.equal(cancelledBeforeStart.response.status, 499);
     assert.equal(cancelledBeforeStart.calls.length, 0);
     const normal = await runInsights(false);
     assert.equal(normal.response.status, 200);
-    assert.equal(normal.calls.filter(call => call.name === "dashboard_journey_deep_insights").length, 8);
+    assert.equal(normal.calls.filter(call => call.name === "dashboard_journey_deep_insights").length, 1);
+    assert.equal(normal.calls[0].params.p_shard, 0);
+    assert.equal(normal.calls[0].params.p_shards, 1, "Prepared reads must cover every client without raw-history sharding");
     assert.equal(normal.calls.filter(call => call.name === "dashboard_journey_creative_outcomes").length, 1);
     assert.ok(normal.calls.every(call => call.signal === normal.signal));
-    assert.equal((await normal.response.json()).analytics.scope.clients, 8, "Normal load must retain all shards and aggregation");
-    console.log("PASS insights cancellation: every RPC receives abort signal, abandoned requests stop batching, normal eight-shard output preserved.");
+    assert.equal((await normal.response.json()).analytics.scope.clients, 1, "Normal load must retain the prepared read's complete scope");
+    console.log("PASS prepared insights: one complete read, request cancellation stops work, both RPCs receive the abort signal.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
