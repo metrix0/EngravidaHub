@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import {FaFacebookF, FaFacebookMessenger, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
-import {Card, Pagination, Skeleton} from "@/components";
+import {Card, Skeleton} from "@/components";
 import {InitialsAvatar} from "@/components/conversations/InitialsAvatar";
 import {openClientProfile} from "@/components/clientes/PermanentClientProfilePanel";
 import { ChatMessageList } from "@/components/conversations/ChatMessageList";
@@ -68,6 +68,14 @@ import type {
 type Conversation = InboxThreadDetail;
 
 const PAGE_SIZE = 50;
+const LOAD_MORE_DISTANCE = 240;
+const INITIAL_THREAD_FILTERS: ThreadFilters = {status: "open", channel: "Instagram", search: "", unreadOnly: false};
+type ThreadFilters = {
+    status: InboxStatus;
+    channel: "Instagram" | "Facebook";
+    search: string;
+    unreadOnly: boolean;
+};
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_MIME_TYPES = new Set([
     "image/jpeg",
@@ -149,16 +157,22 @@ const scrollbarClass =
     "[scrollbar-width:thin] [scrollbar-color:#cbd5e1_transparent]";
 
 export default function InboxPage() {
-    const [status, setStatus] = useState<InboxStatus>("open");
-    const [unreadOnly, setUnreadOnly] = useState(false);
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<ThreadFilters>(INITIAL_THREAD_FILTERS);
+    const {status, channel: socialChannel, search, unreadOnly} = filters;
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [selectedItemType, setSelectedItemType] =
         useState<InboxItemType>("thread");
-    const [currentPage, setCurrentPage] = useState(1);
 
     const [threads, setThreads] = useState<InboxThreadListItem[]>([]);
-    const [totalThreads, setTotalThreads] = useState(0);
+    const [hasMoreThreads, setHasMoreThreads] = useState(false);
+    const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
+    const [loadMoreError, setLoadMoreError] = useState(false);
+    const threadListRef = useRef({
+        filters: INITIAL_THREAD_FILTERS,
+        pages: 0,
+        total: 0,
+        request: null as Promise<InboxThreadListItem[] | null> | null,
+    });
     const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
     const [schedulingPanelOpen, setSchedulingPanelOpen] = useState(false);
     const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -171,7 +185,6 @@ export default function InboxPage() {
     const [isLoadingCurrentAttendant, setIsLoadingCurrentAttendant] = useState(true);
     const [isSettingOnline, setIsSettingOnline] = useState(false);
 
-    const [socialChannel, setSocialChannel] = useState<"Instagram" | "Facebook">("Instagram");
     const [queueCount, setQueueCount] = useState(0);
     const [socialQueueCount, setSocialQueueCount] = useState(0);
     const [isPullingConversation, setIsPullingConversation] = useState(false);
@@ -188,11 +201,8 @@ export default function InboxPage() {
         itemType: InboxItemType;
     } | null>(null);
     const selectedThreadRequestRef = useRef(0);
-    const threadListRequestRef = useRef(0);
     const finalizingThreadIdRef = useRef<string | null>(null);
     const refreshAfterReadRef = useRef<(() => Promise<void>) | null>(null);
-
-    const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
     const isNotLinkedToAttendant =
         !isLoadingCurrentAttendant && !currentAttendant;
@@ -207,84 +217,121 @@ export default function InboxPage() {
         !!currentAttendant &&
         currentAttendant.is_online;
 
+    function changeThreadFilters(next: Partial<ThreadFilters>) {
+        const nextFilters = {...filters, ...next};
+        threadListRef.current = {filters: nextFilters, pages: 0, total: 0, request: null};
+        setIsLoadingThreads(true);
+        setHasMoreThreads(false);
+        setIsLoadingMoreThreads(false);
+        setLoadMoreError(false);
+        setFilters(nextFilters);
+    }
+
     const loadThreads = useCallback(async ({
-        showLoading = true,
+        append = false,
+        showLoading = false,
     }: {
+        append?: boolean;
         showLoading?: boolean;
     } = {}) => {
-        const requestId = ++threadListRequestRef.current;
-        if (showLoading) {
-            setIsLoadingThreads(true);
+        const list = threadListRef.current;
+        if (filters !== list.filters) return null;
+
+        if (append) {
+            const loadedPages = list.pages;
+            while (list.request) {
+                await list.request;
+                if (list !== threadListRef.current || list.pages !== loadedPages) return null;
+            }
+            if (list.pages * PAGE_SIZE >= list.total) return null;
+            setIsLoadingMoreThreads(true);
+            setLoadMoreError(false);
+        } else if (list.request) {
+            await list.request;
+            if (list !== threadListRef.current) return null;
+            if (list.request) return list.request;
         }
 
-        try {
-            const response = await fetchInboxThreads({
-                status,
-                search,
-                page: currentPage,
-                pageSize: PAGE_SIZE,
-                channel: socialChannel,
-                unreadOnly,
-            });
+        if (showLoading) setIsLoadingThreads(true);
 
-            if (requestId !== threadListRequestRef.current) return;
+        // Refresh the loaded window so realtime changes can reorder conversations
+        // without dropping batches the attendant already scrolled through.
+        const pages = append
+            ? [list.pages + 1]
+            : Array.from({length: Math.max(1, list.pages)}, (_, index) => index + 1);
 
-            setThreads(response.items);
-            setTotalThreads(response.total);
+        const request = Promise.all(pages.map((page) => fetchInboxThreads({
+            ...filters,
+            page,
+            pageSize: PAGE_SIZE,
+        }))).then((responses) => {
+            if (list !== threadListRef.current) return null;
 
-            if (unreadOnly) {
-                const lastPage = Math.max(1, Math.ceil(response.total / PAGE_SIZE));
-                if (currentPage > lastPage) setCurrentPage(lastPage);
-                return;
+            list.total = responses[0].total;
+            list.pages = Math.min(pages[pages.length - 1], Math.max(1, Math.ceil(list.total / PAGE_SIZE)));
+            setHasMoreThreads(list.pages * PAGE_SIZE < list.total);
+
+            const items = [...new Map(
+                responses.flatMap((response) => response.items).map((item) => [item.id, item]),
+            ).values()];
+
+            if (append) {
+                setThreads((current) => {
+                    const ids = new Set(current.map((item) => item.id));
+                    return [...current, ...items.filter((item) => !ids.has(item.id))];
+                });
+                return items;
             }
+
+            setThreads(items);
+            if (filters.unreadOnly) return items;
 
             setSelectedId((currentSelectedId) => {
                 const expectedItemType: InboxItemType =
-                    status === "closed" ? "conversation" : "thread";
+                    filters.status === "closed" ? "conversation" : "thread";
                 const forcedSelection = forcedSelectionRef.current;
 
-                if (
-                    forcedSelection &&
-                    forcedSelection.itemType === expectedItemType
-                ) {
+                if (forcedSelection?.itemType === expectedItemType) {
                     setSelectedItemType(forcedSelection.itemType);
                     return forcedSelection.id;
                 }
 
-                // The selected conversation belongs to the middle panel.
-                // Changing the left-side tab must never replace it.
-                if (currentSelectedId) {
-                    return currentSelectedId;
-                }
+                // The left-side list can change while the middle panel stays open.
+                if (currentSelectedId) return currentSelectedId;
 
-                // Select the first list item only when nothing is open yet.
-                const nextItem = response.items[0] ?? null;
-
-                setSelectedItemType(
-                    nextItem?.item_type ?? expectedItemType,
-                );
-
-                return nextItem?.id ?? null;
+                const firstItem = items[0];
+                setSelectedItemType(firstItem?.item_type ?? expectedItemType);
+                return firstItem?.id ?? null;
             });
-        } catch (error) {
-            if (requestId !== threadListRequestRef.current) return;
-
+            return items;
+        }).catch((error) => {
+            if (list !== threadListRef.current) return null;
             console.error("[inbox] failed to load threads", error);
 
-            if (showLoading) {
+            if (append) {
+                setLoadMoreError(true);
+            } else if (showLoading) {
                 setThreads([]);
-                setTotalThreads(0);
             }
-        } finally {
-            if (requestId === threadListRequestRef.current) {
-                setIsLoadingThreads(false);
-            }
-        }
-    }, [status, search, currentPage, socialChannel, unreadOnly]);
+            return null;
+        }).finally(() => {
+            list.request = null;
+            if (list !== threadListRef.current) return;
+            if (append) setIsLoadingMoreThreads(false);
+            if (showLoading) setIsLoadingThreads(false);
+        });
+
+        list.request = request;
+        return request;
+    }, [filters]);
+
+    const loadMoreThreads = useCallback(() => {
+        void loadThreads({ append: true });
+    }, [loadThreads]);
 
     useEffect(() => {
         refreshAfterReadRef.current = unreadOnly
-            ? () => loadThreads({ showLoading: false })
+            ? async () => { await loadThreads(); }
             : null;
     }, [unreadOnly, loadThreads]);
 
@@ -395,7 +442,7 @@ export default function InboxPage() {
     useEffect(() => {
         if (!canShowInbox) return;
 
-        void Promise.all([loadThreads(), loadQueueCount()]);
+        void Promise.all([loadThreads({ showLoading: true }), loadQueueCount()]);
     }, [canShowInbox, loadQueueCount, loadThreads]);
 
     useEffect(() => {
@@ -406,7 +453,7 @@ export default function InboxPage() {
 
     const handleRealtimeThreadChange = useCallback(() => {
         void Promise.all([
-            loadThreads({ showLoading: false }),
+            loadThreads(),
             loadQueueCount(),
         ]);
     }, [loadQueueCount, loadThreads]);
@@ -448,15 +495,25 @@ export default function InboxPage() {
         if (nextStatus === status && !unreadOnly) return;
 
         forcedSelectionRef.current = null;
-        setStatus(nextStatus);
-        setUnreadOnly(false);
-        setCurrentPage(1);
+        changeThreadFilters({status: nextStatus, unreadOnly: false});
     }
 
     function handleToggleUnread() {
         forcedSelectionRef.current = null;
-        setUnreadOnly(!unreadOnly);
-        setCurrentPage(1);
+        changeThreadFilters({unreadOnly: !unreadOnly});
+    }
+
+    async function focusOpenThread(threadId: string) {
+        forcedSelectionRef.current = { id: threadId, itemType: "thread" };
+        selectedThreadRequestRef.current += 1;
+
+        const filtersChanged = status !== "open" || search !== "" || unreadOnly;
+        if (filtersChanged) changeThreadFilters({status: "open", search: "", unreadOnly: false});
+        setSelectedId(threadId);
+        setSelectedItemType("thread");
+        setSelectedThread(null);
+
+        if (!filtersChanged) await loadThreads();
     }
 
     async function handlePullConversation() {
@@ -473,33 +530,7 @@ export default function InboxPage() {
                 return;
             }
 
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
-
-            setStatus("open");
-            setUnreadOnly(false);
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+            await focusOpenThread(result.thread_id);
         } catch (error) {
             console.error("[inbox] failed to claim conversation", error);
         } finally {
@@ -522,33 +553,7 @@ export default function InboxPage() {
                 return;
             }
 
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
-
-            setStatus("open");
-            setUnreadOnly(false);
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+            await focusOpenThread(result.thread_id);
         } catch (error) {
             console.error("[inbox] failed to claim conversation", error);
         } finally {
@@ -588,55 +593,16 @@ export default function InboxPage() {
                 return;
             }
 
-            // Keep the current Abertas/Fechadas tab and its current search.
-            let targetPage = currentPage;
-
-            let listResponse = await fetchInboxThreads({
-                status,
-                search,
-                page: targetPage,
-                pageSize: PAGE_SIZE,
-            });
-
-            // Closing the last item on a page can reduce the page count.
-            const lastAvailablePage = Math.max(
-                1,
-                Math.ceil(listResponse.total / PAGE_SIZE),
-            );
-
-            if (targetPage > lastAvailablePage) {
-                targetPage = lastAvailablePage;
-
-                listResponse = await fetchInboxThreads({
-                    status,
-                    search,
-                    page: targetPage,
-                    pageSize: PAGE_SIZE,
-                });
-            }
+            const items = await loadThreads();
 
             // Never automatically open the conversation that was just closed.
-            const availableItems = listResponse.items.filter(
-                (item) =>
-                    item.id !== result.conversation_id &&
-                    item.id !== threadId,
+            const availableItems = (items ?? threads).filter(
+                (item) => item.id !== result.conversation_id && item.id !== threadId,
             );
-
             const nextItem =
-                availableItems[
-                    Math.min(
-                        selectedIndex,
-                        Math.max(availableItems.length - 1, 0),
-                    )
-                ] ??
-                availableItems[0] ??
-                null;
+                availableItems[Math.min(selectedIndex, availableItems.length - 1)] ?? null;
 
             selectedThreadRequestRef.current += 1;
-
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
-            setCurrentPage(targetPage);
 
             if (nextItem) {
                 forcedSelectionRef.current = {
@@ -696,33 +662,7 @@ export default function InboxPage() {
 
     async function applySendResult(result: InboxSendResult) {
         if (result.reopened) {
-            forcedSelectionRef.current = {
-                id: result.thread_id,
-                itemType: "thread",
-            };
-            selectedThreadRequestRef.current += 1;
-
-            setStatus("open");
-            setUnreadOnly(false);
-            setSearch("");
-            setCurrentPage(1);
-            setSelectedId(result.thread_id);
-            setSelectedItemType("thread");
-            setSelectedThread(null);
-
-            const [threadResponse, listResponse] = await Promise.all([
-                fetchInboxThread(result.thread_id, "thread"),
-                fetchInboxThreads({
-                    status: "open",
-                    search: "",
-                    page: 1,
-                    pageSize: PAGE_SIZE,
-                }),
-            ]);
-
-            setSelectedThread(threadResponse.item);
-            setThreads(listResponse.items);
-            setTotalThreads(listResponse.total);
+            await focusOpenThread(result.thread_id);
             return;
         }
 
@@ -944,6 +884,11 @@ export default function InboxPage() {
     const isOpeningPage =
         canShowInbox && isLoadingThreads && threads.length === 0 && !selectedThread;
 
+    const visibleThreads = useMemo(
+        () => unreadOnly ? threads.filter((thread) => thread.unread > 0) : threads,
+        [threads, unreadOnly],
+    );
+
     const selectedListThread =
         threads.find((thread) => thread.id === selectedId) ?? null;
 
@@ -1007,7 +952,10 @@ export default function InboxPage() {
                     <>
                         <ConversationListPanel
                             channel={socialChannel}
-                            onChannelChange={channel => { setSocialChannel(channel); setCurrentPage(1); }}
+                            onChannelChange={(channel) => {
+                                if (channel === socialChannel) return;
+                                changeThreadFilters({channel});
+                            }}
                             status={status}
                             onStatusChange={handleStatusChange}
                             unreadOnly={unreadOnly}
@@ -1020,22 +968,13 @@ export default function InboxPage() {
                             search={search}
                             onSearchChange={(value) => {
                                 forcedSelectionRef.current = null;
-                                setSearch(value);
-                                setCurrentPage(1);
+                                changeThreadFilters({search: value});
                             }}
-                            conversations={unreadOnly ? threads.filter((thread) => thread.unread > 0) : threads}
-                            totalConversations={totalThreads}
-                            totalPages={totalPages}
-                            currentPage={currentPage}
-                            onPageChange={(page) => {
-                                forcedSelectionRef.current = null;
-                                if (!unreadOnly) {
-                                    selectedThreadRequestRef.current += 1;
-                                    setSelectedId(null);
-                                    setSelectedThread(null);
-                                }
-                                setCurrentPage(page);
-                            }}
+                            conversations={visibleThreads}
+                            hasMore={hasMoreThreads}
+                            isLoadingMore={isLoadingMoreThreads}
+                            loadMoreError={loadMoreError}
+                            onLoadMore={loadMoreThreads}
                             selectedConversationId={selectedId ?? ""}
                             onSelectConversation={handleSelectThread}
                             isLoading={isLoadingThreads}
@@ -1127,7 +1066,7 @@ export default function InboxPage() {
                 onClose={() => setSchedulingPanelOpen(false)}
                 onCreated={() => {
                     void Promise.all([
-                        loadThreads({ showLoading: false }),
+                        loadThreads(),
                         loadSelectedThread(),
                     ]);
                 }}
@@ -1174,10 +1113,10 @@ function ConversationListPanel({
                                    search,
                                    onSearchChange,
                                    conversations,
-                                   totalConversations,
-                                   totalPages,
-                                   currentPage,
-                                   onPageChange,
+                                   hasMore,
+                                   isLoadingMore,
+                                   loadMoreError,
+                                   onLoadMore,
                                    selectedConversationId,
                                    onSelectConversation,
                                    isLoading,
@@ -1196,14 +1135,29 @@ function ConversationListPanel({
     search: string;
     onSearchChange: (value: string) => void;
     conversations: InboxThreadListItem[];
-    totalConversations: number;
-    totalPages: number;
-    currentPage: number;
-    onPageChange: (page: number) => void;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    loadMoreError: boolean;
+    onLoadMore: () => void;
     selectedConversationId: string;
     onSelectConversation: (item: InboxThreadListItem) => void;
     isLoading: boolean;
 }) {
+    const listRef = useRef<HTMLDivElement>(null);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const root = listRef.current;
+        const sentinel = sentinelRef.current;
+        if (!root || !sentinel || !hasMore || isLoading || isLoadingMore || loadMoreError) return;
+
+        const observer = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting) onLoadMore();
+        }, { root, rootMargin: `0px 0px ${LOAD_MORE_DISTANCE}px 0px` });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [conversations, hasMore, isLoading, isLoadingMore, loadMoreError, onLoadMore]);
+
     return (
         <section className="flex h-full min-h-0 min-w-full snap-start flex-col overflow-hidden md:min-w-0">
             <div className="mb-4 shrink-0">
@@ -1306,6 +1260,8 @@ function ConversationListPanel({
             </div>
 
             <div
+                key={`${channel}:${status}:${unreadOnly}:${search}`}
+                ref={listRef}
                 className={`min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 ${scrollbarClass}`}
             >
                 {isLoading && <ConversationItemsSkeleton />}
@@ -1327,25 +1283,23 @@ function ConversationListPanel({
                     </div>
                 )}
 
-                {!isLoading && totalConversations > 0 && (
-                    <div className="space-y-4 py-3">
-                        <div className="flex items-center justify-between px-2 text-sm text-slate-500">
-                            <span>
-                                Mostrando{" "}
-                                {Math.min(
-                                    (currentPage - 1) * PAGE_SIZE + 1,
-                                    totalConversations
-                                )}
-                                –{Math.min(currentPage * PAGE_SIZE, totalConversations)}{" "}
-                                de {totalConversations} conversas
-                            </span>
-                        </div>
-
-                        <Pagination
-                            totalPages={totalPages}
-                            currentPage={currentPage}
-                            onPageChange={onPageChange}
-                        />
+                {!isLoading && hasMore && (
+                    <div ref={sentinelRef} className="min-h-px">
+                        {isLoadingMore && (
+                            <div role="status" className="flex items-center justify-center gap-2 py-3 text-sm text-slate-500">
+                                <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                                Carregando mais conversas…
+                            </div>
+                        )}
+                        {loadMoreError && (
+                            <button
+                                type="button"
+                                onClick={onLoadMore}
+                                className="mx-auto flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                Tentar carregar mais conversas
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
