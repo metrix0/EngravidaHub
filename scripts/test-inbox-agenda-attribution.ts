@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { scheduleSourcePatch } from "../lib/schedules/reconcileScheduleSource";
-import { inferTunnelFromTracking } from "../lib/analysis/tunnelAttribution";
+import { inferTunnelFromAnalysis, inferTunnelFromReferrals, inferTunnelFromTracking, isMissingTunnel, validateTunnelAttribution } from "../lib/analysis/tunnelAttribution";
 import { buildOperationalAgenda, type OperationalAgenda } from "../lib/scheduling/operationalAgenda";
 
 assert.equal(inferTunnelFromTracking("[Direct] - BR - Congelamento - 20260713"), "Congelamento");
@@ -10,6 +10,30 @@ assert.equal(inferTunnelFromTracking(null, "congelamento_post_01"), "Congelament
 assert.equal(inferTunnelFromTracking("[SEARCH] LP Salvador"), null);
 assert.equal(inferTunnelFromTracking("FIV e congelamento"), null);
 assert.equal(inferTunnelFromTracking("Problemas", "Congelamento"), "Problemas");
+assert.equal(inferTunnelFromTracking("não consigo engravidar"), "Problemas");
+assert.equal(isMissingTunnel(" Entrada Orgânica "), true);
+
+const referral = (campaign_name: string | null, text: string) => ({
+    campaign_name, ad_set_name: null, ad_name: null, referral_ad_title: null, messages: { text },
+});
+assert.equal(inferTunnelFromReferrals([referral(null, "Oi"), referral("Problemas", "Quero saber sobre FIV")]), "Problemas");
+assert.equal(inferTunnelFromReferrals([referral(null, "Olá! Gostaria de saber mais sobre congelamento de óvulos.")]), "Congelamento");
+assert.equal(inferTunnelFromReferrals([referral(null, "Não tenho interesse em congelamento de óvulos")]), null);
+assert.equal(inferTunnelFromReferrals([referral(null, "Quero informações sobre FIV e congelamento")]), null);
+assert.equal(inferTunnelFromReferrals([referral(null, "Minha amiga fez FIV, quero marcar uma consulta")]), null);
+
+const interest = (value: string, label: string, quote: string) => ({
+    value, label, confidence: 0.95, category: "treatment_interest", evidence: [{ message_id: "entry", quote }],
+});
+const laqueadura = interest("reversao_laqueadura", "Reversão de laqueadura", "Vocês fazem reversão de laqueadura?");
+const ovorecepcao = interest("ovorecepcao", "Ovorecepção", "Quero saber mais sobre ovorecepção.");
+assert.equal(inferTunnelFromAnalysis({ pattern_signals: [laqueadura] })?.tunnel, "Laqueadura");
+assert.equal(inferTunnelFromAnalysis({ pattern_signals: [ovorecepcao] })?.tunnel, "Tratamentos");
+assert.equal(inferTunnelFromAnalysis({ pattern_signals: [laqueadura, ovorecepcao] }), null);
+assert.equal(inferTunnelFromAnalysis({ pattern_signals: [{ ...laqueadura, confidence: 0.88 }] }), null);
+assert.equal(inferTunnelFromAnalysis({ pattern_signals: [interest("fiv", "FIV", "Nunca quis fazer FIV.")] }), null);
+assert.equal(validateTunnelAttribution({ tunnel: "Laqueadura", confidence: 0.95, evidence: laqueadura.evidence },
+    [{ id: "entry", sender_type: "bot", text: laqueadura.evidence[0].quote }]), null);
 
 const agenda: OperationalAgenda = {
     unit_id: "unit", unit_name: "Salvador", doctor_id: "doctor", doctor_name: "Dr. Joventina de Oliveira  Araujo",

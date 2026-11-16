@@ -2,6 +2,7 @@
 import { supabase } from "@/lib";
 import { analyzeConversation } from "@/lib/ai/analyzeConversation";
 import { saveConversationAnalysis } from "@/lib/analysis/saveConversationAnalysis";
+import { reconcileConversationTunnel } from "@/lib/analysis/reconcileConversationTunnel";
 import { deriveAdEventsFromAnalysis } from "@/lib/ads/deriveAdEventsFromAnalysis";
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
 import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
@@ -66,6 +67,7 @@ async function processConversation(conversation: Conversation) {
 
         const existingAnalysis = await findExistingAnalysis(conversation.id);
         if (existingAnalysis) {
+            await reconcileConversationTunnel(conversation.id);
             await completeConversation(
                 conversation.id,
                 existingAnalysis.id,

@@ -1,6 +1,7 @@
 // lib/clients/acquisition.ts
 import type { JourneyRow } from "@/lib/clients/individualJourney";
 import { matchMediaBudgetCity, normalizeCampaignMatchText } from "@/lib/ads/mediaBudgetByCity";
+import { isMissingTunnel } from "@/lib/analysis/tunnelAttribution";
 
 export type ClientAcquisition = ReturnType<typeof buildClientAcquisition>;
 const text = (row: JourneyRow | null | undefined, key: string) =>
@@ -64,8 +65,18 @@ export function buildClientAcquisition(input: {
             adAttributionId: ad?.id ?? null,
         }];
     }).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    const clientTunnel = text(input.client, "last_tunnel");
+    const latestConversationTunnel = isMissingTunnel(clientTunnel)
+        ? (input.conversations ?? []).filter(row => !isMissingTunnel(text(row, "tunnel")))
+            .sort((a, b) => (Date.parse(text(b, "ended_at") ?? text(b, "started_at") ?? "") || 0)
+                - (Date.parse(text(a, "ended_at") ?? text(a, "started_at") ?? "") || 0))[0]
+        : null;
     return {
-        fields: fields.map(([key, label]) => ({ key, label, value: text(input.client, key) })),
+        fields: fields.map(([key, label]) => ({
+            key, label, value: key === "last_tunnel"
+                ? text(latestConversationTunnel, "tunnel") ?? clientTunnel
+                : text(input.client, key),
+        })),
         identifiers: identifiers.flatMap(key => {
             const value = text(input.client, key);
             return value ? [{ key, label: key, value }] : [];

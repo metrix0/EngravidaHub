@@ -80,8 +80,8 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         const [directConversations, socialConversations, directThreads, socialThreads,
             analysesDirect, analysesSocial, tintim, calls, funnelHistory, appointments,
             clinisys, schedules, invoices] = await Promise.all([
-            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,attendant_chat_name", "client_id", clientId ? [clientId] : []),
-            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,attendant_chat_name", "instagram_user_id", socialIds),
+            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,tunnel,attendant_chat_name", "client_id", clientId ? [clientId] : []),
+            loadRows("conversations", "id,client_id,instagram_user_id,thread_id,started_at,ended_at,channel,source,origin,tunnel,attendant_chat_name", "instagram_user_id", socialIds),
             loadRows("thread", "id,client_id,instagram_user_id,channel,claimed_at,closed_at", "client_id", clientId ? [clientId] : []),
             loadRows("thread", "id,client_id,instagram_user_id,channel,claimed_at,closed_at", "instagram_user_id", socialIds),
             loadRows("conversation_analysis", "id,conversation_id,client_id,outcome_events", "client_id", clientId ? [clientId] : []),

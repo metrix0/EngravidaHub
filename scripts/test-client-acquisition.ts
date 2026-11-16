@@ -22,6 +22,15 @@ assert.equal(result.fields.find(field => field.key === "utm_term").value, "engra
 assert.equal(result.fields.find(field => field.key === "last_tunnel").value, "LGBT");
 const missing = build({ client: null, instagramUsers: [], adAttributions: [], threads: [{ id: "direct", channel: "Messenger" }], appointments: [{ id: "untracked", thread_id: "direct" }] });
 assert.equal(missing.appointments[0].adAttributionId, null, "Missing evidence must remain unattributed");
+const social = build({
+    client: null, instagramUsers: [], adAttributions: [], threads: [], appointments: [],
+    conversations: [
+        { tunnel: "Problemas", started_at: "2026-10-20T15:00:00Z" },
+        { tunnel: "Entrada Orgânica", started_at: "2026-10-23T15:00:00Z" },
+        { tunnel: "Congelamento", started_at: "2026-10-22T15:00:00Z" },
+    ],
+});
+assert.equal(social.fields.find(field => field.key === "last_tunnel")?.value, "Congelamento");
 console.log("PASS acquisition: booking chronology, conversation isolation, complete ad history, tracking fields, safe media URLs and missing evidence.");
 
 const context = build({
