@@ -7,6 +7,7 @@ import {
     type DragEvent,
     type MouseEvent,
     type PointerEvent,
+    type ReactNode,
 } from "react";
 import { ChevronRight, LoaderCircle, Plus, RotateCcw, Trash2, X } from "lucide-react";
 
@@ -292,9 +293,22 @@ export default function WeekCalendar(props: Props) {
                                 const slots = freeSlotsByDay.get(key) ?? [];
                                 const notes = notesByDay.get(key) ?? [];
                                 const today = key === formatLocalDateKey(new Date());
+                                const freeSlotsButton = (
+                                    <button type="button" disabled={!slots.length} onClick={() => setExpandedFreeSlots(slots)} className="w-full rounded-lg bg-green-soft px-2 py-2 text-left text-xs font-medium text-green disabled:bg-transparent disabled:text-slate-400">
+                                        {slots.length ? `${slots.length} horários livres` : "Sem horários"}
+                                    </button>
+                                );
                                 return <div key={key} className={`min-h-32 min-w-0 border-b border-r border-slate-100 p-2 ${day.getMonth() !== props.month ? "bg-slate-50 text-slate-400" : "bg-white"}`}>
                                     <div className="mb-2 flex items-center justify-between"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${today ? "bg-brand text-white" : ""}`}>{day.getDate()}</span><button type="button" onClick={() => void props.onAddNote(key)} aria-label={`Adicionar nota em ${key}`} className="rounded p-1 text-slate-400 hover:bg-selection"><Plus size={12} /></button></div>
-                                    {freeOnly ? <button type="button" disabled={!slots.length} onClick={() => setExpandedFreeSlots(slots)} className="w-full rounded-lg bg-green-soft px-2 py-2 text-left text-xs font-medium text-green disabled:bg-transparent disabled:text-slate-400">{slots.length ? `${slots.length} horários livres` : "Sem horários"}</button> : <>
+                                    {freeOnly ? (
+                                        slots.length ? (
+                                            <div className="[&>span]:w-full [&>span>span]:w-full">
+                                                <FreeSlotsTooltip slots={slots} loads={loads}>
+                                                    {freeSlotsButton}
+                                                </FreeSlotsTooltip>
+                                            </div>
+                                        ) : freeSlotsButton
+                                    ) : <>
                                         {items.slice(0, 3).map(item => <button key={item.id} type="button" onClick={() => props.onSelectAppointment(item)} className="mb-1 block w-full truncate rounded-md border-l-2 border-brand bg-brand-soft/40 px-1.5 py-1 text-left text-xs text-slate-700" title={`${time(item.starts_at)} · ${item.patient_name}`}><span className="mr-1 font-semibold">{time(item.starts_at)}</span>{item.patient_name}</button>)}
                                         {items.length > 3 && (
                                             <InfoTooltip
@@ -571,28 +585,9 @@ export default function WeekCalendar(props: Props) {
                                                     }}
                                                 >
                                                     {single ? card : (
-                                                    <InfoTooltip
-                                                        portal
-                                                        widthClassName="w-[380px]"
-                                                        text={
-                                                            <span className="block max-h-72 overflow-y-auto">
-                                                                <span className="mb-2 block font-bold text-slate-800">
-                                                                    {group.slots.length} {group.slots.length === 1 ? "horário livre" : "horários livres"}
-                                                                </span>
-                                                                {group.slots.map(slot => {
-                                                                    const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
-                                                                    return (
-                                                                        <span key={slot.id} className="block border-t border-slate-100 py-1.5">
-                                                                            <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
-                                                                            {capacity ? <span className="block break-words">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
-                                                                        </span>
-                                                                    );
-                                                                })}
-                                                            </span>
-                                                        }
-                                                    >
-                                                        {card}
-                                                    </InfoTooltip>
+                                                        <FreeSlotsTooltip slots={group.slots} loads={loads}>
+                                                            {card}
+                                                        </FreeSlotsTooltip>
                                                     )}
                                                     {recovery && props.onRecoverSlot && <button type="button"
                                                         onClick={event => { event.stopPropagation(); props.onRecoverSlot?.(recovery.slot, recovery.vacancy.id); }}
@@ -929,6 +924,37 @@ export default function WeekCalendar(props: Props) {
                 </div>
             </Modal>
         </>
+    );
+}
+
+function FreeSlotsTooltip({ slots, loads, children }: {
+    slots: AgendaFreeSlot[];
+    loads: ReadonlyMap<string, OperationalAgendaReport["byDoctor"][number]>;
+    children: ReactNode;
+}) {
+    return (
+        <InfoTooltip
+            portal
+            widthClassName="w-[380px]"
+            text={
+                <span className="block max-h-72 overflow-y-auto">
+                    <span className="mb-2 block font-bold text-slate-800">
+                        {slots.length} {slots.length === 1 ? "horário livre" : "horários livres"}
+                    </span>
+                    {slots.map(slot => {
+                        const capacity = loads.get(`${slot.unitId}:${slot.doctorId}`);
+                        return (
+                            <span key={slot.id} className="block border-t border-slate-100 py-1.5">
+                                <span className="block font-semibold">{time(slot.startsAt)}–{time(slot.endsAt)} · {formatDoctorName(slot.doctorName)}</span>
+                                {capacity ? <span className="block break-words">{percent(capacity.occupancy)} ocupação · {capacity.available}/{capacity.total} vagas</span> : null}
+                            </span>
+                        );
+                    })}
+                </span>
+            }
+        >
+            {children}
+        </InfoTooltip>
     );
 }
 
