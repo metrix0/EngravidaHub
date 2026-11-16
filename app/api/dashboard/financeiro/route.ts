@@ -25,6 +25,7 @@ import type {
     FinancialKpis,
     PaidMediaKpis,
 } from "@/types";
+import type { TunnelFinanceRow, TunnelRoiData } from "@/types/tunnel-performance";
 
 const PAGE_SIZE = 1_000;
 const ID_FILTER_BATCH_SIZE = 100;
@@ -177,7 +178,6 @@ export async function GET(request: Request) {
                   range,
                   readDashboardFilters(new URLSearchParams({ unit_ids: filters.unitIds.join(",") })),
                   request.signal,
-                  filters.categories,
               )
             : Promise.resolve(null);
         const twelveMonthTrendPromise = loadTwelveMonthTrend(filters);
@@ -302,10 +302,8 @@ export async function GET(request: Request) {
             crm: buildCrmMetrics(currentInvoices, schedules, clients),
             ads: {
                 has_data: currentAdMetrics.length > 0,
-                by_tunnel: tunnelPerformance?.available
-                    ? tunnelPerformance.tunnels.map(({ tunnel, investment, attributed_revenue }) => ({
-                          tunnel, investment, attributed_revenue,
-                      }))
+                by_tunnel: tunnelPerformance
+                    ? buildTunnelFinanceRows(tunnelPerformance.tunnels, currentInvoices)
                     : null,
                 comparison_available: comparisonAvailable,
                 kpis: currentAds.kpis,
@@ -344,6 +342,39 @@ export async function GET(request: Request) {
             { status: 500 },
         );
     }
+}
+
+const INVOICE_TUNNEL_PATTERNS = [
+    ["Congelamento", /\b(?:congelamento|criopreservacao|vitrificacao)\b/],
+    ["Laqueadura", /\b(?:laqueadura|reversao de ligadura(?: tubaria)?)\b/],
+    ["LGBT", /\b(?:lgbt\w*|ropa|homoafetiv\w*)\b/],
+    ["Problemas e Tratamentos", /\b(?:infertil\w*|dificuldade (?:de|para) engravidar|fertilizacao in vitro|fiv|inseminacao|ovodoacao|ovorecepcao|(?:doacao|recepcao) de (?:ovulos?|embrioes|semen|esperma)|reproducao assistida|transferencia de embrioes|transferencia embrionaria|relacao sexual programada|tratamento(?: para (?:engravidar|fertilidade)| de (?:infertilidade|reproducao humana))?)\b/],
+    ["Bio Instagram", /\bbio(?: do)? instagram\b/],
+    ["Site - Home | Engravida", /\bsite home engravida\b/],
+] as const;
+
+function buildTunnelFinanceRows(
+    investments: Pick<TunnelRoiData["tunnels"][number], "tunnel" | "investment">[],
+    invoices: InvoiceRow[],
+): TunnelFinanceRow[] {
+    const rows = new Map<string, TunnelFinanceRow>(
+        investments.map(({ tunnel, investment }) => [tunnel, { tunnel, investment, invoice_total: 0 }]),
+    );
+    for (const invoice of invoices) {
+        if (statusGroup(invoice.status) !== "authorized") continue;
+        const description = normalizeText(invoice.description ?? "").replace(/[^a-z0-9]+/g, " ");
+        const match = INVOICE_TUNNEL_PATTERNS.find(([, pattern]) => pattern.test(description));
+        if (!match) continue;
+
+        const [tunnel] = match;
+        const row = rows.get(tunnel) ?? { tunnel, investment: 0, invoice_total: 0 };
+        row.invoice_total += numeric(invoice.amount);
+        rows.set(tunnel, row);
+    }
+    return Array.from(rows.values(), (row) => ({
+        ...row,
+        invoice_total: roundMoney(row.invoice_total),
+    }));
 }
 
 function readFinancialFilters(searchParams: URLSearchParams): FinancialFilters {

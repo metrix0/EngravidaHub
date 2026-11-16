@@ -463,6 +463,11 @@ function TicketAverageCard({ data }: { data: FinancialDashboardData }) {
 
 function AdsSection({ data }: { data: FinancialDashboardData }) {
     const ads = data.ads;
+    const tunnelInvestmentCard = (
+        <div className="mb-5">
+            <TunnelInvestmentCard rows={ads.by_tunnel ?? null} />
+        </div>
+    );
     const metaSpend =
         ads.by_platform.find((item) => item.platform === "meta_ads")?.spend ?? 0;
     const googleSpend =
@@ -486,14 +491,13 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                 </div>
             </div>
 
-            <div className="mb-5">
-                <TunnelInvestmentCard rows={ads.by_tunnel ?? null} />
-            </div>
-
             {!ads.has_data ? (
-                <Card>
-                    <EmptyState message="Nenhum dado do Google Ads ou Meta Ads foi sincronizado neste período." />
-                </Card>
+                <>
+                    {tunnelInvestmentCard}
+                    <Card>
+                        <EmptyState message="Nenhum dado do Google Ads ou Meta Ads foi sincronizado neste período." />
+                    </Card>
+                </>
             ) : (
                 <>
                     {!ads.comparison_available ? (
@@ -611,6 +615,8 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                         <AdsPlatformCard data={data} />
                     </div>
 
+                    {tunnelInvestmentCard}
+
                     <div className="mb-5">
                         <PaidCityReturnCard data={data} />
                     </div>
@@ -629,14 +635,17 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
 const tunnelMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardData["ads"]["by_tunnel"]> | null }) {
-    const tunnels = [...(rows ?? [])].sort((a, b) => b.investment - a.investment || b.attributed_revenue - a.attributed_revenue);
+    const tunnels = (rows ?? []).map((row) => ({
+        ...row,
+        gapInCents: Math.round(row.invoice_total * 100) - Math.round(row.investment * 100),
+    })).sort((a, b) => Math.abs(b.gapInCents) - Math.abs(a.gapInCents) || b.gapInCents - a.gapInCents);
 
     return (
         <Card className="min-w-0">
             <h3 className="mb-4 text-lg font-bold">Investido em cada túnel</h3>
             {tunnels.length === 0 ? (
                 <EmptyState message={rows
-                    ? "Nenhum investimento ou NFS-e atribuída no período."
+                    ? "Nenhum investimento ou NFS-e com descrição correspondente no período."
                     : "Não foi possível carregar o investimento por túnel."}
                 />
             ) : (
@@ -647,10 +656,11 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
                                 <th scope="col" className="px-3 py-3">Túnel</th>
                                 <th scope="col" className="px-3 py-3 text-right">Investido</th>
                                 <th scope="col" className="px-3 py-3 text-right">Total em NFS-e</th>
+                                <th scope="col" className="px-3 py-3 text-right" title="Total em NFS-e menos o valor investido">Disparidade</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {tunnels.map(({ tunnel, investment, attributed_revenue }) => (
+                            {tunnels.map(({ tunnel, investment, invoice_total, gapInCents }) => (
                                 <tr key={tunnel} className="border-t border-slate-100 text-sm text-slate-700">
                                     <th scope="row" className="px-3 py-3 font-semibold">
                                         {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
@@ -659,7 +669,10 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
                                         {tunnelMoney.format(investment)}
                                     </td>
                                     <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
-                                        {tunnelMoney.format(attributed_revenue)}
+                                        {tunnelMoney.format(invoice_total)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                                        {tunnelMoney.format(gapInCents / 100)}
                                     </td>
                                 </tr>
                             ))}

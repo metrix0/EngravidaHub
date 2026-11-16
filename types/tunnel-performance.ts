@@ -20,7 +20,8 @@ export type TunnelRoiData = {
     }[];
 };
 
-export type TunnelFinanceRow = Pick<
-    TunnelRoiData["tunnels"][number],
-    "tunnel" | "investment" | "attributed_revenue"
->;
+export type TunnelFinanceRow = {
+    tunnel: string;
+    investment: number;
+    invoice_total: number;
+};
