@@ -634,19 +634,25 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
 }
 
 const tunnelMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const hiddenInvestmentTunnels = new Set(["Bio Instagram", "Site - Home | Engravida"]);
 const tunnelInvoiceCriteria = [
     "As NFS-e autorizadas no período são classificadas pela descrição. Cada nota entra no primeiro túnel correspondente.",
-    ...INVOICE_TUNNEL_RULES.map(({ tunnel, summary }) => `${tunnel} — ${summary}`),
+    ...INVOICE_TUNNEL_RULES
+        .filter(({ tunnel }) => !hiddenInvestmentTunnels.has(tunnel))
+        .map(({ tunnel, summary }) => `${tunnel} — ${summary}`),
     "Sem túnel — Investimento de campanhas sem túnel identificado.",
 ].join("\n\n");
 
 function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardData["ads"]["by_tunnel"]> | null }) {
-    const tunnels = (rows ?? []).map((row) => ({
-        ...row,
-        ratio: row.investment > 0 ? row.invoice_total / row.investment : null,
-    })).sort((a, b) =>
-        (b.ratio ?? -Infinity) - (a.ratio ?? -Infinity) || b.invoice_total - a.invoice_total,
-    );
+    const tunnels = (rows ?? [])
+        .filter(({ tunnel }) => !hiddenInvestmentTunnels.has(tunnel))
+        .map((row) => ({
+            ...row,
+            ratio: row.investment > 0 ? row.invoice_total / row.investment : null,
+        }))
+        .sort((a, b) =>
+            (b.ratio ?? -Infinity) - (a.ratio ?? -Infinity) || b.invoice_total - a.invoice_total,
+        );
 
     return (
         <Card className="min-w-0">
@@ -682,7 +688,7 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
                             </tr>
                         </thead>
                         <tbody>
-                            {tunnels.map(({ tunnel, investment, invoice_total, ratio }) => (
+                            {tunnels.map(({ tunnel, investment, invoice_total, invoice_descriptions, ratio }) => (
                                 <tr key={tunnel} className="border-t border-slate-100 text-sm transition-colors hover:bg-slate-50">
                                     <th scope="row" className="px-3 py-3 font-semibold text-slate-800 sm:px-4">
                                         {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
@@ -691,7 +697,16 @@ function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardDa
                                         {tunnelMoney.format(investment)}
                                     </td>
                                     <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-900 sm:px-4">
-                                        {tunnelMoney.format(invoice_total)}
+                                        <span className="inline-flex items-center gap-1.5">
+                                            {tunnelMoney.format(invoice_total)}
+                                            <InfoTooltip
+                                                text={invoice_descriptions?.join("\n") || "Nenhuma NFS-e nesta linha no período."}
+                                                portal
+                                                widthClassName="w-[420px] max-h-[65dvh] overflow-y-auto break-words text-left"
+                                            >
+                                                <HelpCircle size={13} className="text-slate-400" />
+                                            </InfoTooltip>
+                                        </span>
                                     </td>
                                     <td className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
                                         {ratio === null ? (

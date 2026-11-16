@@ -24,4 +24,5 @@ export type TunnelFinanceRow = {
     tunnel: string;
     investment: number;
     invoice_total: number;
+    invoice_descriptions: string[];
 };

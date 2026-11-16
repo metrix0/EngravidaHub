@@ -349,21 +349,28 @@ function buildTunnelFinanceRows(
     investments: Pick<TunnelRoiData["tunnels"][number], "tunnel" | "investment">[],
     invoices: InvoiceRow[],
 ): TunnelFinanceRow[] {
-    const rows = new Map<string, TunnelFinanceRow>(
-        investments.map(({ tunnel, investment }) => [tunnel, { tunnel, investment, invoice_total: 0 }]),
+    const rows = new Map<string, Omit<TunnelFinanceRow, "invoice_descriptions"> & { invoice_descriptions: Set<string> }>(
+        investments.map(({ tunnel, investment }) => [
+            tunnel,
+            { tunnel, investment, invoice_total: 0, invoice_descriptions: new Set() },
+        ]),
     );
     for (const invoice of invoices) {
         if (statusGroup(invoice.status) !== "authorized") continue;
         const tunnel = classifyInvoiceTunnel(invoice.description);
         if (!tunnel) continue;
 
-        const row = rows.get(tunnel) ?? { tunnel, investment: 0, invoice_total: 0 };
+        const row = rows.get(tunnel) ?? {
+            tunnel, investment: 0, invoice_total: 0, invoice_descriptions: new Set<string>(),
+        };
         row.invoice_total += numeric(invoice.amount);
+        row.invoice_descriptions.add(invoice.description.replace(/\s+/g, " ").trim());
         rows.set(tunnel, row);
     }
     return Array.from(rows.values(), (row) => ({
         ...row,
         invoice_total: roundMoney(row.invoice_total),
+        invoice_descriptions: [...row.invoice_descriptions].sort((a, b) => a.localeCompare(b, "pt-BR")),
     }));
 }
 
