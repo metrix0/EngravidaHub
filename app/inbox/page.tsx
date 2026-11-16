@@ -18,7 +18,6 @@ import {
     Paperclip, Pin,
     Search,
     Send,
-    SlidersHorizontal,
     ArrowLeftRight,
     Smile,
     UserRound,
@@ -151,6 +150,7 @@ const scrollbarClass =
 
 export default function InboxPage() {
     const [status, setStatus] = useState<InboxStatus>("open");
+    const [unreadOnly, setUnreadOnly] = useState(false);
     const [search, setSearch] = useState("");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [selectedItemType, setSelectedItemType] =
@@ -188,7 +188,9 @@ export default function InboxPage() {
         itemType: InboxItemType;
     } | null>(null);
     const selectedThreadRequestRef = useRef(0);
+    const threadListRequestRef = useRef(0);
     const finalizingThreadIdRef = useRef<string | null>(null);
+    const refreshAfterReadRef = useRef<(() => Promise<void>) | null>(null);
 
     const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
@@ -210,6 +212,7 @@ export default function InboxPage() {
     }: {
         showLoading?: boolean;
     } = {}) => {
+        const requestId = ++threadListRequestRef.current;
         if (showLoading) {
             setIsLoadingThreads(true);
         }
@@ -221,10 +224,19 @@ export default function InboxPage() {
                 page: currentPage,
                 pageSize: PAGE_SIZE,
                 channel: socialChannel,
+                unreadOnly,
             });
+
+            if (requestId !== threadListRequestRef.current) return;
 
             setThreads(response.items);
             setTotalThreads(response.total);
+
+            if (unreadOnly) {
+                const lastPage = Math.max(1, Math.ceil(response.total / PAGE_SIZE));
+                if (currentPage > lastPage) setCurrentPage(lastPage);
+                return;
+            }
 
             setSelectedId((currentSelectedId) => {
                 const expectedItemType: InboxItemType =
@@ -255,6 +267,8 @@ export default function InboxPage() {
                 return nextItem?.id ?? null;
             });
         } catch (error) {
+            if (requestId !== threadListRequestRef.current) return;
+
             console.error("[inbox] failed to load threads", error);
 
             if (showLoading) {
@@ -262,11 +276,17 @@ export default function InboxPage() {
                 setTotalThreads(0);
             }
         } finally {
-            if (showLoading) {
+            if (requestId === threadListRequestRef.current) {
                 setIsLoadingThreads(false);
             }
         }
-    }, [status, search, currentPage, socialChannel]);
+    }, [status, search, currentPage, socialChannel, unreadOnly]);
+
+    useEffect(() => {
+        refreshAfterReadRef.current = unreadOnly
+            ? () => loadThreads({ showLoading: false })
+            : null;
+    }, [unreadOnly, loadThreads]);
 
     const loadQueueCount = useCallback(async () => {
         try {
@@ -317,6 +337,8 @@ export default function InboxPage() {
                     response.item.has_older_conversations,
                 );
             }
+
+            void refreshAfterReadRef.current?.();
         } catch (error) {
             if (requestId !== selectedThreadRequestRef.current) {
                 return;
@@ -423,10 +445,17 @@ export default function InboxPage() {
     }
 
     function handleStatusChange(nextStatus: InboxStatus) {
-        if (nextStatus === status) return;
+        if (nextStatus === status && !unreadOnly) return;
 
         forcedSelectionRef.current = null;
         setStatus(nextStatus);
+        setUnreadOnly(false);
+        setCurrentPage(1);
+    }
+
+    function handleToggleUnread() {
+        forcedSelectionRef.current = null;
+        setUnreadOnly(!unreadOnly);
         setCurrentPage(1);
     }
 
@@ -451,6 +480,7 @@ export default function InboxPage() {
             selectedThreadRequestRef.current += 1;
 
             setStatus("open");
+            setUnreadOnly(false);
             setSearch("");
             setCurrentPage(1);
             setSelectedId(result.thread_id);
@@ -499,6 +529,7 @@ export default function InboxPage() {
             selectedThreadRequestRef.current += 1;
 
             setStatus("open");
+            setUnreadOnly(false);
             setSearch("");
             setCurrentPage(1);
             setSelectedId(result.thread_id);
@@ -548,6 +579,14 @@ export default function InboxPage() {
 
         try {
             const result = await finalizeInboxThread(threadId);
+
+            if (unreadOnly) {
+                forcedSelectionRef.current = null;
+                setSelectedId(null);
+                setSelectedThread(null);
+                await Promise.all([loadThreads(), loadQueueCount()]);
+                return;
+            }
 
             // Keep the current Abertas/Fechadas tab and its current search.
             let targetPage = currentPage;
@@ -664,6 +703,7 @@ export default function InboxPage() {
             selectedThreadRequestRef.current += 1;
 
             setStatus("open");
+            setUnreadOnly(false);
             setSearch("");
             setCurrentPage(1);
             setSelectedId(result.thread_id);
@@ -970,6 +1010,8 @@ export default function InboxPage() {
                             onChannelChange={channel => { setSocialChannel(channel); setCurrentPage(1); }}
                             status={status}
                             onStatusChange={handleStatusChange}
+                            unreadOnly={unreadOnly}
+                            onToggleUnread={handleToggleUnread}
                             queueCount={queueCount}
                             socialQueueCount={socialQueueCount}
                             isPullingConversation={isPullingConversation}
@@ -981,15 +1023,17 @@ export default function InboxPage() {
                                 setSearch(value);
                                 setCurrentPage(1);
                             }}
-                            conversations={threads}
+                            conversations={unreadOnly ? threads.filter((thread) => thread.unread > 0) : threads}
                             totalConversations={totalThreads}
                             totalPages={totalPages}
                             currentPage={currentPage}
                             onPageChange={(page) => {
                                 forcedSelectionRef.current = null;
-                                selectedThreadRequestRef.current += 1;
-                                setSelectedId(null);
-                                setSelectedThread(null);
+                                if (!unreadOnly) {
+                                    selectedThreadRequestRef.current += 1;
+                                    setSelectedId(null);
+                                    setSelectedThread(null);
+                                }
                                 setCurrentPage(page);
                             }}
                             selectedConversationId={selectedId ?? ""}
@@ -1120,6 +1164,8 @@ function ConversationListPanel({
                                    onChannelChange,
                                    status,
                                    onStatusChange,
+                                   unreadOnly,
+                                   onToggleUnread,
                                    queueCount,
                                    socialQueueCount,
                                    isPullingConversation,
@@ -1140,6 +1186,8 @@ function ConversationListPanel({
     onChannelChange: (channel: "Instagram" | "Facebook") => void;
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
+    unreadOnly: boolean;
+    onToggleUnread: () => void;
     queueCount: number;
     socialQueueCount: number;
     isPullingConversation: boolean;
@@ -1204,20 +1252,26 @@ function ConversationListPanel({
             </div>
 
             <div className="mb-3 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1" aria-label="Canal">
-                <InboxStatusButton active={channel === "Instagram"} onClick={() => onChannelChange("Instagram")}><span className="inline-flex items-center gap-2"><FaInstagram size={15} />Instagram</span></InboxStatusButton>
-                <InboxStatusButton active={channel === "Facebook"} onClick={() => onChannelChange("Facebook")}><span className="inline-flex items-center gap-2"><FaFacebookMessenger size={15} />Messenger</span></InboxStatusButton>
+                <InboxStatusButton active={channel === "Instagram"} onClick={() => onChannelChange("Instagram")}>
+                    <FaInstagram size={15} aria-hidden="true" />
+                    Instagram
+                </InboxStatusButton>
+                <InboxStatusButton active={channel === "Facebook"} onClick={() => onChannelChange("Facebook")}>
+                    <FaFacebookMessenger size={15} aria-hidden="true" />
+                    Messenger
+                </InboxStatusButton>
             </div>
 
             <div className="mb-4 grid h-10 shrink-0 grid-cols-2 rounded-xl border border-slate-200 bg-white p-1">
                 <InboxStatusButton
-                    active={status === "open"}
+                    active={!unreadOnly && status === "open"}
                     onClick={() => onStatusChange("open")}
                 >
                     Abertas
                 </InboxStatusButton>
 
                 <InboxStatusButton
-                    active={status === "closed"}
+                    active={!unreadOnly && status === "closed"}
                     onClick={() => onStatusChange("closed")}
                 >
                     Fechadas
@@ -1239,9 +1293,15 @@ function ConversationListPanel({
 
                 <button
                     type="button"
-                    className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+                    aria-pressed={unreadOnly}
+                    onClick={onToggleUnread}
+                    className={`flex h-11 shrink-0 cursor-pointer items-center rounded-xl border px-3 text-xs font-bold shadow-sm transition-colors ${
+                        unreadOnly
+                            ? "border-brand bg-brand text-white hover:bg-brand/90"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
                 >
-                    <SlidersHorizontal size={18}/>
+                    Não lidos
                 </button>
             </div>
 
@@ -2310,7 +2370,8 @@ function InboxStatusButton({
         <button
             type="button"
             onClick={onClick}
-            className={`cursor-pointer rounded-lg text-xs font-bold transition-colors ${
+            aria-pressed={active}
+            className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg text-xs font-bold transition-colors ${
                 active
                     ? "bg-brand text-white shadow-sm"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"

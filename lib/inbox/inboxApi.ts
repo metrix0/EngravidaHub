@@ -90,8 +90,10 @@ export async function fetchInboxThreads({
     page,
     pageSize,
     channel,
+    unreadOnly,
 }: {
     channel?: "Instagram" | "Facebook";
+    unreadOnly?: boolean;
     status: InboxStatus;
     search: string;
     page: number;
@@ -101,6 +103,7 @@ export async function fetchInboxThreads({
 
     params.set("status", status);
     if (channel) params.set("channel", channel);
+    if (unreadOnly) params.set("unread", "true");
     params.set("page", String(page));
     params.set("page_size", String(pageSize));
 

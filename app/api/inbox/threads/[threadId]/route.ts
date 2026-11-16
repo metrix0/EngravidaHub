@@ -65,6 +65,7 @@ export async function PATCH(
             .from("thread")
             .update({ unread_count: 0 })
             .eq("id", threadId)
+            .eq("status", "open")
             .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`);
 
         if (error) {
@@ -235,6 +236,7 @@ async function loadThreadDetail({
         .from("thread")
         .update({ unread_count: 0 })
         .eq("id", thread.id)
+        .eq("status", "open")
         .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`);
 
     const mappedMessages = (messages ?? []).map(mapMessage);
@@ -395,6 +397,25 @@ async function loadConversationDetail({
     }
 
     const thread = await findThreadForConversation(conversation);
+    if (
+        (conversation.channel === "Instagram" || conversation.channel === "Facebook") &&
+        thread?.status === "closed" &&
+        thread.latest_conversation_id === conversation.id &&
+        thread.unread_count > 0
+    ) {
+        const { error } = await supabase
+            .from("thread")
+            .update({ unread_count: 0 })
+            .eq("id", thread.id)
+            .eq("status", "closed")
+            .eq("latest_conversation_id", conversation.id)
+            .eq("updated_at", thread.updated_at);
+
+        if (error) {
+            return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+        }
+    }
+
     const historyBefore = conversation.started_at;
     const hasOlder = await hasOlderConversations({
         clientId: conversation.client_id ?? null,
