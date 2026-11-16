@@ -6,7 +6,13 @@ import { backfillConversationAdAttributions } from "@/lib/zernio/conversationAdA
 export type AdsFinancePlatform = "google_ads" | "meta_ads";
 export type AdsFinancePlatformFilter = AdsFinancePlatform | "all";
 
-export const ADS_FINANCE_SYNC_VERSION = "meta-city-adset-v2";
+export const ADS_FINANCE_SYNC_VERSION = "google-ad-group-spend-v1";
+
+type GoogleAdGroupSpend = {
+    id: string;
+    name: string;
+    cost_micros: number;
+};
 
 type AdsFinanceMetricRow = {
     platform: AdsFinancePlatform;
@@ -22,6 +28,7 @@ type AdsFinanceMetricRow = {
     reported_conversions: number;
     reported_conversion_value: number;
     reported_conversion_type: string | null;
+    google_ad_groups?: GoogleAdGroupSpend[];
     synced_at: string;
 };
 
@@ -51,6 +58,7 @@ type PlatformSyncResult = {
     city_matched: number;
     city_unmatched: number;
     unmatched_subdivisions: string[];
+    google_ad_groups?: { accounts: number; rows: number; failed_accounts: number };
     instagram_direct?: { ok: boolean; rows?: number; link_clicks?: number; exclusive_adsets?: number; error?: string };
 };
 
@@ -61,6 +69,10 @@ type GoogleAdsRow = {
         currencyCode?: string;
     };
     campaign?: {
+        id?: string | number;
+        name?: string;
+    };
+    adGroup?: {
         id?: string | number;
         name?: string;
     };
@@ -263,21 +275,34 @@ async function syncGoogleAdsFinance({
 
     const accessToken = await getGoogleAccessToken(config);
     const syncedAt = new Date().toISOString();
-    const rowsByAccount = await Promise.all(
-        config.customerIds.map((customerId) =>
-            fetchGoogleAdsRows({
-                customerId,
-                accessToken,
-                developerToken: config.developerToken!,
-                loginCustomerId: config.loginCustomerId,
-                startDate,
-                endDate,
-                syncedAt,
+    const rowsByAccount = await Promise.all(config.customerIds.map(async (customerId) => {
+        const options = {
+            customerId,
+            accessToken,
+            developerToken: config.developerToken!,
+            loginCustomerId: config.loginCustomerId,
+        };
+        const [campaignRows, groups] = await Promise.all([
+            fetchGoogleAdsRows({ ...options, startDate, endDate, syncedAt }),
+            fetchGoogleAdGroupSpend(options, startDate, endDate).catch((error) => {
+                console.error("[syncAdsFinance] Google ad group report failed", { customerId, error });
+                return null;
             }),
-        ),
-    );
-    const rows = dedupeMetricRows(rowsByAccount.flat());
-    const upserted = await upsertMetricRows(rows);
+        ]);
+        return { campaignRows: dedupeMetricRows(campaignRows), groups };
+    }));
+
+    let upserted = 0;
+    for (const { campaignRows, groups } of rowsByAccount) {
+        if (groups) {
+            for (const row of campaignRows) {
+                row.google_ad_groups = groups.get(`${row.campaign_id}:${row.metric_date}`) ?? [];
+            }
+        }
+        // A failed group report leaves the previously synced group detail intact.
+        upserted += await upsertMetricRows(campaignRows);
+    }
+    const rows = rowsByAccount.flatMap(({ campaignRows }) => campaignRows);
     const cityRows = rows.flatMap(toGoogleCityMetricRow);
     const cityUpserted = await upsertCityMetricRows(cityRows);
     const cityDiagnostics = summarizeCityRows(cityRows);
@@ -291,6 +316,11 @@ async function syncGoogleAdsFinance({
         upserted,
         city_upserted: cityUpserted,
         ...cityDiagnostics,
+        google_ad_groups: {
+            accounts: rowsByAccount.filter(({ groups }) => groups !== null).length,
+            rows: rows.reduce((total, row) => total + (row.google_ad_groups?.length ?? 0), 0),
+            failed_accounts: rowsByAccount.filter(({ groups }) => groups === null).length,
+        },
     };
 }
 
@@ -323,23 +353,19 @@ async function getGoogleAccessToken(config: ReturnType<typeof googleAdsConfig>) 
     return json.access_token;
 }
 
-async function fetchGoogleAdsRows({
-                                      customerId,
-                                      accessToken,
-                                      developerToken,
-                                      loginCustomerId,
-                                      startDate,
-                                      endDate,
-                                      syncedAt,
-                                  }: {
+type GoogleAdsReportOptions = {
     customerId: string;
     accessToken: string;
     developerToken: string;
     loginCustomerId: string | null;
-    startDate: string;
-    endDate: string;
-    syncedAt: string;
-}) {
+};
+
+async function fetchGoogleAdsRows({
+    startDate,
+    endDate,
+    syncedAt,
+    ...options
+}: GoogleAdsReportOptions & { startDate: string; endDate: string; syncedAt: string }) {
     const query = `
         SELECT
             customer.id,
@@ -357,37 +383,9 @@ async function fetchGoogleAdsRows({
         WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
         ORDER BY segments.date, campaign.id
     `;
-    const headers: Record<string, string> = {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": developerToken,
-        "Content-Type": "application/json",
-    };
-    if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
-
-    const response = await fetch(
-        `https://googleads.googleapis.com/${GOOGLE_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
-        {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ query }),
-            signal: AbortSignal.timeout(90_000),
-        },
-    );
-    const json = (await response.json()) as
-        | { results?: GoogleAdsRow[] }[]
-        | { error?: { message?: string; status?: string } };
-
-    if (!response.ok || !Array.isArray(json)) {
-        const error = !Array.isArray(json) ? json.error : null;
-        throw new Error(
-            `Google Ads report failed for customer ${customerId} (${response.status}): ${
-                error?.message ?? error?.status ?? "unknown error"
-            }`,
-        );
-    }
-
-    return json
-        .flatMap((batch) => batch.results ?? [])
+    const rows = await fetchGoogleAdsReport(options, query);
+    const { customerId } = options;
+    return rows
         .flatMap((row): AdsFinanceMetricRow[] => {
             const campaignId = text(row.campaign?.id);
             const metricDate = text(row.segments?.date);
@@ -422,6 +420,74 @@ async function fetchGoogleAdsRows({
                 },
             ];
         });
+}
+
+async function fetchGoogleAdGroupSpend(
+    options: GoogleAdsReportOptions,
+    startDate: string,
+    endDate: string,
+) {
+    const query = `
+        SELECT campaign.id, ad_group.id, ad_group.name, segments.date, metrics.cost_micros
+        FROM ad_group
+        WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+          AND metrics.cost_micros > 0
+    `;
+    const rows = await fetchGoogleAdsReport(options, query);
+    const byCampaignDay = new Map<string, GoogleAdGroupSpend[]>();
+    for (const row of rows) {
+        const campaignId = text(row.campaign?.id);
+        const groupId = text(row.adGroup?.id);
+        const groupName = cleanText(row.adGroup?.name);
+        const date = text(row.segments?.date);
+        const costMicros = numberValue(row.metrics?.costMicros);
+        if (!campaignId || !groupId || !groupName || !isDate(date) || costMicros <= 0) continue;
+
+        const key = `${campaignId}:${date}`;
+        const group = { id: groupId, name: groupName, cost_micros: costMicros };
+        const groups = byCampaignDay.get(key);
+        if (groups) groups.push(group);
+        else byCampaignDay.set(key, [group]);
+    }
+    return byCampaignDay;
+}
+
+async function fetchGoogleAdsReport({
+    customerId,
+    accessToken,
+    developerToken,
+    loginCustomerId,
+}: GoogleAdsReportOptions, query: string) {
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        "developer-token": developerToken,
+        "Content-Type": "application/json",
+    };
+    if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
+
+    const response = await fetch(
+        `https://googleads.googleapis.com/${GOOGLE_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
+        {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ query }),
+            signal: AbortSignal.timeout(90_000),
+        },
+    );
+    const json = (await response.json()) as
+        | { results?: GoogleAdsRow[] }[]
+        | { error?: { message?: string; status?: string } };
+
+    if (!response.ok || !Array.isArray(json)) {
+        const error = !Array.isArray(json) ? json.error : null;
+        throw new Error(
+            `Google Ads report failed for customer ${customerId} (${response.status}): ${
+                error?.message ?? error?.status ?? "unknown error"
+            }`,
+        );
+    }
+
+    return json.flatMap((batch) => batch.results ?? []);
 }
 
 async function syncMetaAdsFinance({

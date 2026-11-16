@@ -73,6 +73,7 @@ import {
 import { JOURNEY_CALENDAR_PRESETS } from "@/lib/funnel/fullJourney";
 import { CUSTOMER_START_INTENT_LABELS } from "@/lib/conversationAnalysisLabels";
 import type { FiltersResponse } from "@/types";
+import type { TunnelRoiData } from "@/types/tunnel-performance";
 
 type JourneyFunnelStage = {
     key: string;
@@ -81,27 +82,6 @@ type JourneyFunnelStage = {
     percentage: number | null;
     relative_percentage: number | null;
     fill: string;
-};
-
-type TunnelRoiData = {
-    available: boolean;
-    currency_code: string;
-    total_spend: number;
-    tunnels: {
-        tunnel: string;
-        paid_clients: number;
-        authorized_clients: number;
-        attributed_revenue: number;
-        investment: number;
-        investment_share: number | null;
-        roi_percent: number | null;
-        campaigns: {
-            platform: "google_ads" | "meta_ads";
-            campaign_id: string;
-            campaign_name: string;
-            spend: number;
-        }[];
-    }[];
 };
 
 type JourneyDashboardData = {
@@ -393,7 +373,7 @@ export default function JourneyPage() {
                             ? json.full_pipeline
                             : EMPTY_PIPELINE,
                     tunnel_roi: json.tunnel_roi && Array.isArray(json.tunnel_roi.tunnels)
-                        ? groupProblemAndTreatmentRoi(json.tunnel_roi)
+                        ? json.tunnel_roi
                         : null,
                     journey_funnel: Array.isArray(json.journey_funnel)
                         ? json.journey_funnel
@@ -720,35 +700,6 @@ function WhatsappCoverageTooltip({
 
 function TrackedWhatsappSourcesCard({ pipeline }: { pipeline: FullJourneyPipeline }) {
     return <SharedTrackedWhatsappSourcesCard pipeline={pipeline} />;
-}
-
-function groupProblemAndTreatmentRoi(data: TunnelRoiData): TunnelRoiData {
-    const [first, second] = data.tunnels.filter(
-        ({ tunnel }) => tunnel === "Problemas" || tunnel === "Tratamentos",
-    );
-    if (!first) return data;
-
-    const combined = { ...first, tunnel: "Problemas e Tratamentos" };
-    if (second) {
-        combined.paid_clients += second.paid_clients;
-        combined.authorized_clients += second.authorized_clients;
-        combined.attributed_revenue = Number((first.attributed_revenue + second.attributed_revenue).toFixed(2));
-        combined.investment = Number((first.investment + second.investment).toFixed(2));
-        combined.investment_share = data.total_spend > 0
-            ? Number((100 * combined.investment / data.total_spend).toFixed(1))
-            : null;
-        combined.roi_percent = combined.investment > 0
-            ? Number((100 * (combined.attributed_revenue - combined.investment) / combined.investment).toFixed(1))
-            : null;
-        combined.campaigns = [...first.campaigns, ...second.campaigns].sort((a, b) => b.spend - a.spend);
-    }
-
-    return {
-        ...data,
-        tunnels: data.tunnels
-            .filter((row) => row !== second)
-            .map((row) => row === first ? combined : row),
-    };
 }
 
 function TunnelRoiCard({ data }: { data: TunnelRoiData | null }) {

@@ -114,7 +114,7 @@ export default function FinancialDashboardPage() {
     const dashboardQueryKey = useMemo(() => {
         if (!dateFilterReady) return "";
 
-        const params = new URLSearchParams();
+        const params = new URLSearchParams({ include_tunnels: "1" });
         applyCalendarDateParams({
             params,
             selectedRange,
@@ -486,6 +486,10 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                 </div>
             </div>
 
+            <div className="mb-5">
+                <TunnelInvestmentCard rows={ads.by_tunnel ?? null} />
+            </div>
+
             {!ads.has_data ? (
                 <Card>
                     <EmptyState message="Nenhum dado do Google Ads ou Meta Ads foi sincronizado neste período." />
@@ -619,6 +623,51 @@ function AdsSection({ data }: { data: FinancialDashboardData }) {
                 </>
             )}
         </section>
+    );
+}
+
+const tunnelMoney = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
+function TunnelInvestmentCard({ rows }: { rows: NonNullable<FinancialDashboardData["ads"]["by_tunnel"]> | null }) {
+    const tunnels = [...(rows ?? [])].sort((a, b) => b.investment - a.investment || b.attributed_revenue - a.attributed_revenue);
+
+    return (
+        <Card className="min-w-0">
+            <h3 className="mb-4 text-lg font-bold">Investido em cada túnel</h3>
+            {tunnels.length === 0 ? (
+                <EmptyState message={rows
+                    ? "Nenhum investimento ou NFS-e atribuída no período."
+                    : "Não foi possível carregar o investimento por túnel."}
+                />
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50 text-xs font-bold text-slate-500">
+                            <tr>
+                                <th scope="col" className="px-3 py-3">Túnel</th>
+                                <th scope="col" className="px-3 py-3 text-right">Investido</th>
+                                <th scope="col" className="px-3 py-3 text-right">Total em NFS-e</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tunnels.map(({ tunnel, investment, attributed_revenue }) => (
+                                <tr key={tunnel} className="border-t border-slate-100 text-sm text-slate-700">
+                                    <th scope="row" className="px-3 py-3 font-semibold">
+                                        {tunnel === "__NULL__" ? "Sem túnel" : tunnel}
+                                    </th>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                                        {tunnelMoney.format(investment)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                                        {tunnelMoney.format(attributed_revenue)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </Card>
     );
 }
 

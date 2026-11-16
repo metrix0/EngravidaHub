@@ -1,5 +1,6 @@
 // types/financial-dashboard.ts
 import type { FilterOption } from "./filters";
+import type { TunnelFinanceRow } from "./tunnel-performance";
 
 export type FinancialKpis = {
     authorized_revenue: number;
@@ -122,6 +123,7 @@ export type FinancialDashboardData = {
     };
     ads: {
         has_data: boolean;
+        by_tunnel?: TunnelFinanceRow[] | null;
         comparison_available: boolean;
         kpis: PaidMediaKpis;
         previous_kpis: PaidMediaKpis;

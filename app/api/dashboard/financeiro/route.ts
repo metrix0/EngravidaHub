@@ -15,8 +15,10 @@ import {
 import {
     parseTextArray,
     parseUuidArray,
+    readDashboardFilters,
     resolveDashboardDateRange,
 } from "@/lib/dashboard/metrics";
+import { loadTunnelPerformance } from "@/lib/dashboard/tunnelPerformance";
 import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
 import type {
     FinancialDashboardData,
@@ -170,6 +172,14 @@ export async function GET(request: Request) {
             range.startAt,
             range.endAt,
         );
+        const tunnelPerformancePromise = searchParams.get("include_tunnels") === "1"
+            ? loadTunnelPerformance(
+                  range,
+                  readDashboardFilters(new URLSearchParams({ unit_ids: filters.unitIds.join(",") })),
+                  request.signal,
+                  filters.categories,
+              )
+            : Promise.resolve(null);
         const twelveMonthTrendPromise = loadTwelveMonthTrend(filters);
         const schedulesPromise = unitsPromise.then((units) =>
             loadSchedules(
@@ -203,6 +213,7 @@ export async function GET(request: Request) {
             previousSchedules,
             currentCityAdMetrics,
             twelveMonthTrend,
+            tunnelPerformance,
         ] = await Promise.all([
             unitsPromise,
             doctorsPromise,
@@ -216,6 +227,7 @@ export async function GET(request: Request) {
             previousSchedulesPromise,
             currentCityAdMetricsPromise,
             twelveMonthTrendPromise,
+            tunnelPerformancePromise,
         ]);
 
         const clientIds = Array.from(
@@ -290,6 +302,11 @@ export async function GET(request: Request) {
             crm: buildCrmMetrics(currentInvoices, schedules, clients),
             ads: {
                 has_data: currentAdMetrics.length > 0,
+                by_tunnel: tunnelPerformance?.available
+                    ? tunnelPerformance.tunnels.map(({ tunnel, investment, attributed_revenue }) => ({
+                          tunnel, investment, attributed_revenue,
+                      }))
+                    : null,
                 comparison_available: comparisonAvailable,
                 kpis: currentAds.kpis,
                 previous_kpis: previousAds.kpis,
