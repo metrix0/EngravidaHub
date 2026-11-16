@@ -51,15 +51,16 @@ const report = buildOperationalAgenda({ ...input, agendas: [liveAgenda], reportA
 assert.equal(report.availability[0].firstDate, "2026-11-17");
 assert.equal(report.availability[0].threeDate, "2026-11-18");
 assert.ok(report.availability[0].nextDates.every(date => date > input.reportDate));
-assert.equal(report.availability[0].weeks[0], 160);
+assert.equal(report.availability[0].weeks[0], 21);
+assert.ok(report.slots.every(slot => slot.durationMinutes === 45));
 
 const campinas = { ...agenda, unit_name: "Campinas", doctor_name: "Dr. Fábio Padilla", working_hours: [{ daysOfWeek: [1, 3, 4, 5], startsAt: "08:00", endsAt: "18:00", validFrom: "2026-01-01", validUntil: null }] };
 const liveCampinas = { ...campinas, availability_snapshot: { ...liveAgenda.availability_snapshot, slots: [16, 18, 19, 20].flatMap(day => Array.from({ length: 20 }, (_, index) => { const minute = 480 + index * 30; const clock = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`; return { data: `${day}/11/2026`, inicio: clock(minute), termino: clock(minute + 30) }; })) } };
 const quota = buildOperationalAgenda({ ...input, agendas: [liveCampinas], reportAvailability: true, raFirstEvaluationCounts: { "doctor|2026-11-16|afternoon": 1 } });
 // Monday quota is exhausted; Wed has 2 morning + 2 afternoon, Thu/Fri 1 each.
-assert.equal(quota.availability[0].weeks[0], 80);
+assert.equal(quota.availability[0].weeks[0], 6);
 assert.equal(quota.availability[0].firstDate, "2026-11-18");
-console.log("PASS: campaign examples, ambiguous/unidentified evidence, report dates, procedure restrictions, Campinas source availability independent of RA quotas, calendar preservation.");
+console.log("PASS: campaign examples, report dates, consultation durations, Campinas consultation quotas and calendar preservation.");
 
 const noSnapshot = buildOperationalAgenda({ ...input, reportAvailability: true });
 assert.equal(noSnapshot.availability[0].firstDate, null);
@@ -74,7 +75,7 @@ assert.ok(report.slots.every(slot => slot.date <= "2026-11-23"));
 console.log("PASS: reports reject stale, missing, wrong-procedure and uncovered availability; provider-empty days stay empty.");
 
 const unpublishedStart = buildOperationalAgenda({ ...input, agendas: [{ ...liveAgenda, availability_snapshot: { ...liveAgenda.availability_snapshot, slots: [{ data: "17/11/2026", inicio: "08:30", termino: "12:00" }] } }], reportAvailability: true });
-assert.equal(unpublishedStart.availability[0].firstDate, "2026-11-17");
+assert.equal(unpublishedStart.availability[0].firstDate, null);
 console.log("PASS: reports preserve the provider start without inventing RA starts.");
 
 const sourceNow = Date.parse("2026-11-12T12:00:00Z");
@@ -121,13 +122,97 @@ console.log("PASS: RA weeks start Monday, include D0 in full, end Sunday and cro
 
 const specialSaturday = { ...liveAgenda, unit_name: "Juiz de Fora", doctor_name: "Dr. Leila Lamas", exceptions: [{ id: "explicit-opening", date: "2026-11-21", available: true, periods: [{ startsAt: "08:00", endsAt: "12:00" }] }], availability_snapshot: { ...liveAgenda.availability_snapshot, slots: [{ data: "21/11/2026", inicio: "08:00", termino: "08:45" }] } };
 assert.equal(buildOperationalAgenda({ ...input, agendas: [specialSaturday], reportAvailability: true }).availability[0].saturdays[0]?.date, "2026-11-21");
-assert.equal(buildOperationalAgenda({ ...input, agendas: [{ ...specialSaturday, exceptions: [{ ...specialSaturday.exceptions[0], id: "clinisys-availability:generated" }] }], reportAvailability: true }).availability[0].firstDate, "2026-11-21");
-console.log("PASS: provider Saturday availability is independent of RA weekly rules and exceptions.");
+assert.equal(buildOperationalAgenda({ ...input, agendas: [{ ...specialSaturday, exceptions: [{ ...specialSaturday.exceptions[0], id: "clinisys-availability:generated" }] }], reportAvailability: true }).availability[0].firstDate, null);
+console.log("PASS: explicit Saturday openings are preserved; generated API exceptions cannot open procedure-only days.");
+const overlappingOpenings = { ...specialSaturday, exceptions: [{ ...specialSaturday.exceptions[0], periods: [
+    { startsAt: "08:00", endsAt: "10:00" }, { startsAt: "08:15", endsAt: "10:00" },
+] }], availability_snapshot: { ...specialSaturday.availability_snapshot, slots: [
+    { data: "21/11/2026", inicio: "08:00", termino: "08:45" },
+    { data: "21/11/2026", inicio: "08:15", termino: "09:00" },
+    { data: "21/11/2026", inicio: "08:45", termino: "09:30" },
+    { data: "21/11/2026", inicio: "09:00", termino: "09:45" },
+] } };
+const packedSaturday = buildOperationalAgenda({ ...input, agendas: [overlappingOpenings, overlappingOpenings], reportAvailability: true });
+assert.equal(packedSaturday.slots.length, 2);
+assert.equal(packedSaturday.availability[0].saturdays[0].threeOrMore, false);
 
 const unknownDoctor = { ...liveAgenda, doctor_name: "Not in RA timetable", availability_snapshot: { ...liveAgenda.availability_snapshot, dateTo: "2027-01-11", slots: [{ data: "17/11/2026", inicio: "08:15", termino: "09:00" }, { data: "17/11/2026", inicio: "08:15", termino: "09:00" }, { data: "17/11/2026", inicio: "08:30", termino: "09:15" }, { data: "09/01/2027", inicio: "08:00", termino: "08:45" }] } };
 const exactSource = buildOperationalAgenda({ ...input, agendas: [unknownDoctor], reportAvailability: true });
-assert.equal(exactSource.slots.length, 2);
-assert.deepEqual(exactSource.slots.map(slot => slot.startsAt.slice(11,16)), ["11:15", "11:30"]);
+assert.equal(exactSource.slots.length, 0);
 assert.equal(exactSource.horizonEnd, "2027-01-11");
-assert.equal(exactSource.availability[0].saturdays[0].date, "2027-01-09");
-console.log("PASS: unknown RA doctors, overlapping API alternatives, duplicate starts and the complete synchronized horizon.");
+assert.equal(exactSource.availability[0].saturdays.length, 0);
+console.log("PASS: doctors without a consultation timetable cannot contribute unverified consultation slots.");
+
+const consultationAgenda = (unit: string, doctor: string, slots: Array<{ data: string; inicio: string; termino: string }>) => ({
+    ...liveAgenda, unit_name: unit, doctor_name: doctor,
+    availability_snapshot: { ...liveAgenda.availability_snapshot, dateFrom: "2026-11-13", dateTo: "2027-01-11", slots },
+});
+const bauru = consultationAgenda("Bauru", "Dr. Paula Nunes", [
+    { data: "17/11/2026", inicio: "08:00", termino: "08:45" },
+    { data: "18/11/2026", inicio: "08:00", termino: "08:45" },
+    { data: "18/11/2026", inicio: "08:15", termino: "09:00" },
+    { data: "18/11/2026", inicio: "08:30", termino: "09:15" },
+    { data: "19/11/2026", inicio: "08:00", termino: "08:45" },
+    { data: "19/11/2026", inicio: "08:45", termino: "09:30" },
+    { data: "19/11/2026", inicio: "09:30", termino: "10:15" },
+    { data: "19/11/2026", inicio: "09:30", termino: "10:15" },
+    { data: "07/01/2027", inicio: "08:00", termino: "08:45" },
+]);
+const thresholds = buildOperationalAgenda({ ...input, agendas: [bauru, bauru], reportAvailability: true });
+assert.equal(thresholds.availability[0].firstDate, "2026-11-17");
+assert.equal(thresholds.availability[0].firstWaitDays, 1);
+assert.equal(thresholds.availability[0].threeDate, "2026-11-19");
+assert.equal(thresholds.availability[0].threeWaitDays, 3);
+assert.deepEqual(thresholds.availability[0].nextDates, ["2026-11-17", "2026-11-18", "2026-11-19"]);
+assert.equal(thresholds.availability[0].weeks[0], 5);
+assert.equal(thresholds.horizonEnd, "2027-01-11");
+const january = buildOperationalAgenda({ ...input, agendas: [bauru], start: "2027-01-01", end: "2027-02-01", reportAvailability: true });
+assert.equal(january.slots.at(-1)?.date, "2027-01-07");
+const booked = buildOperationalAgenda({ ...input, agendas: [bauru], reportAvailability: true, appointments: [{
+    id: "new-booking", unit_id: "unit", doctor_id: "doctor", status: "confirmed",
+    starts_at: "2026-11-19T08:45:00-03:00", ends_at: "2026-11-19T09:30:00-03:00",
+}] });
+assert.equal(booked.availability[0].threeDate, null);
+const secondDoctor = { ...bauru, doctor_id: "second", availability_snapshot: { ...bauru.availability_snapshot, slots: [bauru.availability_snapshot.slots[1]] } };
+const thirdDoctor = { ...secondDoctor, doctor_id: "third" };
+const combined = buildOperationalAgenda({ ...input, agendas: [bauru, secondDoctor, thirdDoctor], reportAvailability: true });
+assert.equal(combined.availability[0].threeDate, "2026-11-18");
+console.log("PASS: 1+ versus 3+ distinct consultations, later dates, overlapping alternatives, duplicate agendas, multiple doctors, new bookings and full horizon.");
+
+const procedurePeriods = [
+    // Periods retained in the 13 November API cache behind the reported examples.
+    consultationAgenda("São Paulo", "Dr. Thais Manzione", [
+        { data: "16/11/2026", inicio: "10:30", termino: "11:15" },
+    ]),
+    consultationAgenda("São Paulo", "Dr. Carolina Yumi", [
+        { data: "15/11/2026", inicio: "08:00", termino: "12:00" },
+        { data: "16/11/2026", inicio: "14:30", termino: "15:15" },
+        { data: "16/11/2026", inicio: "15:00", termino: "15:45" },
+    ]),
+    consultationAgenda("Vitória", "Dr. Brenda Battestin", [
+        { data: "17/11/2026", inicio: "08:30", termino: "09:15" },
+        { data: "17/11/2026", inicio: "09:15", termino: "10:00" },
+        { data: "17/11/2026", inicio: "10:45", termino: "11:30" },
+    ]),
+    consultationAgenda("Vitória", "Dr. Bruna Mendes", [
+        { data: "16/11/2026", inicio: "08:00", termino: "08:45" },
+        { data: "18/11/2026", inicio: "08:00", termino: "08:45" },
+        { data: "18/11/2026", inicio: "08:45", termino: "09:30" },
+        { data: "18/11/2026", inicio: "09:30", termino: "10:15" },
+    ]),
+    consultationAgenda("Salvador", "Dr. Joventina de Oliveira Araujo", [
+        { data: "17/11/2026", inicio: "08:15", termino: "09:00" },
+    ]),
+];
+for (const source of procedurePeriods) {
+    const result = buildOperationalAgenda({ ...input, agendas: [source], reportDate: "2026-11-13", reportAvailability: true });
+    assert.equal(result.slots.length, 0, `${source.unit_name}: procedure-only periods must not enter the report`);
+    assert.equal(result.availability[0].firstDate, null);
+    assert.equal(result.availability[0].threeDate, null);
+    assert.deepEqual(result.availability[0].weeks, [0, 0, 0, 0]);
+}
+const sundayOpening = { ...specialSaturday, exceptions: [{ ...specialSaturday.exceptions[0], date: "2026-11-22" }], availability_snapshot: {
+    ...specialSaturday.availability_snapshot, slots: [{ data: "22/11/2026", inicio: "08:00", termino: "12:00" }],
+} };
+assert.deepEqual(buildOperationalAgenda({ ...input, agendas: [sundayOpening], reportAvailability: true }).availability[0].weeks, [0, 0, 0, 0]);
+console.log("PASS: São Paulo, Vitória and Salvador procedure periods and Sunday openings excluded from all availability metrics.");
