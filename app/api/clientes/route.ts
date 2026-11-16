@@ -91,7 +91,7 @@ export async function GET(request: Request) {
                     first_seen_at,
                     last_interaction_at,
                     last_origin,
-                    last_tunnel,
+                    last_tunnel:effective_tunnel,
                     utm_medium,
                     utm_campaign
                 `,

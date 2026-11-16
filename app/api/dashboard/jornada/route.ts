@@ -1832,7 +1832,7 @@ async function loadPaidWhatsappConversations(
         let query = supabase
             .from("conversations")
             .select(
-                "id, thread_id, client_id, started_at, origin, tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
+                "id, thread_id, client_id, started_at, origin, tunnel:effective_tunnel, unit_id, service_id, attendant_id, clients!conversations_client_id_fkey(unit_id, last_origin, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, gbraid, wbraid, fbclid, fbc, ctwa_clid, tracking_updated_at)",
             )
             .eq("channel", "WhatsApp")
             .lt("started_at", range.endAt)
@@ -2071,7 +2071,7 @@ async function loadInstagramDestinationClicks(startDate: string, endDate: string
 }
 
 async function loadInstagramJourney(range: DashboardDateRange, filters: DashboardFilters, signal: AbortSignal) {
-    const select = "id,thread_id,instagram_user_id,started_at,origin,tunnel,unit_id,service_id,attendant_id,instagram_users!conversations_instagram_user_id_fkey(id,client_id,last_meta_ad_id,last_paid_attribution_at)";
+    const select = "id,thread_id,instagram_user_id,started_at,origin,tunnel:effective_tunnel,unit_id,service_id,attendant_id,instagram_users!conversations_instagram_user_id_fkey(id,client_id,last_meta_ad_id,last_paid_attribution_at)";
     const { data: linked, error: linkError } = await supabase.from("instagram_users")
         .select("id,client_id,last_meta_ad_id,last_paid_attribution_at").not("client_id", "is", null).abortSignal(signal);
     if (linkError) throw linkError;
