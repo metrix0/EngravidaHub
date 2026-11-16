@@ -2441,7 +2441,7 @@ function ChannelBadge({
         <span
             className={`inline-flex items-center ${className} ${
                 avatarOverlay
-                    ? "pointer-events-none absolute -top-1 -right-1 size-5 justify-center rounded-full ring-2 ring-white"
+                    ? "pointer-events-none absolute -right-1 -bottom-1 size-5 justify-center rounded-full"
                     : "gap-1.5 rounded-lg px-2 py-1 text-xs font-bold"
             }`}
         >
