@@ -6,6 +6,7 @@ import { resolvePaidMediaPlatform } from "@/lib/ads/paidMediaAttribution";
 import { getServerTabAccess } from "@/lib/auth/getServerTabAccess";
 import {
     FINANCIAL_CATEGORIES,
+    classifyInvoiceTunnel,
     getFinancialCategoryLabel,
 } from "@/lib/invoices/categories";
 import {
@@ -344,15 +345,6 @@ export async function GET(request: Request) {
     }
 }
 
-const INVOICE_TUNNEL_PATTERNS = [
-    ["Congelamento", /\b(?:congelamento|criopreservacao|vitrificacao)\b/],
-    ["Laqueadura", /\b(?:laqueadura|reversao de ligadura(?: tubaria)?)\b/],
-    ["LGBT", /\b(?:lgbt\w*|ropa|homoafetiv\w*)\b/],
-    ["Problemas e Tratamentos", /\b(?:infertil\w*|dificuldade (?:de|para) engravidar|fertilizacao in vitro|fiv|inseminacao|ovodoacao|ovorecepcao|(?:doacao|recepcao) de (?:ovulos?|embrioes|semen|esperma)|reproducao assistida|transferencia de embrioes|transferencia embrionaria|relacao sexual programada|tratamento(?: para (?:engravidar|fertilidade)| de (?:infertilidade|reproducao humana))?)\b/],
-    ["Bio Instagram", /\bbio(?: do)? instagram\b/],
-    ["Site - Home | Engravida", /\bsite home engravida\b/],
-] as const;
-
 function buildTunnelFinanceRows(
     investments: Pick<TunnelRoiData["tunnels"][number], "tunnel" | "investment">[],
     invoices: InvoiceRow[],
@@ -362,11 +354,9 @@ function buildTunnelFinanceRows(
     );
     for (const invoice of invoices) {
         if (statusGroup(invoice.status) !== "authorized") continue;
-        const description = normalizeText(invoice.description ?? "").replace(/[^a-z0-9]+/g, " ");
-        const match = INVOICE_TUNNEL_PATTERNS.find(([, pattern]) => pattern.test(description));
-        if (!match) continue;
+        const tunnel = classifyInvoiceTunnel(invoice.description);
+        if (!tunnel) continue;
 
-        const [tunnel] = match;
         const row = rows.get(tunnel) ?? { tunnel, investment: 0, invoice_total: 0 };
         row.invoice_total += numeric(invoice.amount);
         rows.set(tunnel, row);
