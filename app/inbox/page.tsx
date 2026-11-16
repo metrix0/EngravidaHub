@@ -1301,8 +1301,8 @@ function ConversationListPanel({
                     <span className="relative" aria-hidden="true">
                         <Mail size={18} />
                         <span
-                            className={`absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2 ${
-                                unreadOnly ? "bg-white ring-brand" : "bg-brand ring-white"
+                            className={`absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current ring-2 ${
+                                unreadOnly ? "ring-brand" : "ring-white"
                             }`}
                         />
                     </span>
