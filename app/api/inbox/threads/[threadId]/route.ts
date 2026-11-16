@@ -64,6 +64,7 @@ export async function PATCH(
         const { error } = await supabase
             .from("thread")
             .update({ unread_count: 0 })
+            .gt("unread_count", 0)
             .eq("id", threadId)
             .eq("status", "open")
             .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`);
@@ -232,21 +233,20 @@ async function loadThreadDetail({
         );
     }
 
-    await supabase
-        .from("thread")
-        .update({ unread_count: 0 })
-        .eq("id", thread.id)
-        .eq("status", "open")
-        .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`);
-
     const mappedMessages = (messages ?? []).map(mapMessage);
-    const historyBefore =
-        mappedMessages[0]?.sent_at ?? new Date().toISOString();
-    const hasOlder = await hasOlderConversations({
-        clientId: thread.client_id ?? null,
-        instagramUserId: thread.instagram_user_id ?? null,
-        before: historyBefore,
-    });
+    const historyBefore = mappedMessages[0]?.sent_at ?? new Date().toISOString();
+    const [hasOlder] = await Promise.all([
+        hasOlderConversations({
+            clientId: thread.client_id ?? null,
+            instagramUserId: thread.instagram_user_id ?? null,
+            before: historyBefore,
+        }),
+        thread.unread_count > 0
+            ? supabase.from("thread").update({ unread_count: 0 })
+                .eq("id", thread.id).eq("status", "open").gt("unread_count", 0)
+                .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendantId}`)
+            : Promise.resolve(),
+    ]);
     const replyState = getReplyState(thread.last_client_message_at);
 
     const response: InboxThreadDetailResponse = {
@@ -406,6 +406,7 @@ async function loadConversationDetail({
         const { error } = await supabase
             .from("thread")
             .update({ unread_count: 0 })
+            .gt("unread_count", 0)
             .eq("id", thread.id)
             .eq("status", "closed")
             .eq("latest_conversation_id", conversation.id)

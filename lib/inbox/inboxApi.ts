@@ -141,6 +141,7 @@ export async function fetchInboxThreads({
 export async function fetchInboxThread(
     itemId: string,
     itemType: InboxItemType = "thread",
+    { force = false }: { force?: boolean } = {},
 ) {
     const cacheKey = getDetailCacheKey(itemId, itemType);
     const cachedThread = threadDetailCache.get(cacheKey);
@@ -148,7 +149,7 @@ export async function fetchInboxThread(
     const freshUntil = threadDetailFreshUntil.get(cacheKey) ?? 0;
 
     if (
-        cachedThread &&
+        !force && cachedThread &&
         ((cachedThreadId && hasPendingNotes(cachedThreadId)) ||
             (cachedThreadId && hasPendingMessages(cachedThreadId)) ||
             freshUntil > Date.now())
@@ -182,6 +183,18 @@ export async function fetchInboxThread(
     }
 
     const threadResponse = json as InboxThreadDetailResponse;
+    // A server refresh may arrive while a send is waiting on Meta. Keep only
+    // pending local rows alongside the fresh server messages, never hide inbound messages.
+    const pendingIds = cachedThreadId ? pendingMessageIdsByThread.get(cachedThreadId) : null;
+    if (currentThread && pendingIds?.size) {
+        const serverIds = new Set(threadResponse.item.messages.map((message) => message.id));
+        threadResponse.item.messages.push(...currentThread.item.messages.filter(
+            (message) => pendingIds.has(message.id) && !serverIds.has(message.id),
+        ));
+    }
+    if (currentThread && cachedThreadId && hasPendingNotes(cachedThreadId)) {
+        threadResponse.item.notes = currentThread.item.notes;
+    }
 
     threadDetailCache.set(cacheKey, threadResponse);
     threadDetailFreshUntil.delete(cacheKey);
@@ -540,7 +553,7 @@ function confirmOptimisticMessage(
         ...cachedThread,
         item: {
             ...cachedThread.item,
-            messages,
+            messages: [...new Map(messages.map((message) => [message.id, message])).values()],
         },
     });
 

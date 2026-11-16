@@ -58,7 +58,14 @@ async function persistenceRetry(failures, social = true) {
     let attempts = 0;
     const externalIds = [];
     const dbError = { code: '', message: 'TypeError: fetch failed' };
-    const supabase = { from() {
+    const supabase = { async rpc(name, args) {
+        assert.equal(name, 'persist_zernio_message');
+        attempts += 1;
+        externalIds.push(args.p_message.external_id);
+        return attempts <= failures
+            ? { data: null, error: dbError }
+            : { data: { message: saved }, error: null };
+    }, from() {
         let write = false;
         const query = new Proxy({}, { get(_, key) {
             if (key === 'then') return (resolve, reject) => Promise.resolve().then(() => {
@@ -92,13 +99,38 @@ async function persistenceRetry(failures, social = true) {
     assert.ok(externalIds.every(id => id === 'zernio:already-sent'), 'retry only persists the same accepted message');
 }
 
+async function incomingDuringSend() {
+    let resolveSend;
+    let snapshot = detail([]);
+    const api = load('lib/inbox/inboxApi.ts', {}, {
+        fetch: async (url, init) => init?.method === 'POST'
+            ? new Promise(resolve => { resolveSend = resolve; })
+            : response(snapshot),
+    });
+    await api.fetchInboxThread('thread-1');
+    const send = api.sendInboxMessage({ itemId: 'thread-1', itemType: 'thread', text: 'Olá' });
+    const inbound = { id: 'inbound-1', text: 'Resposta', sender_type: 'client' };
+    snapshot = detail([inbound, saved]);
+    const refreshed = await api.fetchInboxThread('thread-1', 'thread', { force: true });
+    assert.equal(refreshed.item.messages.length, 3, 'inbound update must retain the pending outgoing message');
+    assert.equal(refreshed.item.messages[0].id, 'inbound-1');
+    resolveSend(response({ ok: true, message: saved, thread_id: 'thread-1', reopened: false, persisted: true }));
+    await send;
+    const confirmed = await api.fetchInboxThread("thread-1");
+    assert.equal(confirmed.item.messages.length, 2, "provider confirmation must deduplicate an echo seen during refresh");
+    snapshot = detail([inbound, saved, { id: 'inbound-2', text: 'Outra resposta', sender_type: 'client' }]);
+    const afterSend = await api.fetchInboxThread('thread-1', 'thread', { force: true });
+    assert.equal(afterSend.item.messages.length, 3, 'post-send cache TTL must not hide incoming messages');
+}
+
 (async () => {
     await cacheRace(true);
     await cacheRace(false);
+    await incomingDuringSend();
     await persistenceRetry(0);
     await persistenceRetry(1);
     await persistenceRetry(2);
     await persistenceRetry(3);
     await persistenceRetry(1, false);
-    console.log('Inbox send: 7 regression scenarios passed');
+    console.log('Inbox send: 8 regression scenarios passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
