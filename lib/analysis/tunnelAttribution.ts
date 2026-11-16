@@ -169,7 +169,6 @@ export type TunnelReferral = {
 
 const entryIntent = /\b(?:queria|quero|gostaria|tenho interesse|busco|procuro|me interesso|desejo)\b.*|\b(?:nao consigo|dificuldade para) engravidar\b/;
 const entryQuestion = /\b(?:voces (?:fazem|realizam|oferecem)|qual (?:e )?(?:o )?(?:valor|preco|custo)|quanto (?:custa|fica)|como funciona)\b.*/;
-const explicitFreezingTopic = /^(?:congelamento|criopreservacao)(?: d[eo]s? (?:ovulos|embrioes|semen))?[.!?]*$/;
 
 export function inferTunnelFromReferrals(referrals: TunnelReferral[]): Tunnel | null {
     // Referrals are ordered from newest to oldest and belong to this conversation.
@@ -182,8 +181,7 @@ export function inferTunnelFromReferrals(referrals: TunnelReferral[]): Tunnel | 
 
     const interests = new Set<Tunnel>();
     for (const referral of referrals) {
-        const text = fold(referral.messages.text ?? "").trim();
-        if (explicitFreezingTopic.test(text)) interests.add("Congelamento");
+        const text = fold(referral.messages.text ?? "");
         for (const clause of text.split(/[,;.!?\n]|\b(?:mas|porem|contudo)\b/)) {
             const intent = entryIntent.exec(clause)?.[0] ?? entryQuestion.exec(clause)?.[0];
             if (!intent || negatedOrUncertainIntent.test(clause)) continue;

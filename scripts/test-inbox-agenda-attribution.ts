@@ -20,8 +20,10 @@ assert.equal(inferTunnelFromReferrals([referral(null, "Oi"), referral("Problemas
 assert.equal(inferTunnelFromReferrals([referral(null, "Olá! Gostaria de saber mais sobre congelamento de óvulos.")]), "Congelamento");
 assert.equal(inferTunnelFromReferrals([referral(null, "Vocês fazem congelamento de óvulos?")]), "Congelamento");
 assert.equal(inferTunnelFromReferrals([referral(null, "Qual valor para congelamento dos óvulos")]), "Congelamento");
-assert.equal(inferTunnelFromReferrals([referral(null, "Congelamento")]), "Congelamento");
-assert.equal(inferTunnelFromReferrals([referral(null, "Criopreservação de óvulos")]), "Congelamento");
+for (const topic of ["Congelamento", "Criopreservação de óvulos", "FIV", "Laqueadura", "ROPA"]) {
+    assert.equal(inferTunnelFromReferrals([referral(null, topic)]), null);
+}
+assert.equal(inferTunnelFromReferrals([referral(null, "Vocês fazem FIV?")]), "Tratamentos");
 assert.equal(inferTunnelFromReferrals([referral(null, "Congelamento? Não tenho interesse.")]), null);
 assert.equal(inferTunnelFromReferrals([referral(null, "Minha amiga fez congelamento de óvulos")]), null);
 assert.equal(inferTunnelFromReferrals([referral(null, "Qual o valor de FIV e congelamento?")]), null);
