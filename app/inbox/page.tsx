@@ -1460,6 +1460,7 @@ function ChatPanel({
     onOpenClientProfile: () => void;
 }) {
     const [messageText, setMessageText] = useState("");
+    const [selectedQuote, setSelectedQuote] = useState<{ itemId: string | null; text: string } | null>(null);
     const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
@@ -1468,6 +1469,7 @@ function ChatPanel({
         id: string;
         composerId: string;
         text: string;
+        quote: string | null;
         attachment: File | null;
         error: string;
     }[]>([]);
@@ -1482,10 +1484,14 @@ function ChatPanel({
     const canReply = conversation?.can_reply || (
         isSending && itemType === "conversation" && conversation?.thread_id === composerId
     );
-    const hasDraft = Boolean(messageText.trim() || selectedAttachment);
+    const canQuote = canReply && (conversation?.channel === "Instagram" || conversation?.channel === "Facebook");
+    const quote = canQuote && selectedQuote?.itemId === itemId ? selectedQuote.text : null;
+    const hasDraft = Boolean(messageText.trim() || selectedAttachment || quote);
+    const canSend = canReply && Boolean(messageText.trim() || (selectedAttachment && !quote));
 
     useEffect(() => {
         setMessageText("");
+        setSelectedQuote(null);
         setSelectedAttachment(null);
         setEmojiPickerOpen(false);
         setSendError(null);
@@ -1498,6 +1504,11 @@ function ChatPanel({
         textarea.style.height = "auto";
         if (messageText) textarea.style.height = `${textarea.scrollHeight}px`;
     }, [messageText]);
+
+    function selectQuote(text: string) {
+        setSelectedQuote({ itemId, text });
+        textareaRef.current?.focus({ preventScroll: true });
+    }
 
     function insertEmoji(emoji: string) {
         const textarea = textareaRef.current;
@@ -1538,9 +1549,10 @@ function ChatPanel({
         const text = messageText.trim();
         const attachment = selectedAttachment;
 
-        if (!canReply || (!text && !attachment)) return;
+        if (!canSend) return;
 
         setMessageText("");
+        setSelectedQuote(null);
         setSelectedAttachment(null);
         setSendError(null);
         textareaRef.current?.focus({preventScroll: true});
@@ -1551,7 +1563,7 @@ function ChatPanel({
             let unsentText = text;
             try {
                 if (text) {
-                    await onSendMessage(text);
+                    await onSendMessage(quote ? `Sobre “${quote}”\n\n${text}` : text);
                     unsentText = "";
                 }
                 if (attachment) await onSendAttachment(attachment);
@@ -1560,6 +1572,7 @@ function ChatPanel({
                     id: crypto.randomUUID(),
                     composerId,
                     text: unsentText,
+                    quote: unsentText ? quote : null,
                     attachment,
                     error: error instanceof Error
                         ? error.message
@@ -1682,6 +1695,7 @@ function ChatPanel({
                 skeleton={<ChatMessagesSkeleton />}
                 emptyMessage="Nenhuma mensagem nesta conversa."
                 scrollbarClassName={scrollbarClass}
+                onQuoteMessage={canQuote ? selectQuote : undefined}
                 topContent={
                     hasOlderConversations ? (
                         <div className="flex justify-center">
@@ -1718,6 +1732,7 @@ function ChatPanel({
                             className="mt-1 cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-50"
                             onClick={() => {
                                 setMessageText(failure.text);
+                                setSelectedQuote(failure.quote ? { itemId, text: failure.quote } : null);
                                 setSelectedAttachment(failure.attachment);
                                 setFailedSends((current) => current.filter((entry) => entry.id !== failure.id));
                                 textareaRef.current?.focus({preventScroll: true});
@@ -1727,6 +1742,27 @@ function ChatPanel({
                         </button>
                     </div>
                 ))}
+
+                {quote ? (
+                    <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-l-brand bg-slate-50 px-3 py-1">
+                        <div className="min-w-0 flex-1 text-xs">
+                            <div className="font-semibold text-slate-700">Citando mensagem</div>
+                            <div title={quote} className="truncate text-slate-600">{quote}</div>
+                        </div>
+                        <button
+                            type="button"
+                            aria-label="Remover citação"
+                            title="Remover citação"
+                            onClick={() => {
+                                setSelectedQuote(null);
+                                textareaRef.current?.focus({ preventScroll: true });
+                            }}
+                            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                ) : null}
 
                 {selectedAttachment ? (
                     <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -1769,6 +1805,8 @@ function ChatPanel({
                         placeholder={
                             conversation && !canReply
                                 ? "Janela de 24h encerrada"
+                                : quote
+                                ? "Escreva uma resposta..."
                                 : "Responder como atendente..."
                         }
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
@@ -1851,7 +1889,7 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Enviar"
-                            disabled={!hasDraft || !canReply}
+                            disabled={!canSend}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={handleSubmit}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"

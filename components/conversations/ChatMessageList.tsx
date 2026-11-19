@@ -40,6 +40,7 @@ type ChatMessageListProps = {
     enablePrewrittenMessages?: boolean;
     autoScrollToBottom?: boolean;
     attachmentAccess?: "inbox" | "conversation";
+    onQuoteMessage?: (quote: string) => void;
 };
 
 type LocalFloatingMessage = SharedChatMessage & {
@@ -69,6 +70,7 @@ export function ChatMessageList({
     enablePrewrittenMessages = true,
     autoScrollToBottom = true,
     attachmentAccess = "inbox",
+    onQuoteMessage,
 }: ChatMessageListProps) {
     const rootRef = useRef<HTMLDivElement>(null);
     const floatingThreadIdRef = useRef<string | null>(null);
@@ -307,6 +309,7 @@ export function ChatMessageList({
                                             <ChatMessageBubble
                                                 message={message}
                                                 attachmentAccess={attachmentAccess}
+                                                onQuoteMessage={onQuoteMessage}
                                             />
                                         </div>
                                     ))}

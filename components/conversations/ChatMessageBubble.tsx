@@ -2,7 +2,7 @@
 "use client";
 
 import Image from "next/image";
-import { Download, FileAudio, FileText } from "lucide-react";
+import { Download, FileAudio, FileText, Reply } from "lucide-react";
 import { useState } from "react";
 
 import { isPreservedMessageText } from "@/lib/messages/preservedMessage";
@@ -25,6 +25,7 @@ export type SharedChatMessage = {
 type ChatMessageBubbleProps = {
     message: SharedChatMessage;
     attachmentAccess?: "inbox" | "conversation";
+    onQuoteMessage?: (quote: string) => void;
 };
 
 type MessageAttachment = {
@@ -41,9 +42,12 @@ const ATTACHMENT_METADATA_PREFIX = "engravida-attachment:";
 const TAG_CHARACTER_PATTERN = /[\u{E0020}-\u{E007E}]+\u{E007F}/u;
 const LEGACY_MEDIA_PATTERN =
     /^\[(Imagem|Vídeo|Áudio|Arquivo) enviado\](?:\s+([\s\S]+))?$/i;
+const MAX_QUOTE_LENGTH = 160;
+
 export function ChatMessageBubble({
     message,
     attachmentAccess = "inbox",
+    onQuoteMessage,
 }: ChatMessageBubbleProps) {
     if (isPreservedMessageText(message.text)) return null;
 
@@ -51,9 +55,12 @@ export function ChatMessageBubble({
     const senderLabel = getSenderLabel(message, isAttendant);
     const timeLabel = getTimeLabel(message);
     const attachmentMessage = parseAttachmentMessage(message);
+    const quote = onQuoteMessage && message.sender_type !== "system"
+        ? getQuoteSnippet(message.text, attachmentMessage?.attachment.name)
+        : "";
 
     return (
-        <div className={`flex ${isAttendant ? "justify-end" : "justify-start"}`}>
+        <div className={`group/quote flex ${isAttendant ? "justify-end" : "justify-start"}`}>
             <div
                 className={`min-w-0 max-w-[min(72%,520px)] overflow-hidden rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                     isAttendant
@@ -84,8 +91,35 @@ export function ChatMessageBubble({
                     {timeLabel}
                 </div>
             </div>
+
+            {quote && onQuoteMessage ? (
+                <div className={`relative w-0 shrink-0 self-start ${isAttendant ? "order-first" : ""}`}>
+                    <button
+                        type="button"
+                        aria-label="Citar mensagem"
+                        title="Citar mensagem"
+                        onClick={() => onQuoteMessage(quote)}
+                        className={`absolute top-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:opacity-100 group-hover/quote:opacity-100 [@media(hover:hover)]:opacity-0 ${
+                            isAttendant ? "right-0" : "left-0"
+                        }`}
+                    >
+                        <Reply size={15} aria-hidden="true" />
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
+}
+
+function getQuoteSnippet(text: string, attachmentName?: string) {
+    const snippet = (attachmentName ?? text.split(LEGACY_ATTACHMENT_MARKER, 1)[0])
+        .replace(TAG_CHARACTER_PATTERN, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const characters = Array.from(snippet);
+    return characters.length > MAX_QUOTE_LENGTH
+        ? `${characters.slice(0, MAX_QUOTE_LENGTH - 1).join("").trimEnd()}…`
+        : snippet;
 }
 
 export function ChatMessageContent({
