@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Users } from "lucide-react";
+import { ChevronDown, ListFilter } from "lucide-react";
 import Card from "@/components/ui/Card";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import Skeleton from "@/components/ui/Skeleton";
@@ -39,6 +39,12 @@ const COLUMNS: DataTableColumn<DeskQueue>[] = [
 function unitKey(name: string) {
     const normalized = name.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     return normalized === "brasilia" ? "distrito federal" : normalized;
+}
+
+function ContributionBar({ share, className }: { share: number; className: string }) {
+    return <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${className}`} style={{ width: `${Math.max(0, Math.min(100, share))}%` }} />
+    </div>;
 }
 
 export default function BlipPerformance({ start, end, unitName, bookings, raOnly }: {
@@ -108,24 +114,34 @@ export default function BlipPerformance({ start, end, unitName, bookings, raOnly
                             : <><strong className="text-green">{count(acTickets)} de {count(net)} tickets ({percent(acTickets, net)})</strong> atendidos pela AC</>}
                     </p> : null}
                 </div>
-                {units.size ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {units.size ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {[...units].map(key => {
                         const booking = bookingsByUnit.get(key);
                         const ticket = ticketsByUnit.get(key);
                         const name = booking?.name ?? ticket?.name;
                         const total = ticket ? ticket.closed - ticket.lost : 0;
-                        return <Card key={key} className="min-w-0">
-                            <h3 className="text-sm font-bold">{name}</h3>
-                            {booking ? <div className="mt-3 text-xs text-muted">
-                                <p>{raOnly ? "Marcações da RA" : "Marcações da seleção"}</p>
-                                <p className="tabular-nums"><strong className="text-text">{count(booking.contributed)} de {count(booking.total)}</strong>
-                                    {" · "}{booking.contributionShare.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</p>
-                                {booking.matched < booking.total ? <p>{count(booking.total - booking.matched)} sem atendente identificado</p> : null}
+                        const attributedTickets = ticket?.acTickets;
+                        const hasTicketShare = attributedTickets != null && total > 0;
+                        return <Card key={key} className="min-w-0 md:p-5">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <h3 className="min-w-0 text-sm font-bold">{name}</h3>
+                                {hasTicketShare ? <strong className="shrink-0 text-lg tabular-nums text-green">
+                                    {percent(attributedTickets, total)}
+                                </strong> : null}
+                            </div>
+                            {ticket ? <div className="mt-2 space-y-2">
+                                {hasTicketShare ? <ContributionBar share={100 * attributedTickets / total} className="bg-brand" /> : null}
+                                <p className="text-xs tabular-nums text-muted">{attributedTickets == null
+                                    ? <><strong className="text-text">{count(total)}</strong> tickets na fila de assistência</>
+                                    : <><strong className="text-text">{count(attributedTickets)}</strong> de {count(total)} tickets · AC</>}</p>
                             </div> : null}
-                            {ticket ? <div className="mt-3 text-xs text-muted">
-                                <p>{ticket.acTickets == null ? "Tickets na fila de assistência" : "Tickets atendidos pela AC"}</p>
-                                <p className="tabular-nums">{ticket.acTickets == null ? count(total)
-                                    : <><strong className="text-text">{count(ticket.acTickets)} de {count(total)}</strong>{" · "}{percent(ticket.acTickets, total)}</>}</p>
+                            {booking ? <div className={ticket ? "mt-3 space-y-2 border-t border-slate-100 pt-3" : "mt-2 space-y-2"}>
+                                <div className="flex items-baseline justify-between gap-2 text-xs tabular-nums text-muted">
+                                    <span><strong className="text-text">{count(booking.contributed)}</strong> de {count(booking.total)} {raOnly ? "marcações · RA" : "marcações"}</span>
+                                    <strong className="shrink-0 text-sm text-green">{booking.contributionShare.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong>
+                                </div>
+                                <ContributionBar share={booking.contributionShare} className="bg-green" />
+                                {booking.matched < booking.total ? <p className="text-[11px] text-muted">{count(booking.total - booking.matched)} sem atendente identificado</p> : null}
                             </div> : null}
                         </Card>;
                     })}
@@ -135,10 +151,10 @@ export default function BlipPerformance({ start, end, unitName, bookings, raOnly
         <section className="space-y-4" aria-labelledby="performance-tickets-title">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 id="performance-tickets-title" className="text-lg font-bold">Atendimento no Blip</h2>
-                <DropdownSelect icon={<Users size={16} />} value={scope} widthClassName="w-[250px]" onChange={value => {
+                <DropdownSelect icon={<ListFilter size={16} />} value={scope} widthClassName="w-full sm:w-[250px]" onChange={value => {
                     if (value === "all" || value === "ra" || value === "ac") setScope(value);
                 }} options={[
-                    { value: "all", label: "Todas as filas" }, { value: "ra", label: "RA" },
+                    { value: "all", label: "Todas as filas" }, { value: "ra", label: "Fila RA" },
                     { value: "ac", label: "Assistência Centralizada" },
                 ]} />
             </div>

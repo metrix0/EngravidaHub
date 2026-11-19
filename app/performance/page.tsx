@@ -12,6 +12,7 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
+import { DashboardFilterBar, DashboardFilterBarSkeleton } from "@/components/dashboard/DashboardFilterBar";
 import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -151,21 +152,22 @@ export default function PerformancePage() {
 
     return <main className="h-full overflow-y-auto bg-white px-3 py-5 text-slate-900 sm:px-5 md:px-7 md:py-7">
         <section className="mx-auto max-w-[1500px] space-y-7">
-            <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
-                period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
-            {ready && currentUser && result.report ? <div className="flex flex-wrap items-end gap-3">
-                <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades"
-                    options={result.report.unitOptions.map(option => ({ label: option.name, value: option.id }))}
-                    values={unitId ? [unitId] : []}
-                    onChange={values => setUnit(result.report?.unitOptions.find(option => option.id === values[0]) ?? null)}
-                    widthClassName="w-[220px]" />
-                <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted">Equipe de marcações e conversas</p>
-                    <DropdownSelect icon={<Users size={16} />} value={team} onChange={setTeam} widthClassName="w-[220px]" options={[
-                        { value: "all", label: "Todas as equipes" }, { value: "ra", label: "RA" }, { value: "other", label: "Demais equipes" }
+            <div>
+                <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
+                    period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
+                {ready && currentUser && result.report ? <DashboardFilterBar className="items-center">
+                    <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades"
+                        options={result.report.unitOptions.map(option => ({ label: option.name, value: option.id }))}
+                        values={unitId ? [unitId] : []}
+                        onChange={values => setUnit(result.report?.unitOptions.find(option => option.id === values[0]) ?? null)}
+                        widthClassName="w-full sm:w-[230px]" />
+                    <DropdownSelect icon={<Users size={16} />} value={team} onChange={setTeam} widthClassName="w-full sm:w-[230px]" options={[
+                        { value: "all", label: "Todas as equipes" }, { value: "ra", label: "Equipe RA" }, { value: "other", label: "Demais equipes" },
                     ]} />
-                </div>
-            </div> : null}
+                </DashboardFilterBar> : isLoadingCurrentUser || loading
+                    ? <DashboardFilterBarSkeleton widths={["w-full sm:w-[230px]", "w-full sm:w-[230px]"]} />
+                    : null}
+            </div>
             {ready && currentUser && start && end && start <= end ? <BlipPerformance
                 start={start} end={end} unitName={unit?.name ?? ""} bookings={unitContribution} raOnly={raOnlyContribution} /> : null}
             {isLoadingCurrentUser || loading ? <div className="space-y-5"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div>
