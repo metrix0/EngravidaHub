@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 const DAY = 86_400_000;
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 500;
+const CONCURRENT_DAYS = 6;
+const MAX_CACHED_DAYS = 96;
+const DAY_CACHE_MS = 300_000;
 const BOT = "atendimento638573549519907613";
 const DATE_FIELDS = ["storageDate", "openDate", "closeDate"] as const;
 const CLIENT_CLOSURES = new Set(["closedclient", "closedclientinactivity"]);
@@ -187,10 +190,16 @@ function deskCredentials() {
     return { endpoint: `https://${contract}.http.msging.net/commands`, key };
 }
 
-async function readTicketWindow(
-    credentials: ReturnType<typeof deskCredentials>, start: number, end: number, signal: AbortSignal,
+type TicketDay = { tickets: Map<string, DeskTicket>; receivedAt: number };
+const cachedDays = new Map<string, TicketDay>();
+const pendingDays = new Map<string, Promise<TicketDay>>();
+
+async function readTicketDay(
+    credentials: ReturnType<typeof deskCredentials>, start: number,
 ) {
+    const end = start + DAY;
     const from = new Date(start).toISOString(), to = new Date(end).toISOString();
+    const signal = AbortSignal.timeout(15_000);
     const filter = DATE_FIELDS.map(field =>
         `(${field} ge datetimeoffset'${from}' and ${field} lt datetimeoffset'${to}')`,
     ).join(" or ");
@@ -216,8 +225,30 @@ async function readTicketWindow(
             if (tickets.has(ticket.id)) throw new Error("O histórico Blip retornou tickets repetidos na paginação");
             tickets.set(ticket.id, ticket);
         }
-        if (page.length < PAGE_SIZE) return tickets;
+        if (page.length < PAGE_SIZE) return { tickets, receivedAt: Date.now() };
     }
+}
+
+function getTicketDay(credentials: ReturnType<typeof deskCredentials>, start: number) {
+    const key = credentials.endpoint + ":" + start;
+    const cached = cachedDays.get(key);
+    if (cached) {
+        cachedDays.delete(key);
+        if (Date.now() - cached.receivedAt < DAY_CACHE_MS) {
+            cachedDays.set(key, cached);
+            return Promise.resolve(cached);
+        }
+    }
+
+    const pending = pendingDays.get(key);
+    if (pending) return pending;
+    const request = readTicketDay(credentials, start).then(day => {
+        cachedDays.set(key, day);
+        if (cachedDays.size > MAX_CACHED_DAYS) cachedDays.delete(cachedDays.keys().next().value!);
+        return day;
+    }).finally(() => pendingDays.delete(key));
+    pendingDays.set(key, request);
+    return request;
 }
 
 export async function loadDeskPerformance(startDate: string, endDate: string) {
@@ -226,22 +257,24 @@ export async function loadDeskPerformance(startDate: string, endDate: string) {
     const end = Date.parse(endDate + "T00:00:00-03:00") + DAY;
     const roster = new Set((process.env.BLIP_PERFORMANCE_AC_ATTENDANTS ?? "").split(",")
         .map(agentId).filter((id): id is string => id !== null));
-    const abort = new AbortController();
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(50_000)]);
-    const tickets = new Map<string, DeskTicket>();
-    let nextStart = start;
+    const tickets = new Map<string, { ticket: DeskTicket; receivedAt: number }>();
+    let nextDay = start;
     try {
-        await Promise.all(Array.from({ length: 4 }, async () => {
-            while (nextStart < end) {
-                const windowStart = nextStart, windowEnd = Math.min(end, windowStart + 3 * DAY);
-                nextStart = windowEnd;
-                const page = await readTicketWindow(credentials, windowStart, windowEnd, signal);
-                for (const [id, ticket] of page) tickets.set(id, ticket);
+        const workerCount = Math.min(CONCURRENT_DAYS, (end - start) / DAY);
+        await Promise.all(Array.from({ length: workerCount }, async () => {
+            while (nextDay < end) {
+                const dayStart = nextDay;
+                nextDay += DAY;
+                const { tickets: rows, receivedAt } = await getTicketDay(credentials, dayStart);
+                for (const [id, ticket] of rows) {
+                    const existing = tickets.get(id);
+                    if (!existing || receivedAt >= existing.receivedAt) tickets.set(id, { ticket, receivedAt });
+                }
             }
         }));
     } catch (error) {
-        abort.abort();
+        nextDay = end;
         throw error;
     }
-    return buildDeskPerformance(tickets.values(), start, end, roster);
+    return buildDeskPerformance([...tickets.values()].map(({ ticket }) => ticket), start, end, roster);
 }

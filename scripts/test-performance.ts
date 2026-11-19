@@ -55,22 +55,33 @@ async function checkDeskPagination() {
             const body = JSON.parse(String(init?.body));
             const query = new URL(body.uri, 'https://example.com').searchParams;
             assert.equal(body.to, 'postmaster@desk.msging.net');
-            assert.match(query.get('$filter') ?? '', /closeDate ge datetimeoffset'2026-10-01T03:00:00.000Z'/);
+            assert.equal(Number(query.get('$take')), 500);
+            const filter = query.get('$filter') ?? '';
+            if (filter.includes("closeDate ge datetimeoffset'2026-10-02T03:00:00.000Z'")) {
+                return Response.json({ status: 'success', resource: { items: [
+                    { ...ticket, id: 'page-last', openDate: '2026-10-02T07:05:00-03:00' },
+                ] } });
+            }
+            assert.match(filter, /closeDate ge datetimeoffset'2026-10-01T03:00:00.000Z'/);
             const offset = Number(query.get('$skip'));
             offsets.push(offset);
             return Response.json({ status: 'success', resource: { items: offset === 0
-                ? Array.from({ length: 100 }, (_, i) => ({ ...ticket, id: 'page-' + i }))
+                ? Array.from({ length: 500 }, (_, i) => ({ ...ticket, id: 'page-' + i }))
                 : [{ ...ticket, id: 'page-last' }] } });
         }) as typeof fetch;
         const data = await loadDeskPerformance('2026-10-01', '2026-10-01');
-        assert.deepEqual(offsets, [0, 100]);
-        assert.equal(data.ac.closed, 101);
-        assert.equal(data.acTickets, 101);
+        assert.deepEqual(offsets, [0, 500]);
+        assert.equal(data.ac.closed, 501);
+        assert.equal(data.acTickets, 501);
+        const overlapping = await loadDeskPerformance('2026-10-01', '2026-10-02');
+        assert.deepEqual(offsets, [0, 500]);
+        assert.equal(overlapping.ac.closed, 501);
+        assert.equal(overlapping.acTickets, 501);
 
         globalThis.fetch = (async () => Response.json({ status: 'success', resource: { items: [
             { ...ticket, openDate: null, closeDate: '2026-09-30T23:59:00-03:00' },
         ] } })) as typeof fetch;
-        await assert.rejects(loadDeskPerformance('2026-10-01', '2026-10-01'), /não aplicou o intervalo/);
+        await assert.rejects(loadDeskPerformance('2026-10-03', '2026-10-03'), /não aplicou o intervalo/);
         console.log('PASS Blip contribution, status and date rules, pagination, and out-of-range response rejection.');
     } finally {
         globalThis.fetch = restoreFetch;

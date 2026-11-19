@@ -9,6 +9,10 @@ import Skeleton from "@/components/ui/Skeleton";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import type { DeskPerformance, DeskQueue } from "@/lib/blip/deskPerformance";
 
+const CLIENT_CACHE_MS = 60_000;
+const CLIENT_CACHE_SIZE = 8;
+type CachedReport = { data: DeskPerformance; receivedAt: number };
+
 const count = (value: number) => value.toLocaleString("pt-BR");
 const percent = (part: number, total: number) => total > 0
     ? (part / total).toLocaleString("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—";
@@ -33,12 +37,15 @@ const COLUMNS: DataTableColumn<DeskQueue>[] = [
 export default function BlipPerformance({ start, end }: { start: string; end: string }) {
     const [scope, setScope] = useState<"all" | "ra" | "ac">("ac");
     const [unitName, setUnitName] = useState("");
-    const [result, setResult] = useState<{ key: string; data?: DeskPerformance; error?: string }>();
+    const [reports, setReports] = useState(() => new Map<string, CachedReport>());
+    const [failure, setFailure] = useState<{ key: string; message: string }>();
     const key = start + ":" + end;
-    const data = result?.key === key ? result.data : undefined;
-    const error = result?.key === key ? result.error : undefined;
+    const cached = reports.get(key);
+    const data = cached?.data;
+    const error = failure?.key === key ? failure.message : undefined;
 
     useEffect(() => {
+        if (cached && Date.now() - cached.receivedAt < CLIENT_CACHE_MS) return;
         const controller = new AbortController();
         const params = new URLSearchParams({ start, end });
         void (async () => {
@@ -46,18 +53,31 @@ export default function BlipPerformance({ start, end }: { start: string; end: st
                 const response = await fetch("/api/performance/blip?" + params, { signal: controller.signal });
                 const body = await response.json();
                 if (!response.ok) throw new Error(body.error);
-                if (!controller.signal.aborted) setResult({ key, data: body.report });
+                if (!controller.signal.aborted) {
+                    const report = { data: body.report, receivedAt: Date.now() };
+                    setReports(previous => {
+                        const updated = new Map(previous);
+                        updated.delete(key);
+                        updated.set(key, report);
+                        if (updated.size > CLIENT_CACHE_SIZE) updated.delete(updated.keys().next().value!);
+                        return updated;
+                    });
+                    setFailure(previous => previous?.key === key ? undefined : previous);
+                }
             } catch (error) {
                 if (!controller.signal.aborted) {
-                    setResult({ key, error: error instanceof Error ? error.message : "Não foi possível carregar o Blip." });
+                    setFailure({ key, message: error instanceof Error ? error.message : "Não foi possível carregar o Blip." });
                 }
             }
         })();
         return () => controller.abort();
-    }, [key, start, end]);
+    }, [cached, key, start, end]);
 
     if (error) return <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>;
-    if (!data) return <Skeleton className="h-48 rounded-2xl" />;
+    if (!data) return <section className="space-y-5" aria-busy="true">
+        <h2 className="text-lg font-bold">Atendimento no Blip</h2>
+        <Skeleton className="h-48 rounded-2xl" />
+    </section>;
 
     const unit = scope === "ac" ? data.units.find(unit => unit.name === unitName) : undefined;
     const metrics = unit ?? data[scope];

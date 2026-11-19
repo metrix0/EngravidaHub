@@ -1,4 +1,5 @@
 // app/api/performance/blip/route.ts
+import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -11,8 +12,7 @@ export const maxDuration = 60;
 const query = z.object({ start: z.iso.date(), end: z.iso.date() }).refine(
     ({ start, end }) => start <= end && Date.parse(end) - Date.parse(start) < 90 * 86_400_000,
 );
-const getReport = unstable_cache(loadDeskPerformance, ["blip-desk-performance"], { revalidate: 300 });
-const pending = new Map<string, ReturnType<typeof getReport>>();
+const pending = new Map<string, ReturnType<typeof loadDeskPerformance>>();
 
 export async function GET(request: Request) {
     const access = await getServerTabAccess("performance");
@@ -26,7 +26,10 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Selecione um período de até 90 dias para o Blip." }, { status: 400 });
     }
     const { start, end } = selection.data;
-    const key = start + ":" + end;
+    const rosterVersion = createHash("sha256")
+        .update(process.env.BLIP_PERFORMANCE_AC_ATTENDANTS ?? "").digest("hex");
+    const key = [start, end, rosterVersion].join(":");
+    const getReport = unstable_cache(loadDeskPerformance, ["blip-desk-performance-v2", rosterVersion], { revalidate: 300 });
     const report = pending.get(key) ?? getReport(start, end).finally(() => pending.delete(key));
     pending.set(key, report);
     try {
