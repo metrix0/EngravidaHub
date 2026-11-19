@@ -12,6 +12,7 @@ export type ZernioInboxPlatform = "instagram" | "facebook";
 export const ZERNIO_INBOX_WEBHOOK_EVENTS = [
     "message.received",
     "message.sent",
+    "message.edited",
 ] as const;
 
 export type ZernioProfile = {
@@ -171,11 +172,16 @@ export async function ensureZernioInboxWebhook({
         webhooks.find((webhook) =>
             ZERNIO_INBOX_WEBHOOK_NAMES.has(webhook.name),
         );
+    const secret = process.env.ZERNIO_WEBHOOK_SECRET?.trim();
+    const events = ZERNIO_INBOX_WEBHOOK_EVENTS.filter(
+        (event) => event !== "message.edited" || Boolean(secret),
+    );
     const body = {
         name: ZERNIO_INBOX_WEBHOOK_NAME,
         url: webhookUrl,
-        events: [...ZERNIO_INBOX_WEBHOOK_EVENTS],
+        events: [...new Set([...(existing?.events ?? []), ...events])],
         isActive: true,
+        ...(secret ? { secret } : {}),
     };
 
     if (existing) {

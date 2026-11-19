@@ -1,5 +1,5 @@
 // app/api/(webhooks)/zernio/route.ts
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { isIP } from "net";
 import { after, NextResponse } from "next/server";
 
@@ -81,11 +81,42 @@ export async function POST(request: Request) {
         });
     }
 
+    if (parsedMessage.edit) {
+        const secret = process.env.ZERNIO_WEBHOOK_SECRET?.trim();
+        if (!secret) {
+            return NextResponse.json(
+                { ok: false, error: "Zernio webhook signing is not configured" },
+                { status: 503 },
+            );
+        }
+
+        const signature = request.headers.get("x-zernio-signature") ??
+            request.headers.get("x-late-signature");
+        const expected = createHmac("sha256", secret).update(rawBody).digest();
+        if (
+            !signature ||
+            !/^[a-f0-9]{64}$/i.test(signature) ||
+            !timingSafeEqual(expected, Buffer.from(signature, "hex"))
+        ) {
+            return NextResponse.json(
+                { ok: false, error: "Invalid Zernio webhook signature" },
+                { status: 401 },
+            );
+        }
+    }
+
     try {
         const { data, error } = await supabase.rpc("persist_zernio_message", {
             p_message: parsedMessage,
         });
         if (error) throw error;
+        if (parsedMessage.edit) {
+            const status = (data as { edit_status: string }).edit_status;
+            return NextResponse.json(
+                { ok: status !== "missing", edit_status: status, request_id: requestId },
+                { status: status === "missing" ? 503 : 200 },
+            );
+        }
         const saved = data as {
             duplicate: boolean;
             message: { id: string };
