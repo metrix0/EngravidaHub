@@ -207,7 +207,7 @@ export default function InboxPrewrittenMessagesController({
             const value = textarea.value;
 
             if (!inputEvent.isComposing) {
-                const message = resolvePrewrittenMessage(value, messages);
+                const message = resolvePrewrittenMessage(value, messages, { allowLongerMatches: false });
 
                 if (message) {
                     setComposerValue(textarea, message.text);
@@ -413,12 +413,25 @@ export default function InboxPrewrittenMessagesController({
     return createPortal(menu, document.body);
 }
 
-export function resolvePrewrittenMessage(value: string, messages: PrewrittenMessage[]) {
+export function resolvePrewrittenMessage(
+    value: string,
+    messages: PrewrittenMessage[],
+    { allowLongerMatches = true } = {},
+) {
     const normalizedValue = normalize(value);
 
-    return messages.find(
+    const exactMatch = messages.find(
         (message) => normalize(message.command) === normalizedValue,
     );
+
+    if (exactMatch && !allowLongerMatches && messages.some((message) => {
+        const command = normalize(message.command);
+        return command.length > normalizedValue.length && command.startsWith(normalizedValue);
+    })) {
+        return undefined;
+    }
+
+    return exactMatch;
 }
 
 function isSlashQuery(value: string) {
