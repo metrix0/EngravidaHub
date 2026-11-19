@@ -1,4 +1,6 @@
 // lib/zernio/client.ts
+import { createHmac } from "node:crypto";
+
 const ZERNIO_API_BASE_URL = "https://zernio.com/api/v1";
 const ZERNIO_REQUEST_TIMEOUT_MS = 20_000;
 const ZERNIO_INBOX_WEBHOOK_NAME = "Engravida Hub Instagram Inbox";
@@ -172,16 +174,12 @@ export async function ensureZernioInboxWebhook({
         webhooks.find((webhook) =>
             ZERNIO_INBOX_WEBHOOK_NAMES.has(webhook.name),
         );
-    const secret = process.env.ZERNIO_WEBHOOK_SECRET?.trim();
-    const events = ZERNIO_INBOX_WEBHOOK_EVENTS.filter(
-        (event) => event !== "message.edited" || Boolean(secret),
-    );
     const body = {
         name: ZERNIO_INBOX_WEBHOOK_NAME,
         url: webhookUrl,
-        events: [...new Set([...(existing?.events ?? []), ...events])],
+        events: [...new Set([...(existing?.events ?? []), ...ZERNIO_INBOX_WEBHOOK_EVENTS])],
         isActive: true,
-        ...(secret ? { secret } : {}),
+        secret: getZernioWebhookSigningKey(),
     };
 
     if (existing) {
@@ -385,6 +383,13 @@ export function zernioExternalMessageId(messageId: string) {
 
 export function isZernioConfigured() {
     return Boolean(process.env.ZERNIO_API_KEY?.trim());
+}
+
+export function getZernioWebhookSigningKey() {
+    // Use a purpose-specific key so the API credential stays out of webhook settings.
+    return createHmac("sha256", getZernioApiKey())
+        .update("engravida-hub:zernio-webhook:v1")
+        .digest("hex");
 }
 
 function getZernioApiKey() {

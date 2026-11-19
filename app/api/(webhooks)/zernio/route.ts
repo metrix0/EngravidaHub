@@ -9,6 +9,7 @@ import {
     type ParsedZernioMessage,
 } from "@/lib/importers/zernio/parseZernioWebhook";
 import { supabase } from "@/lib/supabase/client";
+import { getZernioWebhookSigningKey } from "@/lib/zernio/client";
 import { persistConversationAdAttribution } from "@/lib/zernio/conversationAdAttribution";
 
 export const runtime = "nodejs";
@@ -81,31 +82,25 @@ export async function POST(request: Request) {
         });
     }
 
-    if (parsedMessage.edit) {
-        const secret = process.env.ZERNIO_WEBHOOK_SECRET?.trim();
-        if (!secret) {
-            return NextResponse.json(
-                { ok: false, error: "Zernio webhook signing is not configured" },
-                { status: 503 },
-            );
-        }
-
-        const signature = request.headers.get("x-zernio-signature") ??
-            request.headers.get("x-late-signature");
-        const expected = createHmac("sha256", secret).update(rawBody).digest();
-        if (
-            !signature ||
-            !/^[a-f0-9]{64}$/i.test(signature) ||
-            !timingSafeEqual(expected, Buffer.from(signature, "hex"))
-        ) {
-            return NextResponse.json(
-                { ok: false, error: "Invalid Zernio webhook signature" },
-                { status: 401 },
-            );
-        }
-    }
-
     try {
+        if (parsedMessage.edit) {
+            const signature = request.headers.get("x-zernio-signature") ??
+                request.headers.get("x-late-signature");
+            const expected = createHmac("sha256", getZernioWebhookSigningKey())
+                .update(rawBody)
+                .digest();
+            if (
+                !signature ||
+                !/^[a-f0-9]{64}$/i.test(signature) ||
+                !timingSafeEqual(expected, Buffer.from(signature, "hex"))
+            ) {
+                return NextResponse.json(
+                    { ok: false, error: "Invalid Zernio webhook signature" },
+                    { status: 401 },
+                );
+            }
+        }
+
         const { data, error } = await supabase.rpc("persist_zernio_message", {
             p_message: parsedMessage,
         });
