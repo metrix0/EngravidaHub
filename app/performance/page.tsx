@@ -12,6 +12,7 @@ import InfoTooltip from "@/components/ui/InfoTooltip";
 import { DataTable, type DataTableColumn } from "@/components/table/DataTable";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import SingleFilterButton from "@/components/ui/SingleFilterButton";
+import { DashboardFilterBar, DashboardFilterBarSkeleton } from "@/components/dashboard/DashboardFilterBar";
 import { DashboardHeader, useDashboardDateFilter } from "@/components/dashboard/DashboardHeader";
 import { getDateRangeFromPreset, DEFAULT_CALENDAR_PRESETS } from "@/components/ui/CalendarButton";
 import { useCurrentUser } from "@/components/auth/CurrentUserProvider";
@@ -21,7 +22,7 @@ import DashboardWidget from "@/components/personal-dashboard/DashboardWidget";
 import { PERFORMANCE_KPI_IDS } from "@/lib/personal-dashboard/performanceWidgets";
 import {
     PerformanceKpi, PerformanceMonthlyCard, PerformanceTicketsChart, PerformanceResponseChart,
-    PerformanceContributionCard, computePerformanceUnitContribution,
+    computePerformanceUnitContribution,
 } from "@/components/performance/PerformanceWidgets";
 import type { PerformanceAttendant, PerformanceReport } from "@/lib/performance/report";
 
@@ -38,6 +39,10 @@ const BookingAuthorsTable = dynamic(() => import("@/components/scheduling/Bookin
     loading: () => <Skeleton className="h-44 rounded-2xl" />,
 });
 
+const BlipPerformance = dynamic(() => import("@/components/performance/BlipPerformance"), {
+    loading: () => <Skeleton className="h-44 rounded-2xl" />,
+});
+
 export default function PerformancePage() {
     const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("current_month");
     const { currentUser, isLoadingCurrentUser } = useCurrentUser();
@@ -45,7 +50,8 @@ export default function PerformancePage() {
     const [attendantSearch, setAttendantSearch] = useState("");
     const [detailSearch, setDetailSearch] = useState("");
     const [team, setTeam] = useState("all");
-    const [unitId, setUnitId] = useState("");
+    const [unit, setUnit] = useState<PerformanceReport["unitOptions"][number] | null>(null);
+    const unitId = unit?.id ?? "";
     const [attendantId, setAttendantId] = useState("");
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "tickets", descending: true });
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -103,7 +109,7 @@ export default function PerformancePage() {
     const rankingStart = (currentRankingPage - 1) * RANKING_PAGE_SIZE;
     const visibleRanked = ranked.slice(rankingStart, rankingStart + RANKING_PAGE_SIZE);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
-    const raOnlyContribution = team === "all" && !attendantId && !attendantSearch.trim();
+    const raOnlyContribution = team === "ra";
     const unitContribution = useMemo(
         () => report ? computePerformanceUnitContribution(report, ranked, raOnlyContribution) : [],
         [report, ranked, raOnlyContribution],
@@ -127,7 +133,7 @@ export default function PerformancePage() {
         { id: "attendant", label: "Atendente", width: "28%", render: person =>
             <div className="min-w-0"><button type="button" className={"block truncate text-left font-semibold hover:text-brand " + (person.id === selected?.id ? "text-brand" : "")}
                 title={"Ver " + person.name} onClick={() => setSelectedId(person.id)}>{person.name}</button><span className="block truncate text-xs text-muted">{labelForSector(person.sector)}</span></div> },
-        { id: "tickets", label: sortedHeading("tickets", "Tickets"), width: "12%", align: "center", render: person => <strong className="tabular-nums">{number(person.tickets)}</strong> },
+        { id: "tickets", label: sortedHeading("tickets", "Conversas"), width: "12%", align: "center", render: person => <strong className="tabular-nums">{number(person.tickets)}</strong> },
         { id: "appointments", label: sortedHeading("appointments", "Consultas"), width: "12%", align: "center", render: person => <span className="tabular-nums">{number(person.appointments)}</span> },
         { id: "first", label: sortedHeading("firstResponse", "1ª resposta"), width: "14%", align: "center", render: person => <span className="tabular-nums">{duration(person.firstResponse)}</span> },
         { id: "response", label: sortedHeading("response", "Resposta"), width: "14%", align: "center", render: person => <span className="tabular-nums">{duration(person.response)}</span> },
@@ -146,8 +152,24 @@ export default function PerformancePage() {
 
     return <main className="h-full overflow-y-auto bg-white px-3 py-5 text-slate-900 sm:px-5 md:px-7 md:py-7">
         <section className="mx-auto max-w-[1500px] space-y-7">
-            <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
-                period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
+            <div>
+                <DashboardHeader title="Performance" description="Produtividade, marcações e tempo de resposta por atendente."
+                    period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
+                {ready && currentUser && result.report ? <DashboardFilterBar className="items-center">
+                    <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades"
+                        options={result.report.unitOptions.map(option => ({ label: option.name, value: option.id }))}
+                        values={unitId ? [unitId] : []}
+                        onChange={values => setUnit(result.report?.unitOptions.find(option => option.id === values[0]) ?? null)}
+                        widthClassName="w-full sm:w-[230px]" />
+                    <DropdownSelect icon={<Users size={16} />} value={team} onChange={setTeam} widthClassName="w-full sm:w-[230px]" options={[
+                        { value: "all", label: "Todas as equipes" }, { value: "ra", label: "Equipe RA" }, { value: "other", label: "Demais equipes" },
+                    ]} />
+                </DashboardFilterBar> : isLoadingCurrentUser || loading
+                    ? <DashboardFilterBarSkeleton widths={["w-full sm:w-[230px]", "w-full sm:w-[230px]"]} />
+                    : null}
+            </div>
+            {ready && currentUser && start && end && start <= end ? <BlipPerformance
+                start={start} end={end} unitName={unit?.name ?? ""} bookings={unitContribution} raOnly={raOnlyContribution} /> : null}
             {isLoadingCurrentUser || loading ? <div className="space-y-5"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div>
                 : error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
                 : report ? <>
@@ -155,12 +177,12 @@ export default function PerformancePage() {
                         <div className="flex flex-wrap items-start justify-between gap-4 p-4 md:p-6">
                             <div><div className="flex items-center gap-2">
                                 <h2 className="text-lg font-bold">Ranking comparativo</h2>
-                                <InfoTooltip portal widthClassName="w-[340px]" text={`Consultas: marcações do Clinisys, pela data de criação (${number(report.coverage.matchedBookings)} de ${number(report.coverage.totalBookings)} vinculadas). Sem vínculo: só totais por unidade. Tickets sem atendente não entram no ranking. Tempos: análises válidas até 2 h. Score e resolução: apenas conversas avaliadas pela IA. Filtro de unidade: vínculo atual do cliente nos tickets e unidade Clinisys nas marcações.`}>
+                                <InfoTooltip portal widthClassName="w-[340px]" text={`Consultas: marcações do Clinisys, pela data de criação (${number(report.coverage.matchedBookings)} de ${number(report.coverage.totalBookings)} vinculadas). Sem vínculo: só totais por unidade. Conversas sem atendente não entram no ranking. Tempos: análises válidas até 2 h. Score e resolução: apenas conversas avaliadas pela IA. Filtro de unidade: vínculo atual do cliente nas conversas e unidade Clinisys nas marcações.`}>
                                     <Info size={15} className="text-muted" />
                                 </InfoTooltip>
                             </div>
                                 <p className="mt-1 text-xs text-muted">Clique em um nome para detalhar. Consultas contabilizadas pela data em que foram marcadas.</p>
-                                {unitId ? <p className="mt-1 text-xs text-muted">Tickets e tempos por unidade usam o vínculo atual do cliente. Conversas sem unidade identificada não entram no filtro.</p> : null}</div>
+                                {unitId ? <p className="mt-1 text-xs text-muted">Conversas e tempos por unidade usam o vínculo atual do cliente. Conversas sem unidade identificada não entram no filtro.</p> : null}</div>
                             <div className="flex flex-wrap gap-3">
                                 <DropdownSelect icon={<UserRound size={16} />} value={attendantId} widthClassName="w-[250px]" searchable
                                     searchValue={attendantSearch}
@@ -178,11 +200,6 @@ export default function PerformancePage() {
                                     options={[{ label: "Todos os atendentes", value: "" }, ...report.attendantOptions
                                         .filter(person => person.name.toLocaleLowerCase("pt-BR").includes(attendantSearch.trim().toLocaleLowerCase("pt-BR")))
                                         .map(person => ({ label: person.name, value: person.id }))]} />
-                                <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades" options={report.unitOptions.map(unit => ({ label: unit.name, value: unit.id }))}
-                                    values={unitId ? [unitId] : []} onChange={values => setUnitId(values[0] ?? "")} widthClassName="w-[200px]" />
-                                <DropdownSelect icon={<Users size={16} />} value={team} onChange={setTeam} widthClassName="w-[215px]" options={[
-                                    { value: "all", label: "Todas as equipes" }, { value: "ra", label: "RA" }, { value: "other", label: "Demais equipes" }
-                                ]} />
                             </div>
                         </div>
                         <DataTable columns={columns} rows={visibleRanked} getRowKey={row => row.id} onRowClick={person => setSelectedId(person.id)} emptyMessage="Nenhum atendente com atividade no período." />
@@ -195,7 +212,7 @@ export default function PerformancePage() {
                             </div>
                         ) : null}
                         <div className="flex flex-wrap justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-muted md:px-6">
-                            <span><strong className="text-slate-700">{number(totals.tickets)}</strong> tickets · <strong className="text-slate-700">{number(totals.appointments)}</strong> consultas marcadas</span>
+                            <span><strong className="text-slate-700">{number(totals.tickets)}</strong> conversas · <strong className="text-slate-700">{number(totals.appointments)}</strong> consultas marcadas</span>
                             <span>{number(ranked.length)} atendentes com atividade · Score IA = média da nota de resolução (0–100)</span>
                         </div>
                     </div></Card></DashboardWidget>
@@ -242,9 +259,6 @@ export default function PerformancePage() {
                             </DashboardWidget>
                         </div>
                     </section> : null}
-                    <DashboardWidget widgetId="performance.contribuicao_unidade">
-                        <PerformanceContributionCard units={unitContribution} raOnly={raOnlyContribution} />
-                    </DashboardWidget>
                     <DashboardWidget widgetId="performance.marcado_por_atendente"><section className="min-w-0">
                         {start && end
                             ? <BookingAuthorsTable start={start} end={end} unitIds={unitId ? [unitId] : []} />

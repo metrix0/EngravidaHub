@@ -3,10 +3,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
+import { checkDayNoteBlockAccess } from "@/lib/scheduling/dayNoteBlockAccess";
 import { supabase } from "@/lib/supabase/client";
 
 const updateSchema = z.object({
     text: z.string().trim().min(1).max(500),
+    blocksFirstEvaluation: z.boolean().optional(),
+    unitId: z.string().uuid().optional(),
+    doctorId: z.string().uuid().optional(),
 });
 
 export async function PATCH(
@@ -32,16 +36,43 @@ export async function PATCH(
             );
         }
 
-        const { data, error } = await supabase
+        const { text, blocksFirstEvaluation, unitId, doctorId } = parsed.data;
+        const updates: Record<string, string | boolean> = { text };
+        let expectedUpdatedAt: string | undefined;
+        if (blocksFirstEvaluation !== undefined) {
+            const current = await loadNoteScope(noteId);
+            if (!current) return NextResponse.json({ ok: false, error: "Nota não encontrada." }, { status: 404 });
+            expectedUpdatedAt = current.updated_at;
+            if (current.blocks_first_evaluation && (!blocksFirstEvaluation || (unitId && unitId !== current.unit_id))) {
+                const denied = await checkDayNoteBlockAccess(current.unit_id, current.doctor_id, false);
+                if (denied) return denied;
+            }
+            if (blocksFirstEvaluation) {
+                const selectedUnit = unitId ?? current.unit_id;
+                const selectedDoctor = doctorId ?? current.doctor_id;
+                const denied = await checkDayNoteBlockAccess(selectedUnit, selectedDoctor, true);
+                if (denied) return denied;
+                if (selectedUnit && selectedDoctor) {
+                    updates.unit_id = selectedUnit;
+                    updates.doctor_id = selectedDoctor;
+                }
+            }
+            updates.blocks_first_evaluation = blocksFirstEvaluation;
+        }
+
+        let update = supabase
             .from("appointment_day_notes")
-            .update({ text: parsed.data.text })
-            .eq("id", noteId)
+            .update(updates)
+            .eq("id", noteId);
+        if (expectedUpdatedAt) update = update.eq("updated_at", expectedUpdatedAt);
+        const { data, error } = await update
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
             )
-            .single();
+            .maybeSingle();
 
         if (error) throw error;
+        if (!data) return NextResponse.json({ ok: false, error: "A nota foi alterada. Recarregue a agenda." }, { status: 409 });
         return NextResponse.json({ ok: true, note: data });
     } catch (error) {
         console.error("[day-notes:patch] failed", error);
@@ -64,17 +95,34 @@ export async function DELETE(
             );
         }
 
-        const { error } = await supabase
+        const current = await loadNoteScope(noteId);
+        if (!current) return NextResponse.json({ ok: true });
+        if (current.blocks_first_evaluation) {
+            const denied = await checkDayNoteBlockAccess(current.unit_id, current.doctor_id, false);
+            if (denied) return denied;
+        }
+        const { data, error } = await supabase
             .from("appointment_day_notes")
             .delete()
-            .eq("id", noteId);
+            .eq("id", noteId)
+            .eq("updated_at", current.updated_at)
+            .select("id").maybeSingle();
 
         if (error) throw error;
+        if (!data) return NextResponse.json({ ok: false, error: "A nota foi alterada. Recarregue a agenda." }, { status: 409 });
         return NextResponse.json({ ok: true });
     } catch (error) {
         console.error("[day-notes:delete] failed", error);
         return errorResponse(error);
     }
+}
+
+async function loadNoteScope(noteId: string) {
+    const { data, error } = await supabase.from("appointment_day_notes")
+        .select("unit_id, doctor_id, blocks_first_evaluation, updated_at")
+        .eq("id", noteId).maybeSingle();
+    if (error) throw error;
+    return data;
 }
 
 function errorResponse(error: unknown) {

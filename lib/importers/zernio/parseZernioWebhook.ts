@@ -39,6 +39,7 @@ export type ParsedZernioMessage = {
     attachment: ParsedZernioAttachment | null;
     referral: ParsedZernioReferral | null;
     social_metadata: Record<string, unknown> | null;
+    edit?: { count: number; at: string };
     sent_at: string;
     external_id: string;
     external_thread_id: string;
@@ -54,8 +55,9 @@ export function parseZernioMessageWebhook(
 ): ParsedZernioMessage | null {
     const root = asRecord(payload);
     const event = stringValue(root?.event);
+    const isEdit = event === "message.edited";
 
-    if (event !== "message.received" && event !== "message.sent") {
+    if (event !== "message.received" && event !== "message.sent" && !isEdit) {
         return null;
     }
 
@@ -79,7 +81,7 @@ export function parseZernioMessageWebhook(
 
     const direction =
         stringValue(message?.direction)?.toLowerCase() ??
-        (event === "message.received" ? "incoming" : "outgoing");
+        (isEdit ? null : event === "message.received" ? "incoming" : "outgoing");
     const accountId =
         stringValue(account?.id) ??
         stringValue(account?._id) ??
@@ -92,18 +94,15 @@ export function parseZernioMessageWebhook(
         stringValue(message?.conversationId);
     const participantId =
         stringValue(conversation?.participantId) ??
-        (direction === "incoming" ? stringValue(sender?.id) : null);
+        (direction === "incoming" ? stringValue(sender?.id) : null) ??
+        (isEdit ? conversationId : null);
     const platformMessageId = stringValue(message?.platformMessageId);
+    const zernioMessageId = stringValue(message?.id) ?? stringValue(message?._id);
     const messageId =
-        direction === "outgoing"
-            ? platformMessageId ??
-              stringValue(message?.id) ??
-              stringValue(message?._id) ??
-              stringValue(root?.id)
-            : stringValue(message?.id) ??
-              stringValue(message?._id) ??
-              platformMessageId ??
-              stringValue(root?.id);
+        (direction === "outgoing"
+            ? platformMessageId ?? zernioMessageId
+            : zernioMessageId ?? platformMessageId) ??
+        (isEdit ? null : stringValue(root?.id));
 
     if (!accountId || !conversationId || !participantId || !messageId) {
         return null;
@@ -127,6 +126,26 @@ export function parseZernioMessageWebhook(
     const attachment = firstAttachment(message?.attachments);
     const rawText =
         stringValue(message?.text) ?? stringValue(message?.message) ?? "";
+    let edit: ParsedZernioMessage["edit"];
+    if (isEdit) {
+        const count = root?.editCount;
+        const editedAt = stringValue(root?.editedAt);
+        const editedTime = editedAt ? Date.parse(editedAt) : NaN;
+        if (
+            root?.test === true ||
+            (direction !== "incoming" && direction !== "outgoing") ||
+            !rawText ||
+            !Array.isArray(message?.attachments) ||
+            message.attachments.length > 0 ||
+            typeof count !== "number" ||
+            !Number.isSafeInteger(count) ||
+            count < 1 ||
+            !Number.isFinite(editedTime)
+        ) {
+            return null;
+        }
+        edit = { count, at: new Date(editedTime).toISOString() };
+    }
     const referral =
         event === "message.received" && direction === "incoming"
             ? parseReferral(message, root)
@@ -145,6 +164,7 @@ export function parseZernioMessageWebhook(
         referral,
         social_metadata: event === "message.received" && direction === "incoming"
             ? parseSocialMetadata(message, root) : null,
+        ...(edit ? { edit } : {}),
         sent_at: normalizeDate(message?.sentAt ?? root?.timestamp),
         external_id: zernioExternalMessageId(
             platform === "facebook" ? `facebook:${messageId}` : messageId,

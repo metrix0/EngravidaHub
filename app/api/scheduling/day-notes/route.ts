@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
+import { checkDayNoteBlockAccess } from "@/lib/scheduling/dayNoteBlockAccess";
 import { supabase } from "@/lib/supabase/client";
 
 const createSchema = z.object({
@@ -11,6 +12,7 @@ const createSchema = z.object({
     doctorId: z.string().uuid().nullable().optional(),
     text: z.string().trim().min(1).max(500),
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#f59e0b"),
+    blocksFirstEvaluation: z.boolean().default(false),
 });
 
 export async function GET(request: Request) {
@@ -38,7 +40,7 @@ export async function GET(request: Request) {
         const { data, error } = await supabase
             .from("appointment_day_notes")
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
             )
             .gte("note_date", start)
             .lt("note_date", end)
@@ -77,6 +79,11 @@ export async function POST(request: Request) {
             );
         }
 
+        if (parsed.data.blocksFirstEvaluation) {
+            const denied = await checkDayNoteBlockAccess(parsed.data.unitId ?? null, parsed.data.doctorId ?? null, true);
+            if (denied) return denied;
+        }
+
         const { data, error } = await supabase
             .from("appointment_day_notes")
             .insert({
@@ -85,10 +92,11 @@ export async function POST(request: Request) {
                 doctor_id: parsed.data.doctorId ?? null,
                 text: parsed.data.text,
                 color: parsed.data.color,
+                blocks_first_evaluation: parsed.data.blocksFirstEvaluation,
                 created_by: user.id,
             })
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
             )
             .single();
 

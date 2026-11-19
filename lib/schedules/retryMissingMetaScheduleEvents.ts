@@ -33,6 +33,7 @@ export async function retryMissingMetaScheduleEvents() {
         .from("schedules")
         .select("id, client_id, created_in_source_at, phone, status")
         .in("source", CLINISYS_SCHEDULE_SOURCES)
+        .like("procedure_name", "%1ª Avaliação de Reprodução Humana%")
         .gte("created_in_source_at", retrySince)
         .limit(5_000);
 

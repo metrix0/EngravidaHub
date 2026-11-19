@@ -1,5 +1,5 @@
 // app/api/(webhooks)/zernio/route.ts
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { isIP } from "net";
 import { after, NextResponse } from "next/server";
 
@@ -9,6 +9,12 @@ import {
     type ParsedZernioMessage,
 } from "@/lib/importers/zernio/parseZernioWebhook";
 import { supabase } from "@/lib/supabase/client";
+import {
+    getZernioWebhookSigningKey,
+    isZernioConfigured,
+    syncZernioInboxEditSubscription,
+    ZernioApiError,
+} from "@/lib/zernio/client";
 import { persistConversationAdAttribution } from "@/lib/zernio/conversationAdAttribution";
 
 export const runtime = "nodejs";
@@ -82,10 +88,46 @@ export async function POST(request: Request) {
     }
 
     try {
+        if (parsedMessage.edit) {
+            const signature = request.headers.get("x-zernio-signature") ??
+                request.headers.get("x-late-signature");
+            const expected = createHmac("sha256", getZernioWebhookSigningKey())
+                .update(rawBody)
+                .digest();
+            if (
+                !signature ||
+                !/^[a-f0-9]{64}$/i.test(signature) ||
+                !timingSafeEqual(expected, Buffer.from(signature, "hex"))
+            ) {
+                return NextResponse.json(
+                    { ok: false, error: "Invalid Zernio webhook signature" },
+                    { status: 401 },
+                );
+            }
+        }
+
         const { data, error } = await supabase.rpc("persist_zernio_message", {
             p_message: parsedMessage,
         });
         if (error) throw error;
+        if (parsedMessage.edit) {
+            const status = (data as { edit_status: string }).edit_status;
+            return NextResponse.json(
+                { ok: status !== "missing", edit_status: status, request_id: requestId },
+                { status: status === "missing" ? 503 : 200 },
+            );
+        }
+        if (process.env.NODE_ENV === "production" && isZernioConfigured()) {
+            after(async () => {
+                try {
+                    await syncZernioInboxEditSubscription(request.url);
+                } catch (error) {
+                    console.warn("[zernio-webhook] Edit subscription sync failed", {
+                        status: error instanceof ZernioApiError ? error.status : null,
+                    });
+                }
+            });
+        }
         const saved = data as {
             duplicate: boolean;
             message: { id: string };

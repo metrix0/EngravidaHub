@@ -26,6 +26,7 @@ import SingleFilterButton from "@/components/ui/SingleFilterButton";
 import { SearchFilter } from "@/components/ui/SearchFilter";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { Modal } from "@/components/ui/Modal";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import SchedulingPanel from "@/components/inbox/SchedulingPanel";
 import AppointmentDetailsPanel from "@/components/scheduling/AppointmentDetailsPanel";
 import VacancyRecoveryPanel from "@/components/scheduling/VacancyRecoveryPanel";
@@ -60,6 +61,7 @@ const FORMAT_OPTIONS = [
 ];
 
 type RecoveryDetail = { filled: boolean; candidates: RecoveryCandidate[] };
+type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string };
 
 export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
@@ -568,10 +570,19 @@ export default function AppointmentsPage() {
         setNoteError(null);
     }
 
-    async function handleSaveNote(value: string) {
+    async function handleSaveNote(draft: DayNoteDraft) {
         if (!noteDialog || noteSaving) return;
-        const text = value.trim();
-        if (!text || text.length > 500 || text === noteDialog.note?.text) return;
+        const { blocksFirstEvaluation, unitId, doctorId } = draft;
+        const text = draft.text.trim();
+        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId))) return;
+        const previous = noteDialog.note;
+        const scopeChanged = blocksFirstEvaluation && (unitId !== previous?.unit_id || doctorId !== previous?.doctor_id);
+        const blockChanged = blocksFirstEvaluation !== Boolean(previous?.blocks_first_evaluation) || scopeChanged;
+        if (previous && text === previous.text && !blockChanged) return;
+        const blockUpdate = blockChanged ? {
+            blocksFirstEvaluation,
+            ...(blocksFirstEvaluation ? { unitId, doctorId } : {}),
+        } : {};
 
         setNoteSaving(true);
         setNoteError(null);
@@ -582,7 +593,7 @@ export default function AppointmentsPage() {
                     {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ text }),
+                        body: JSON.stringify({ text, ...blockUpdate }),
                     },
                 );
                 const json = await response.json();
@@ -604,6 +615,7 @@ export default function AppointmentsPage() {
                         doctorId: doctorValues.length === 1 ? doctorValues[0] : null,
                         text,
                         color: AGENDA_NOTE_COLOR,
+                        ...blockUpdate,
                     }),
                 });
                 const json = await response.json();
@@ -613,6 +625,7 @@ export default function AppointmentsPage() {
                 setNotes((current) => [...current, json.note]);
             }
             setNoteDialog(null);
+            if (blockChanged) setReloadKey(current => current + 1);
         } catch (error) {
             setNoteError(
                 error instanceof Error
@@ -639,6 +652,7 @@ export default function AppointmentsPage() {
             if (!response.ok) {
                 throw new Error(json?.error ?? "Não foi possível excluir a nota.");
             }
+            if (note.blocks_first_evaluation) setReloadKey(current => current + 1);
         } catch (noteError) {
             setNotes(previous);
             window.alert(
@@ -800,7 +814,7 @@ export default function AppointmentsPage() {
                     month={weekStart.getMonth()}
                     weekDays={weekDays}
                     appointments={freeOnly ? [] : appointments}
-                    notes={freeOnly ? [] : visibleNotes}
+                    notes={freeOnly ? visibleNotes.filter(note => note.blocks_first_evaluation) : visibleNotes}
                     blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
                     freeSlots={freeOnly ? raFreeSlots : undefined}
                     doctorLoads={agendaReport?.byDoctor}
@@ -837,6 +851,10 @@ export default function AppointmentsPage() {
                     <AgendaDayNoteForm
                         key={noteDialog.note?.id ?? noteDialog.dateKey}
                         note={noteDialog.note}
+                        units={units}
+                        doctors={doctors}
+                        defaultUnitId={unitValues.length === 1 ? unitValues[0] : ""}
+                        defaultDoctorId={doctorValues.length === 1 ? doctorValues[0] : ""}
                         saving={noteSaving}
                         error={noteError}
                         onCancel={() => setNoteDialog(null)}
@@ -887,24 +905,41 @@ export default function AppointmentsPage() {
 
 function AgendaDayNoteForm({
     note,
+    units,
+    doctors,
+    defaultUnitId,
+    defaultDoctorId,
     saving,
     error,
     onCancel,
     onSave,
 }: {
     note?: AppointmentDayNote;
+    units: SchedulingUnitOption[];
+    doctors: SchedulingDoctorOption[];
+    defaultUnitId: string;
+    defaultDoctorId: string;
     saving: boolean;
     error: string | null;
     onCancel: () => void;
-    onSave: (value: string) => void;
+    onSave: (draft: DayNoteDraft) => void;
 }) {
     const [text, setText] = useState(note?.text ?? "");
+    const [blocksFirstEvaluation, setBlocksFirstEvaluation] = useState(Boolean(note?.blocks_first_evaluation));
+    const [unitId, setUnitId] = useState(note?.unit_id ?? defaultUnitId);
+    const [doctorId, setDoctorId] = useState(note?.doctor_id ?? defaultDoctorId);
+    const unitDoctors = doctors.filter(doctor => doctor.unit_id === unitId);
+    const validScope = Boolean(unitId) && unitDoctors.some(doctor => doctor.id === doctorId);
+    const blockChanged = blocksFirstEvaluation !== Boolean(note?.blocks_first_evaluation) ||
+        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id));
+    const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || validScope) &&
+        (text.trim() !== note?.text || blockChanged);
 
     return (
         <form
             onSubmit={(event) => {
                 event.preventDefault();
-                onSave(text);
+                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId });
             }}
         >
             <h2 className="pr-10 text-lg font-bold text-slate-950">
@@ -924,6 +959,37 @@ function AgendaDayNoteForm({
                 placeholder="Escreva a nota..."
                 className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
             />
+            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                    type="checkbox"
+                    checked={blocksFirstEvaluation}
+                    onChange={event => setBlocksFirstEvaluation(event.target.checked)}
+                    disabled={saving}
+                    className="h-4 w-4 accent-brand"
+                />
+                Bloquear 1ª avaliação
+            </label>
+            {blocksFirstEvaluation ? (
+                <div className="mt-2 grid grid-cols-1 gap-2 motion-safe:animate-[modal-pop_180ms_cubic-bezier(0.16,1,0.3,1)] sm:grid-cols-2">
+                    <DropdownSelect
+                        value={unitId}
+                        onChange={value => { setUnitId(value); setDoctorId(""); }}
+                        options={units.map(unit => ({ value: unit.id, label: unit.name }))}
+                        placeholder="Selecione a unidade"
+                        widthClassName="w-full"
+                        disabled={saving}
+                    />
+                    <DropdownSelect
+                        value={doctorId}
+                        onChange={setDoctorId}
+                        options={unitDoctors.map(doctor => ({ value: doctor.id, label: doctor.name }))}
+                        placeholder="Selecione o médico"
+                        widthClassName="w-full"
+                        disabled={saving || !unitId}
+                    />
+                    <p className="text-xs text-slate-500 sm:col-span-2">Bloqueio para o dia inteiro.</p>
+                </div>
+            ) : null}
             {error ? (
                 <p role="alert" className="mt-2 text-sm text-red">{error}</p>
             ) : null}
@@ -938,7 +1004,7 @@ function AgendaDayNoteForm({
                 </button>
                 <button
                     type="submit"
-                    disabled={saving || !text.trim() || text.trim() === note?.text}
+                    disabled={!canSave}
                     className="h-10 cursor-pointer rounded-xl bg-brand px-4 text-sm font-bold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {saving ? "Salvando..." : "Salvar"}

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { supabase } from "@/lib/supabase/client";
+import { FIRST_EVALUATION_BLOCKED, isFirstEvaluationBlocked } from "@/lib/scheduling/firstEvaluationBlocks";
 import {
     fetchAppointmentById,
     parseBrazilDate,
@@ -133,6 +134,13 @@ export async function PATCH(
         }
 
         if (status === "scheduled" || status === "confirmed") {
+            const procedureName = body.procedureName ?? current.procedure_name;
+            const bookingChanged = unitId !== current.unit_id || doctorId !== current.doctor_id ||
+                startsAt.getTime() !== Date.parse(current.starts_at) || endsAt.getTime() !== Date.parse(current.ends_at) ||
+                procedureName !== current.procedure_name || !["scheduled", "confirmed"].includes(current.status);
+            if (bookingChanged && await isFirstEvaluationBlocked(unitId, doctorId, procedureName, startsAt, endsAt)) {
+                return NextResponse.json({ ok: false, error: FIRST_EVALUATION_BLOCKED }, { status: 409 });
+            }
             const { data: conflicts, error: conflictError } = await supabase
                 .from("appointments")
                 .select("id")

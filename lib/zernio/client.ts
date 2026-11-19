@@ -1,17 +1,22 @@
 // lib/zernio/client.ts
+import { createHmac } from "node:crypto";
+
 const ZERNIO_API_BASE_URL = "https://zernio.com/api/v1";
 const ZERNIO_REQUEST_TIMEOUT_MS = 20_000;
+const ZERNIO_WEBHOOK_CHECK_RETRY_MS = 5 * 60_000;
 const ZERNIO_INBOX_WEBHOOK_NAME = "Engravida Hub Instagram Inbox";
 const ZERNIO_INBOX_WEBHOOK_NAMES = new Set([
     ZERNIO_INBOX_WEBHOOK_NAME,
     "Engravida Hub Social Inbox",
 ]);
+let nextEditSubscriptionCheckAt = 0;
 
 export type ZernioInboxPlatform = "instagram" | "facebook";
 
 export const ZERNIO_INBOX_WEBHOOK_EVENTS = [
     "message.received",
     "message.sent",
+    "message.edited",
 ] as const;
 
 export type ZernioProfile = {
@@ -117,13 +122,41 @@ export async function listZernioAccounts(platform: ZernioInboxPlatform) {
 }
 
 export async function listZernioWebhooks() {
-    const response = await zernioRequest<{ webhooks?: ZernioWebhook[] }>(
-        "/webhooks/settings",
-    );
+    return (await listZernioWebhookSettings()).map(sanitizeWebhook);
+}
 
-    return Array.isArray(response.webhooks)
-        ? response.webhooks.map(sanitizeWebhook)
-        : [];
+async function listZernioWebhookSettings() {
+    const response = await zernioRequest<{
+        webhooks?: (ZernioWebhook & { secret?: string })[];
+    }>("/webhooks/settings");
+    return Array.isArray(response.webhooks) ? response.webhooks : [];
+}
+
+export async function syncZernioInboxEditSubscription(webhookUrl: string) {
+    const now = Date.now();
+    if (now < nextEditSubscriptionCheckAt) return;
+    nextEditSubscriptionCheckAt = now + ZERNIO_WEBHOOK_CHECK_RETRY_MS;
+
+    const url = normalizeUrl(webhookUrl);
+    const webhooks = await listZernioWebhookSettings();
+    const existing = webhooks.find(
+        (webhook) => webhook.isActive && normalizeUrl(webhook.url) === url,
+    );
+    if (!existing) return;
+
+    const events = existing.events ?? [];
+    const secret = getZernioWebhookSigningKey();
+    if (!events.includes("message.edited") || existing.secret !== secret) {
+        await zernioRequest("/webhooks/settings", {
+            method: "PUT",
+            body: JSON.stringify({
+                webhookId: existing._id,
+                events: [...new Set([...events, "message.edited"])],
+                secret,
+            }),
+        });
+    }
+    nextEditSubscriptionCheckAt = Infinity;
 }
 
 export async function getZernioConnectUrl({
@@ -174,8 +207,9 @@ export async function ensureZernioInboxWebhook({
     const body = {
         name: ZERNIO_INBOX_WEBHOOK_NAME,
         url: webhookUrl,
-        events: [...ZERNIO_INBOX_WEBHOOK_EVENTS],
+        events: [...new Set([...(existing?.events ?? []), ...ZERNIO_INBOX_WEBHOOK_EVENTS])],
         isActive: true,
+        secret: getZernioWebhookSigningKey(),
     };
 
     if (existing) {
@@ -379,6 +413,13 @@ export function zernioExternalMessageId(messageId: string) {
 
 export function isZernioConfigured() {
     return Boolean(process.env.ZERNIO_API_KEY?.trim());
+}
+
+export function getZernioWebhookSigningKey() {
+    // Use a purpose-specific key so the API credential stays out of webhook settings.
+    return createHmac("sha256", getZernioApiKey())
+        .update("engravida-hub:zernio-webhook:v1")
+        .digest("hex");
 }
 
 function getZernioApiKey() {

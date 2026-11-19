@@ -1,5 +1,7 @@
 // lib/clinisys/replicatedAvailability.ts
 import { supabase } from "@/lib/supabase/client";
+import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
+import { firstEvaluationBlockKey, loadFirstEvaluationBlocks } from "@/lib/scheduling/firstEvaluationBlocks";
 
 const DEFAULT_HORIZON_DAYS = 180;
 const DEFAULT_TIMEZONE = "America/Sao_Paulo";
@@ -146,14 +148,18 @@ export async function listReplicatedClinisysAvailability({
 
     const queryStart = `${addDays(from, -2)}T00:00:00.000Z`;
     const queryEnd = `${addDays(to, 2)}T23:59:59.999Z`;
-    const { data: appointmentData, error: appointmentError } = await supabase
-        .from("appointments")
-        .select("doctor_id, starts_at, ends_at")
-        .eq("unit_id", unitId)
-        .in("doctor_id", coveredDoctorIds)
-        .in("status", ["scheduled", "confirmed"])
-        .lt("starts_at", queryEnd)
-        .gt("ends_at", queryStart);
+    const [{ data: appointmentData, error: appointmentError }, blockedDays] = await Promise.all([
+        supabase.from("appointments")
+            .select("doctor_id, starts_at, ends_at")
+            .eq("unit_id", unitId)
+            .in("doctor_id", coveredDoctorIds)
+            .in("status", ["scheduled", "confirmed"])
+            .lt("starts_at", queryEnd)
+            .gt("ends_at", queryStart),
+        isFirstEvaluationProcedure(procedureName)
+            ? loadFirstEvaluationBlocks(from, to, [unitId], coveredDoctorIds)
+            : null,
+    ]);
 
     if (appointmentError) throw appointmentError;
 
@@ -195,6 +201,7 @@ export async function listReplicatedClinisysAvailability({
             date <= to;
             date = addDays(date, 1)
         ) {
+            if (blockedDays?.has(firstEvaluationBlockKey(unitId, agenda.doctor_id, date))) continue;
             const periods = availabilityPeriodsForDate(
                 date,
                 workingHours,
