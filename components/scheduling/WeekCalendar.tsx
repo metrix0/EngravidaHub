@@ -83,6 +83,12 @@ export default function WeekCalendar(props: Props) {
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const freeOnly = props.freeSlots !== undefined;
     const loads = useMemo(() => new Map((props.doctorLoads ?? []).map(load => [`${load.unitId}:${load.doctorId}`, load])), [props.doctorLoads]);
+    function dayNoteTitle(note: AppointmentDayNote) {
+        const scope = loads.get(`${note.unit_id}:${note.doctor_id}`);
+        return note.blocks_first_evaluation && scope
+            ? `${scope.doctorName} · ${scope.unitName}\n${note.text}`
+            : note.text;
+    }
     const freeSlotsByDay = useMemo(() => {
         const grouped = new Map<string, AgendaFreeSlot[]>();
         (props.freeSlots ?? []).forEach(slot => grouped.set(slot.date, [...(grouped.get(slot.date) ?? []), slot]));
@@ -292,6 +298,11 @@ export default function WeekCalendar(props: Props) {
                                 const items = appointmentsByDay.get(key) ?? [];
                                 const slots = freeSlotsByDay.get(key) ?? [];
                                 const notes = notesByDay.get(key) ?? [];
+                                const regularNote = notes.find(note => !note.blocks_first_evaluation);
+                                const displayedNotes = [
+                                    ...notes.filter(note => note.blocks_first_evaluation),
+                                    ...(regularNote ? [regularNote] : []),
+                                ];
                                 const today = key === formatLocalDateKey(new Date());
                                 const freeSlotsButton = (
                                     <button type="button" disabled={!slots.length} onClick={() => setExpandedFreeSlots(slots)} className="w-full rounded-lg bg-green-soft px-2 py-2 text-left text-xs font-medium text-green disabled:bg-transparent disabled:text-slate-400">
@@ -333,7 +344,7 @@ export default function WeekCalendar(props: Props) {
                                             </InfoTooltip>
                                         )}
                                     </>}
-                                    {notes.slice(0, 1).map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">Nota do dia</button>)}
+                                    {displayedNotes.map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">{note.blocks_first_evaluation ? "1ª avaliação bloqueada" : "Nota do dia"}</button>)}
                                 </div>;
                             })}
                         </div>
@@ -374,6 +385,11 @@ export default function WeekCalendar(props: Props) {
                                                 month: "2-digit",
                                             }).format(day)}
                                         </div>
+                                        {freeOnly ? (notesByDay.get(dayKey) ?? []).map(note => (
+                                            <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mx-auto mt-1 block max-w-full truncate rounded bg-amber-50 px-1.5 py-1 text-xs text-amber-700">
+                                                1ª avaliação bloqueada
+                                            </button>
+                                        )) : null}
                                     </div>
                                 );
                             })}
@@ -415,9 +431,10 @@ export default function WeekCalendar(props: Props) {
                                                                 )
                                                             }
                                                             className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-slate-900 shadow-sm"
+                                                            title={dayNoteTitle(note)}
                                                             style={{ backgroundColor: AGENDA_NOTE_COLOR }}
                                                         >
-                                                            {note.text}
+                                                            {note.blocks_first_evaluation ? "1ª avaliação bloqueada" : note.text}
                                                         </button>
                                                         <button
                                                             type="button"

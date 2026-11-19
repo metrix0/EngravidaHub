@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 
 import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import { listClinisysAvailability } from "@/lib/clinisys/client";
+import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
 import { supabase } from "@/lib/supabase/client";
 import { validateDoctorForUnit } from "@/lib/scheduling/appointmentServer";
+import { firstEvaluationBlockKey, loadFirstEvaluationBlocks } from "@/lib/scheduling/firstEvaluationBlocks";
 
 export async function GET(request: Request) {
     try {
@@ -53,12 +55,15 @@ export async function GET(request: Request) {
             );
         }
 
-        const [unit, doctor] = await Promise.all([
+        const firstEvaluation = isFirstEvaluationProcedure(procedureName);
+        const [unit, doctor, blockedDays] = await Promise.all([
             supabase.from("units").select("name").eq("id", unitId).maybeSingle(),
             supabase.from("doctors").select("name").eq("id", doctorId).maybeSingle(),
+            firstEvaluation && date ? loadFirstEvaluationBlocks(date, date, [unitId], [doctorId]) : null,
         ]);
         if (unit.error) throw unit.error;
         if (doctor.error) throw doctor.error;
+        if (blockedDays?.size) return NextResponse.json({ ok: true, slots: [] });
         // A selected procedure must be checked against actual CliniSYS availability.
         const slots = await listClinisysAvailability({
             unitId,
@@ -70,7 +75,16 @@ export async function GET(request: Request) {
             dateTo: date,
         });
 
-        return NextResponse.json({ ok: true, slots: fitDuration(slots, durationMinutes, date) });
+        const fitted = fitDuration(slots, durationMinutes, date);
+        if (!date && firstEvaluation && fitted.length) {
+            const days = fitted.map(slot => slot.data.split("/").reverse().join("-")).sort();
+            const blocks = await loadFirstEvaluationBlocks(days[0], days[days.length - 1], [unitId], [doctorId]);
+            const available = fitted.filter(slot => !blocks.has(firstEvaluationBlockKey(
+                unitId, doctorId, slot.data.split("/").reverse().join("-"),
+            )));
+            return NextResponse.json({ ok: true, slots: available });
+        }
+        return NextResponse.json({ ok: true, slots: fitted });
     } catch (error) {
         console.error("[scheduling-availability] failed", error);
         return NextResponse.json(

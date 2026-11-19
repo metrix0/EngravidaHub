@@ -2,6 +2,7 @@
 import { zonedDateTimeToEpoch, hasFreshClinisysAvailabilitySnapshot, replicatedAgendaCapacity, replicatedAgendaRestrictions, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
 import { mergeIntervals } from "@/lib/scheduling/agendaIntelligence";
 import { filterRaFreeSlots } from "./raAvailability";
+import { firstEvaluationBlockKey } from "./firstEvaluationBlocks";
 
 import type { BookingTeam } from "@/lib/scheduling/bookingOrigin";
 export type OperationalAgenda = AgendaRow & { id?: string; unit_id: string; unit_name: string; doctor_name: string };
@@ -50,7 +51,7 @@ function sum(rows: AgendaCounts[]) {
     return result;
 }
 
-export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number> }) {
+export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number>; blockedEvaluationDays?: ReadonlySet<string> }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
     const reportNow = input.reportAvailability ? epoch(reportDate) : reportDate === agendaDate(now) ? now : epoch(reportDate);
     const historyStart = [input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6), agendaWeekStart(reportDate)].sort()[0];
@@ -163,7 +164,7 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
         }
     }
     const consultationEnds = new Map<string, number>();
-    const reportSlots = input.reportAvailability
+    const reportSlots = (input.reportAvailability
         ? filterRaFreeSlots([...publishedSlots.values()],
             byUnit.map(unit => ({ id: unit.unitId, name: unit.unitName })),
             byDoctor.map(doctor => ({ id: doctor.doctorId, unit_id: doctor.unitId, name: doctor.doctorName })),
@@ -176,7 +177,9 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
                 consultationEnds.set(key, Date.parse(slot.endsAt));
                 return true;
             })
-        : freeSlots;
+        : freeSlots).filter(slot => !input.blockedEvaluationDays?.has(
+            firstEvaluationBlockKey(slot.unitId, slot.doctorId, slot.date),
+        ));
     const availability = byUnit.map(unit => {
         const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));
         const dates = [...new Set(slots.map(slot => slot.date))];

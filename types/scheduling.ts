@@ -143,6 +143,7 @@ export type AppointmentDayNote = {
     doctor_id: string | null;
     text: string;
     color: string;
+    blocks_first_evaluation: boolean;
     created_at: string;
     updated_at: string;
 };

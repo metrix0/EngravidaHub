@@ -6,6 +6,7 @@ import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAtten
 import { supabase } from "@/lib/supabase/client";
 import { loadSchedulingContext, type SchedulingThread } from "@/lib/inbox/schedulingData";
 import { resolveSchedulingClient, schedulingClientValues } from "@/lib/inbox/schedulingClient";
+import { FIRST_EVALUATION_BLOCKED, isFirstEvaluationBlocked } from "@/lib/scheduling/firstEvaluationBlocks";
 import {
     APPOINTMENT_SELECT,
     fetchAppointmentById,
@@ -90,6 +91,9 @@ export async function POST(request: Request) {
         const startsAt = new Date(body.startsAt);
         if (startsAt.getUTCMinutes() % 15 !== 0) return NextResponse.json({ ok: false, error: "Selecione um horário em intervalos de 15 minutos." }, { status: 400 });
         const endsAt = new Date(startsAt.getTime() + body.durationMinutes * 60_000);
+        if (await isFirstEvaluationBlocked(body.unitId, body.doctorId, body.procedureName, startsAt, endsAt)) {
+            return NextResponse.json({ ok: false, error: FIRST_EVALUATION_BLOCKED }, { status: 409 });
+        }
 
         const { data: conflicts, error: conflictError } = await supabase.from("appointments").select("id")
             .eq("doctor_id", body.doctorId).in("status", ["scheduled", "confirmed"])
