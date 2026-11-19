@@ -152,8 +152,8 @@ export default function PerformancePage() {
 
     return <main className="h-full overflow-y-auto bg-white px-3 py-5 text-slate-900 sm:px-5 md:px-7 md:py-7">
         <section className="mx-auto max-w-[1500px] space-y-7">
-            <div>
-                <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
+            <div className="[&>header]:mb-3">
+                <DashboardHeader title="Performance" description="Produtividade, marcações e tempo de resposta por atendente."
                     period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
                 {ready && currentUser && result.report ? <DashboardFilterBar className="items-center">
                     <SingleFilterButton icon={<MapPin size={16} />} label="Todas as unidades"
