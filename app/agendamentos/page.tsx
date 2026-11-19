@@ -970,7 +970,7 @@ function AgendaDayNoteForm({
                 Bloquear 1ª avaliação
             </label>
             {blocksFirstEvaluation ? (
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-2 grid grid-cols-1 gap-2 motion-safe:animate-[modal-pop_180ms_cubic-bezier(0.16,1,0.3,1)] sm:grid-cols-2">
                     <DropdownSelect
                         value={unitId}
                         onChange={value => { setUnitId(value); setDoctorId(""); }}
