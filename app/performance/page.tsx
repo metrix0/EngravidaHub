@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowDownUp, Info, MapPin, UserRound, Users } from "lucide-react";
+import ButtonGroup from "@/components/ui/ButtonGroup";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 import HorizontalScroller from "@/components/ui/HorizontalScroller";
@@ -38,6 +39,10 @@ const BookingAuthorsTable = dynamic(() => import("@/components/scheduling/Bookin
     loading: () => <Skeleton className="h-44 rounded-2xl" />,
 });
 
+const BlipPerformance = dynamic(() => import("@/components/performance/BlipPerformance"), {
+    loading: () => <Skeleton className="h-44 rounded-2xl" />,
+});
+
 export default function PerformancePage() {
     const { period, setPeriod, selectedRange, setSelectedRange, ready } = useDashboardDateFilter("current_month");
     const { currentUser, isLoadingCurrentUser } = useCurrentUser();
@@ -45,6 +50,7 @@ export default function PerformancePage() {
     const [attendantSearch, setAttendantSearch] = useState("");
     const [detailSearch, setDetailSearch] = useState("");
     const [team, setTeam] = useState("all");
+    const [source, setSource] = useState<"hub" | "blip">("hub");
     const [unitId, setUnitId] = useState("");
     const [attendantId, setAttendantId] = useState("");
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "tickets", descending: true });
@@ -64,7 +70,7 @@ export default function PerformancePage() {
     const error = result.key === requestKey ? result.error : null;
 
     useEffect(() => {
-        if (!ready || !currentUser || !start || !end || start > end) return;
+        if (source !== "hub" || !ready || !currentUser || !start || !end || start > end) return;
         const controller = new AbortController();
         void (async () => {
             try {
@@ -79,7 +85,7 @@ export default function PerformancePage() {
             }
         })();
         return () => controller.abort();
-    }, [ready, currentUser, start, end, requestKey, unitId]);
+    }, [ready, currentUser, start, end, requestKey, unitId, source]);
 
     const ranked = useMemo(() => {
         if (!report) return [];
@@ -103,7 +109,7 @@ export default function PerformancePage() {
     const rankingStart = (currentRankingPage - 1) * RANKING_PAGE_SIZE;
     const visibleRanked = ranked.slice(rankingStart, rankingStart + RANKING_PAGE_SIZE);
     const selected = ranked.find(person => person.id === selectedId) ?? ranked[0] ?? null;
-    const raOnlyContribution = team === "all" && !attendantId && !attendantSearch.trim();
+    const raOnlyContribution = team === "ra";
     const unitContribution = useMemo(
         () => report ? computePerformanceUnitContribution(report, ranked, raOnlyContribution) : [],
         [report, ranked, raOnlyContribution],
@@ -136,8 +142,8 @@ export default function PerformancePage() {
     ];
     useAssistantPageContext("performance", () => ({
         title: "Performance",
-        filters: { inicio: start, fim: end, unidade: unitId, equipe: team, atendente: attendantId, busca: attendantSearch, ordenacao: sort, pagina: currentRankingPage, carregando: loading },
-        sections: report ? [
+        filters: { fonte: source, inicio: start, fim: end, unidade: unitId, equipe: team, atendente: attendantId, busca: attendantSearch, ordenacao: sort, pagina: currentRankingPage, carregando: loading },
+        sections: source === "hub" && report ? [
             { id: "performance-ranking", title: "Ranking comparativo", data: { cobertura: report.coverage, totais: totals, atendentes: ranked, unidades: unitContribution } },
             { id: "performance-atendente", title: "Atendente selecionado", data: selected },
             { id: "performance-graficos", title: "Gráficos do atendente", data: selected?.monthly ?? [] },
@@ -148,7 +154,12 @@ export default function PerformancePage() {
         <section className="mx-auto max-w-[1500px] space-y-7">
             <DashboardHeader title="Performance" description="Produtividade, consultas marcadas e tempos de resposta por atendente."
                 period={period} setPeriod={setPeriod} selectedRange={selectedRange} setSelectedRange={setSelectedRange} storageManaged storageReady={ready} />
-            {isLoadingCurrentUser || loading ? <div className="space-y-5"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div>
+            <ButtonGroup<"hub" | "blip"> className="w-fit" value={source} onChange={setSource} options={[
+                { value: "hub", label: "Hub" }, { value: "blip", label: "Tickets Blip" },
+            ]} />
+            {source === "blip" && ready && currentUser && start && end
+                ? <BlipPerformance start={start} end={end} /> : source === "blip" ? null
+                : isLoadingCurrentUser || loading ? <div className="space-y-5"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div>
                 : error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
                 : report ? <>
                     <DashboardWidget widgetId="performance.ranking"><Card className="min-w-0 !p-0"><div data-assistant-section="performance-ranking">
