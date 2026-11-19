@@ -9,7 +9,12 @@ import {
     type ParsedZernioMessage,
 } from "@/lib/importers/zernio/parseZernioWebhook";
 import { supabase } from "@/lib/supabase/client";
-import { getZernioWebhookSigningKey } from "@/lib/zernio/client";
+import {
+    getZernioWebhookSigningKey,
+    isZernioConfigured,
+    syncZernioInboxEditSubscription,
+    ZernioApiError,
+} from "@/lib/zernio/client";
 import { persistConversationAdAttribution } from "@/lib/zernio/conversationAdAttribution";
 
 export const runtime = "nodejs";
@@ -111,6 +116,17 @@ export async function POST(request: Request) {
                 { ok: status !== "missing", edit_status: status, request_id: requestId },
                 { status: status === "missing" ? 503 : 200 },
             );
+        }
+        if (process.env.NODE_ENV === "production" && isZernioConfigured()) {
+            after(async () => {
+                try {
+                    await syncZernioInboxEditSubscription(request.url);
+                } catch (error) {
+                    console.warn("[zernio-webhook] Edit subscription sync failed", {
+                        status: error instanceof ZernioApiError ? error.status : null,
+                    });
+                }
+            });
         }
         const saved = data as {
             duplicate: boolean;
