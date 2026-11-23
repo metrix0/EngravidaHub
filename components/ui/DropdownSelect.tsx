@@ -29,7 +29,7 @@ type DropdownSelectProps = {
     loadingLabel?: string;
     emptyLabel?: string;
     invalid?: boolean;
-    fitViewport?: boolean;
+    dynamic?: boolean;
 };
 
 export function DropdownSelect({
@@ -49,7 +49,7 @@ export function DropdownSelect({
     loadingLabel = "Carregando...",
     emptyLabel = "Nenhuma opção encontrada.",
     invalid = false,
-    fitViewport = false,
+    dynamic = false,
 }: DropdownSelectProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const [open, setOpen] = useState(false);
@@ -69,7 +69,7 @@ export function DropdownSelect({
     }, [open]);
 
     useLayoutEffect(() => {
-        if (!fitViewport || !open) return;
+        if (!dynamic || !open) return;
 
         function updateMenuSpace() {
             const rect = wrapperRef.current?.getBoundingClientRect();
@@ -90,7 +90,7 @@ export function DropdownSelect({
             window.removeEventListener("resize", updateMenuSpace);
             window.removeEventListener("scroll", updateMenuSpace, true);
         };
-    }, [fitViewport, open]);
+    }, [dynamic, open]);
 
     function selectValue(option: DropdownSelectOption) {
         if (option.disabled) return;
@@ -140,8 +140,8 @@ export function DropdownSelect({
                 </button>
             )}
 
-            <div className={`absolute right-0 z-[80] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${fitViewport && menuSpace?.above ? "bottom-full mb-2 origin-bottom" : "mt-2 origin-top"} ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
-                <div className="max-h-72 overflow-y-auto py-1" style={fitViewport && menuSpace ? { maxHeight: menuSpace.height } : undefined}>
+            <div className={`absolute right-0 z-[80] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-card shadow-lg transition-all duration-150 ${dynamic && menuSpace?.above ? "bottom-full mb-2 origin-bottom" : "mt-2 origin-top"} ${dropdownWidthClassName} ${open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}>
+                <div className="max-h-72 overflow-y-auto py-1" style={dynamic && menuSpace ? { maxHeight: menuSpace.height } : undefined}>
                     {loading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-muted">
                             <LoaderCircle size={15} className="animate-spin" />
