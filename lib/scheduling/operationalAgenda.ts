@@ -2,7 +2,7 @@
 import { zonedDateTimeToEpoch, hasFreshClinisysAvailabilitySnapshot, replicatedAgendaCapacity, replicatedAgendaRestrictions, type AgendaRow } from "@/lib/clinisys/replicatedAvailability";
 import { mergeIntervals } from "@/lib/scheduling/agendaIntelligence";
 import { filterRaFreeSlots } from "./raAvailability";
-import { firstEvaluationBlockKey } from "./firstEvaluationBlocks";
+import { firstEvaluationBlockKey, type FirstEvaluationBlocks } from "./firstEvaluationBlocks";
 
 import type { BookingTeam } from "@/lib/scheduling/bookingOrigin";
 export type OperationalAgenda = AgendaRow & { id?: string; unit_id: string; unit_name: string; doctor_name: string };
@@ -51,7 +51,7 @@ function sum(rows: AgendaCounts[]) {
     return result;
 }
 
-export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number>; blockedEvaluationDays?: ReadonlySet<string> }) {
+export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; appointments: OperationalAppointment[]; start: string; end: string; reportDate?: string; now?: number; includeHistory?: boolean; reportAvailability?: boolean; raFirstEvaluationCounts?: Record<string, number>; blockedEvaluationRanges?: FirstEvaluationBlocks }) {
     const now = input.now ?? Date.now(), reportDate = input.reportDate ?? agendaDate(now);
     const reportNow = input.reportAvailability ? epoch(reportDate) : reportDate === agendaDate(now) ? now : epoch(reportDate);
     const historyStart = [input.includeHistory === false ? agendaMonthStart(input.start) : agendaMonthStart(input.start, -6), agendaWeekStart(reportDate)].sort()[0];
@@ -177,9 +177,31 @@ export function buildOperationalAgenda(input: { agendas: OperationalAgenda[]; ap
                 consultationEnds.set(key, Date.parse(slot.endsAt));
                 return true;
             })
-        : freeSlots).filter(slot => !input.blockedEvaluationDays?.has(
-            firstEvaluationBlockKey(slot.unitId, slot.doctorId, slot.date),
-        ));
+        : freeSlots).flatMap(slot => {
+            const ranges = input.blockedEvaluationRanges?.get(firstEvaluationBlockKey(slot.unitId, slot.doctorId, slot.date));
+            if (!ranges?.length) return [slot];
+            let parts = [{ start: Date.parse(slot.startsAt), end: Date.parse(slot.endsAt) }];
+            for (const range of ranges) {
+                const hours = (minutes: number) =>
+                    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+                const blockStart = zonedDateTimeToEpoch(slot.date, hours(range.start), "America/Sao_Paulo");
+                const blockEnd = zonedDateTimeToEpoch(slot.date, hours(range.end), "America/Sao_Paulo");
+                parts = parts.flatMap(part => {
+                    if (part.end <= blockStart || part.start >= blockEnd) return [part];
+                    return [
+                        ...(part.start < blockStart ? [{ start: part.start, end: blockStart }] : []),
+                        ...(part.end > blockEnd ? [{ start: blockEnd, end: part.end }] : []),
+                    ];
+                });
+            }
+            return parts.filter(part => part.end > part.start).map(part => ({
+                ...slot,
+                id: `${slot.unitId}:${slot.doctorId}:${part.start}`,
+                startsAt: new Date(part.start).toISOString(),
+                endsAt: new Date(part.end).toISOString(),
+                durationMinutes: (part.end - part.start) / MINUTE,
+            }));
+        });
     const availability = byUnit.map(unit => {
         const slots = reportSlots.filter(slot => slot.unitId === unit.unitId && (!input.reportAvailability || slot.date > reportDate));
         const dates = [...new Set(slots.map(slot => slot.date))];

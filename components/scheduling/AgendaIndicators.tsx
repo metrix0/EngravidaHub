@@ -22,7 +22,7 @@ const barWidth = (value: number, total: number) =>
 const percentWidth = (value: number | null) =>
     String(Math.max(0, Math.min(100, value ?? 0))) + "%";
 
-export default function AgendaIndicators({ report, loading }: { report: OperationalAgendaReport | null; loading: boolean }) {
+export default function AgendaIndicators({ report, loading, periodLabel = "Semana" }: { report: OperationalAgendaReport | null; loading: boolean; periodLabel?: "Mês" | "Semana" }) {
     const [unitsOpen, setUnitsOpen] = useState(false);
     const [projectionOpen, setProjectionOpen] = useState(false);
 
@@ -62,7 +62,7 @@ export default function AgendaIndicators({ report, loading }: { report: Operatio
             <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Visão geral</p>
                 <p className="mt-1 text-sm text-slate-500">Capacidade e agendamentos do período</p>
-                <p className="mt-1 text-xs text-muted">{formatReportDate(report.start)} a {formatReportDate(periodEnd.toISOString().slice(0, 10))} (Semana)</p>
+                <p className="mt-1 text-xs text-muted">{formatReportDate(report.start)} a {formatReportDate(periodEnd.toISOString().slice(0, 10))} ({periodLabel})</p>
             </div>
 
             <Card className="!p-5">

@@ -11,6 +11,8 @@ const updateSchema = z.object({
     blocksFirstEvaluation: z.boolean().optional(),
     unitId: z.string().uuid().optional(),
     doctorId: z.string().uuid().optional(),
+    blockStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+    blockEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
 });
 
 export async function PATCH(
@@ -36,8 +38,8 @@ export async function PATCH(
             );
         }
 
-        const { text, blocksFirstEvaluation, unitId, doctorId } = parsed.data;
-        const updates: Record<string, string | boolean> = { text };
+        const { text, blocksFirstEvaluation, unitId, doctorId, blockStartTime, blockEndTime } = parsed.data;
+        const updates: Record<string, string | boolean | null> = { text };
         let expectedUpdatedAt: string | undefined;
         if (blocksFirstEvaluation !== undefined) {
             const current = await loadNoteScope(noteId);
@@ -50,12 +52,23 @@ export async function PATCH(
             if (blocksFirstEvaluation) {
                 const selectedUnit = unitId ?? current.unit_id;
                 const selectedDoctor = doctorId ?? current.doctor_id;
+                const selectedStart = blockStartTime === undefined ? current.block_start_time : blockStartTime;
+                const selectedEnd = blockEndTime === undefined ? current.block_end_time : blockEndTime;
+                if ((selectedStart == null) !== (selectedEnd == null) ||
+                    (selectedStart != null && selectedEnd != null && selectedStart >= selectedEnd)) {
+                    return NextResponse.json({ ok: false, error: "O horário final deve ser posterior ao inicial." }, { status: 400 });
+                }
                 const denied = await checkDayNoteBlockAccess(selectedUnit, selectedDoctor, true);
                 if (denied) return denied;
                 if (selectedUnit && selectedDoctor) {
                     updates.unit_id = selectedUnit;
                     updates.doctor_id = selectedDoctor;
                 }
+                updates.block_start_time = selectedStart;
+                updates.block_end_time = selectedEnd;
+            } else {
+                updates.block_start_time = null;
+                updates.block_end_time = null;
             }
             updates.blocks_first_evaluation = blocksFirstEvaluation;
         }
@@ -67,7 +80,7 @@ export async function PATCH(
         if (expectedUpdatedAt) update = update.eq("updated_at", expectedUpdatedAt);
         const { data, error } = await update
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, block_start_time, block_end_time, created_at, updated_at",
             )
             .maybeSingle();
 
@@ -119,7 +132,7 @@ export async function DELETE(
 
 async function loadNoteScope(noteId: string) {
     const { data, error } = await supabase.from("appointment_day_notes")
-        .select("unit_id, doctor_id, blocks_first_evaluation, updated_at")
+        .select("unit_id, doctor_id, blocks_first_evaluation, block_start_time, block_end_time, updated_at")
         .eq("id", noteId).maybeSingle();
     if (error) throw error;
     return data;

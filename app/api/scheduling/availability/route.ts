@@ -5,7 +5,7 @@ import { listClinisysAvailability } from "@/lib/clinisys/client";
 import { isFirstEvaluationProcedure } from "@/lib/funnel/clinisysJourney";
 import { supabase } from "@/lib/supabase/client";
 import { validateDoctorForUnit } from "@/lib/scheduling/appointmentServer";
-import { firstEvaluationBlockKey, loadFirstEvaluationBlocks } from "@/lib/scheduling/firstEvaluationBlocks";
+import { hasFirstEvaluationBlockOverlap, loadFirstEvaluationBlocks } from "@/lib/scheduling/firstEvaluationBlocks";
 
 export async function GET(request: Request) {
     try {
@@ -56,14 +56,12 @@ export async function GET(request: Request) {
         }
 
         const firstEvaluation = isFirstEvaluationProcedure(procedureName);
-        const [unit, doctor, blockedDays] = await Promise.all([
+        const [unit, doctor] = await Promise.all([
             supabase.from("units").select("name").eq("id", unitId).maybeSingle(),
             supabase.from("doctors").select("name").eq("id", doctorId).maybeSingle(),
-            firstEvaluation && date ? loadFirstEvaluationBlocks(date, date, [unitId], [doctorId]) : null,
         ]);
         if (unit.error) throw unit.error;
         if (doctor.error) throw doctor.error;
-        if (blockedDays?.size) return NextResponse.json({ ok: true, slots: [] });
         // A selected procedure must be checked against actual CliniSYS availability.
         const slots = await listClinisysAvailability({
             unitId,
@@ -76,12 +74,17 @@ export async function GET(request: Request) {
         });
 
         const fitted = fitDuration(slots, durationMinutes, date);
-        if (!date && firstEvaluation && fitted.length) {
+        if (firstEvaluation && fitted.length) {
             const days = fitted.map(slot => slot.data.split("/").reverse().join("-")).sort();
             const blocks = await loadFirstEvaluationBlocks(days[0], days[days.length - 1], [unitId], [doctorId]);
-            const available = fitted.filter(slot => !blocks.has(firstEvaluationBlockKey(
-                unitId, doctorId, slot.data.split("/").reverse().join("-"),
-            )));
+            const available = fitted.filter(slot => {
+                const [startHour, startMinute] = slot.inicio.split(":").map(Number);
+                const [endHour, endMinute] = slot.termino.split(":").map(Number);
+                return !hasFirstEvaluationBlockOverlap(
+                    blocks, unitId, doctorId, slot.data.split("/").reverse().join("-"),
+                    startHour * 60 + startMinute, endHour * 60 + endMinute,
+                );
+            });
             return NextResponse.json({ ok: true, slots: available });
         }
         return NextResponse.json({ ok: true, slots: fitted });

@@ -61,7 +61,7 @@ const FORMAT_OPTIONS = [
 ];
 
 type RecoveryDetail = { filled: boolean; candidates: RecoveryCandidate[] };
-type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string };
+type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string; blockStartTime: string | null; blockEndTime: string | null };
 
 export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
@@ -92,6 +92,9 @@ export default function AppointmentsPage() {
     const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }>; raFirstEvaluationCounts?: Record<string, number> }) | null>(null);
     const [loadingReport, setLoadingReport] = useState(true);
     const [reportError, setReportError] = useState<string | null>(null);
+    const [monthlyMetricsReport, setMonthlyMetricsReport] = useState<OperationalAgendaReport | null>(null);
+    const [loadingMonthlyMetrics, setLoadingMonthlyMetrics] = useState(false);
+    const [monthlyMetricsError, setMonthlyMetricsError] = useState<string | null>(null);
 
     const [unitValues, setUnitValues] = useState<string[]>(() =>
         lockedUnitId ? [lockedUnitId] : [],
@@ -120,6 +123,15 @@ export default function AppointmentsPage() {
     );
     const rangeStart = formatLocalDateKey(weekDays[0]);
     const rangeEnd = formatLocalDateKey(addDays(weekDays[weekDays.length - 1], 1));
+    const monthStart = formatLocalDateKey(new Date(weekStart.getFullYear(), weekStart.getMonth(), 1));
+    const monthEnd = formatLocalDateKey(new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 1));
+    const metricsReport = monthView
+        ? monthlyMetricsReport?.start === monthStart && monthlyMetricsReport.end === monthEnd ? monthlyMetricsReport : null
+        : agendaReport;
+    const metricsError = monthView ? monthlyMetricsError : reportError;
+    const metricsLoading = monthView
+        ? metricsOpen && (loadingMonthlyMetrics || (!metricsReport && !metricsError))
+        : loadingReport;
 
     const visibleDoctors = useMemo(() => {
         const filtered = unitValues.length === 0
@@ -321,6 +333,32 @@ export default function AppointmentsPage() {
         })();
         return () => controller.abort();
     }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
+        if (!monthView || !metricsOpen) return;
+        const controller = new AbortController();
+        const params = new URLSearchParams({ start: monthStart, end: monthEnd });
+        unitValues.forEach(id => params.append("unit_ids", id));
+        doctorValues.forEach(id => params.append("doctor_ids", id));
+        setLoadingMonthlyMetrics(true);
+        setMonthlyMetricsError(null);
+        void (async () => {
+            try {
+                const response = await fetch(`/api/scheduling/reports?${params}`, { cache: "no-store", signal: controller.signal });
+                const json = await response.json();
+                if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar as métricas do mês.");
+                if (!controller.signal.aborted) setMonthlyMetricsReport(json.report);
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setMonthlyMetricsReport(null);
+                    setMonthlyMetricsError(error instanceof Error ? error.message : "Não foi possível carregar as métricas do mês.");
+                }
+            } finally {
+                if (!controller.signal.aborted) setLoadingMonthlyMetrics(false);
+            }
+        })();
+        return () => controller.abort();
+    }, [monthView, metricsOpen, monthStart, monthEnd, unitValues, doctorValues, reloadKey]);
 
     useEffect(() => {
         if (!freeOnly) return;
@@ -572,16 +610,22 @@ export default function AppointmentsPage() {
 
     async function handleSaveNote(draft: DayNoteDraft) {
         if (!noteDialog || noteSaving) return;
-        const { blocksFirstEvaluation, unitId, doctorId } = draft;
+        const { blocksFirstEvaluation, unitId, doctorId, blockStartTime, blockEndTime } = draft;
         const text = draft.text.trim();
-        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId))) return;
+        const validHours = (blockStartTime === null && blockEndTime === null) ||
+            (blockStartTime !== null && blockEndTime !== null && blockStartTime < blockEndTime);
+        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId || !validHours))) return;
         const previous = noteDialog.note;
-        const scopeChanged = blocksFirstEvaluation && (unitId !== previous?.unit_id || doctorId !== previous?.doctor_id);
+        const scopeChanged = blocksFirstEvaluation && (
+            unitId !== previous?.unit_id || doctorId !== previous?.doctor_id ||
+            blockStartTime !== (previous?.block_start_time?.slice(0, 5) ?? null) ||
+            blockEndTime !== (previous?.block_end_time?.slice(0, 5) ?? null)
+        );
         const blockChanged = blocksFirstEvaluation !== Boolean(previous?.blocks_first_evaluation) || scopeChanged;
         if (previous && text === previous.text && !blockChanged) return;
         const blockUpdate = blockChanged ? {
             blocksFirstEvaluation,
-            ...(blocksFirstEvaluation ? { unitId, doctorId } : {}),
+            ...(blocksFirstEvaluation ? { unitId, doctorId, blockStartTime, blockEndTime } : {}),
         } : {};
 
         setNoteSaving(true);
@@ -674,16 +718,16 @@ export default function AppointmentsPage() {
 
     useAssistantPageContext("agendamentos", () => ({
         title: "Agendamentos",
-        filters: { visualizacao: monthView ? "mes" : "semana", semana_inicio: rangeStart, semana_fim: formatLocalDateKey(weekDays[weekDays.length - 1]), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport },
+        filters: { visualizacao: monthView ? "mes" : "semana", semana_inicio: rangeStart, semana_fim: formatLocalDateKey(weekDays[weekDays.length - 1]), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport || metricsLoading },
         sections: [
             { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
             { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
-            { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: loadingReport, erro: reportError } },
-            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport && !loadingReport && !reportError && agendaReport.start === rangeStart && agendaReport.end === rangeEnd ? {
-                inicio: rangeStart, fim_inclusivo: formatLocalDateKey(weekDays[weekDays.length - 1]),
-                counts: agendaReport.counts, byUnit: agendaReport.byUnit,
-                projection: agendaReport.projection,
-                metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O fim exibido da semana é inclusivo; a consulta técnica termina antes do domingo seguinte.",
+            { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: metricsLoading, erro: metricsError } },
+            { id: "agenda-metricas", title: "Indicadores de agenda", data: metricsReport && !metricsLoading && !metricsError && metricsReport.start === (monthView ? monthStart : rangeStart) && metricsReport.end === (monthView ? monthEnd : rangeEnd) ? {
+                inicio: metricsReport.start, fim_inclusivo: formatLocalDateKey(addDays(new Date(`${metricsReport.end}T12:00:00`), -1)),
+                counts: metricsReport.counts, byUnit: metricsReport.byUnit,
+                projection: metricsReport.projection,
+                metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O intervalo é inclusivo na exibição e exclusivo no fim da consulta.",
             } : null },
         ],
     }));
@@ -844,7 +888,7 @@ export default function AppointmentsPage() {
                 maxHeight="calc(100vh - 48px)"
                 closeOnOverlayClick={!noteSaving}
                 showCloseButton={!noteSaving}
-                panelClassName="p-6"
+                panelClassName="p-6 !overflow-visible"
                 zIndexClassName="z-[120]"
             >
                 {noteDialog ? (
@@ -864,8 +908,8 @@ export default function AppointmentsPage() {
             </Modal>
 
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
-                <AgendaIndicators report={agendaReport} loading={loadingReport} />
-                {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+                <AgendaIndicators report={metricsReport} loading={metricsLoading} periodLabel={monthView ? "Mês" : "Semana"} />
+                {metricsError ? <p role="alert" className="text-sm text-red">{metricsError}</p> : null}
             </DetailsSidePanel>
 
             <DetailsSidePanel open={recoverySelection !== null} title="Recuperar horário" onClose={() => setRecoverySelection(null)} width={520}>
@@ -928,18 +972,26 @@ function AgendaDayNoteForm({
     const [blocksFirstEvaluation, setBlocksFirstEvaluation] = useState(Boolean(note?.blocks_first_evaluation));
     const [unitId, setUnitId] = useState(note?.unit_id ?? defaultUnitId);
     const [doctorId, setDoctorId] = useState(note?.doctor_id ?? defaultDoctorId);
+    const [wholeDay, setWholeDay] = useState(Boolean(note?.blocks_first_evaluation && !note.block_start_time));
+    const [blockStartTime, setBlockStartTime] = useState(note?.block_start_time?.slice(0, 5) ?? "08:00");
+    const [blockEndTime, setBlockEndTime] = useState(note?.block_end_time?.slice(0, 5) ?? "09:00");
+    const selectedStart = wholeDay ? null : blockStartTime;
+    const selectedEnd = wholeDay ? null : blockEndTime;
+    const validHours = wholeDay || (Boolean(blockStartTime) && Boolean(blockEndTime) && blockStartTime < blockEndTime);
     const unitDoctors = doctors.filter(doctor => doctor.unit_id === unitId);
     const validScope = Boolean(unitId) && unitDoctors.some(doctor => doctor.id === doctorId);
     const blockChanged = blocksFirstEvaluation !== Boolean(note?.blocks_first_evaluation) ||
-        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id));
-    const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || validScope) &&
+        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id ||
+            selectedStart !== (note?.block_start_time?.slice(0, 5) ?? null) ||
+            selectedEnd !== (note?.block_end_time?.slice(0, 5) ?? null)));
+    const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || (validScope && validHours)) &&
         (text.trim() !== note?.text || blockChanged);
 
     return (
         <form
             onSubmit={(event) => {
                 event.preventDefault();
-                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId });
+                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId, blockStartTime: selectedStart, blockEndTime: selectedEnd });
             }}
         >
             <h2 className="pr-10 text-lg font-bold text-slate-950">
@@ -976,6 +1028,7 @@ function AgendaDayNoteForm({
                         onChange={value => { setUnitId(value); setDoctorId(""); }}
                         options={units.map(unit => ({ value: unit.id, label: unit.name }))}
                         placeholder="Selecione a unidade"
+                        dynamic
                         widthClassName="w-full"
                         disabled={saving}
                     />
@@ -984,10 +1037,23 @@ function AgendaDayNoteForm({
                         onChange={setDoctorId}
                         options={unitDoctors.map(doctor => ({ value: doctor.id, label: doctor.name }))}
                         placeholder="Selecione o médico"
+                        dynamic
                         widthClassName="w-full"
                         disabled={saving || !unitId}
                     />
-                    <p className="text-xs text-slate-500 sm:col-span-2">Bloqueio para o dia inteiro.</p>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                        Início do bloqueio
+                        <input type="time" step={900} value={blockStartTime} onChange={event => setBlockStartTime(event.target.value)} disabled={saving || wholeDay} className="h-11 w-full rounded-xl border border-border bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-brand disabled:opacity-60" />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                        Fim do bloqueio
+                        <input type="time" step={900} value={blockEndTime} onChange={event => setBlockEndTime(event.target.value)} disabled={saving || wholeDay} className="h-11 w-full rounded-xl border border-border bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-brand disabled:opacity-60" />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-600 sm:col-span-2">
+                        <input type="checkbox" checked={wholeDay} onChange={event => setWholeDay(event.target.checked)} disabled={saving} className="h-4 w-4 accent-brand" />
+                        Dia inteiro
+                    </label>
+                    {!validHours && <p className="text-xs text-red sm:col-span-2">O horário final deve ser posterior ao inicial.</p>}
                 </div>
             ) : null}
             {error ? (

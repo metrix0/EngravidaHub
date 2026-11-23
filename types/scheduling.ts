@@ -144,6 +144,8 @@ export type AppointmentDayNote = {
     text: string;
     color: string;
     blocks_first_evaluation: boolean;
+    block_start_time: string | null;
+    block_end_time: string | null;
     created_at: string;
     updated_at: string;
 };

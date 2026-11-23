@@ -83,10 +83,15 @@ export default function WeekCalendar(props: Props) {
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const freeOnly = props.freeSlots !== undefined;
     const loads = useMemo(() => new Map((props.doctorLoads ?? []).map(load => [`${load.unitId}:${load.doctorId}`, load])), [props.doctorLoads]);
+    function dayNoteBlockLabel(note: AppointmentDayNote) {
+        return note.block_start_time && note.block_end_time
+            ? `1ª avaliação · ${note.block_start_time.slice(0, 5)}–${note.block_end_time.slice(0, 5)}`
+            : "1ª avaliação bloqueada";
+    }
     function dayNoteTitle(note: AppointmentDayNote) {
         const scope = loads.get(`${note.unit_id}:${note.doctor_id}`);
         return note.blocks_first_evaluation && scope
-            ? `${scope.doctorName} · ${scope.unitName}\n${note.text}`
+            ? `${scope.doctorName} · ${scope.unitName} · ${dayNoteBlockLabel(note)}\n${note.text}`
             : note.text;
     }
     const freeSlotsByDay = useMemo(() => {
@@ -344,7 +349,7 @@ export default function WeekCalendar(props: Props) {
                                             </InfoTooltip>
                                         )}
                                     </>}
-                                    {displayedNotes.map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">{note.blocks_first_evaluation ? "1ª avaliação bloqueada" : "Nota do dia"}</button>)}
+                                    {displayedNotes.map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">{note.blocks_first_evaluation ? dayNoteBlockLabel(note) : "Nota do dia"}</button>)}
                                 </div>;
                             })}
                         </div>
@@ -387,7 +392,7 @@ export default function WeekCalendar(props: Props) {
                                         </div>
                                         {freeOnly ? (notesByDay.get(dayKey) ?? []).map(note => (
                                             <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mx-auto mt-1 block max-w-full truncate rounded bg-amber-50 px-1.5 py-1 text-xs text-amber-700">
-                                                1ª avaliação bloqueada
+                                                {dayNoteBlockLabel(note)}
                                             </button>
                                         )) : null}
                                     </div>
@@ -434,7 +439,7 @@ export default function WeekCalendar(props: Props) {
                                                             title={dayNoteTitle(note)}
                                                             style={{ backgroundColor: AGENDA_NOTE_COLOR }}
                                                         >
-                                                            {note.blocks_first_evaluation ? "1ª avaliação bloqueada" : note.text}
+                                                            {note.blocks_first_evaluation ? dayNoteBlockLabel(note) : note.text}
                                                         </button>
                                                         <button
                                                             type="button"

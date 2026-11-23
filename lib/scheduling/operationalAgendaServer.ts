@@ -20,7 +20,7 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
     const from = [agendaMonthStart(start, includeHistory ? -6 : 0), agendaWeekStart(reportDate ?? agendaDate())].sort()[0];
     const horizonEnd = agendaMonthStart(reportDate ?? agendaDate(), 2);
     const until = [end, horizonEnd].sort().at(-1)!;
-    const [agendas, appointments, doctorUnits, blockedEvaluationDays] = await Promise.all([
+    const [agendas, appointments, doctorUnits, blockedEvaluationRanges] = await Promise.all([
         readAll<OperationalAgenda>(cursor => {
             let query = supabase.from("clinisys_agendas").select("id,unit_id,unit_name,doctor_id,doctor_name,timezone,slot_duration_minutes,working_hours,exceptions,blocks,procedures,availability_snapshot")
                 .eq("active", true).not("unit_id", "is", null).not("doctor_id", "is", null).order("id").limit(500);
@@ -51,7 +51,7 @@ export async function loadOperationalAgenda({ start, end, unitIds, doctorIds, re
         const key = raQuotaKey(appointment.doctor_id, agendaDate(appointment.starts_at), hour * 60 + minute);
         raFirstEvaluationCounts[key] = (raFirstEvaluationCounts[key] ?? 0) + 1;
     }
-    const report = buildOperationalAgenda({ agendas: includeHistory ? agendas : agendas.map(agenda => ({ ...agenda, doctor_name: doctorUnits.find(doctor => doctor.id === agenda.doctor_id)?.name ?? agenda.doctor_name })), appointments, start, end, reportDate, includeHistory, reportAvailability: !includeHistory, raFirstEvaluationCounts, blockedEvaluationDays });
+    const report = buildOperationalAgenda({ agendas: includeHistory ? agendas : agendas.map(agenda => ({ ...agenda, doctor_name: doctorUnits.find(doctor => doctor.id === agenda.doctor_id)?.name ?? agenda.doctor_name })), appointments, start, end, reportDate, includeHistory, reportAvailability: !includeHistory, raFirstEvaluationCounts, blockedEvaluationRanges });
     const covered = new Set(agendas.map(row => `${row.unit_id}:${row.doctor_id}`));
     return { ...report, raFirstEvaluationCounts, missingDoctors: doctorUnits.flatMap(doctor => doctor.doctor_units.filter(row => !covered.has(`${row.unit_id}:${doctor.id}`)).map(row => ({ doctorId: doctor.id, doctorName: doctor.name, unitId: row.unit_id }))) };
 }
