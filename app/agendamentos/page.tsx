@@ -92,6 +92,9 @@ export default function AppointmentsPage() {
     const [agendaReport, setAgendaReport] = useState<(OperationalAgendaReport & { missingDoctors?: Array<{ doctorName: string }>; raFirstEvaluationCounts?: Record<string, number> }) | null>(null);
     const [loadingReport, setLoadingReport] = useState(true);
     const [reportError, setReportError] = useState<string | null>(null);
+    const [monthlyMetricsReport, setMonthlyMetricsReport] = useState<OperationalAgendaReport | null>(null);
+    const [loadingMonthlyMetrics, setLoadingMonthlyMetrics] = useState(false);
+    const [monthlyMetricsError, setMonthlyMetricsError] = useState<string | null>(null);
 
     const [unitValues, setUnitValues] = useState<string[]>(() =>
         lockedUnitId ? [lockedUnitId] : [],
@@ -120,6 +123,15 @@ export default function AppointmentsPage() {
     );
     const rangeStart = formatLocalDateKey(weekDays[0]);
     const rangeEnd = formatLocalDateKey(addDays(weekDays[weekDays.length - 1], 1));
+    const monthStart = formatLocalDateKey(new Date(weekStart.getFullYear(), weekStart.getMonth(), 1));
+    const monthEnd = formatLocalDateKey(new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 1));
+    const metricsReport = monthView
+        ? monthlyMetricsReport?.start === monthStart && monthlyMetricsReport.end === monthEnd ? monthlyMetricsReport : null
+        : agendaReport;
+    const metricsError = monthView ? monthlyMetricsError : reportError;
+    const metricsLoading = monthView
+        ? metricsOpen && (loadingMonthlyMetrics || (!metricsReport && !metricsError))
+        : loadingReport;
 
     const visibleDoctors = useMemo(() => {
         const filtered = unitValues.length === 0
@@ -321,6 +333,32 @@ export default function AppointmentsPage() {
         })();
         return () => controller.abort();
     }, [rangeStart, rangeEnd, unitValues, doctorValues, reloadKey]);
+
+    useEffect(() => {
+        if (!monthView || !metricsOpen) return;
+        const controller = new AbortController();
+        const params = new URLSearchParams({ start: monthStart, end: monthEnd });
+        unitValues.forEach(id => params.append("unit_ids", id));
+        doctorValues.forEach(id => params.append("doctor_ids", id));
+        setLoadingMonthlyMetrics(true);
+        setMonthlyMetricsError(null);
+        void (async () => {
+            try {
+                const response = await fetch(`/api/scheduling/reports?${params}`, { cache: "no-store", signal: controller.signal });
+                const json = await response.json();
+                if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar as métricas do mês.");
+                if (!controller.signal.aborted) setMonthlyMetricsReport(json.report);
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setMonthlyMetricsReport(null);
+                    setMonthlyMetricsError(error instanceof Error ? error.message : "Não foi possível carregar as métricas do mês.");
+                }
+            } finally {
+                if (!controller.signal.aborted) setLoadingMonthlyMetrics(false);
+            }
+        })();
+        return () => controller.abort();
+    }, [monthView, metricsOpen, monthStart, monthEnd, unitValues, doctorValues, reloadKey]);
 
     useEffect(() => {
         if (!freeOnly) return;
@@ -674,16 +712,16 @@ export default function AppointmentsPage() {
 
     useAssistantPageContext("agendamentos", () => ({
         title: "Agendamentos",
-        filters: { visualizacao: monthView ? "mes" : "semana", semana_inicio: rangeStart, semana_fim: formatLocalDateKey(weekDays[weekDays.length - 1]), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport },
+        filters: { visualizacao: monthView ? "mes" : "semana", semana_inicio: rangeStart, semana_fim: formatLocalDateKey(weekDays[weekDays.length - 1]), limite_exclusivo_da_consulta: rangeEnd, unidades: unitValues, medicos: doctorValues, status: statusValues, formatos: formatValues, busca: search, horarios_livres: freeOnly, atendimento_ra: raFilterValues.includes("enabled"), carregando: loadingCalendar || loadingReport || metricsLoading },
         sections: [
             { id: "agenda-semana", title: "Agenda semanal", data: { total: appointments.length, agendamentos: appointments, notas: visibleNotes } },
             { id: "agenda-selecionado", title: "Agendamento selecionado", data: selectedAppointment },
-            { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: loadingReport, erro: reportError } },
-            { id: "agenda-metricas", title: "Indicadores de agenda", data: agendaReport && !loadingReport && !reportError && agendaReport.start === rangeStart && agendaReport.end === rangeEnd ? {
-                inicio: rangeStart, fim_inclusivo: formatLocalDateKey(weekDays[weekDays.length - 1]),
-                counts: agendaReport.counts, byUnit: agendaReport.byUnit,
-                projection: agendaReport.projection,
-                metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O fim exibido da semana é inclusivo; a consulta técnica termina antes do domingo seguinte.",
+            { id: "agenda-metricas-estado", title: "Estado dos indicadores da agenda", data: { carregando: metricsLoading, erro: metricsError } },
+            { id: "agenda-metricas", title: "Indicadores de agenda", data: metricsReport && !metricsLoading && !metricsError && metricsReport.start === (monthView ? monthStart : rangeStart) && metricsReport.end === (monthView ? monthEnd : rangeEnd) ? {
+                inicio: metricsReport.start, fim_inclusivo: formatLocalDateKey(addDays(new Date(`${metricsReport.end}T12:00:00`), -1)),
+                counts: metricsReport.counts, byUnit: metricsReport.byUnit,
+                projection: metricsReport.projection,
+                metodologia: "Ocupação física = (RA + Unidade + sem origem) / total de vagas, incluindo bloqueadas. O intervalo é inclusivo na exibição e exclusivo no fim da consulta.",
             } : null },
         ],
     }));
@@ -864,8 +902,8 @@ export default function AppointmentsPage() {
             </Modal>
 
             <DetailsSidePanel open={metricsOpen} title="Métricas" onClose={() => setMetricsOpen(false)} width={520} bodyClassName="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 md:px-5 md:py-6">
-                <AgendaIndicators report={agendaReport} loading={loadingReport} />
-                {reportError ? <p role="alert" className="text-sm text-red">{reportError}</p> : null}
+                <AgendaIndicators report={metricsReport} loading={metricsLoading} periodLabel={monthView ? "Mês" : "Semana"} />
+                {metricsError ? <p role="alert" className="text-sm text-red">{metricsError}</p> : null}
             </DetailsSidePanel>
 
             <DetailsSidePanel open={recoverySelection !== null} title="Recuperar horário" onClose={() => setRecoverySelection(null)} width={520}>
