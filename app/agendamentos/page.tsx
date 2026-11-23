@@ -844,7 +844,7 @@ export default function AppointmentsPage() {
                 maxHeight="calc(100vh - 48px)"
                 closeOnOverlayClick={!noteSaving}
                 showCloseButton={!noteSaving}
-                panelClassName="p-6"
+                panelClassName="p-6 !overflow-visible"
                 zIndexClassName="z-[120]"
             >
                 {noteDialog ? (
