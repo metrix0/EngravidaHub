@@ -61,7 +61,7 @@ const FORMAT_OPTIONS = [
 ];
 
 type RecoveryDetail = { filled: boolean; candidates: RecoveryCandidate[] };
-type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string };
+type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string; blockStartTime: string | null; blockEndTime: string | null };
 
 export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
@@ -610,16 +610,22 @@ export default function AppointmentsPage() {
 
     async function handleSaveNote(draft: DayNoteDraft) {
         if (!noteDialog || noteSaving) return;
-        const { blocksFirstEvaluation, unitId, doctorId } = draft;
+        const { blocksFirstEvaluation, unitId, doctorId, blockStartTime, blockEndTime } = draft;
         const text = draft.text.trim();
-        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId))) return;
+        const validHours = (blockStartTime === null && blockEndTime === null) ||
+            (blockStartTime !== null && blockEndTime !== null && blockStartTime < blockEndTime);
+        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId || !validHours))) return;
         const previous = noteDialog.note;
-        const scopeChanged = blocksFirstEvaluation && (unitId !== previous?.unit_id || doctorId !== previous?.doctor_id);
+        const scopeChanged = blocksFirstEvaluation && (
+            unitId !== previous?.unit_id || doctorId !== previous?.doctor_id ||
+            blockStartTime !== (previous?.block_start_time?.slice(0, 5) ?? null) ||
+            blockEndTime !== (previous?.block_end_time?.slice(0, 5) ?? null)
+        );
         const blockChanged = blocksFirstEvaluation !== Boolean(previous?.blocks_first_evaluation) || scopeChanged;
         if (previous && text === previous.text && !blockChanged) return;
         const blockUpdate = blockChanged ? {
             blocksFirstEvaluation,
-            ...(blocksFirstEvaluation ? { unitId, doctorId } : {}),
+            ...(blocksFirstEvaluation ? { unitId, doctorId, blockStartTime, blockEndTime } : {}),
         } : {};
 
         setNoteSaving(true);
@@ -966,18 +972,26 @@ function AgendaDayNoteForm({
     const [blocksFirstEvaluation, setBlocksFirstEvaluation] = useState(Boolean(note?.blocks_first_evaluation));
     const [unitId, setUnitId] = useState(note?.unit_id ?? defaultUnitId);
     const [doctorId, setDoctorId] = useState(note?.doctor_id ?? defaultDoctorId);
+    const [wholeDay, setWholeDay] = useState(Boolean(note?.blocks_first_evaluation && !note.block_start_time));
+    const [blockStartTime, setBlockStartTime] = useState(note?.block_start_time?.slice(0, 5) ?? "08:00");
+    const [blockEndTime, setBlockEndTime] = useState(note?.block_end_time?.slice(0, 5) ?? "09:00");
+    const selectedStart = wholeDay ? null : blockStartTime;
+    const selectedEnd = wholeDay ? null : blockEndTime;
+    const validHours = wholeDay || (Boolean(blockStartTime) && Boolean(blockEndTime) && blockStartTime < blockEndTime);
     const unitDoctors = doctors.filter(doctor => doctor.unit_id === unitId);
     const validScope = Boolean(unitId) && unitDoctors.some(doctor => doctor.id === doctorId);
     const blockChanged = blocksFirstEvaluation !== Boolean(note?.blocks_first_evaluation) ||
-        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id));
-    const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || validScope) &&
+        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id ||
+            selectedStart !== (note?.block_start_time?.slice(0, 5) ?? null) ||
+            selectedEnd !== (note?.block_end_time?.slice(0, 5) ?? null)));
+    const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || (validScope && validHours)) &&
         (text.trim() !== note?.text || blockChanged);
 
     return (
         <form
             onSubmit={(event) => {
                 event.preventDefault();
-                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId });
+                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId, blockStartTime: selectedStart, blockEndTime: selectedEnd });
             }}
         >
             <h2 className="pr-10 text-lg font-bold text-slate-950">
@@ -1027,7 +1041,19 @@ function AgendaDayNoteForm({
                         widthClassName="w-full"
                         disabled={saving || !unitId}
                     />
-                    <p className="text-xs text-slate-500 sm:col-span-2">Bloqueio para o dia inteiro.</p>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                        Início do bloqueio
+                        <input type="time" step={900} value={blockStartTime} onChange={event => setBlockStartTime(event.target.value)} disabled={saving || wholeDay} className="h-11 w-full rounded-xl border border-border bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-brand disabled:opacity-60" />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                        Fim do bloqueio
+                        <input type="time" step={900} value={blockEndTime} onChange={event => setBlockEndTime(event.target.value)} disabled={saving || wholeDay} className="h-11 w-full rounded-xl border border-border bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-brand disabled:opacity-60" />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-600 sm:col-span-2">
+                        <input type="checkbox" checked={wholeDay} onChange={event => setWholeDay(event.target.checked)} disabled={saving} className="h-4 w-4 accent-brand" />
+                        Dia inteiro
+                    </label>
+                    {!validHours && <p className="text-xs text-red sm:col-span-2">O horário final deve ser posterior ao inicial.</p>}
                 </div>
             ) : null}
             {error ? (

@@ -13,6 +13,8 @@ const createSchema = z.object({
     text: z.string().trim().min(1).max(500),
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#f59e0b"),
     blocksFirstEvaluation: z.boolean().default(false),
+    blockStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+    blockEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
 });
 
 export async function GET(request: Request) {
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
         const { data, error } = await supabase
             .from("appointment_day_notes")
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, block_start_time, block_end_time, created_at, updated_at",
             )
             .gte("note_date", start)
             .lt("note_date", end)
@@ -80,6 +82,11 @@ export async function POST(request: Request) {
         }
 
         if (parsed.data.blocksFirstEvaluation) {
+            const { blockStartTime, blockEndTime } = parsed.data;
+            if ((blockStartTime == null) !== (blockEndTime == null) ||
+                (blockStartTime != null && blockEndTime != null && blockStartTime >= blockEndTime)) {
+                return NextResponse.json({ ok: false, error: "O horário final deve ser posterior ao inicial." }, { status: 400 });
+            }
             const denied = await checkDayNoteBlockAccess(parsed.data.unitId ?? null, parsed.data.doctorId ?? null, true);
             if (denied) return denied;
         }
@@ -93,10 +100,12 @@ export async function POST(request: Request) {
                 text: parsed.data.text,
                 color: parsed.data.color,
                 blocks_first_evaluation: parsed.data.blocksFirstEvaluation,
+                block_start_time: parsed.data.blocksFirstEvaluation ? parsed.data.blockStartTime ?? null : null,
+                block_end_time: parsed.data.blocksFirstEvaluation ? parsed.data.blockEndTime ?? null : null,
                 created_by: user.id,
             })
             .select(
-                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, created_at, updated_at",
+                "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, block_start_time, block_end_time, created_at, updated_at",
             )
             .single();
 
