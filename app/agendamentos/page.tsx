@@ -1014,6 +1014,7 @@ function AgendaDayNoteForm({
                         onChange={value => { setUnitId(value); setDoctorId(""); }}
                         options={units.map(unit => ({ value: unit.id, label: unit.name }))}
                         placeholder="Selecione a unidade"
+                        fitViewport
                         widthClassName="w-full"
                         disabled={saving}
                     />
@@ -1022,6 +1023,7 @@ function AgendaDayNoteForm({
                         onChange={setDoctorId}
                         options={unitDoctors.map(doctor => ({ value: doctor.id, label: doctor.name }))}
                         placeholder="Selecione o médico"
+                        fitViewport
                         widthClassName="w-full"
                         disabled={saving || !unitId}
                     />
