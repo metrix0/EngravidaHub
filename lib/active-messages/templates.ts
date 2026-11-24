@@ -263,6 +263,103 @@ export const ACTIVE_MESSAGE_TEMPLATES: ActiveMessageTemplate[] = [
             },
         ],
     },
+    {
+        id: "programa_indicacao_consulta_gratis_1",
+        name: "Programa de Indicações — Consulta Grátis (Opção 1)",
+        category: "marketing",
+        preview: [
+            "Oi, {{1}}! 💛",
+            "",
+            "Ficamos muito felizes por termos feito parte de um momento tão importante da sua história.",
+            "",
+            "Na Clínica Engravida, a gente sabe o quanto confiança faz diferença quando o assunto é fertilidade e planejamento reprodutivo. Por isso, queremos estender esse cuidado para pessoas que fazem parte da sua rede.",
+            "",
+            "Se você conhece alguém que esteja tentando engravidar, pensando em congelar óvulos ou que possa se beneficiar de conversar com um especialista sobre suas possibilidades, pode indicar a Clínica Engravida.",
+            "",
+            "A pessoa indicada ganha uma consulta gratuita com a nossa equipe. Para utilizar, é só informar o seu nome no momento do agendamento.",
+            "",
+            "Às vezes, uma indicação carinhosa pode ser o primeiro passo de uma nova história. 💛",
+        ].join("\n"),
+        blip_template_name: "programa_indicacao_consulta_gratis_1",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
+    {
+        id: "programa_indicacao_consulta_gratis_2",
+        name: "Programa de Indicações — Consulta Grátis (Opção 2)",
+        category: "marketing",
+        preview: [
+            "Oi, {{1}}! 💛",
+            "",
+            "Depois de acompanhar tantas histórias de perto, aprendemos que muitas delas começam da mesma forma: com alguém de confiança compartilhando uma informação, uma experiência ou uma indicação.",
+            "",
+            "Por isso, queremos convidar você a fazer parte dessa rede de cuidado da Clínica Engravida.",
+            "",
+            "Se tiver alguém próximo que esteja tentando engravidar, buscando informações sobre fertilidade, considerando congelar óvulos ou querendo entender melhor suas possibilidades, você pode indicar essa pessoa para nós.",
+            "",
+            "Como forma de acolhê-la, a primeira consulta será gratuita. Basta que ela informe o seu nome ao entrar em contato com a Clínica Engravida.",
+            "",
+            "Porque cuidado também pode ser compartilhado. 💛",
+        ].join("\n"),
+        blip_template_name: "programa_indicacao_consulta_gratis_2",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
+    {
+        id: "programa_indicacao_consulta_gratis_3",
+        name: "Programa de Indicações — Consulta Grátis (Opção 3)",
+        category: "marketing",
+        preview: [
+            "Oi, {{1}}! Tudo bem? 💛",
+            "",
+            "Se a sua experiência com a Clínica Engravida foi especial e você conhece alguém que também possa precisar do nosso cuidado, queremos facilitar esse primeiro contato.",
+            "",
+            "Pode ser alguém tentando engravidar, pensando em congelar óvulos, buscando uma FIV ou simplesmente querendo entender melhor sua fertilidade e suas possibilidades.",
+            "",
+            "Ao indicar essa pessoa, ela terá direito a uma consulta gratuita com a nossa equipe. É só entrar em contato e informar o seu nome como indicação.",
+            "",
+            "Uma forma simples de ajudar alguém próximo a dar o primeiro passo, com informação, acolhimento e cuidado.",
+        ].join("\n"),
+        blip_template_name: "programa_indicacao_consulta_gratis_3",
+        active_campaign: {
+            flow_id: "",
+            state_id: "",
+            masterstate: "fluxocampanhaativa@msging.net",
+        },
+        parameters: [
+            {
+                key: "1",
+                source: {
+                    type: "database",
+                    field: "client_first_name",
+                },
+            },
+        ],
+    },
 ];
 
 export function getActiveMessageTemplatePriceBrl(
