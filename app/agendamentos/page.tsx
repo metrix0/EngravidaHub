@@ -61,7 +61,7 @@ const FORMAT_OPTIONS = [
 ];
 
 type RecoveryDetail = { filled: boolean; candidates: RecoveryCandidate[] };
-type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorId: string; blockStartTime: string | null; blockEndTime: string | null };
+type DayNoteDraft = { text: string; blocksFirstEvaluation: boolean; unitId: string; doctorIds: string[]; blockStartTime: string | null; blockEndTime: string | null };
 
 export default function AppointmentsPage() {
     const { currentUser } = useCurrentUser();
@@ -610,14 +610,14 @@ export default function AppointmentsPage() {
 
     async function handleSaveNote(draft: DayNoteDraft) {
         if (!noteDialog || noteSaving) return;
-        const { blocksFirstEvaluation, unitId, doctorId, blockStartTime, blockEndTime } = draft;
+        const { blocksFirstEvaluation, unitId, doctorIds, blockStartTime, blockEndTime } = draft;
         const text = draft.text.trim();
         const validHours = (blockStartTime === null && blockEndTime === null) ||
             (blockStartTime !== null && blockEndTime !== null && blockStartTime < blockEndTime);
-        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorId || !validHours))) return;
+        if (!text || text.length > 500 || (blocksFirstEvaluation && (!unitId || !doctorIds.length || !validHours))) return;
         const previous = noteDialog.note;
         const scopeChanged = blocksFirstEvaluation && (
-            unitId !== previous?.unit_id || doctorId !== previous?.doctor_id ||
+            unitId !== previous?.unit_id || doctorIds.length !== 1 || doctorIds[0] !== previous?.doctor_id ||
             blockStartTime !== (previous?.block_start_time?.slice(0, 5) ?? null) ||
             blockEndTime !== (previous?.block_end_time?.slice(0, 5) ?? null)
         );
@@ -625,7 +625,7 @@ export default function AppointmentsPage() {
         if (previous && text === previous.text && !blockChanged) return;
         const blockUpdate = blockChanged ? {
             blocksFirstEvaluation,
-            ...(blocksFirstEvaluation ? { unitId, doctorId, blockStartTime, blockEndTime } : {}),
+            ...(blocksFirstEvaluation ? { unitId, doctorIds, blockStartTime, blockEndTime } : {}),
         } : {};
 
         setNoteSaving(true);
@@ -645,8 +645,8 @@ export default function AppointmentsPage() {
                     throw new Error(json?.error ?? "Não foi possível editar a nota.");
                 }
                 setNotes((current) =>
-                    current.map((item) =>
-                        item.id === noteDialog.note?.id ? json.note : item,
+                    current.flatMap((item) =>
+                        item.id === noteDialog.note?.id ? (json.notes ?? [json.note]) : [item],
                     ),
                 );
             } else {
@@ -666,7 +666,7 @@ export default function AppointmentsPage() {
                 if (!response.ok) {
                     throw new Error(json?.error ?? "Não foi possível criar a nota.");
                 }
-                setNotes((current) => [...current, json.note]);
+                setNotes((current) => [...current, ...(json.notes ?? [json.note])]);
             }
             setNoteDialog(null);
             if (blockChanged) setReloadKey(current => current + 1);
@@ -900,7 +900,6 @@ export default function AppointmentsPage() {
                         units={units}
                         doctors={doctors}
                         defaultUnitId={unitValues.length === 1 ? unitValues[0] : ""}
-                        defaultDoctorId={doctorValues.length === 1 ? doctorValues[0] : ""}
                         saving={noteSaving}
                         error={noteError}
                         onCancel={() => setNoteDialog(null)}
@@ -954,7 +953,6 @@ function AgendaDayNoteForm({
     units,
     doctors,
     defaultUnitId,
-    defaultDoctorId,
     saving,
     error,
     onCancel,
@@ -964,7 +962,6 @@ function AgendaDayNoteForm({
     units: SchedulingUnitOption[];
     doctors: SchedulingDoctorOption[];
     defaultUnitId: string;
-    defaultDoctorId: string;
     saving: boolean;
     error: string | null;
     onCancel: () => void;
@@ -973,7 +970,7 @@ function AgendaDayNoteForm({
     const [text, setText] = useState(note?.text ?? "");
     const [blocksFirstEvaluation, setBlocksFirstEvaluation] = useState(Boolean(note?.blocks_first_evaluation));
     const [unitId, setUnitId] = useState(note?.unit_id ?? defaultUnitId);
-    const [doctorId, setDoctorId] = useState(note?.doctor_id ?? defaultDoctorId);
+    const [doctorSelection, setDoctorSelection] = useState<string[] | null>(note?.blocks_first_evaluation && note.doctor_id ? [note.doctor_id] : null);
     const [wholeDay, setWholeDay] = useState(Boolean(note?.blocks_first_evaluation && !note.block_start_time));
     const [blockStartTime, setBlockStartTime] = useState(note?.block_start_time?.slice(0, 5) ?? "08:00");
     const [blockEndTime, setBlockEndTime] = useState(note?.block_end_time?.slice(0, 5) ?? "09:00");
@@ -981,9 +978,10 @@ function AgendaDayNoteForm({
     const selectedEnd = wholeDay ? null : blockEndTime;
     const validHours = wholeDay || (Boolean(blockStartTime) && Boolean(blockEndTime) && blockStartTime < blockEndTime);
     const unitDoctors = doctors.filter(doctor => doctor.unit_id === unitId);
-    const validScope = Boolean(unitId) && unitDoctors.some(doctor => doctor.id === doctorId);
+    const doctorIds = doctorSelection === null ? unitDoctors.map(doctor => doctor.id) : doctorSelection.filter(id => unitDoctors.some(doctor => doctor.id === id));
+    const validScope = Boolean(unitId) && doctorIds.length > 0;
     const blockChanged = blocksFirstEvaluation !== Boolean(note?.blocks_first_evaluation) ||
-        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorId !== note?.doctor_id ||
+        (blocksFirstEvaluation && (unitId !== note?.unit_id || doctorIds.length !== 1 || doctorIds[0] !== note?.doctor_id ||
             selectedStart !== (note?.block_start_time?.slice(0, 5) ?? null) ||
             selectedEnd !== (note?.block_end_time?.slice(0, 5) ?? null)));
     const canSave = !saving && Boolean(text.trim()) && (!blocksFirstEvaluation || (validScope && validHours)) &&
@@ -993,7 +991,7 @@ function AgendaDayNoteForm({
         <form
             onSubmit={(event) => {
                 event.preventDefault();
-                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorId, blockStartTime: selectedStart, blockEndTime: selectedEnd });
+                if (canSave) onSave({ text, blocksFirstEvaluation, unitId, doctorIds, blockStartTime: selectedStart, blockEndTime: selectedEnd });
             }}
         >
             <h2 className="pr-10 text-lg font-bold text-slate-950">
@@ -1027,18 +1025,21 @@ function AgendaDayNoteForm({
                 <div className="mt-2 grid grid-cols-1 gap-2 motion-safe:animate-[modal-pop_180ms_cubic-bezier(0.16,1,0.3,1)] sm:grid-cols-2">
                     <DropdownSelect
                         value={unitId}
-                        onChange={value => { setUnitId(value); setDoctorId(""); }}
+                        onChange={value => { setUnitId(value); setDoctorSelection(null); }}
                         options={units.map(unit => ({ value: unit.id, label: unit.name }))}
                         placeholder="Selecione a unidade"
                         dynamic
                         widthClassName="w-full"
                         disabled={saving}
                     />
-                    <DropdownSelect
-                        value={doctorId}
-                        onChange={setDoctorId}
+                    <FilterButton
+                        values={doctorIds}
+                        onChange={setDoctorSelection}
                         options={unitDoctors.map(doctor => ({ value: doctor.id, label: doctor.name }))}
-                        placeholder="Selecione o médico"
+                        label="Todos os médicos"
+                        searchable
+                        searchPlaceholder="Buscar médico..."
+                        explicitSelection
                         dynamic
                         widthClassName="w-full"
                         disabled={saving || !unitId}

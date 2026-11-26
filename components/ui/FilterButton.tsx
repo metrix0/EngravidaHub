@@ -1,7 +1,7 @@
 // components/ui/FilterButton.tsx
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Crosshair, MapPin } from "lucide-react";
 import { SearchFilter } from "./SearchFilter";
 
@@ -21,6 +21,8 @@ export type FilterButtonProps = {
     singleSelect?: boolean;
     searchable?: boolean;
     searchPlaceholder?: string;
+    explicitSelection?: boolean;
+    dynamic?: boolean;
 };
 
 export default function FilterButton({
@@ -34,6 +36,8 @@ export default function FilterButton({
                                          singleSelect = false,
                                          searchable = false,
                                          searchPlaceholder = "Buscar",
+                                         explicitSelection = false,
+                                         dynamic = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -43,6 +47,7 @@ export default function FilterButton({
 
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const [menuSpace, setMenuSpace] = useState<{ above: boolean; height: number } | null>(null);
     const [draftValues, setDraftValues] = useState<string[]>(appliedValues);
 
     const allOptionValues = options.map((option) => option.value);
@@ -53,14 +58,16 @@ export default function FilterButton({
         : dropdownOptions;
 
     const allApplied =
-        appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
+        (!explicitSelection && appliedValues.length === 0) || (!singleSelect && allOptionValues.length > 0 && appliedValues.length === allOptionValues.length);
 
     const allDraftSelected =
-        !singleSelect && (draftValues.length === 0 || draftValues.length === allOptionValues.length);
+        !singleSelect && ((!explicitSelection && draftValues.length === 0) || (allOptionValues.length > 0 && draftValues.length === allOptionValues.length));
 
     const displayLabel = allApplied
         ? label
-        : appliedValues.length === 1
+        : explicitSelection && appliedValues.length === 0
+            ? "Nenhum selecionado"
+            : appliedValues.length === 1
             ? options.find((option) => option.value === appliedValues[0])?.label ?? label
             : `${appliedValues.length} selecionados`;
 
@@ -86,6 +93,26 @@ export default function FilterButton({
         if (disabled) setOpen(false);
     }, [disabled]);
 
+    useLayoutEffect(() => {
+        if (!dynamic || !open) return;
+        function updateMenuSpace() {
+            const rect = wrapperRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const below = window.innerHeight - rect.bottom - 20;
+            const above = rect.top - 20;
+            const overhead = (searchable ? 65 : 0) + (singleSelect ? 0 : 54);
+            const openAbove = below < 288 + overhead && above > below;
+            setMenuSpace({ above: openAbove, height: Math.max(48, Math.min(288, Math.floor((openAbove ? above : below) - overhead))) });
+        }
+        updateMenuSpace();
+        window.addEventListener("resize", updateMenuSpace);
+        window.addEventListener("scroll", updateMenuSpace, true);
+        return () => {
+            window.removeEventListener("resize", updateMenuSpace);
+            window.removeEventListener("scroll", updateMenuSpace, true);
+        };
+    }, [dynamic, open, searchable, singleSelect]);
+
     function updateAppliedValues(nextValues: string[]) {
         if (!isControlled) {
             setInternalValues(nextValues);
@@ -102,7 +129,7 @@ export default function FilterButton({
             setDraftValues(
                 singleSelect
                     ? [...appliedValues]
-                    : appliedValues.length === 0
+                    : !explicitSelection && appliedValues.length === 0
                         ? allOptionValues
                         : [...appliedValues],
             );
@@ -141,7 +168,7 @@ export default function FilterButton({
     }
 
     function applySelection() {
-        if (draftValues.length === 0 || draftValues.length === allOptionValues.length) {
+        if (!explicitSelection && (draftValues.length === 0 || draftValues.length === allOptionValues.length)) {
             updateAppliedValues([]);
         } else {
             updateAppliedValues(draftValues);
@@ -181,7 +208,7 @@ export default function FilterButton({
             </button>
 
             <div
-                className={`absolute right-0 z-50 mt-2 w-full origin-top overflow-hidden rounded-xl border shadow-lg transition-all duration-150 ${
+                className={`absolute right-0 z-50 w-full overflow-hidden rounded-xl border shadow-lg transition-all duration-150 ${dynamic && menuSpace?.above ? "bottom-full mb-2 origin-bottom" : "mt-2 origin-top"} ${
                     open
                         ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                         : "pointer-events-none -translate-y-1 scale-98 opacity-0"
@@ -192,11 +219,11 @@ export default function FilterButton({
                 }}
             >
                 {searchable && (
-                    <div className="border-b border-border p-2">
+                    <div className="border-b border-border p-2" onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }}>
                         {open && <SearchFilter value={search} onChange={setSearch} placeholder={searchPlaceholder} widthClassName="w-full" />}
                     </div>
                 )}
-                <div className="max-h-72 overflow-y-auto py-1">
+                <div className="max-h-72 overflow-y-auto py-1" style={dynamic && menuSpace ? { maxHeight: menuSpace.height } : undefined}>
                     {searchable && visibleOptions.length === 0 && (
                         <div className="px-4 py-3 text-sm font-medium text-slate-400">Nenhuma opção encontrada.</div>
                     )}
