@@ -488,7 +488,32 @@ export default function InboxPage() {
         onSelectedThreadChange: loadSelectedThread,
     });
 
+    async function setConversationManualUnread(item: InboxThreadListItem, manuallyUnread: boolean) {
+        if (!item.thread_id) return;
+
+        try {
+            await updateInboxThread({
+                threadId: item.thread_id,
+                manuallyUnread,
+                conversationId: item.item_type === "conversation" ? item.id : undefined,
+            });
+            setThreads((current) => current.map((thread) =>
+                thread.id === item.id ? { ...thread, manually_unread: manuallyUnread } : thread,
+            ));
+            void loadThreads();
+        } catch (error) {
+            console.error("[inbox] failed to update manual unread status", error);
+            void loadThreads();
+            window.alert("Não foi possível atualizar o status de leitura da conversa.");
+        }
+    }
+
     function handleSelectThread(item: InboxThreadListItem) {
+        if (item.manually_unread) {
+            void setConversationManualUnread(item, false);
+            if (selectedId === item.id && selectedItemType === item.item_type) return;
+        }
+
         forcedSelectionRef.current = null;
         selectedThreadRequestRef.current += 1;
 
@@ -923,7 +948,7 @@ export default function InboxPage() {
         canShowInbox && isLoadingThreads && threads.length === 0 && !selectedThread;
 
     const visibleThreads = useMemo(
-        () => unreadOnly ? threads.filter((thread) => thread.unread > 0) : threads,
+        () => unreadOnly ? threads.filter((thread) => thread.unread > 0 || thread.manually_unread) : threads,
         [threads, unreadOnly],
     );
 
@@ -1015,6 +1040,7 @@ export default function InboxPage() {
                             onLoadMore={loadMoreThreads}
                             selectedConversationId={selectedId ?? ""}
                             onSelectConversation={handleSelectThread}
+                            onMarkUnread={(item) => void setConversationManualUnread(item, true)}
                             isLoading={isLoadingThreads}
                         />
 
@@ -1162,6 +1188,7 @@ function ConversationListPanel({
                                    onLoadMore,
                                    selectedConversationId,
                                    onSelectConversation,
+                                   onMarkUnread,
                                    isLoading,
                                }: {
     channel: "Instagram" | "Facebook";
@@ -1184,6 +1211,7 @@ function ConversationListPanel({
     onLoadMore: () => void;
     selectedConversationId: string;
     onSelectConversation: (item: InboxThreadListItem) => void;
+    onMarkUnread: (item: InboxThreadListItem) => void;
     isLoading: boolean;
 }) {
     const listRef = useRef<HTMLDivElement>(null);
@@ -1325,6 +1353,7 @@ function ConversationListPanel({
                             conversation={conversation}
                             active={conversation.id === selectedConversationId}
                             onClick={() => onSelectConversation(conversation)}
+                            onMarkUnread={() => onMarkUnread(conversation)}
                         />
                     ))}
 
@@ -1363,13 +1392,17 @@ function ConversationListItem({
                                   conversation,
                                   active,
                                   onClick,
+                                  onMarkUnread,
                               }: {
     conversation: InboxThreadListItem;
     active: boolean;
     onClick: () => void;
+    onMarkUnread: () => void;
 }) {
     return (
+        <div className="group relative">
         <button
+            data-manually-unread={conversation.manually_unread ? "true" : undefined}
             type="button"
             onClick={onClick}
             className={`grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border px-3 py-3.5 text-left transition-colors ${
@@ -1414,9 +1447,21 @@ function ConversationListItem({
                     >
                         {conversation.unread}
                     </span>
+                ) : conversation.manually_unread ? (
+                    <div className="absolute right-0 bottom-0 size-5 rounded-full bg-brand" aria-label="Não lida" />
                 ) : null}
             </div>
         </button>
+        {!conversation.unread && !conversation.manually_unread && conversation.can_mark_unread && (
+            <button
+                type="button"
+                aria-label="Marcar como não lida"
+                title="Marcar como não lida"
+                onClick={onMarkUnread}
+                className="absolute right-[13px] bottom-[15px] size-5 cursor-pointer rounded-full border border-slate-400 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-slate-100"
+            />
+        )}
+        </div>
     );
 }
 

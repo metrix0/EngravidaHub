@@ -328,15 +328,20 @@ function toClinisysStatus(status: string): ClinisysStatus {
     return "Agendado";
 }
 
+export function clinisysBudgetRequest<T>(method: "GET" | "POST", path: string, body?: unknown) {
+    return clinisysRequest<T>(method, path, body, false, true);
+}
+
 async function clinisysRequest<T>(
     method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     allowEmptyAvailability = false,
+    budgetCredential = false,
 ): Promise<T> {
     const baseUrl = "https://api.clinisys.com.br/Engravida";
-    const token = process.env.CLINISYS_TOKEN?.trim();
-    if (!token) throw new Error("CLINISYS_TOKEN não está configurado.");
+    const token = (budgetCredential ? process.env.CLINISYS_TOKEN_2 : process.env.CLINISYS_TOKEN)?.trim();
+    if (!token) throw new Error(budgetCredential ? "CLINISYS_TOKEN_2 não está configurado." : "CLINISYS_TOKEN não está configurado.");
 
     // Atomic, database-backed pacing across cron and interactive Hub instances.
     // 500 ms spacing caps Hub traffic at 20 requests per 10 seconds per egress IP.

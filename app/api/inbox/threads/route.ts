@@ -175,7 +175,7 @@ async function loadThreads(attendantId: string, window?: ListWindow, unreadOnly 
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("id", { ascending: false });
     query = unreadOnly
-        ? query.gt("unread_count", 0).or("status.eq.open,latest_conversation_id.not.is.null")
+        ? query.or("unread_count.gt.0,manually_unread.eq.true").or("status.eq.open,latest_conversation_id.not.is.null")
         : query.eq("status", "open");
     query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("assigned_attendant_id", attendantId).limit(MAX_FETCH);
     if (window?.search) {
@@ -207,6 +207,8 @@ async function loadThreads(attendantId: string, window?: ListWindow, unreadOnly 
             return mapClosedConversation(
                 { ...row, ...conversation, id: row.latest_conversation_id, thread_id: row.id },
                 row.unread_count,
+                row.manually_unread,
+                true,
             );
         }),
         total: count,
@@ -235,7 +237,7 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
             conversation_analysis_id,
             tunnel,
             origin,
-            latest_thread:thread!thread_latest_conversation_id_fkey(unread_count),
+            latest_thread:thread!thread_latest_conversation_id_fkey(unread_count,manually_unread),
             clients (
                 id,
                 name,
@@ -313,7 +315,7 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
         .order("id", { ascending: false });
     query = window ? query.eq("channel", window.channel).range(window.from, window.from + window.size - 1) : query.eq("attendant_id", attendantId).limit(MAX_FETCH);
     if (window) {
-        query = query.eq("latest_thread.status", "closed").gt("latest_thread.unread_count", 0);
+        query = query.eq("latest_thread.status", "closed");
     }
     if (window?.search) {
         const term = window.search.replace(/[%,()*"\\]/g, " ").trim().replace(/\s+/g, " ");
@@ -339,7 +341,7 @@ async function loadClosedConversations(attendantId: string, window?: ListWindow)
         ok: true as const,
         items: (data ?? []).map((row) => {
             const latestThread = window ? normalizeRelation(row.latest_thread) : null;
-            return mapClosedConversation(row, latestThread?.unread_count ?? 0);
+            return mapClosedConversation(row, latestThread?.unread_count ?? 0, latestThread?.manually_unread ?? false, !!latestThread);
         }),
         total: count,
     };
@@ -376,6 +378,8 @@ function mapOpenThread(row: any): InboxThreadListItem {
         preview: cleanMessagePreview(row.last_message_text, "Sem mensagens"),
         time: formatTimeAgo(row.last_message_at ?? row.updated_at),
         unread: row.unread_count ?? 0,
+        manually_unread: row.manually_unread ?? false,
+        can_mark_unread: true,
         status: "open",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),
@@ -398,7 +402,7 @@ function mapOpenThread(row: any): InboxThreadListItem {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapClosedConversation(row: any, unread: number): InboxThreadListItem {
+function mapClosedConversation(row: any, unread: number, manuallyUnread = false, canMarkUnread = false): InboxThreadListItem {
     const instagramUser = normalizeRelation(row.instagram_user);
     const client =
         normalizeRelation(row.clients) ??
@@ -434,6 +438,8 @@ function mapClosedConversation(row: any, unread: number): InboxThreadListItem {
         ),
         time: formatTimeAgo(lastActivity),
         unread,
+        manually_unread: manuallyUnread,
+        can_mark_unread: canMarkUnread,
         status: "closed",
         city: client?.state ?? null,
         unit_name: getUnitName(client?.units),

@@ -1,7 +1,7 @@
 // components/ui/FilterButton.tsx
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Crosshair, MapPin } from "lucide-react";
 
 export type FilterOption = {
@@ -18,6 +18,10 @@ export type FilterButtonProps = {
     widthClassName?: string;
     disabled?: boolean;
     singleSelect?: boolean;
+    searchable?: boolean;
+    searchPlaceholder?: string;
+    explicitSelection?: boolean;
+    dynamic?: boolean;
 };
 
 export default function FilterButton({
@@ -29,28 +33,41 @@ export default function FilterButton({
                                          widthClassName = "w-[220px]",
                                          disabled = false,
                                          singleSelect = false,
+                                         searchable = false,
+                                         searchPlaceholder = "Buscar",
+                                         explicitSelection = false,
+                                         dynamic = false,
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const searchInputRef = useRef<HTMLInputElement | null>(null);
 
     const isControlled = values !== undefined;
     const [internalValues, setInternalValues] = useState<string[]>([]);
     const appliedValues = isControlled ? values : internalValues;
 
     const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [menuSpace, setMenuSpace] = useState<{ above: boolean; height: number } | null>(null);
     const [draftValues, setDraftValues] = useState<string[]>(appliedValues);
 
     const allOptionValues = options.map((option) => option.value);
     const dropdownOptions = singleSelect ? [{ label, value: "" }, ...options] : options;
+    const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const visibleOptions = searchable && search.trim()
+        ? dropdownOptions.filter((option) => normalizeSearch(option.label).includes(normalizeSearch(search)))
+        : dropdownOptions;
 
     const allApplied =
-        appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
+        (!explicitSelection && appliedValues.length === 0) || (!singleSelect && allOptionValues.length > 0 && appliedValues.length === allOptionValues.length);
 
     const allDraftSelected =
-        !singleSelect && (draftValues.length === 0 || draftValues.length === allOptionValues.length);
+        !singleSelect && ((!explicitSelection && draftValues.length === 0) || (allOptionValues.length > 0 && draftValues.length === allOptionValues.length));
 
     const displayLabel = allApplied
         ? label
-        : appliedValues.length === 1
+        : explicitSelection && appliedValues.length === 0
+            ? "Nenhum selecionado"
+            : appliedValues.length === 1
             ? options.find((option) => option.value === appliedValues[0])?.label ?? label
             : `${appliedValues.length} selecionados`;
 
@@ -76,6 +93,30 @@ export default function FilterButton({
         if (disabled) setOpen(false);
     }, [disabled]);
 
+    useEffect(() => {
+        if (searchable && open) searchInputRef.current?.focus();
+    }, [searchable, open]);
+
+    useLayoutEffect(() => {
+        if (!dynamic || !open) return;
+        function updateMenuSpace() {
+            const rect = wrapperRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const below = window.innerHeight - rect.bottom - 20;
+            const above = rect.top - 20;
+            const overhead = singleSelect ? 0 : 54;
+            const openAbove = below < 288 + overhead && above > below;
+            setMenuSpace({ above: openAbove, height: Math.max(48, Math.min(288, Math.floor((openAbove ? above : below) - overhead))) });
+        }
+        updateMenuSpace();
+        window.addEventListener("resize", updateMenuSpace);
+        window.addEventListener("scroll", updateMenuSpace, true);
+        return () => {
+            window.removeEventListener("resize", updateMenuSpace);
+            window.removeEventListener("scroll", updateMenuSpace, true);
+        };
+    }, [dynamic, open, singleSelect]);
+
     function updateAppliedValues(nextValues: string[]) {
         if (!isControlled) {
             setInternalValues(nextValues);
@@ -88,10 +129,11 @@ export default function FilterButton({
         if (disabled) return;
 
         if (!open) {
+            if (searchable) setSearch("");
             setDraftValues(
                 singleSelect
                     ? [...appliedValues]
-                    : appliedValues.length === 0
+                    : !explicitSelection && appliedValues.length === 0
                         ? allOptionValues
                         : [...appliedValues],
             );
@@ -127,12 +169,10 @@ export default function FilterButton({
 
     function selectOnlyDraft(value: string) {
         setDraftValues([value]);
-        updateAppliedValues([value]);
-        setOpen(false);
     }
 
     function applySelection() {
-        if (draftValues.length === 0 || draftValues.length === allOptionValues.length) {
+        if (!explicitSelection && (draftValues.length === 0 || draftValues.length === allOptionValues.length)) {
             updateAppliedValues([]);
         } else {
             updateAppliedValues(draftValues);
@@ -143,6 +183,35 @@ export default function FilterButton({
 
     return (
         <div ref={wrapperRef} className={`relative inline-block max-w-full ${widthClassName}`}>
+            {searchable && open && !disabled ? (
+                <div
+                    className="flex w-full items-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition focus-within:ring-2 focus-within:ring-brand/30"
+                    style={{ borderColor: "var(--color-border)", color: "var(--color-muted)" }}
+                >
+                    {icon}
+                    <input
+                        ref={searchInputRef}
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder={searchPlaceholder}
+                        aria-label={searchPlaceholder}
+                        autoComplete="off"
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter") event.preventDefault();
+                            if (event.key === "Escape") setOpen(false);
+                        }}
+                        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400"
+                    />
+                    <button
+                        type="button"
+                        onClick={handleToggleOpen}
+                        aria-label="Fechar opções"
+                        className="flex shrink-0 cursor-pointer items-center justify-center"
+                    >
+                        <ChevronDown size={16} className="rotate-180 transition-transform duration-150" />
+                    </button>
+                </div>
+            ) : (
             <button
                 type="button"
                 disabled={disabled}
@@ -170,9 +239,10 @@ export default function FilterButton({
                     />
                 )}
             </button>
+            )}
 
             <div
-                className={`absolute right-0 z-50 mt-2 w-full origin-top overflow-hidden rounded-xl border shadow-lg transition-all duration-150 ${
+                className={`absolute right-0 z-50 w-full overflow-hidden rounded-xl border shadow-lg transition-all duration-150 ${dynamic && menuSpace?.above ? "bottom-full mb-2 origin-bottom" : "mt-2 origin-top"} ${
                     open
                         ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                         : "pointer-events-none -translate-y-1 scale-98 opacity-0"
@@ -182,8 +252,11 @@ export default function FilterButton({
                     backgroundColor: "var(--color-card)",
                 }}
             >
-                <div className="max-h-72 overflow-y-auto py-1">
-                    {dropdownOptions.map((option) => {
+                <div className="max-h-72 overflow-y-auto py-1" style={dynamic && menuSpace ? { maxHeight: menuSpace.height } : undefined}>
+                    {searchable && visibleOptions.length === 0 && (
+                        <div className="px-4 py-3 text-sm font-medium text-slate-400">Nenhuma opção encontrada.</div>
+                    )}
+                    {visibleOptions.map((option) => {
                         const selected = singleSelect
                             ? option.value === "" ? appliedValues.length === 0 : appliedValues.includes(option.value)
                             : allDraftSelected || draftValues.includes(option.value);

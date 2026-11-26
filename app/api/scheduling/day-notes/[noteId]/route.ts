@@ -11,6 +11,7 @@ const updateSchema = z.object({
     blocksFirstEvaluation: z.boolean().optional(),
     unitId: z.string().uuid().optional(),
     doctorId: z.string().uuid().optional(),
+    doctorIds: z.array(z.string().uuid()).min(1).optional(),
     blockStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
     blockEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
 });
@@ -38,7 +39,7 @@ export async function PATCH(
             );
         }
 
-        const { text, blocksFirstEvaluation, unitId, doctorId, blockStartTime, blockEndTime } = parsed.data;
+        const { text, blocksFirstEvaluation, unitId, doctorId, doctorIds, blockStartTime, blockEndTime } = parsed.data;
         const updates: Record<string, string | boolean | null> = { text };
         let expectedUpdatedAt: string | undefined;
         if (blocksFirstEvaluation !== undefined) {
@@ -51,15 +52,37 @@ export async function PATCH(
             }
             if (blocksFirstEvaluation) {
                 const selectedUnit = unitId ?? current.unit_id;
-                const selectedDoctor = doctorId ?? current.doctor_id;
+                const selectedDoctors = [...new Set(doctorIds ?? [doctorId ?? current.doctor_id])];
+                if (current.doctor_id && selectedDoctors.includes(current.doctor_id)) {
+                    selectedDoctors.splice(selectedDoctors.indexOf(current.doctor_id), 1);
+                    selectedDoctors.unshift(current.doctor_id);
+                }
+                const selectedDoctor = selectedDoctors[0];
                 const selectedStart = blockStartTime === undefined ? current.block_start_time : blockStartTime;
                 const selectedEnd = blockEndTime === undefined ? current.block_end_time : blockEndTime;
                 if ((selectedStart == null) !== (selectedEnd == null) ||
                     (selectedStart != null && selectedEnd != null && selectedStart >= selectedEnd)) {
                     return NextResponse.json({ ok: false, error: "O horário final deve ser posterior ao inicial." }, { status: 400 });
                 }
-                const denied = await checkDayNoteBlockAccess(selectedUnit, selectedDoctor, true);
-                if (denied) return denied;
+                for (const selectedId of selectedDoctors) {
+                    const denied = await checkDayNoteBlockAccess(selectedUnit, selectedId, true);
+                    if (denied) return denied;
+                }
+                if (selectedDoctors.length > 1) {
+                    const { data, error } = await supabase.rpc("expand_day_note_doctor_blocks", {
+                        p_note_id: noteId,
+                        p_updated_at: expectedUpdatedAt,
+                        p_unit_id: selectedUnit,
+                        p_doctor_ids: selectedDoctors,
+                        p_text: text,
+                        p_start: selectedStart,
+                        p_end: selectedEnd,
+                        p_created_by: user.id,
+                    });
+                    if (error) throw error;
+                    if (!data?.length) return NextResponse.json({ ok: false, error: "A nota foi alterada. Recarregue a agenda." }, { status: 409 });
+                    return NextResponse.json({ ok: true, note: data[0], notes: data });
+                }
                 if (selectedUnit && selectedDoctor) {
                     updates.unit_id = selectedUnit;
                     updates.doctor_id = selectedDoctor;

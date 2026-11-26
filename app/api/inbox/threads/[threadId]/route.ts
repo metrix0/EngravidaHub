@@ -60,6 +60,30 @@ export async function PATCH(
         );
     }
 
+    if (typeof body.manually_unread === "boolean") {
+        let query = supabase
+            .from("thread")
+            .update({ manually_unread: body.manually_unread })
+            .eq("id", threadId)
+            .or(`channel.in.(Instagram,Facebook),assigned_attendant_id.eq.${attendant.id}`);
+
+        query = typeof body.conversation_id === "string"
+            ? query.eq("status", "closed").eq("latest_conversation_id", body.conversation_id)
+            : query.eq("status", "open");
+
+        if (body.manually_unread) {
+            query = query.eq("unread_count", 0);
+        }
+
+        const { data, error } = await query.select("id").maybeSingle();
+        if (error || !data) {
+            return NextResponse.json(
+                { ok: false, error: error?.message ?? "Conversation is no longer eligible" },
+                { status: error ? 500 : 409 },
+            );
+        }
+    }
+
     if (body.read === true) {
         const { error } = await supabase
             .from("thread")

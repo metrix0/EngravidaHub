@@ -10,6 +10,7 @@ const createSchema = z.object({
     noteDate: z.string().date(),
     unitId: z.string().uuid().nullable().optional(),
     doctorId: z.string().uuid().nullable().optional(),
+    doctorIds: z.array(z.string().uuid()).min(1).optional(),
     text: z.string().trim().min(1).max(500),
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#f59e0b"),
     blocksFirstEvaluation: z.boolean().default(false),
@@ -81,37 +82,41 @@ export async function POST(request: Request) {
             );
         }
 
+        const doctorIds = parsed.data.blocksFirstEvaluation
+            ? [...new Set(parsed.data.doctorIds ?? (parsed.data.doctorId ? [parsed.data.doctorId] : []))]
+            : [parsed.data.doctorId ?? null];
         if (parsed.data.blocksFirstEvaluation) {
             const { blockStartTime, blockEndTime } = parsed.data;
             if ((blockStartTime == null) !== (blockEndTime == null) ||
                 (blockStartTime != null && blockEndTime != null && blockStartTime >= blockEndTime)) {
                 return NextResponse.json({ ok: false, error: "O horário final deve ser posterior ao inicial." }, { status: 400 });
             }
-            const denied = await checkDayNoteBlockAccess(parsed.data.unitId ?? null, parsed.data.doctorId ?? null, true);
-            if (denied) return denied;
+            for (const doctorId of doctorIds.length ? doctorIds : [null]) {
+                const denied = await checkDayNoteBlockAccess(parsed.data.unitId ?? null, doctorId, true);
+                if (denied) return denied;
+            }
         }
 
         const { data, error } = await supabase
             .from("appointment_day_notes")
-            .insert({
+            .insert(doctorIds.map(doctorId => ({
                 note_date: parsed.data.noteDate,
                 unit_id: parsed.data.unitId ?? null,
-                doctor_id: parsed.data.doctorId ?? null,
+                doctor_id: doctorId,
                 text: parsed.data.text,
                 color: parsed.data.color,
                 blocks_first_evaluation: parsed.data.blocksFirstEvaluation,
                 block_start_time: parsed.data.blocksFirstEvaluation ? parsed.data.blockStartTime ?? null : null,
                 block_end_time: parsed.data.blocksFirstEvaluation ? parsed.data.blockEndTime ?? null : null,
                 created_by: user.id,
-            })
+            })))
             .select(
                 "id, note_date, unit_id, doctor_id, text, color, blocks_first_evaluation, block_start_time, block_end_time, created_at, updated_at",
-            )
-            .single();
+            );
 
         if (error) throw error;
 
-        return NextResponse.json({ ok: true, note: data }, { status: 201 });
+        return NextResponse.json({ ok: true, note: data?.[0], notes: data ?? [] }, { status: 201 });
     } catch (error) {
         console.error("[day-notes:post] failed", error);
         return errorResponse(error);
