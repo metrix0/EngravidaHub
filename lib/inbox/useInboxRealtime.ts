@@ -84,7 +84,7 @@ export function useInboxRealtime({
                 ACTIVE_CONVERSATION_SELECTOR,
             );
 
-            if (!activeConversation) return;
+            if (!activeConversation || activeConversation.getAttribute("data-manually-unread") === "true") return;
 
             event.preventDefault();
             event.stopPropagation();

@@ -30,6 +30,8 @@ export type InboxThreadListItem = {
     preview: string;
     time: string;
     unread: number;
+    manually_unread?: boolean;
+    can_mark_unread?: boolean;
     status: InboxStatus;
     city: string | null;
     unit_name: string | null;

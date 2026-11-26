@@ -389,11 +389,15 @@ export async function addClientNote({
 export async function updateInboxThread({
     threadId,
     read,
+    manuallyUnread,
+    conversationId,
     stageAction,
     funnelStageId,
 }: {
     threadId: string;
     read?: boolean;
+    manuallyUnread?: boolean;
+    conversationId?: string;
     stageAction?: "previous" | "next";
     funnelStageId?: string;
 }) {
@@ -405,6 +409,8 @@ export async function updateInboxThread({
         },
         body: JSON.stringify({
             read,
+            manually_unread: manuallyUnread,
+            conversation_id: conversationId,
             stage_action: stageAction,
             funnel_stage_id: funnelStageId,
         }),
@@ -414,6 +420,12 @@ export async function updateInboxThread({
 
     if (!response.ok) {
         throw new Error(json.error ?? "Failed to update thread");
+    }
+
+    if (manuallyUnread !== undefined) {
+        for (const entry of threadListCache.values()) {
+            entry.freshUntil = 0;
+        }
     }
 
     return json;
