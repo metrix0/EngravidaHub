@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Poin
 import { connections, sections, stepNotes, type NodeId } from "./trackingMapData";
 
 const sourceRoot = "https://github.com/metrix0/engravidahub/blob/preview/";
-const columns = ["Fontes", "Dados recebidos", "Processamento", "Regras", "Envio e consolidação", "Destinos e relatórios"];
+const columns = ["Fontes", "Captura e vínculo", "Perfil e processamento", "Regras e envio", "Destinos e consolidação", "Relatórios"];
 const nodeWidth = 190;
 const nodeHeight = 80;
 const columnWidth = 236;
@@ -21,6 +21,7 @@ const mapHeight = 820;
 const sectionStyles = {
     entrada: { dot: "bg-blue", selected: "border-blue ring-blue/20" },
     utm: { dot: "bg-blue", selected: "border-blue ring-blue/20" },
+    perfil: { dot: "bg-blue", selected: "border-blue ring-blue/20" },
     tunel: { dot: "bg-purple", selected: "border-purple ring-purple/20" },
     analise: { dot: "bg-purple", selected: "border-purple ring-purple/20" },
     conversoes: { dot: "bg-orange", selected: "border-orange ring-orange/20" },
@@ -36,8 +37,10 @@ const nodes = sections.flatMap(section => [...section.nodes].map(node => ({
 })));
 const nodesById = new Map(nodes.map(node => [node.id, node]));
 const edges = connections.map(([from, to, , showInOverview], index) => ({
-    from, to, showInOverview, lane: (index % 5 - 2) * 3,
+    from, to, showInOverview, profileFlow: showInOverview === "profileFlow",
+    lane: showInOverview === "profileFlow" ? 0 : (index % 5 - 2) * 3,
 }));
+const profileFlowNodes = new Set(edges.filter(edge => edge.profileFlow).flatMap(({ from, to }) => [from, to]));
 const panKeys: Record<string, Point> = {
     ArrowLeft: { x: -48, y: 0 },
     ArrowRight: { x: 48, y: 0 },
@@ -93,7 +96,8 @@ function fitCamera({ width, height }: Size): Camera {
 
 function initialCamera(size: Size): Camera {
     const overview = fitCamera(size);
-    return overview.zoom >= 0.6 ? overview : { x: 12, y: 12, zoom: 0.78 };
+    if (overview.zoom >= 0.6) return overview;
+    return centerCamera({ x: 0, y: 0, zoom: 0.78 }, size, nodesById.get("clientProfile")!.position);
 }
 
 function edgePath(from: Point, to: Point, lane: number) {
@@ -110,7 +114,8 @@ function edgePath(from: Point, to: Point, lane: number) {
             return `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
         }
         const side = Math.max(from.x, to.x) + nodeWidth + 17 + lane;
-        return `M ${from.x + nodeWidth} ${from.y + nodeHeight / 2 + lane} H ${side} V ${to.y + nodeHeight / 2 + lane} H ${to.x + nodeWidth + 5}`;
+        const approach = y2 + (upper ? -7 : 7);
+        return `M ${from.x + nodeWidth} ${from.y + nodeHeight / 2 + lane} H ${side} V ${approach} H ${x2} V ${y2}`;
     }
     const right = dx >= 0;
     const x1 = from.x + (right ? nodeWidth : 0);
@@ -381,9 +386,13 @@ export default function TrackingMap() {
         updateCamera(current => ({ ...current, x: current.x - delta.x, y: current.y - delta.y }));
     }
 
-    const visibleEdges = edges.filter(({ from, to, showInOverview }) =>
-        selected ? from === selected || to === selected : showInOverview,
-    );
+    const showingProfileFlow = selected !== null && profileFlowNodes.has(selected);
+    const selectedPlatform = selected === "meta" || selected === "google" ? selected : null;
+    const visibleEdges = edges.filter(({ from, to, showInOverview, profileFlow }) => {
+        if (!selected) return showInOverview;
+        if (from === selected || to === selected) return true;
+        return showingProfileFlow && profileFlow && (from !== "delivery" || !selectedPlatform || to === selectedPlatform);
+    });
     const relatedIds = new Set(visibleEdges.flatMap(({ from, to }) => [from, to]));
     const gridSize = Math.max(14, 24 * camera.zoom);
 
@@ -459,22 +468,32 @@ export default function TrackingMap() {
                                     <marker id="map-arrow-active" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
                                         <path d="M1 1 7 4 1 7" stroke="var(--color-brand)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                     </marker>
+                                    <marker id="map-arrow-profile" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+                                        <path d="M1 1 7 4 1 7" stroke="var(--color-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </marker>
                                 </defs>
-                                {visibleEdges.map(({ from, to, lane }) => (
-                                    <path key={`${from}-${to}`} d={edgePath(positionOf(from, positions), positionOf(to, positions), lane)}
-                                        stroke={selected ? "var(--color-brand)" : "#64748b"} strokeWidth={selected ? 2 : 1.3}
-                                        opacity={selected ? 1 : 0.65}
-                                        strokeLinecap="round" strokeLinejoin="round"
-                                        markerEnd={selected ? "url(#map-arrow-active)" : "url(#map-arrow)"} />
-                                ))}
+                                {visibleEdges.map(({ from, to, lane, profileFlow }) => {
+                                    const active = from === selected || to === selected;
+                                    const color = active ? "var(--color-brand)" : profileFlow ? "var(--color-blue)" : "#64748b";
+                                    const marker = active ? "map-arrow-active" : profileFlow ? "map-arrow-profile" : "map-arrow";
+                                    return (
+                                        <path key={`${from}-${to}`} d={edgePath(positionOf(from, positions), positionOf(to, positions), lane)}
+                                            stroke={color} strokeWidth={active || profileFlow ? 2 : 1.3}
+                                            opacity={active || profileFlow ? 1 : 0.65}
+                                            strokeLinecap="round" strokeLinejoin="round" markerEnd={`url(#${marker})`} />
+                                    );
+                                })}
                             </svg>
                             {nodes.map(node => {
                                 const point = positionOf(node.id, positions);
                                 const active = selected === node.id;
                                 const dimmed = selected && !active && !relatedIds.has(node.id);
+                                const isClientProfile = node.id === "clientProfile";
+                                const cardBorder = active ? `z-10 ring-2 ${node.style.selected}`
+                                    : isClientProfile ? "border-blue hover:z-10" : "border-border hover:z-10 hover:border-slate-400";
                                 const scheduled = Boolean(stepNotes[node.id]?.automation);
                                 return (
-                                    <div key={node.id} className={`group absolute rounded-xl border bg-white shadow-sm ${active ? `z-10 ring-2 ${node.style.selected}` : "border-border hover:z-10 hover:border-slate-400"} ${dimmed ? "opacity-45 hover:opacity-100 focus-within:opacity-100" : ""}`}
+                                    <div key={node.id} className={`group absolute rounded-xl border shadow-sm ${isClientProfile ? "bg-blue-soft" : "bg-white"} ${cardBorder} ${dimmed ? "opacity-45 hover:opacity-100 focus-within:opacity-100" : ""}`}
                                         style={{ left: point.x, top: point.y, width: nodeWidth, height: nodeHeight }}>
                                         <button type="button" aria-pressed={active} aria-label={node.title} aria-describedby={`map-caption-${node.id}`} onClick={event => selectStep(node.id, event.detail === 0)}
                                             className="flex h-full w-full cursor-pointer flex-col justify-center rounded-xl px-3 pr-7 text-left focus-visible:outline-2 focus-visible:outline-brand">
