@@ -1458,7 +1458,7 @@ function ConversationListItem({
                 aria-label="Marcar como não lida"
                 title="Marcar como não lida"
                 onClick={onMarkUnread}
-                className="absolute right-[13px] bottom-[15px] size-5 cursor-pointer rounded-full border border-brand opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-brand-soft"
+                className="absolute right-[13px] bottom-[15px] size-5 cursor-pointer rounded-full border border-slate-400 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-slate-100"
             />
         )}
         </div>
