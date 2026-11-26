@@ -2,15 +2,15 @@
 "use client";
 
 import {
-    ArrowDownLeft, ArrowUpRight, ChevronRight, ExternalLink, Grip,
+    ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Clock, ExternalLink, Grip,
     Maximize, Minus, Plus, RotateCcw, X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
-import { connections, sections, type NodeId } from "./trackingMapData";
+import { connections, sections, stepNotes, type NodeId } from "./trackingMapData";
 
 const sourceRoot = "https://github.com/metrix0/engravidahub/blob/preview/";
-const columns = ["Fontes", "Registros e sinais", "Processamento", "Regras", "Entrega e coortes", "Destinos e relatórios"];
+const columns = ["Fontes", "Dados recebidos", "Processamento", "Regras", "Envio e consolidação", "Destinos e relatórios"];
 const nodeWidth = 190;
 const nodeHeight = 80;
 const columnWidth = 236;
@@ -35,6 +35,9 @@ const nodes = sections.flatMap(section => [...section.nodes].map(node => ({
     position: { x: 22 + node.col * columnWidth, y: 62 + node.row * rowHeight },
 })));
 const nodesById = new Map(nodes.map(node => [node.id, node]));
+const edges = connections.map(([from, to, , showInOverview], index) => ({
+    from, to, showInOverview, lane: (index % 5 - 2) * 3,
+}));
 const panKeys: Record<string, Point> = {
     ArrowLeft: { x: -48, y: 0 },
     ArrowRight: { x: 48, y: 0 },
@@ -82,9 +85,15 @@ function centerCamera(camera: Camera, size: Size, point: Point): Camera {
     };
 }
 
-function initialCamera({ width, height }: Size): Camera {
-    const zoom = clamp(Math.min((width - 24) / mapWidth, (height - 24) / mapHeight), 0.78, 1);
-    return { x: Math.max(4, (width - mapWidth * zoom) / 2), y: Math.max(4, (height - mapHeight * zoom) / 2), zoom };
+function fitCamera({ width, height }: Size): Camera {
+    const availableHeight = height - 48;
+    const zoom = clamp(Math.min((width - 24) / mapWidth, (availableHeight - 24) / mapHeight), 0.15, 1);
+    return { x: (width - mapWidth * zoom) / 2, y: (availableHeight - mapHeight * zoom) / 2, zoom };
+}
+
+function initialCamera(size: Size): Camera {
+    const overview = fitCamera(size);
+    return overview.zoom >= 0.6 ? overview : { x: 12, y: 12, zoom: 0.78 };
 }
 
 function edgePath(from: Point, to: Point, lane: number) {
@@ -126,8 +135,9 @@ function StepDetails({
 }) {
     const incoming = connections.filter(([, to]) => to === node.id);
     const outgoing = connections.filter(([from]) => from === node.id);
+    const notes = stepNotes[node.id];
     return (
-        <aside aria-label="Detalhes da etapa" className="min-h-0 w-full overflow-y-auto border-t border-border bg-white p-4 sm:p-5 xl:w-[320px] xl:shrink-0 xl:border-l xl:border-t-0">
+        <aside aria-label="Detalhes da etapa" className="max-h-[38dvh] min-h-0 w-full shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-white p-4 sm:p-5 md:max-h-none md:w-[320px] md:border-l md:border-t-0">
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
@@ -135,19 +145,25 @@ function StepDetails({
                         {node.section}
                     </div>
                     <h2 className="mt-1.5 text-lg font-bold leading-tight">{node.title}</h2>
+                    <p className="mt-1 text-sm text-slate-600">{node.caption}</p>
                 </div>
                 <button type="button" aria-label="Fechar detalhes" onClick={onClose} className="cursor-pointer rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                     <X size={17} aria-hidden="true" />
                 </button>
             </div>
-            <dl className="my-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <div><dt className="text-xs font-semibold text-slate-500">Entrada</dt><dd className="break-words text-sm">{node.input}</dd></div>
-                <div><dt className="text-xs font-semibold text-slate-500">Saída</dt><dd className="break-words text-sm">{node.output}</dd></div>
-            </dl>
-            <ul className="list-disc space-y-1.5 pl-4 text-[13px] leading-relaxed text-slate-700">
-                {node.rules.map(rule => <li key={rule}>{rule}</li>)}
-            </ul>
-            {([["Entradas conectadas", incoming, ArrowDownLeft], ["Saídas conectadas", outgoing, ArrowUpRight]] as const)
+            {notes?.automation && (
+                <div className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    <h3 className="mb-1 flex items-center gap-1.5 text-xs font-bold"><Clock size={14} aria-hidden="true" />Tarefa agendada</h3>
+                    <p>{notes.automation}</p>
+                </div>
+            )}
+            {notes?.check && (
+                <div className="mt-4 rounded-lg border border-border px-3 py-2 text-sm text-slate-700">
+                    <h3 className="mb-1 text-xs font-bold">{notes.check[0]}</h3>
+                    <p className="break-words">{notes.check[1]}</p>
+                </div>
+            )}
+            {([["Vem de", incoming, ArrowDownLeft], ["Segue para", outgoing, ArrowUpRight]] as const)
                 .filter(([, links]) => links.length > 0)
                 .map(([title, links, Icon]) => (
                     <section key={title} className="mt-5">
@@ -170,7 +186,18 @@ function StepDetails({
                         </ul>
                     </section>
                 ))}
-            <section className="mt-5 border-t border-slate-100 pt-3">
+            <details className="group mt-5 border-t border-slate-100 pt-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md text-sm font-semibold text-slate-700 focus-visible:outline-2 focus-visible:outline-brand">
+                    Detalhes técnicos
+                    <ChevronDown size={16} className="group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <dl className="my-3 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <div><dt className="text-xs font-semibold text-slate-500">O que recebe</dt><dd className="break-words text-sm">{node.input}</dd></div>
+                    <div><dt className="text-xs font-semibold text-slate-500">O que produz</dt><dd className="break-words text-sm">{node.output}</dd></div>
+                </dl>
+                <ul className="mb-4 list-disc space-y-1.5 pl-4 text-[13px] leading-relaxed text-slate-700">
+                    {node.rules.map(rule => <li key={rule}>{rule}</li>)}
+                </ul>
                 <h3 className="text-xs font-bold text-slate-600">Código-fonte</h3>
                 {"rpc" in node && <p className="mt-2 break-all rounded-md bg-slate-50 p-2 font-mono text-xs text-slate-600">{node.rpc}</p>}
                 <ul className="mt-2 space-y-2">
@@ -181,13 +208,12 @@ function StepDetails({
                         </a>
                     </li>)}
                 </ul>
-            </section>
+            </details>
         </aside>
     );
 }
 
 export default function TrackingMap() {
-    const sectionRef = useRef<HTMLElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const sizeRef = useRef<Size | null>(null);
     const dragRef = useRef<Drag | null>(null);
@@ -214,10 +240,11 @@ export default function TrackingMap() {
             sizeRef.current = size;
             setCamera(current => {
                 const next = previous ? current : initialCamera(size);
-                const focusClipped = focus && (!previous || (
-                    size.width < previous.width &&
-                    next.x + (focus.x + nodeWidth) * next.zoom > size.width - 8
-                ));
+                const focusClipped = focus && (
+                    !previous ||
+                    (size.width < previous.width && next.x + (focus.x + nodeWidth) * next.zoom > size.width - 8) ||
+                    (size.height < previous.height && next.y + (focus.y + nodeHeight) * next.zoom > size.height - 8)
+                );
                 return constrainCamera(focusClipped ? centerCamera(next, size, focus) : next, size);
             });
         });
@@ -236,9 +263,10 @@ export default function TrackingMap() {
         if (center) centerStep(point);
     }
 
-    function clearSelection() {
+    function clearSelection(restoreFocus = false) {
         focusedPosition.current = null;
         setSelected(null);
+        if (restoreFocus) viewportRef.current?.focus({ preventScroll: true });
         if (window.location.hash.startsWith("#etapa-")) {
             window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
         }
@@ -255,7 +283,6 @@ export default function TrackingMap() {
             focusedPosition.current = point;
             setSelected(id);
             centerStep(point);
-            sectionRef.current?.scrollIntoView({ block: "start" });
         }
         window.addEventListener("hashchange", openHash);
         const frame = window.requestAnimationFrame(openHash);
@@ -277,23 +304,26 @@ export default function TrackingMap() {
     useEffect(() => {
         const viewport = viewportRef.current;
         if (!viewport) return;
-        function onWheel(event: WheelEvent) {
-            if (!viewport || (!event.ctrlKey && !event.metaKey)) return;
+        const onWheel = (event: WheelEvent) => {
+            const mode = event.deltaMode;
+            if (event.deltaY === 0) return;
             event.preventDefault();
+            if (dragRef.current?.moved) return;
+
             const rect = viewport.getBoundingClientRect();
-            zoomAt(event.deltaY < 0 ? 1.08 : 1 / 1.08, {
+            const unit = mode === WheelEvent.DOM_DELTA_LINE ? 16
+                : mode === WheelEvent.DOM_DELTA_PAGE ? rect.height : 1;
+            const delta = clamp(event.deltaY * unit, -180, 180);
+            zoomAt(Math.exp(-delta * 0.002), {
                 x: event.clientX - rect.left, y: event.clientY - rect.top,
             });
-        }
+        };
         viewport.addEventListener("wheel", onWheel, { passive: false });
         return () => viewport.removeEventListener("wheel", onWheel);
     }, [zoomAt]);
 
     function fitMap() {
-        updateCamera((_, size) => {
-            const zoom = clamp(Math.min((size.width - 24) / mapWidth, (size.height - 24) / mapHeight), 0.15, 1);
-            return { zoom, x: (size.width - mapWidth * zoom) / 2, y: (size.height - mapHeight * zoom) / 2 };
-        });
+        updateCamera((_, size) => fitCamera(size));
     }
 
     function moveNode(id: NodeId, point: Point) {
@@ -351,135 +381,148 @@ export default function TrackingMap() {
         updateCamera(current => ({ ...current, x: current.x - delta.x, y: current.y - delta.y }));
     }
 
-    const relatedIds = new Set<NodeId>();
-    if (selected) {
-        relatedIds.add(selected);
-        for (const [from, to] of connections) {
-            if (from === selected) relatedIds.add(to);
-            if (to === selected) relatedIds.add(from);
-        }
-    }
-    const edgeList = connections.map(([from, to], index) => ({
-        from, to,
-        lane: (index % 5 - 2) * 3,
-        active: from === selected || to === selected,
-    })).sort((a, b) => Number(a.active) - Number(b.active));
+    const visibleEdges = edges.filter(({ from, to, showInOverview }) =>
+        selected ? from === selected || to === selected : showInOverview,
+    );
+    const relatedIds = new Set(visibleEdges.flatMap(({ from, to }) => [from, to]));
+    const gridSize = Math.max(14, 24 * camera.zoom);
 
     const controlClass = "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-brand";
 
     return (
-        <section ref={sectionRef} aria-label="Fluxo de rastreamento" className="scroll-mt-5 overflow-hidden rounded-2xl border border-border bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-3 py-2.5 sm:px-4">
-                <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">
-                    <span className="shrink-0">Etapa</span>
+        <section aria-labelledby="map-title" className="flex h-full flex-col overflow-hidden bg-white" onKeyDown={event => {
+            if (event.key === "Escape" && selected && !(event.target instanceof HTMLSelectElement)) clearSelection(true);
+        }}>
+            <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
+                <div>
+                    <h1 id="map-title" className="text-base font-bold tracking-tight sm:text-lg">Mapa de rastreamento</h1>
+                    <p id="map-instructions" className="text-xs text-slate-500">
+                        Selecione uma etapa para seguir o fluxo. <span className="hidden sm:inline">Arraste para mover o mapa e role para ajustar o zoom.</span>
+                    </p>
+                </div>
+                <label className="min-w-0 max-w-full">
+                    <span className="sr-only">Ir para uma etapa</span>
                     <select value={selected ?? ""} onChange={event => {
                         if (event.target.value) selectStep(event.target.value as NodeId);
                         else clearSelection();
-                    }} className="h-9 min-w-0 max-w-[75vw] cursor-pointer rounded-lg border border-border bg-white px-2 text-sm font-medium text-slate-800 focus-visible:outline-2 focus-visible:outline-brand sm:max-w-[280px]">
-                        <option value="">Todas as etapas</option>
+                    }} className="h-9 max-w-full cursor-pointer rounded-lg border border-border bg-white px-2 text-sm font-medium text-slate-800 focus-visible:outline-2 focus-visible:outline-brand sm:max-w-[280px]">
+                        <option value="">Ir para uma etapa</option>
                         {sections.map(section => <optgroup key={section.id} label={section.title}>
                             {section.nodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}
                         </optgroup>)}
                     </select>
                 </label>
-                <div className="flex items-center gap-0.5">
-                    <button type="button" aria-label="Diminuir zoom" title="Diminuir zoom" className={controlClass} onClick={() => zoomAt(1 / 1.2)}><Minus size={16} aria-hidden="true" /></button>
-                    <span className="w-11 text-center text-xs font-semibold tabular-nums text-slate-500">{Math.round(camera.zoom * 100)}%</span>
-                    <button type="button" aria-label="Aumentar zoom" title="Aumentar zoom" className={controlClass} onClick={() => zoomAt(1.2)}><Plus size={16} aria-hidden="true" /></button>
-                    <span aria-hidden="true" className="mx-1 h-4 border-l border-border" />
-                    <button type="button" aria-label="Enquadrar mapa" title="Enquadrar mapa" className={controlClass} onClick={fitMap}><Maximize size={15} aria-hidden="true" /><span className="hidden text-xs font-semibold sm:inline">Enquadrar</span></button>
-                    <button type="button" aria-label="Restaurar layout" title="Restaurar layout" className={controlClass} onClick={() => {
-                        setPositions({});
-                        clearSelection();
-                        updateCamera((_, size) => initialCamera(size));
-                    }}><RotateCcw size={15} aria-hidden="true" /></button>
-                </div>
-            </div>
-            <div className="flex flex-col xl:h-[min(76vh,840px)] xl:min-h-[510px] xl:flex-row">
-                <div
-                    ref={viewportRef}
-                    tabIndex={0}
-                    aria-label="Mapa interativo. Use as setas para navegar."
-                    aria-describedby="map-instructions"
-                    className={`relative h-[min(66dvh,620px)] min-h-[350px] min-w-0 touch-none select-none overflow-clip bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand xl:h-full xl:flex-1 ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-                    style={{
-                        backgroundImage: "radial-gradient(circle, #cbd5e1 0.8px, transparent 0.95px)",
-                        backgroundSize: `${24 * camera.zoom}px ${24 * camera.zoom}px`,
-                        backgroundPosition: `${camera.x}px ${camera.y}px`,
-                    }}
-                    onPointerDown={pointerDown}
-                    onPointerMove={pointerMove}
-                    onPointerUp={endDrag}
-                    onPointerCancel={endDrag}
-                    onLostPointerCapture={endDrag}
-                    onKeyDown={onMapKeyDown}
-                    onClickCapture={event => {
-                        if (suppressClick.current && event.detail > 0) {
-                            event.stopPropagation();
-                            suppressClick.current = false;
-                        }
-                    }}
-                >
-                    <div className="absolute left-0 top-0 origin-top-left" style={{
-                        width: mapWidth, height: mapHeight,
-                        transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
-                    }}>
-                        {columns.map((column, index) => (
-                            <div key={column} className="pointer-events-none absolute top-[18px] border-b border-slate-300/70 pb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-slate-600"
-                                style={{ left: 22 + index * columnWidth, width: nodeWidth }}>{column}</div>
-                        ))}
-                        <svg aria-hidden="true" className="pointer-events-none absolute inset-0" width={mapWidth} height={mapHeight} fill="none">
-                            <defs>
-                                <marker id="map-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse">
-                                    <path d="M1 1 7 4 1 7" stroke="#64748b" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                </marker>
-                                <marker id="map-arrow-active" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
-                                    <path d="M1 1 7 4 1 7" stroke="var(--color-brand)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </marker>
-                            </defs>
-                            {edgeList.map(({ from, to, lane, active }) => (
-                                <path key={`${from}-${to}`} d={edgePath(positionOf(from, positions), positionOf(to, positions), lane)}
-                                    stroke={active ? "var(--color-brand)" : "#64748b"} strokeWidth={active ? 2.2 : 1.2}
-                                    opacity={active || !selected ? (active ? 1 : 0.59) : 0.15}
-                                    strokeLinecap="round" strokeLinejoin="round"
-                                    markerEnd={active ? "url(#map-arrow-active)" : "url(#map-arrow)"} />
+            </header>
+            <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+                <div className="relative min-h-0 min-w-0 flex-1">
+                    <div
+                        ref={viewportRef}
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Mapa interativo. Use as setas para navegar."
+                        aria-describedby="map-instructions"
+                        className={`relative h-full touch-none select-none overflow-clip bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+                        style={{
+                            backgroundImage: "radial-gradient(circle, #cbd5e1 0.8px, transparent 0.95px)",
+                            backgroundSize: `${gridSize}px ${gridSize}px`,
+                            backgroundPosition: `${camera.x}px ${camera.y}px`,
+                        }}
+                        onPointerDown={pointerDown}
+                        onPointerMove={pointerMove}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        onLostPointerCapture={endDrag}
+                        onKeyDown={onMapKeyDown}
+                        onClickCapture={event => {
+                            if (suppressClick.current && event.detail > 0) {
+                                event.stopPropagation();
+                                suppressClick.current = false;
+                            }
+                        }}
+                        onClick={event => {
+                            if (selected && event.target instanceof Element && !event.target.closest("button")) clearSelection();
+                        }}
+                    >
+                        <div className="absolute left-0 top-0 origin-top-left" style={{
+                            width: mapWidth, height: mapHeight,
+                            transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
+                        }}>
+                            {columns.map((column, index) => (
+                                <div key={column} className="pointer-events-none absolute top-[18px] border-b border-slate-300/70 pb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-slate-600"
+                                    style={{ left: 22 + index * columnWidth, width: nodeWidth }}>{column}</div>
                             ))}
-                        </svg>
-                        {nodes.map(node => {
-                            const point = positionOf(node.id, positions);
-                            const active = selected === node.id;
-                            const dimmed = selected && !relatedIds.has(node.id);
-                            return (
-                                <div key={node.id} className={`group absolute rounded-xl border bg-white shadow-sm ${active ? `z-10 ring-2 ${node.style.selected}` : "border-border hover:z-10 hover:border-slate-400"} ${dimmed ? "opacity-45 hover:opacity-100 focus-within:opacity-100" : ""}`}
-                                    style={{ left: point.x, top: point.y, width: nodeWidth, height: nodeHeight }}>
-                                    <button type="button" aria-pressed={active} aria-label={node.title} onClick={event => selectStep(node.id, event.detail === 0)}
-                                        className="flex h-full w-full cursor-pointer flex-col justify-center rounded-xl px-3 pr-7 text-left focus-visible:outline-2 focus-visible:outline-brand">
-                                        <span className="mb-1 flex items-start gap-1.5">
-                                            <span className={`mt-[5px] size-1.5 shrink-0 rounded-full ${node.style.dot}`} aria-hidden="true" />
-                                            <span className="text-[13px] font-bold leading-[16px] text-slate-900">{node.title}</span>
-                                        </span>
-                                        <span className="line-clamp-2 pl-3 text-[11px] leading-[13px] text-slate-600">{"caption" in node ? node.caption : node.output}</span>
-                                    </button>
-                                    <button type="button" data-move-node={node.id} aria-label={`Mover etapa: ${node.title}`} title="Arraste para mover a etapa"
-                                        className="absolute right-1 top-1 cursor-grab rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-brand"
-                                        onKeyDown={event => {
-                                            const delta = panKeys[event.key];
-                                            if (!delta) return;
-                                            event.preventDefault();
-                                            moveNode(node.id, { x: point.x + delta.x / 3, y: point.y + delta.y / 3 });
-                                        }}>
-                                        <Grip size={13} aria-hidden="true" />
-                                    </button>
-                                </div>
-                            );
-                        })}
+                            <svg aria-hidden="true" className="pointer-events-none absolute inset-0" width={mapWidth} height={mapHeight} fill="none">
+                                <defs>
+                                    <marker id="map-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse">
+                                        <path d="M1 1 7 4 1 7" stroke="#64748b" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                    </marker>
+                                    <marker id="map-arrow-active" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+                                        <path d="M1 1 7 4 1 7" stroke="var(--color-brand)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </marker>
+                                </defs>
+                                {visibleEdges.map(({ from, to, lane }) => (
+                                    <path key={`${from}-${to}`} d={edgePath(positionOf(from, positions), positionOf(to, positions), lane)}
+                                        stroke={selected ? "var(--color-brand)" : "#64748b"} strokeWidth={selected ? 2 : 1.3}
+                                        opacity={selected ? 1 : 0.65}
+                                        strokeLinecap="round" strokeLinejoin="round"
+                                        markerEnd={selected ? "url(#map-arrow-active)" : "url(#map-arrow)"} />
+                                ))}
+                            </svg>
+                            {nodes.map(node => {
+                                const point = positionOf(node.id, positions);
+                                const active = selected === node.id;
+                                const dimmed = selected && !active && !relatedIds.has(node.id);
+                                const scheduled = Boolean(stepNotes[node.id]?.automation);
+                                return (
+                                    <div key={node.id} className={`group absolute rounded-xl border bg-white shadow-sm ${active ? `z-10 ring-2 ${node.style.selected}` : "border-border hover:z-10 hover:border-slate-400"} ${dimmed ? "opacity-45 hover:opacity-100 focus-within:opacity-100" : ""}`}
+                                        style={{ left: point.x, top: point.y, width: nodeWidth, height: nodeHeight }}>
+                                        <button type="button" aria-pressed={active} aria-label={node.title} aria-describedby={`map-caption-${node.id}`} onClick={event => selectStep(node.id, event.detail === 0)}
+                                            className="flex h-full w-full cursor-pointer flex-col justify-center rounded-xl px-3 pr-7 text-left focus-visible:outline-2 focus-visible:outline-brand">
+                                            <span className="mb-1 flex items-start gap-1.5">
+                                                <span className={`mt-[5px] size-1.5 shrink-0 rounded-full ${node.style.dot}`} aria-hidden="true" />
+                                                <span className="text-[13px] font-bold leading-[16px] text-slate-900">{node.title}</span>
+                                            </span>
+                                            <span id={`map-caption-${node.id}`} className="line-clamp-2 pl-3 text-xs leading-[14px] text-slate-600">
+                                                {node.caption}
+                                                {scheduled && <span className="sr-only">. Tarefa agendada.</span>}
+                                            </span>
+                                            {scheduled && (
+                                                <span title="Tarefa agendada" className="absolute bottom-2 right-2 text-slate-500" aria-hidden="true">
+                                                    <Clock size={13} />
+                                                </span>
+                                            )}
+                                        </button>
+                                        <button type="button" data-move-node={node.id} aria-label={`Mover etapa: ${node.title}`} title="Arraste para mover a etapa"
+                                            className="absolute right-1 top-1 cursor-grab rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-brand pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100"
+                                            onKeyDown={event => {
+                                                const delta = panKeys[event.key];
+                                                if (!delta) return;
+                                                event.preventDefault();
+                                                moveNode(node.id, { x: point.x + delta.x / 3, y: point.y + delta.y / 3 });
+                                            }}>
+                                            <Grip size={13} aria-hidden="true" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                    <div role="group" aria-label="Controles do mapa" className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-xl border border-border bg-white p-1 shadow-sm">
+                        <button type="button" aria-label="Diminuir zoom" title="Diminuir zoom" className={controlClass} onClick={() => zoomAt(1 / 1.2)}><Minus size={16} aria-hidden="true" /></button>
+                        <span className="w-10 text-center text-xs font-semibold tabular-nums text-slate-500">{Math.round(camera.zoom * 100)}%</span>
+                        <button type="button" aria-label="Aumentar zoom" title="Aumentar zoom" className={controlClass} onClick={() => zoomAt(1.2)}><Plus size={16} aria-hidden="true" /></button>
+                        <span aria-hidden="true" className="mx-1 h-4 border-l border-border" />
+                        <button type="button" className={controlClass} onClick={fitMap}><Maximize size={15} aria-hidden="true" /><span className="text-xs font-semibold">Ver tudo</span></button>
+                        {Object.keys(positions).length > 0 && (
+                            <button type="button" aria-label="Restaurar posição das etapas" title="Restaurar posição das etapas" className={controlClass} onClick={() => {
+                                setPositions({});
+                                clearSelection();
+                                updateCamera((_, size) => initialCamera(size));
+                            }}><RotateCcw size={15} aria-hidden="true" /></button>
+                        )}
                     </div>
                 </div>
-                {step && <StepDetails key={step.id} node={step} onClose={clearSelection} onSelect={selectStep} />}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border px-4 py-2.5 text-xs text-slate-500">
-                <p id="map-instructions">Arraste o mapa para navegar. Use a alça <Grip size={12} className="inline" aria-hidden="true" /> para mover uma etapa.</p>
-                <p>{nodes.length} etapas · {connections.length} conexões</p>
+                {step && <StepDetails key={step.id} node={step} onClose={() => clearSelection(true)} onSelect={selectStep} />}
             </div>
         </section>
     );
