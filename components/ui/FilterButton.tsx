@@ -219,7 +219,7 @@ export default function FilterButton({
                 }}
             >
                 {searchable && (
-                    <div className="border-b border-border p-2" onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }}>
+                    <div className="p-2" onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }}>
                         {open && <SearchFilter value={search} onChange={setSearch} placeholder={searchPlaceholder} widthClassName="w-full" />}
                     </div>
                 )}
