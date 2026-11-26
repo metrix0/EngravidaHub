@@ -127,8 +127,6 @@ export default function FilterButton({
 
     function selectOnlyDraft(value: string) {
         setDraftValues([value]);
-        updateAppliedValues([value]);
-        setOpen(false);
     }
 
     function applySelection() {
