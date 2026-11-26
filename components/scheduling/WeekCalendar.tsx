@@ -22,6 +22,8 @@ import { AGENDA_NOTE_COLOR, percent } from "./AgendaIndicators";
 import type {
     AppointmentDayNote,
     CalendarAppointment,
+    SchedulingDoctorOption,
+    SchedulingUnitOption,
 } from "@/types/scheduling";
 
 const START_HOUR = 7;
@@ -39,6 +41,8 @@ type Props = {
     blocks?: AgendaBlock[];
     freeSlots?: AgendaFreeSlot[];
     doctorLoads?: OperationalAgendaReport["byDoctor"];
+    noteDoctors?: SchedulingDoctorOption[];
+    noteUnits?: SchedulingUnitOption[];
     onSelectFreeSlot?: (slot: AgendaFreeSlot) => void;
     recoveryVacancies?: RecoveryVacancy[];
     onRecoverSlot?: (slot: AgendaFreeSlot, vacancyId: number) => void;
@@ -88,11 +92,20 @@ export default function WeekCalendar(props: Props) {
             ? `1ª avaliação · ${note.block_start_time.slice(0, 5)}–${note.block_end_time.slice(0, 5)}`
             : "1ª avaliação bloqueada";
     }
-    function dayNoteTitle(note: AppointmentDayNote) {
+    function dayNoteDetails(note: AppointmentDayNote) {
+        if (!note.blocks_first_evaluation) return <span className="break-words">{note.text}</span>;
         const scope = loads.get(`${note.unit_id}:${note.doctor_id}`);
-        return note.blocks_first_evaluation && scope
-            ? `${scope.doctorName} · ${scope.unitName} · ${dayNoteBlockLabel(note)}\n${note.text}`
-            : note.text;
+        const doctor = props.noteDoctors?.find(item => item.id === note.doctor_id)?.name ?? scope?.doctorName;
+        const unit = props.noteUnits?.find(item => item.id === note.unit_id)?.name ?? scope?.unitName;
+        return (
+            <span className="block break-words">
+                <span className="mb-1 block font-bold text-slate-800">1ª avaliação bloqueada</span>
+                <span className="block"><strong>Médico:</strong> {doctor ?? "Não disponível"}</span>
+                <span className="block"><strong>Unidade:</strong> {unit ?? "Não disponível"}</span>
+                <span className="block"><strong>Horário:</strong> {note.block_start_time && note.block_end_time ? `${note.block_start_time.slice(0, 5)}–${note.block_end_time.slice(0, 5)}` : "Dia inteiro"}</span>
+                <span className="mt-2 block border-t border-slate-100 pt-2">{note.text}</span>
+            </span>
+        );
     }
     const freeSlotsByDay = useMemo(() => {
         const grouped = new Map<string, AgendaFreeSlot[]>();
@@ -349,7 +362,7 @@ export default function WeekCalendar(props: Props) {
                                             </InfoTooltip>
                                         )}
                                     </>}
-                                    {displayedNotes.map(note => <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">{note.blocks_first_evaluation ? dayNoteBlockLabel(note) : "Nota do dia"}</button>)}
+                                    {displayedNotes.map(note => <div key={note.id} className="[&>span]:w-full [&>span>span]:w-full"><InfoTooltip portal text={dayNoteDetails(note)}><button type="button" onClick={() => void props.onEditNote(note)} className="mt-1 block w-full truncate rounded bg-amber-50 px-1.5 py-1 text-left text-xs text-amber-700">{note.blocks_first_evaluation ? dayNoteBlockLabel(note) : "Nota do dia"}</button></InfoTooltip></div>)}
                                 </div>;
                             })}
                         </div>
@@ -391,9 +404,13 @@ export default function WeekCalendar(props: Props) {
                                             }).format(day)}
                                         </div>
                                         {freeOnly ? (notesByDay.get(dayKey) ?? []).map(note => (
-                                            <button key={note.id} type="button" onClick={() => void props.onEditNote(note)} title={dayNoteTitle(note)} className="mx-auto mt-1 block max-w-full truncate rounded bg-amber-50 px-1.5 py-1 text-xs text-amber-700">
-                                                {dayNoteBlockLabel(note)}
-                                            </button>
+                                            <div key={note.id} className="[&>span]:max-w-full [&>span>span]:max-w-full">
+                                                <InfoTooltip portal text={dayNoteDetails(note)}>
+                                                    <button type="button" onClick={() => void props.onEditNote(note)} className="mx-auto mt-1 block max-w-full truncate rounded bg-amber-50 px-1.5 py-1 text-xs text-amber-700">
+                                                        {dayNoteBlockLabel(note)}
+                                                    </button>
+                                                </InfoTooltip>
+                                            </div>
                                         )) : null}
                                     </div>
                                 );
@@ -426,21 +443,22 @@ export default function WeekCalendar(props: Props) {
                                                 (note) => (
                                                     <div
                                                         key={note.id}
-                                                        className="group/note relative max-w-full"
+                                                        className="group/note relative max-w-full [&>span]:max-w-full [&>span>span]:max-w-full"
                                                     >
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                void props.onEditNote(
-                                                                    note,
-                                                                )
-                                                            }
-                                                            className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-slate-900 shadow-sm"
-                                                            title={dayNoteTitle(note)}
-                                                            style={{ backgroundColor: AGENDA_NOTE_COLOR }}
-                                                        >
-                                                            {note.blocks_first_evaluation ? dayNoteBlockLabel(note) : note.text}
-                                                        </button>
+                                                        <InfoTooltip portal text={dayNoteDetails(note)}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    void props.onEditNote(
+                                                                        note,
+                                                                    )
+                                                                }
+                                                                className="max-w-full cursor-pointer truncate rounded-lg px-2 py-1 pr-6 text-left text-[11px] font-semibold text-slate-900 shadow-sm"
+                                                                style={{ backgroundColor: AGENDA_NOTE_COLOR }}
+                                                            >
+                                                                {note.blocks_first_evaluation ? dayNoteBlockLabel(note) : note.text}
+                                                            </button>
+                                                        </InfoTooltip>
                                                         <button
                                                             type="button"
                                                             onClick={() =>

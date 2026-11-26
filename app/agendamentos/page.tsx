@@ -864,6 +864,8 @@ export default function AppointmentsPage() {
                     blocks={freeOnly ? [] : agendaReport?.blocks ?? []}
                     freeSlots={freeOnly ? raFreeSlots : undefined}
                     doctorLoads={agendaReport?.byDoctor}
+                    noteDoctors={doctors}
+                    noteUnits={units}
                     recoveryVacancies={freeOnly ? recoveryVacancies.filter(v => !doctorValues.length || doctorValues.includes(v.doctorId)) : undefined}
                     onRecoverSlot={(slot, vacancyId) => setRecoverySelection({ slot, vacancyId })}
                     onPrefetchRecovery={vacancyId => { void prefetchRecovery(vacancyId); }}
