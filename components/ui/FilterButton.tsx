@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Crosshair, MapPin } from "lucide-react";
+import { SearchFilter } from "./SearchFilter";
 
 export type FilterOption = {
     label: string;
@@ -18,6 +19,8 @@ export type FilterButtonProps = {
     widthClassName?: string;
     disabled?: boolean;
     singleSelect?: boolean;
+    searchable?: boolean;
+    searchPlaceholder?: string;
 };
 
 export default function FilterButton({
@@ -29,6 +32,8 @@ export default function FilterButton({
                                          widthClassName = "w-[220px]",
                                          disabled = false,
                                          singleSelect = false,
+                                         searchable = false,
+                                         searchPlaceholder = "Buscar",
                                      }: FilterButtonProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -37,10 +42,15 @@ export default function FilterButton({
     const appliedValues = isControlled ? values : internalValues;
 
     const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
     const [draftValues, setDraftValues] = useState<string[]>(appliedValues);
 
     const allOptionValues = options.map((option) => option.value);
     const dropdownOptions = singleSelect ? [{ label, value: "" }, ...options] : options;
+    const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const visibleOptions = searchable && search.trim()
+        ? dropdownOptions.filter((option) => normalizeSearch(option.label).includes(normalizeSearch(search)))
+        : dropdownOptions;
 
     const allApplied =
         appliedValues.length === 0 || (!singleSelect && appliedValues.length === allOptionValues.length);
@@ -88,6 +98,7 @@ export default function FilterButton({
         if (disabled) return;
 
         if (!open) {
+            if (searchable) setSearch("");
             setDraftValues(
                 singleSelect
                     ? [...appliedValues]
@@ -180,8 +191,16 @@ export default function FilterButton({
                     backgroundColor: "var(--color-card)",
                 }}
             >
+                {searchable && (
+                    <div className="border-b border-border p-2">
+                        {open && <SearchFilter value={search} onChange={setSearch} placeholder={searchPlaceholder} widthClassName="w-full" />}
+                    </div>
+                )}
                 <div className="max-h-72 overflow-y-auto py-1">
-                    {dropdownOptions.map((option) => {
+                    {searchable && visibleOptions.length === 0 && (
+                        <div className="px-4 py-3 text-sm font-medium text-slate-400">Nenhuma opção encontrada.</div>
+                    )}
+                    {visibleOptions.map((option) => {
                         const selected = singleSelect
                             ? option.value === "" ? appliedValues.length === 0 : appliedValues.includes(option.value)
                             : allDraftSelected || draftValues.includes(option.value);

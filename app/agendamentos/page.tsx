@@ -831,6 +831,8 @@ export default function AppointmentsPage() {
                                 values={doctorValues}
                                 onChange={setDoctorValues}
                                 widthClassName="w-[220px]"
+                                searchable
+                                searchPlaceholder="Buscar médico..."
                             />
                         </>
                     )}
