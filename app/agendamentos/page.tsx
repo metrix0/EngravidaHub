@@ -1011,13 +1011,13 @@ function AgendaDayNoteForm({
                 placeholder="Escreva a nota..."
                 className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand disabled:opacity-60"
             />
-            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
                 <input
                     type="checkbox"
                     checked={blocksFirstEvaluation}
                     onChange={event => setBlocksFirstEvaluation(event.target.checked)}
                     disabled={saving}
-                    className="h-4 w-4 accent-brand"
+                    className="h-4 w-4 cursor-pointer accent-brand disabled:cursor-not-allowed"
                 />
                 Bloquear 1ª avaliação
             </label>
